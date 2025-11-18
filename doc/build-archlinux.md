@@ -5,12 +5,12 @@ Arch Linux build guide
 **Test date:** 2022/07/15
 
 This example lists the steps necessary to setup and build a command line only
-dogecoind on archlinux:
+soqucoind on archlinux:
 
 ```sh
 pacman -S git base-devel boost libevent python db
-git clone https://github.com/dogecoin/dogecoin.git
-cd dogecoin/
+git clone https://github.com/soqucoin/soqucoin.git
+cd soqucoin/
 ./autogen.sh
 ./configure --without-gui --without-miniupnpc
 make

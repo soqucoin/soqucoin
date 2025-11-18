@@ -1,2 +1,2 @@
-contrib/dogecoind.bash-completion	dogecoind
-contrib/dogecoin-cli.bash-completion	dogecoin-cli
+contrib/soqucoind.bash-completion	soqucoind
+contrib/soqucoin-cli.bash-completion	soqucoin-cli

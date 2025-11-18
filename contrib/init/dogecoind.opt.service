@@ -3,17 +3,17 @@
 #
 # The relevant paths are:
 #
-#/opt/dogecoin/dogecoind
-#/etc/opt/dogecoin/
-#/var/opt/dogecoin/
+#/opt/soqucoin/soqucoind
+#/etc/opt/soqucoin/
+#/var/opt/soqucoin/
 
 [Unit]
-Description=Dogecoin's distributed currency daemon
+Description=Soqucoin's distributed currency daemon
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/opt/dogecoin/bin/dogecoind -conf=/etc/opt/dogecoin/dogecoin.conf -datadir=/var/opt/dogecoin
+ExecStart=/opt/soqucoin/bin/soqucoind -conf=/etc/opt/soqucoin/soqucoin.conf -datadir=/var/opt/soqucoin
 
 KillSignal=SIGINT
 Restart=always
@@ -23,8 +23,8 @@ TimeoutStartSec=5
 StartLimitIntervalSec=120
 StartLimitBurst=5
 
-User=dogecoin
-Group=dogecoin
+User=soqucoin
+Group=soqucoin
 
 ### Restrict resource consumption
 MemoryAccounting=yes
@@ -41,8 +41,8 @@ TemporaryFileSystem=/:ro
 BindReadOnlyPaths=/etc/ /lib/ /lib64/
 
 # Add daemon paths
-BindReadOnlyPaths=/opt/dogecoin/ /etc/opt/dogecoin/
-BindPaths=/var/opt/dogecoin/
+BindReadOnlyPaths=/opt/soqucoin/ /etc/opt/soqucoin/
+BindPaths=/var/opt/soqucoin/
 
 ### Restrict access to system.
 
