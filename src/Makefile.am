@@ -216,6 +216,7 @@ libsoqucoin_server_a_SOURCES = \
   rpc/mining.cpp \
   rpc/misc.cpp \
   rpc/net.cpp \
+  rpc/pat.cpp \
   rpc/rawtransaction.cpp \
   rpc/server.cpp \
   script/sigcache.cpp \

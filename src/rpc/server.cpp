@@ -27,6 +27,8 @@
 #include <memory> // for unique_ptr
 #include <unordered_map>
 
+extern void RegisterPATRPCCommands(CRPCTable &t);
+
 using namespace RPCServer;
 using namespace std;
 
@@ -585,3 +587,9 @@ int RPCSerializationFlags()
 }
 
 CRPCTable tableRPC;
+
+static struct RegisterPATRpcCommands {
+    RegisterPATRpcCommands() {
+        RegisterPATRPCCommands(tableRPC);
+    }
+} g_registerPATRpcCommands;
