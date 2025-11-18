@@ -19,8 +19,8 @@ static UniValue generatedilithiumkey_legacy(const UniValue& params, bool fHelp)
             "\nGenerate a new Dilithium keypair.\n"
             "\nResult:\n"
             "{\n"
-            "  \"publickey\": \"xxxx\", (hex)\n"
-            "  \"privatekey\": \"xxxx\" (hex — keep secret!)\n"
+            "  \"publickey\": \"xxxx\", (string)\n"
+            "  \"privatekey\": \"xxxx\" (string — keep secret!)\n"
             "}\n"
             "\nExamples:\n"
             + HelpExampleCli("generatedilithiumkey", "")
