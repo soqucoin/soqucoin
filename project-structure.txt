@@ -1,0 +1,31 @@
+Soqucoin repository structure (condensed)
+.
+├── autogen.sh
+├── configure.ac / Makefile.am / Makefile.in
+├── contrib/
+│   ├── devtools/
+│   ├── linearize/
+│   └── verifybinaries/
+├── doc/
+│   ├── README.md
+│   ├── man/            # generated manpages
+│   └── release-notes/
+├── qa/
+│   ├── assets/
+│   ├── pull-tester/
+│   └── rpcs-tests/
+├── share/
+│   ├── qt/
+│   └── setup.nsi
+├── src/
+│   ├── pat/            # Dilithium key management + ref impl
+│   ├── rpc/            # RPC server + PAT commands
+│   ├── script/         # Script / signing logic
+│   ├── qt/             # GUI (disabled in current build)
+│   ├── test/           # Unit + fuzz tests
+│   ├── zmq/            # ZeroMQ notifications
+│   └── (core files: init.cpp, validation.cpp, etc.)
+├── test/               # Functional + integration tests
+├── depends/            # Optional dependency build system
+├── build-aux/          # Autotools helpers
+└── project-structure.txt (this file)
