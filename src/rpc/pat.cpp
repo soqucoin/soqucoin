@@ -4,13 +4,6 @@
 
 using namespace std;
 
-static UniValue Pair(const std::string& name, const std::string& value)
-{
-    UniValue obj(UniValue::VOBJ);
-    obj.pushKV(name, value);
-    return obj;
-}
-
 UniValue generatedilithiumkey(const UniValue& params, bool fHelp)
 {
     if (fHelp || params.size() != 0)
@@ -24,8 +17,8 @@ UniValue generatedilithiumkey(const UniValue& params, bool fHelp)
     key.MakeNewKey();
 
     UniValue result(UniValue::VOBJ);
-    result.push_back(Pair("publickey", HexStr(key.GetPubKey())));
-    result.push_back(Pair("privatekey", HexStr(key.GetPrivKey())));
+    result.pushKV("publickey", HexStr(key.GetPubKey()));
+    result.pushKV("privatekey", HexStr(key.GetPrivKey()));
     return result;
 }
 
