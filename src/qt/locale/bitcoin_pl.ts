@@ -99,12 +99,12 @@
         <translation>Adresy odbioru</translation>
     </message>
     <message>
-        <source>These are your Dogecoin addresses for sending payments. Always check the amount and the receiving address before sending coins.</source>
-        <translation>Tutaj znajdują się adresy Dogecoin na które wysyłasz płatności. Zawsze sprawdzaj ilość i adres odbiorcy przed wysyłką monet.</translation>
+        <source>These are your Soqucoin addresses for sending payments. Always check the amount and the receiving address before sending coins.</source>
+        <translation>Tutaj znajdują się adresy Soqucoin na które wysyłasz płatności. Zawsze sprawdzaj ilość i adres odbiorcy przed wysyłką monet.</translation>
     </message>
     <message>
-        <source>These are your Dogecoin addresses for receiving payments. It is recommended to use a new receiving address for each transaction.</source>
-        <translation>To są twoje adresy Dogecoin do odbierania płatności. Zaleca się używanie nowych adresów odbiorczych dla każdej transakcji.</translation>
+        <source>These are your Soqucoin addresses for receiving payments. It is recommended to use a new receiving address for each transaction.</source>
+        <translation>To są twoje adresy Soqucoin do odbierania płatności. Zaleca się używanie nowych adresów odbiorczych dla każdej transakcji.</translation>
     </message>
     <message>
         <source>&amp;Copy Address</source>
@@ -205,8 +205,8 @@
         <translation>Potwierdź szyfrowanie portfela</translation>
     </message>
     <message>
-        <source>Warning: If you encrypt your wallet and lose your passphrase, you will &lt;b&gt;LOSE ALL OF YOUR DOGECOINS&lt;/b&gt;!</source>
-        <translation>Uwaga: jeśli zaszyfrujesz swój portfel i zgubisz hasło &lt;b&gt;STRACISZ WSZYSTKIE SWOJE DOGECOINY&lt;/b&gt;!</translation>
+        <source>Warning: If you encrypt your wallet and lose your passphrase, you will &lt;b&gt;LOSE ALL OF YOUR SOQUCOINS&lt;/b&gt;!</source>
+        <translation>Uwaga: jeśli zaszyfrujesz swój portfel i zgubisz hasło &lt;b&gt;STRACISZ WSZYSTKIE SWOJE SOQUCOINY&lt;/b&gt;!</translation>
     </message>
     <message>
         <source>Are you sure you wish to encrypt your wallet?</source>
@@ -217,8 +217,8 @@
         <translation>Portfel zaszyfrowany</translation>
     </message>
     <message>
-        <source>%1 will close now to finish the encryption process. Remember that encrypting your wallet cannot fully protect your dogecoins from being stolen by malware infecting your computer.</source>
-        <translation>%1 zamknie się aby dokończyć proces szyfrowania. Pamiętaj, że szyfrowanie portfela nie zabezpiecza w pełni Twoich Dogecoinów przed kradzieżą przez wirusy lub trojany mogące zainfekować Twój komputer.</translation>
+        <source>%1 will close now to finish the encryption process. Remember that encrypting your wallet cannot fully protect your soqucoins from being stolen by malware infecting your computer.</source>
+        <translation>%1 zamknie się aby dokończyć proces szyfrowania. Pamiętaj, że szyfrowanie portfela nie zabezpiecza w pełni Twoich Soqucoinów przed kradzieżą przez wirusy lub trojany mogące zainfekować Twój komputer.</translation>
     </message>
     <message>
         <source>IMPORTANT: Any previous backups you have made of your wallet file should be replaced with the newly generated, encrypted wallet file. For security reasons, previous backups of the unencrypted wallet file will become useless as soon as you start using the new, encrypted wallet.</source>
@@ -359,8 +359,8 @@
         <translation>Ponowne indeksowanie bloków na dysku...</translation>
     </message>
     <message>
-        <source>Send coins to a Dogecoin address</source>
-        <translation>Wyślij monety na adres Dogecoinowy</translation>
+        <source>Send coins to a Soqucoin address</source>
+        <translation>Wyślij monety na adres Soqucoinowy</translation>
     </message>
     <message>
         <source>Backup wallet to another location</source>
@@ -383,8 +383,8 @@
         <translation>&amp;Zweryfikuj wiadomość...</translation>
     </message>
     <message>
-        <source>Dogecoin</source>
-        <translation>Dogecoin</translation>
+        <source>Soqucoin</source>
+        <translation>Soqucoin</translation>
     </message>
     <message>
         <source>Wallet</source>
@@ -411,12 +411,12 @@
         <translation>Szyfruj klucze prywatne, które są w twoim portfelu</translation>
     </message>
     <message>
-        <source>Sign messages with your Dogecoin addresses to prove you own them</source>
-        <translation>Podpisz wiadomości swoim adresem Dogecoinowym, aby udowodnić jego posiadanie</translation>
+        <source>Sign messages with your Soqucoin addresses to prove you own them</source>
+        <translation>Podpisz wiadomości swoim adresem Soqucoinowym, aby udowodnić jego posiadanie</translation>
     </message>
     <message>
-        <source>Verify messages to ensure they were signed with specified Dogecoin addresses</source>
-        <translation>Zweryfikuj wiadomość, aby upewnić się, że została podpisana podanym adresem Dogecoinowym.</translation>
+        <source>Verify messages to ensure they were signed with specified Soqucoin addresses</source>
+        <translation>Zweryfikuj wiadomość, aby upewnić się, że została podpisana podanym adresem Soqucoinowym.</translation>
     </message>
     <message>
         <source>&amp;File</source>
@@ -435,8 +435,8 @@
         <translation>Pasek zakładek</translation>
     </message>
     <message>
-        <source>Request payments (generates QR codes and dogecoin: URIs)</source>
-        <translation>Żądaj płatności (generuje kod QR oraz Dogecoinowe URI)</translation>
+        <source>Request payments (generates QR codes and soqucoin: URIs)</source>
+        <translation>Żądaj płatności (generuje kod QR oraz Soqucoinowe URI)</translation>
     </message>
     <message>
         <source>Show the list of used sending addresses and labels</source>
@@ -447,19 +447,19 @@
         <translation>Pokaż listę adresów i etykiet użytych do odbierania</translation>
     </message>
     <message>
-        <source>Open a dogecoin: URI or payment request</source>
-        <translation>Otwórz Dogecoinowe: URI lub żądanie zapłaty</translation>
+        <source>Open a soqucoin: URI or payment request</source>
+        <translation>Otwórz Soqucoinowe: URI lub żądanie zapłaty</translation>
     </message>
     <message>
         <source>&amp;Command-line options</source>
         <translation>&amp;Opcje linii komend</translation>
     </message>
     <message numerus="yes">
-        <source>%n active connection(s) to Dogecoin network</source>
+        <source>%n active connection(s) to Soqucoin network</source>
         <translation>
-            <numerusform>%n aktywne połączenie do sieci Dogecoin</numerusform>
-            <numerusform>%n aktywnych połączeń do sieci Dogecoin</numerusform>
-            <numerusform>%n aktywnych połączeń do sieci Dogecoin</numerusform>
+            <numerusform>%n aktywne połączenie do sieci Soqucoin</numerusform>
+            <numerusform>%n aktywnych połączeń do sieci Soqucoin</numerusform>
+            <numerusform>%n aktywnych połączeń do sieci Soqucoin</numerusform>
         </translation>
     </message>
     <message>
@@ -507,7 +507,7 @@
         <translation>Aktualny</translation>
     </message>
     <message>
-        <source>Show the %1 help message to get a list with possible Dogecoin command-line options</source>
+        <source>Show the %1 help message to get a list with possible Soqucoin command-line options</source>
         <translation>Pokaż pomoc %1 aby zobaczyć listę wszystkich opcji lnii poleceń.</translation>
     </message>
     <message>
@@ -585,8 +585,8 @@
         <translation>&amp;Importuj Klucz Prywatny...</translation>
     </message>
     <message>
-        <source>Import a Dogecoin private key</source>
-        <translation>Importuj klucz prywatny Dogecoin</translation>
+        <source>Import a Soqucoin private key</source>
+        <translation>Importuj klucz prywatny Soqucoin</translation>
     </message>
     <message>
         <source>Click to disable network activity.</source>
@@ -621,8 +621,8 @@
         <translation>Wyjątek wykonania</translation>
     </message>
     <message>
-        <source>A fatal error occurred. Dogecoin can no longer continue safely and will quit.</source>
-        <translation>Wystąpił błąd krytyczny. Dogecoin nie może już bezpiecznie kontynuować i zakończy działanie.</translation>
+        <source>A fatal error occurred. Soqucoin can no longer continue safely and will quit.</source>
+        <translation>Wystąpił błąd krytyczny. Soqucoin nie może już bezpiecznie kontynuować i zakończy działanie.</translation>
     </message>
 </context>
 <context>
@@ -827,8 +827,8 @@
         <translation>Generowanie nowego klucza nie powiodło się.</translation>
     </message>
     <message>
-        <source>The entered address &quot;%1&quot; is not a valid Dogecoin address.</source>
-        <translation>Wprowadzony adres &quot;%1&quot; nie jest prawidłowym adresem Dogecoin.</translation>
+        <source>The entered address &quot;%1&quot; is not a valid Soqucoin address.</source>
+        <translation>Wprowadzony adres &quot;%1&quot; nie jest prawidłowym adresem Soqucoin.</translation>
     </message>
     <message>
         <source>The entered address &quot;%1&quot; is already in the address book.</source>
@@ -991,8 +991,8 @@
         <translation>Ponieważ jest to pierwsze uruchomienie programu, możesz wybrać gdzie %1 będzie przechowywał swoje dane.</translation>
     </message>
     <message>
-        <source>%1 will download and store a copy of the Dogecoin block chain. At least %2GB of data will be stored in this directory, and it will grow over time. The wallet will also be stored in this directory.</source>
-        <translation>%1 pobierze i będzie przechowywał kopię łańcucha bloków Dogecoin. W wybranym katalogu zostanie zapisanych %2GB danych, a z czasem ta ilość będzie rosła. Portfel będzie przechowywany w tym samym katalogu.</translation>
+        <source>%1 will download and store a copy of the Soqucoin block chain. At least %2GB of data will be stored in this directory, and it will grow over time. The wallet will also be stored in this directory.</source>
+        <translation>%1 pobierze i będzie przechowywał kopię łańcucha bloków Soqucoin. W wybranym katalogu zostanie zapisanych %2GB danych, a z czasem ta ilość będzie rosła. Portfel będzie przechowywany w tym samym katalogu.</translation>
     </message>
     <message>
         <source>Use the default data directory</source>
@@ -1074,12 +1074,12 @@
         <translation>Nieznane. Synchronizowanie nagłówków (%1)...</translation>
     </message>
     <message>
-        <source>Recent transactions may not yet be visible, and therefore your wallet&apos;s balance might be incorrect. This information will be correct once your wallet has finished synchronizing with the dogecoin network, as detailed below.</source>
-        <translation>Ostatnie transakcje mogą nie być jeszcze widoczne, a zatem saldo portfela może być nieprawidłowe. Te informacje będą poprawne, gdy portfel zakończy synchronizację z siecią dogecoin, zgodnie z poniższym opisem.</translation>
+        <source>Recent transactions may not yet be visible, and therefore your wallet&apos;s balance might be incorrect. This information will be correct once your wallet has finished synchronizing with the soqucoin network, as detailed below.</source>
+        <translation>Ostatnie transakcje mogą nie być jeszcze widoczne, a zatem saldo portfela może być nieprawidłowe. Te informacje będą poprawne, gdy portfel zakończy synchronizację z siecią soqucoin, zgodnie z poniższym opisem.</translation>
     </message>
     <message>
-        <source>Attempting to spend dogecoins that are affected by not-yet-displayed transactions will not be accepted by the network.</source>
-        <translation>Próba wydania dogecoinów, których dotyczą niewyświetlone jeszcze transakcje, nie zostanie zaakceptowana przez sieć.</translation>
+        <source>Attempting to spend soqucoins that are affected by not-yet-displayed transactions will not be accepted by the network.</source>
+        <translation>Próba wydania soqucoinów, których dotyczą niewyświetlone jeszcze transakcje, nie zostanie zaakceptowana przez sieć.</translation>
     </message>
 </context>
 <context>
@@ -1200,16 +1200,16 @@
         <translation>Wydaj niepotwierdzoną re&amp;sztę</translation>
     </message>
     <message>
-        <source>Automatically open the Dogecoin client port on the router. This only works when your router supports UPnP and it is enabled.</source>
-        <translation>Automatycznie otwiera port klienta Dogecoin na routerze. Ta opcja dzieła tylko jeśli twój router wspiera UPnP i jest ono włączone.</translation>
+        <source>Automatically open the Soqucoin client port on the router. This only works when your router supports UPnP and it is enabled.</source>
+        <translation>Automatycznie otwiera port klienta Soqucoin na routerze. Ta opcja dzieła tylko jeśli twój router wspiera UPnP i jest ono włączone.</translation>
     </message>
     <message>
         <source>Map port using &amp;UPnP</source>
         <translation>Mapuj port używając &amp;UPnP</translation>
     </message>
     <message>
-        <source>Connect to the Dogecoin network through a SOCKS5 proxy.</source>
-        <translation>Połącz się z siecią Dogecoin poprzez proxy SOCKS5.</translation>
+        <source>Connect to the Soqucoin network through a SOCKS5 proxy.</source>
+        <translation>Połącz się z siecią Soqucoin poprzez proxy SOCKS5.</translation>
     </message>
     <message>
         <source>&amp;Connect through SOCKS5 proxy (default proxy):</source>
@@ -1248,8 +1248,8 @@
         <translation>Tor</translation>
     </message>
     <message>
-        <source>Connect to the Dogecoin network through a separate SOCKS5 proxy for Tor hidden services.</source>
-        <translation>Połącz się z siecią Dogecoin przy pomocy oddzielnego SOCKS5 proxy dla sieci TOR</translation>
+        <source>Connect to the Soqucoin network through a separate SOCKS5 proxy for Tor hidden services.</source>
+        <translation>Połącz się z siecią Soqucoin przy pomocy oddzielnego SOCKS5 proxy dla sieci TOR</translation>
     </message>
     <message>
         <source>Use separate SOCKS5 proxy to reach peers via Tor hidden services:</source>
@@ -1363,8 +1363,8 @@
         <translation>Formularz</translation>
     </message>
     <message>
-        <source>The displayed information may be out of date. Your wallet automatically synchronizes with the Dogecoin network after a connection is established, but this process has not completed yet.</source>
-        <translation>Wyświetlana informacja może być nieaktualna. Twój portfel synchronizuje się automatycznie z siecią Dogecoin, zaraz po tym jak uzyskano połączenie, ale proces ten nie został jeszcze ukończony.</translation>
+        <source>The displayed information may be out of date. Your wallet automatically synchronizes with the Soqucoin network after a connection is established, but this process has not completed yet.</source>
+        <translation>Wyświetlana informacja może być nieaktualna. Twój portfel synchronizuje się automatycznie z siecią Soqucoin, zaraz po tym jak uzyskano połączenie, ale proces ten nie został jeszcze ukończony.</translation>
     </message>
     <message>
         <source>Watch-only:</source>
@@ -1471,12 +1471,12 @@
         <translation>Kto jest właścicielem kluczy prywatnych, jest właścicielem monet</translation>
     </message>
     <message>
-        <source>To see ongoing development and contribute, check out the Dogecoin Core repository on GitHub</source>
-        <translation>Aby zobaczyć ciągły rozwój i wnieść swój wkład, sprawdź repozytorium Dogecoin Core na GitHub</translation>
+        <source>To see ongoing development and contribute, check out the Soqucoin Core repository on GitHub</source>
+        <translation>Aby zobaczyć ciągły rozwój i wnieść swój wkład, sprawdź repozytorium Soqucoin Core na GitHub</translation>
     </message>
     <message>
-        <source>Services that claim to double your dogecoins are always ponzi schemes</source>
-        <translation>Usługi, które obiecują podwoić Twoje monety Dogecoin, są zawsze schematami ponzi</translation>
+        <source>Services that claim to double your soqucoins are always ponzi schemes</source>
+        <translation>Usługi, które obiecują podwoić Twoje monety Soqucoin, są zawsze schematami ponzi</translation>
     </message>
 </context>
 <context>
@@ -1661,8 +1661,8 @@ p, li { white-space: pre-wrap; }
         <translation>Błąd żądania płatności</translation>
     </message>
     <message>
-        <source>Cannot start dogecoin: click-to-pay handler</source>
-        <translation>Nie można uruchomić protokołu Dogecoin: kliknij-by-zapłacić</translation>
+        <source>Cannot start soqucoin: click-to-pay handler</source>
+        <translation>Nie można uruchomić protokołu Soqucoin: kliknij-by-zapłacić</translation>
     </message>
     <message>
         <source>URI handling</source>
@@ -1713,8 +1713,8 @@ p, li { white-space: pre-wrap; }
         <translation>Adres płatności jest nieprwidłowy %1</translation>
     </message>
     <message>
-        <source>URI cannot be parsed! This can be caused by an invalid Dogecoin address or malformed URI parameters.</source>
-        <translation>Nie można przeanalizować identyfikatora URI! Może to być spowodowane nieważnym adresem Dogecoin lub nieprawidłowymi parametrami URI.</translation>
+        <source>URI cannot be parsed! This can be caused by an invalid Soqucoin address or malformed URI parameters.</source>
+        <translation>Nie można przeanalizować identyfikatora URI! Może to być spowodowane nieważnym adresem Soqucoin lub nieprawidłowymi parametrami URI.</translation>
     </message>
     <message>
         <source>Payment request file handling</source>
@@ -1822,8 +1822,8 @@ Use this functionality with extreme caution.</source>
         <translation>Kwota</translation>
     </message>
     <message>
-        <source>Enter a Dogecoin address (e.g. %1)</source>
-        <translation>Wprowadź adres Dogecoinowy (np. %1)</translation>
+        <source>Enter a Soqucoin address (e.g. %1)</source>
+        <translation>Wprowadź adres Soqucoinowy (np. %1)</translation>
     </message>
     <message>
         <source>%1 d</source>
@@ -2314,8 +2314,8 @@ Use this functionality with extreme caution.</source>
         <translation>U&amp;żyj ponownie istniejącego adresu odbiorczego (niepolecane)</translation>
     </message>
     <message>
-        <source>An optional message to attach to the payment request, which will be displayed when the request is opened. Note: The message will not be sent with the payment over the Dogecoin network.</source>
-        <translation>Opcjonalna wiadomość do dołączenia do żądania płatności, która będzie wyświetlana, gdy żądanie zostanie otwarte. Uwaga: wiadomość ta nie zostanie wysłana wraz z płatnością w sieci Dogecoin.</translation>
+        <source>An optional message to attach to the payment request, which will be displayed when the request is opened. Note: The message will not be sent with the payment over the Soqucoin network.</source>
+        <translation>Opcjonalna wiadomość do dołączenia do żądania płatności, która będzie wyświetlana, gdy żądanie zostanie otwarte. Uwaga: wiadomość ta nie zostanie wysłana wraz z płatnością w sieci Soqucoin.</translation>
     </message>
     <message>
         <source>An optional label to associate with the new receiving address.</source>
@@ -2547,8 +2547,8 @@ Use this functionality with extreme caution.</source>
         <translation>razem przynajmniej</translation>
     </message>
     <message>
-        <source>Paying only the minimum fee is just fine as long as there is less transaction volume than space in the blocks. But be aware that this can end up in a never confirming transaction once there is more demand for dogecoin transactions than the network can process.</source>
-        <translation>Zapłacenie tylko minimalnej opłaty jest nadal wystarczające, dopóki jest mniejszy wolumen transakcji niż miejsca w blokach. Należy jednak mieć świadomość, że może skończyć się to niezatwierdzeniem nigdy transakcji, gdy jest większe zapotrzebowanie na transakcje Dogecoina niż sieć może przetworzyć.</translation>
+        <source>Paying only the minimum fee is just fine as long as there is less transaction volume than space in the blocks. But be aware that this can end up in a never confirming transaction once there is more demand for soqucoin transactions than the network can process.</source>
+        <translation>Zapłacenie tylko minimalnej opłaty jest nadal wystarczające, dopóki jest mniejszy wolumen transakcji niż miejsca w blokach. Należy jednak mieć świadomość, że może skończyć się to niezatwierdzeniem nigdy transakcji, gdy jest większe zapotrzebowanie na transakcje Soqucoina niż sieć może przetworzyć.</translation>
     </message>
     <message>
         <source>(read the tooltip)</source>
@@ -2663,8 +2663,8 @@ Use this functionality with extreme caution.</source>
         <translation>Zapłać tylko wymaganą opłatę w wysokości %1</translation>
     </message>
     <message>
-        <source>Warning: Invalid Dogecoin address</source>
-        <translation>Ostrzeżenie: nieprawidłowy adres Dogecoin</translation>
+        <source>Warning: Invalid Soqucoin address</source>
+        <translation>Ostrzeżenie: nieprawidłowy adres Soqucoin</translation>
     </message>
     <message>
         <source>Warning: Unknown change address</source>
@@ -2770,8 +2770,8 @@ Use this functionality with extreme caution.</source>
         <translation>To jest standardowa płatność</translation>
     </message>
     <message>
-        <source>The Dogecoin address to send the payment to</source>
-        <translation>Adres Dogecoin, na który wysłać płatność</translation>
+        <source>The Soqucoin address to send the payment to</source>
+        <translation>Adres Soqucoin, na który wysłać płatność</translation>
     </message>
     <message>
         <source>Alt+A</source>
@@ -2790,8 +2790,8 @@ Use this functionality with extreme caution.</source>
         <translation>Usuń ten wpis</translation>
     </message>
     <message>
-        <source>The fee will be deducted from the amount being sent. The recipient will receive less dogecoins than you enter in the amount field. If multiple recipients are selected, the fee is split equally.</source>
-        <translation>Opłata zostanie odjęta od kwoty wysyłanej. Odbiorca otrzyma mniej niż Dogecoinów wpisanych w polu kwoty. Jeśli wybrano kilku odbiorców, opłata jest podzielona równo.</translation>
+        <source>The fee will be deducted from the amount being sent. The recipient will receive less soqucoins than you enter in the amount field. If multiple recipients are selected, the fee is split equally.</source>
+        <translation>Opłata zostanie odjęta od kwoty wysyłanej. Odbiorca otrzyma mniej niż Soqucoinów wpisanych w polu kwoty. Jeśli wybrano kilku odbiorców, opłata jest podzielona równo.</translation>
     </message>
     <message>
         <source>S&amp;ubtract fee from amount</source>
@@ -2814,8 +2814,8 @@ Use this functionality with extreme caution.</source>
         <translation>Wprowadź etykietę dla tego adresu by dodać go do listy użytych adresów</translation>
     </message>
     <message>
-        <source>A message that was attached to the dogecoin: URI which will be stored with the transaction for your reference. Note: This message will not be sent over the Dogecoin network.</source>
-        <translation>Wiadomość, która została dołączona do URI Dogecoina, która będzie przechowywana wraz z transakcją w celach informacyjnych. Uwaga: Ta wiadomość nie będzie rozsyłana w sieci Dogecoin.</translation>
+        <source>A message that was attached to the soqucoin: URI which will be stored with the transaction for your reference. Note: This message will not be sent over the Soqucoin network.</source>
+        <translation>Wiadomość, która została dołączona do URI Soqucoina, która będzie przechowywana wraz z transakcją w celach informacyjnych. Uwaga: Ta wiadomość nie będzie rozsyłana w sieci Soqucoin.</translation>
     </message>
     <message>
         <source>Pay To:</source>
@@ -2859,12 +2859,12 @@ Use this functionality with extreme caution.</source>
         <translation>Podpi&amp;sz Wiadomość</translation>
     </message>
     <message>
-        <source>You can sign messages/agreements with your addresses to prove you can receive dogecoins sent to them. Be careful not to sign anything vague or random, as phishing attacks may try to trick you into signing your identity over to them. Only sign fully-detailed statements you agree to.</source>
+        <source>You can sign messages/agreements with your addresses to prove you can receive soqucoins sent to them. Be careful not to sign anything vague or random, as phishing attacks may try to trick you into signing your identity over to them. Only sign fully-detailed statements you agree to.</source>
         <translation>Możesz podpisywać wiadomości swoimi adresami aby udowodnić, że jesteś ich właścicielem. Uważaj, aby nie podpisywać niczego co wzbudza Twoje podejrzenia, ponieważ ktoś może stosować phishing próbując nakłonić Cię do ich podpisania. Akceptuj i podpisuj tylko w pełni zrozumiałe komunikaty i wiadomości.</translation>
     </message>
     <message>
-        <source>The Dogecoin address to sign the message with</source>
-        <translation>Adres Dogecoin, za pomocą którego podpisać wiadomość</translation>
+        <source>The Soqucoin address to sign the message with</source>
+        <translation>Adres Soqucoin, za pomocą którego podpisać wiadomość</translation>
     </message>
     <message>
         <source>Choose previously used address</source>
@@ -2895,7 +2895,7 @@ Use this functionality with extreme caution.</source>
         <translation>Kopiuje aktualny podpis do schowka systemowego</translation>
     </message>
     <message>
-        <source>Sign the message to prove you own this Dogecoin address</source>
+        <source>Sign the message to prove you own this Soqucoin address</source>
         <translation>Podpisz wiadomość aby dowieść, że ten adres jest twój</translation>
     </message>
     <message>
@@ -2920,12 +2920,12 @@ Use this functionality with extreme caution.</source>
 Zwróć uwagę, że poprawnie zweryfikowana wiadomość potwierdza to, że nadawca posiada klucz do adresu, natomiast nie potwierdza to, że poprawne wysłanie jakiejkolwiek transakcji!</translation>
     </message>
     <message>
-        <source>The Dogecoin address the message was signed with</source>
-        <translation>Adres Dogecoin, którym została podpisana wiadomość</translation>
+        <source>The Soqucoin address the message was signed with</source>
+        <translation>Adres Soqucoin, którym została podpisana wiadomość</translation>
     </message>
     <message>
-        <source>Verify the message to ensure it was signed with the specified Dogecoin address</source>
-        <translation>Zweryfikuj wiadomość, aby upewnić się, że została podpisana odpowiednim adresem Dogecoin.</translation>
+        <source>Verify the message to ensure it was signed with the specified Soqucoin address</source>
+        <translation>Zweryfikuj wiadomość, aby upewnić się, że została podpisana odpowiednim adresem Soqucoin.</translation>
     </message>
     <message>
         <source>Verify &amp;Message</source>
@@ -3608,8 +3608,8 @@ Zwróć uwagę, że poprawnie zweryfikowana wiadomość potwierdza to, że nadaw
         <translation>Uruchomienie serwera HTTP nie powiodło się. Zobacz dziennik debugowania, aby uzyskać więcej szczegółów.</translation>
     </message>
     <message>
-        <source>Dogecoin Core</source>
-        <translation>Rdzeń Dogecoina</translation>
+        <source>Soqucoin Core</source>
+        <translation>Rdzeń Soqucoina</translation>
     </message>
     <message>
         <source>The %s developers</source>
@@ -4288,7 +4288,7 @@ Zwróć uwagę, że poprawnie zweryfikowana wiadomość potwierdza to, że nadaw
         <translation>Błąd</translation>
     </message>
     <message>
-        <source>Bitcoin Core and Dogecoin Core</source>
+        <source>Bitcoin Core and Soqucoin Core</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -1,6 +1,6 @@
 [Protocol]
-exec=dogecoin-qt '%u'
-protocol=dogecoin
+exec=soqucoin-qt '%u'
+protocol=soqucoin
 input=none
 output=none
 helper=true

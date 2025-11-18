@@ -1,6 +1,6 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2016 The Bitcoin Core developers
-// Copyright (c) 2022-2024 The Dogecoin Core developers
+// Copyright (c) 2022-2024 The Soqucoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -80,7 +80,7 @@ public:
         consensus.nMajorityEnforceBlockUpgrade = 1500;
         consensus.nMajorityRejectBlockOutdated = 1900;
         consensus.nMajorityWindow = 2000;
-        // BIP34 is never enforced in Dogecoin v2 blocks, so we enforce from v3
+        // BIP34 is never enforced in Soqucoin v2 blocks, so we enforce from v3
         consensus.BIP34Height = 1034383;
         consensus.BIP34Hash = uint256S("0x80d1364201e5df97e696c03bdd24dc885e8617b9de51e453c10a4f629b1e797a");
         consensus.BIP65Height = 3464751; // 34cd2cbba4ba366f47e5aa0db5f02c19eba2adf679ceb6653ac003bdc9a0ef1f - first v4 block after the last v3 block
@@ -100,7 +100,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999; // December 31, 2008
 
         // Deployment of BIP68, BIP112, and BIP113.
-        // XXX: BIP heights and hashes all need to be updated to Dogecoin values
+        // XXX: BIP heights and hashes all need to be updated to Soqucoin values
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 1462060800; // May 1st, 2016
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 1493596800; // May 1st, 2017
@@ -145,11 +145,11 @@ public:
          * The characters are rarely used upper ASCII, not valid as UTF-8, and produce
          * a large 32-bit integer with any alignment.
          */
-        pchMessageStart[0] = 0xc0;
-        pchMessageStart[1] = 0xc0;
-        pchMessageStart[2] = 0xc0;
-        pchMessageStart[3] = 0xc0;
-        nDefaultPort = 22556;
+        pchMessageStart[0] = 0xf5;
+        pchMessageStart[1] = 0xe1;
+        pchMessageStart[2] = 0xd5;
+        pchMessageStart[3] = 0xc1;
+        nDefaultPort = 33388;
         nPruneAfterHeight = 100000;
 
         genesis = CreateGenesisBlock(1386325540, 99943, 0x1e0ffff0, 1, 88 * COIN);
@@ -164,8 +164,8 @@ public:
         vSeeds.push_back(CDNSSeedData("multidoge.org", "seed.multidoge.org", true));
         vSeeds.push_back(CDNSSeedData("multidoge.org", "seed2.multidoge.org"));
 
-        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,30);
-        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,22);
+        base58Prefixes[PUBKEY_ADDRESS] = boost::assign::list_of(63)(22).convert_to_container<std::vector<unsigned char> >(); // C5 prefix for mainnet
+        base58Prefixes[SCRIPT_ADDRESS] = boost::assign::list_of(9)(18).convert_to_container<std::vector<unsigned char> >();  // 95 prefix
         base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,158);
         base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x02)(0xfa)(0xca)(0xfd).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x02)(0xfa)(0xc3)(0x98).convert_to_container<std::vector<unsigned char> >();
@@ -240,7 +240,7 @@ public:
         consensus.nMajorityEnforceBlockUpgrade = 501;
         consensus.nMajorityRejectBlockOutdated = 750;
         consensus.nMajorityWindow = 1000;
-        // BIP34 is never enforced in Dogecoin v2 blocks, so we enforce from v3
+        // BIP34 is never enforced in Soqucoin v2 blocks, so we enforce from v3
         consensus.BIP34Height = 708658;
         consensus.BIP34Hash = uint256S("0x21b8b97dcdb94caa67c7f8f6dbf22e61e0cfe0e46e1fff3528b22864659e9b38");
         consensus.BIP65Height = 1854705; // 955bd496d23790aba1ecfacb722b089a6ae7ddabaedf7d8fb0878f48308a71f9
@@ -256,7 +256,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999; // December 31, 2008
 
         // Deployment of BIP68, BIP112, and BIP113.
-        // XXX: BIP heights and hashes all need to be updated to Dogecoin values
+        // XXX: BIP heights and hashes all need to be updated to Soqucoin values
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 1456790400; // March 1st, 2016
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 1493596800; // May 1st, 2017
@@ -418,7 +418,7 @@ public:
         consensus.fStrictChainId = true;
         consensus.fAllowLegacyBlocks = true;
 
-        // Dogecoin parameters
+        // Soqucoin parameters
         consensus.fSimplifiedRewards = true;
         consensus.nCoinbaseMaturity = 60; // For easier testability in RPC tests
 

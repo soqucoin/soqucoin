@@ -1,36 +1,36 @@
 #!/bin/bash
 #
-#  dogecoind The dogecoin core server.
+#  soqucoind The soqucoin core server.
 #
 #
 # chkconfig: 345 80 20
-# description: dogecoind
-# processname: dogecoind
+# description: soqucoind
+# processname: soqucoind
 #
 
 # Source function library.
 . /etc/init.d/functions
 
-# you can override defaults in /etc/sysconfig/dogecoind, see below
-if [ -f /etc/sysconfig/dogecoind ]; then
-        . /etc/sysconfig/dogecoind
+# you can override defaults in /etc/sysconfig/soqucoind, see below
+if [ -f /etc/sysconfig/soqucoind ]; then
+        . /etc/sysconfig/soqucoind
 fi
 
 RETVAL=0
 
-prog=dogecoind
-# you can override the lockfile via DOGECOIND_LOCKFILE in /etc/sysconfig/dogecoind
-lockfile=${DOGECOIND_LOCKFILE-/var/lock/subsys/dogecoind}
+prog=soqucoind
+# you can override the lockfile via SOQUCOIND_LOCKFILE in /etc/sysconfig/soqucoind
+lockfile=${SOQUCOIND_LOCKFILE-/var/lock/subsys/soqucoind}
 
-# dogecoind defaults to /usr/bin/dogecoind, override with DOGECOIND_BIN
-dogecoind=${DOGECOIND_BIN-/usr/bin/dogecoind}
+# soqucoind defaults to /usr/bin/soqucoind, override with SOQUCOIND_BIN
+soqucoind=${SOQUCOIND_BIN-/usr/bin/soqucoind}
 
-# dogecoind opts default to -disablewallet, override with DOGECOIND_OPTS
-dogecoind_opts=${DOGECOIND_OPTS--disablewallet}
+# soqucoind opts default to -disablewallet, override with SOQUCOIND_OPTS
+soqucoind_opts=${SOQUCOIND_OPTS--disablewallet}
 
 start() {
     echo -n $"Starting $prog: "
-    daemon $DAEMONOPTS $dogecoind $dogecoind_opts
+    daemon $DAEMONOPTS $soqucoind $soqucoind_opts
     RETVAL=$?
     echo
     [ $RETVAL -eq 0 ] && touch $lockfile
