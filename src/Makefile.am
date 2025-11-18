@@ -208,6 +208,7 @@ libsoqucoin_server_a_SOURCES = \
   noui.cpp \
   policy/fees.cpp \
   policy/policy.cpp \
+  pat/keys.cpp \
   pow.cpp \
   rest.cpp \
   rpc/auxcache.cpp \
