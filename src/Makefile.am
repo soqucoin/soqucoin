@@ -209,6 +209,16 @@ libsoqucoin_server_a_SOURCES = \
   policy/fees.cpp \
   policy/policy.cpp \
   pat/keys.cpp \
+  pat/dilithium-ref/fips202.c \
+  pat/dilithium-ref/ntt.c \
+  pat/dilithium-ref/packing.c \
+  pat/dilithium-ref/poly.c \
+  pat/dilithium-ref/polyvec.c \
+  pat/dilithium-ref/randombytes.c \
+  pat/dilithium-ref/reduce.c \
+  pat/dilithium-ref/rounding.c \
+  pat/dilithium-ref/sign.c \
+  pat/dilithium-ref/symmetric-shake.c \
   pow.cpp \
   rest.cpp \
   rpc/auxcache.cpp \

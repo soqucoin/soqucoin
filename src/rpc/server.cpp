@@ -587,9 +587,7 @@ int RPCSerializationFlags()
 }
 
 CRPCTable tableRPC;
-
-static struct RegisterPATRpcCommands {
-    RegisterPATRpcCommands() {
-        RegisterPATRPCCommands(tableRPC);
-    }
-} g_registerPATRpcCommands;
+static const bool fRegisterPATRPC = [](){
+    RegisterPATRPCCommands(tableRPC);
+    return true;
+}();
