@@ -3,7 +3,7 @@
 #include "util.h"
 
 extern "C" {
-#include "dilithium/ref/api.h"
+#include "dilithium-ref/api.h"
 }
 
 CDilithiumKey::CDilithiumKey() : fValid(false) {}
@@ -25,10 +25,7 @@ void CDilithiumKey::MakeNewKey()
 bool CDilithiumKey::SetPrivKey(const valtype& vchPrivKey)
 {
     if (vchPrivKey.size() != pqcrystals_dilithium2_ref_SECRETKEYBYTES) return false;
-    valtype pub(pqcrystals_dilithium2_ref_PUBLICKEYBYTES);
-    if (pqcrystals_dilithium2_ref_sk_to_pk(pub.data(), vchPrivKey.data()) != 0) return false;
     privkey.v = vchPrivKey;
-    pubkey.v = pub;
     fValid = true;
     return true;
 }
@@ -40,8 +37,10 @@ std::vector<unsigned char> CDilithiumKey::Sign(const std::string& message) const
 {
     if (!fValid) throw std::runtime_error("Invalid Dilithium key");
     std::vector<unsigned char> sig(pqcrystals_dilithium2_ref_BYTES);
-    unsigned long long siglen;
-    if (pqcrystals_dilithium2_ref_signature(sig.data(), &siglen, (const unsigned char*)message.data(), message.size(), privkey.v.data()) != 0) {
+    size_t siglen = 0;
+    if (pqcrystals_dilithium2_ref_signature(sig.data(), &siglen,
+                                            (const unsigned char*)message.data(), message.size(),
+                                            NULL, 0, privkey.v.data()) != 0) {
         throw std::runtime_error("Dilithium signing failed");
     }
     sig.resize(siglen);
@@ -50,6 +49,8 @@ std::vector<unsigned char> CDilithiumKey::Sign(const std::string& message) const
 
 bool CDilithiumKey::Verify(const valtype& pubkey_bytes, const std::string& message, const valtype& sig) const
 {
-    return pqcrystals_dilithium2_ref_verify(sig.data(), sig.size(), (const unsigned char*)message.data(), message.size(), pubkey_bytes.data()) == 0;
+    return pqcrystals_dilithium2_ref_verify(sig.data(), sig.size(),
+                                            (const unsigned char*)message.data(), message.size(),
+                                            NULL, 0, pubkey_bytes.data()) == 0;
 }
 

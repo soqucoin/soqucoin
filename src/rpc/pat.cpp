@@ -1,125 +1,84 @@
 #include "rpc/server.h"
 #include "pat/keys.h"
-#include "pat/sign.h"
 #include "utilstrencodings.h"
 
 using namespace std;
 
-UniValue generatedilithiumkey(const JSONRPCRequest& request)
+static UniValue Pair(const std::string& name, const std::string& value)
 {
-    RPCHelpMan{"generatedilithiumkey",
-        "Generate a new Dilithium keypair",
-        {},
-        RPCResult{RPCResult::Type::OBJ, "", "", {
-            {RPCResult::Type::STR_HEX, "publickey", "The public key"},
-            {RPCResult::Type::STR_HEX, "privatekey", "The private key (keep secret!)"}
-        }},
-        RPCExamples{HelpExampleCli("generatedilithiumkey", "")}
-    }.Check(request);
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV(name, value);
+    return obj;
+}
+
+static UniValue generatedilithiumkey_legacy(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() != 0)
+        throw runtime_error(
+            "generatedilithiumkey\n"
+            "\nGenerate a new Dilithium keypair.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"publickey\": \"xxxx\", (hex)\n"
+            "  \"privatekey\": \"xxxx\" (hex — keep secret!)\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("generatedilithiumkey", "")
+        );
 
     CDilithiumKey key;
     key.MakeNewKey();
-    
-    return UniValue(UniValue::VType::VOBJ)
-        .pushKV("publickey", HexStr(key.GetPubKey()))
-        .pushKV("privatekey", HexStr(key.GetPrivKey()));
+
+    UniValue obj(UniValue::VOBJ);
+    obj.push_back(Pair("publickey", HexStr(key.GetPubKey())));
+    obj.push_back(Pair("privatekey", HexStr(key.GetPrivKey())));
+    return obj;
+}
+
+static UniValue signdilithiummessage_legacy(const UniValue& params, bool fHelp)
+{
+    if (fHelp || params.size() != 2)
+        throw runtime_error(
+            "signdilithiummessage \"privatekey\" \"message\"\n"
+            "\nSign a message with a Dilithium private key.\n"
+            "\nArguments:\n"
+            "1. \"privatekey\" (string, required) The private key (hex)\n"
+            "2. \"message\"     (string, required) The message to sign\n"
+            "\nResult:\n"
+            "\"signature\" (string) The signature (hex)\n"
+            "\nExamples:\n"
+            + HelpExampleCli("signdilithiummessage", "\"privkey\" \"hello world\"")
+        );
+
+    vector<unsigned char> privkey = ParseHex(params[0].get_str());
+    string message = params[1].get_str();
+
+    CDilithiumKey key;
+    key.SetPrivKey(privkey);
+
+    vector<unsigned char> sig = key.Sign(message);
+
+    return HexStr(sig);
+}
+
+UniValue generatedilithiumkey(const JSONRPCRequest& request)
+{
+    return generatedilithiumkey_legacy(request.params, request.fHelp);
 }
 
 UniValue signdilithiummessage(const JSONRPCRequest& request)
 {
-    RPCHelpMan{"signdilithiummessage",
-        "Sign a message with a Dilithium private key",
-        {
-            {"privatekey", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The private key"},
-            {"message", RPCArg::Type::STR, RPCArg::Optional::NO, "The message to sign"}
-        },
-        RPCResult{RPCResult::Type::STR_HEX, "signature", "The signature"},
-        RPCExamples{HelpExampleCli("signdilithiummessage", "\"privkey\" \"hello world\"")}
-    }.Check(request);
-
-    std::vector<unsigned char> privkey = ParseHex(request.params[0].get_str());
-    std::string message = request.params[1].get_str();
-
-    CDilithiumKey key;
-    key.SetPrivKey(privkey);
-    
-    std::vector<unsigned char> sig = key.Sign(message);
-    
-    return HexStr(sig);
+    return signdilithiummessage_legacy(request.params, request.fHelp);
 }
 
 static const CRPCCommand commands[] =
-{ //  category              name                      actor (function)         argNames
-  //  --------------------- ------------------------  -----------------------  ----------
-    { "pat",                "generatedilithiumkey",   &generatedilithiumkey,   {} },
-    { "pat",                "signdilithiummessage",   &signdilithiummessage,   {"privatekey","message"} },
+{
+    { "pat", "generatedilithiumkey",   &generatedilithiumkey,   true,  {} },
+    { "pat", "signdilithiummessage",  &signdilithiummessage,  true,  {"privatekey", "message"} },
 };
 
-void RegisterPATRPCCommands(CRPCTable &t)
+void RegisterPATRPCCommands(CRPCTable &tableRPC)
 {
     for (unsigned int vcidx = 0; vcidx < ARRAYLEN(commands); vcidx++)
-        t.appendCommand(commands[vcidx].name, &commands[vcidx]);
+        tableRPC.appendCommand(commands[vcidx].name, &commands[vcidx]);
 }
-#include "rpc/server.h"
-#include "pat/keys.h"
-#include "pat/sign.h"
-#include "utilstrencodings.h"
-
-using namespace std;
-
-UniValue generatedilithiumkey(const JSONRPCRequest& request)
-{
-    RPCHelpMan{"generatedilithiumkey",
-        "Generate a new Dilithium keypair",
-        {},
-        RPCResult{RPCResult::Type::OBJ, "", "", {
-            {RPCResult::Type::STR_HEX, "publickey", "The public key"},
-            {RPCResult::Type::STR_HEX, "privatekey", "The private key (keep secret!)"}
-        }},
-        RPCExamples{HelpExampleCli("generatedilithiumkey", "")}
-    }.Check(request);
-
-    CDilithiumKey key;
-    key.MakeNewKey();
-    
-    return UniValue(UniValue::VType::VOBJ)
-        .pushKV("publickey", HexStr(key.GetPubKey()))
-        .pushKV("privatekey", HexStr(key.GetPrivKey()));
-}
-
-UniValue signdilithiummessage(const JSONRPCRequest& request)
-{
-    RPCHelpMan{"signdilithiummessage",
-        "Sign a message with a Dilithium private key",
-        {
-            {"privatekey", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The private key"},
-            {"message", RPCArg::Type::STR, RPCArg::Optional::NO, "The message to sign"}
-        },
-        RPCResult{RPCResult::Type::STR_HEX, "signature", "The signature"},
-        RPCExamples{HelpExampleCli("signdilithiummessage", "\"privkey\" \"hello world\"")}
-    }.Check(request);
-
-    std::vector<unsigned char> privkey = ParseHex(request.params[0].get_str());
-    std::string message = request.params[1].get_str();
-
-    CDilithiumKey key;
-    key.SetPrivKey(privkey);
-    
-    std::vector<unsigned char> sig = key.Sign(message);
-    
-    return HexStr(sig);
-}
-
-static const CRPCCommand commands[] =
-{ //  category              name                      actor (function)         argNames
-  //  --------------------- ------------------------  -----------------------  ----------
-    { "pat",                "generatedilithiumkey",   &generatedilithiumkey,   {} },
-    { "pat",                "signdilithiummessage",   &signdilithiummessage,   {"privatekey","message"} },
-};
-
-void RegisterPATRPCCommands(CRPCTable &t)
-{
-    for (unsigned int vcidx = 0; vcidx < ARRAYLEN(commands); vcidx++)
-        t.appendCommand(commands[vcidx].name, &commands[vcidx]);
-}
-
