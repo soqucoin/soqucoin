@@ -1,7 +1,7 @@
 <h1 align="center">
 <img src="https://raw.githubusercontent.com/soqucoin/soqucoin/master/share/pixmaps/soqucoin256.svg" alt="Soqucoin" width="256"/>
 <br/><br/>
-Soqucoin Core [DOGE, Ð]  
+Soqucoin Core – Quantum-Resistant Scrypt PoW  
 </h1>
 
 **IMPORTANT: Starting August 2024, the `master` branch has become the primary
