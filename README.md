@@ -1,7 +1,16 @@
 <h1 align="center">
 <img src="https://raw.githubusercontent.com/soqucoin/soqucoin/master/share/pixmaps/soqucoin256.svg" alt="Soqucoin" width="256"/>
 <br/><br/>
-Soqucoin Core – Quantum-Resistant Scrypt PoW  
+Soqucoin Core [SOQ]
+
+The first Scrypt-PoW chain with NIST-standard post-quantum signatures and constant-size batch verification via Sangria/Binius recursion.
+
+- ML-DSA-87 ready
+- Sangria recursive proofs (n=1024 in <2 kB)
+- Full Antminer L3/L7 compatibility
+- Merged-mining ready with Litecoin
+
+**Mainnet genesis: March 1, 2026**
 </h1>
 
 **IMPORTANT: Starting August 2024, the `master` branch has become the primary

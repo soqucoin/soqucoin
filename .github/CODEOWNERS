@@ -1,0 +1,8 @@
+
+* @odenrider @soqucoin/admins
+
+src/consensus/ @odenrider
+src/pat/ @odenrider
+src/script/ @odenrider
+src/rpc/pat* @odenrider
+
