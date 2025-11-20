@@ -1,7 +1,9 @@
 #include "binius/verifier.h"
 
 #include "pat/keys.h"
+
 #include "hash.h"
+
 #include "util.h"
 
 namespace sangria {
