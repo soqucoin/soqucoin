@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <vector>
 
 #include "uint256.h"
@@ -8,10 +9,7 @@
 namespace binius {
 
 using FieldElement = std::array<uint8_t, 32>;  // Binius tiny field
-
-struct Commitment : public uint256 {
-    using uint256::uint256;
-};
+using Commitment = uint256;
 
 Commitment commit(const std::vector<FieldElement>& poly);
 
