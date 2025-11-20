@@ -18,14 +18,21 @@ const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[Consensus::MAX_VERSION
     {
         /*.name =*/ "segwit",
         /*.gbt_force =*/ true,
+    },
+    {
+        /*.name =*/ "checkbatchsig",
+        /*.gbt_force =*/ true,
     }
 };
 
 ThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex* pindexPrev, const Consensus::Params& params, ThresholdConditionCache& cache) const
 {
+    int64_t nTimeStart = BeginTime(params);
+    if (nTimeStart == Consensus::BIP9Deployment::ALWAYS_ACTIVE) {
+        return THRESHOLD_ACTIVE;
+    }
     int nPeriod = Period(params);
     int nThreshold = Threshold(params);
-    int64_t nTimeStart = BeginTime(params);
     int64_t nTimeTimeout = EndTime(params);
 
     // A block's state is always the same as that of the first of its period, so it is computed based on a pindexPrev whose height equals a multiple of nPeriod - 1.
@@ -157,7 +164,13 @@ protected:
 
 public:
     VersionBitsConditionChecker(Consensus::DeploymentPos id_) : id(id_) {}
-    uint32_t Mask(const Consensus::Params& params) const { return ((uint32_t)1) << params.vDeployments[id].bit; }
+    uint32_t Mask(const Consensus::Params& params) const
+    {
+        if (params.vDeployments[id].nStartTime == Consensus::BIP9Deployment::ALWAYS_ACTIVE) {
+            return 0;
+        }
+        return ((uint32_t)1) << params.vDeployments[id].bit;
+    }
 };
 
 }

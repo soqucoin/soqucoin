@@ -187,6 +187,8 @@ enum opcodetype
     OP_INVALIDOPCODE = 0xff,
 };
 
+static const unsigned char OP_CHECKBATCHSIG = 0xfe;
+
 const char* GetOpName(opcodetype opcode);
 
 class scriptnum_error : public std::runtime_error
