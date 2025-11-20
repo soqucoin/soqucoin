@@ -6,12 +6,15 @@
 #include "interpreter.h"
 
 #include "primitives/transaction.h"
+#include "crypto/binius/verifier.h"
 #include "crypto/ripemd160.h"
 #include "crypto/sha1.h"
 #include "crypto/sha256.h"
 #include "pubkey.h"
 #include "script/script.h"
 #include "uint256.h"
+
+#include <cstring>
 
 using namespace std;
 
@@ -61,6 +64,15 @@ static inline void popstack(vector<valtype>& stack)
     if (stack.empty())
         throw runtime_error("popstack(): stack empty");
     stack.pop_back();
+}
+
+static bool StackValToUint256(const valtype& vch, uint256& out)
+{
+    if (vch.size() != out.size()) {
+        return false;
+    }
+    memcpy(out.begin(), vch.data(), vch.size());
+    return true;
 }
 
 bool static IsCompressedOrUncompressedPubKey(const valtype &vchPubKey) {
@@ -869,6 +881,39 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     stack.push_back(vchHash);
                 }
                 break;                                   
+
+                case OP_CHECKBATCHSIG:
+                {
+                    if (stack.size() < 3)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    const valtype& proof_data = stacktop(-3);
+                    const valtype& agg_pk_bytes = stacktop(-2);
+                    const valtype& msg_root_bytes = stacktop(-1);
+
+                    sangria::BatchProof proof;
+                    proof.proof_data = proof_data;
+                    proof.batch_size = proof_data.empty() ? 0 : 1;
+
+                    if (!StackValToUint256(msg_root_bytes, proof.message_root)) {
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    }
+
+                    uint256 aggregate_pk;
+                    if (!StackValToUint256(agg_pk_bytes, aggregate_pk)) {
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    }
+
+                    if (!sangria::VerifyBatch(proof, aggregate_pk, proof.message_root)) {
+                        return set_error(serror, SCRIPT_ERR_BATCH_VERIFICATION_FAILED);
+                    }
+
+                    popstack(stack);
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vchTrue);
+                }
+                break;
 
                 case OP_CODESEPARATOR:
                 {
