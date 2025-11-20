@@ -66,15 +66,6 @@ static inline void popstack(vector<valtype>& stack)
     stack.pop_back();
 }
 
-static bool StackValToUint256(const valtype& vch, uint256& out)
-{
-    if (vch.size() != out.size()) {
-        return false;
-    }
-    memcpy(out.begin(), vch.data(), vch.size());
-    return true;
-}
-
 bool static IsCompressedOrUncompressedPubKey(const valtype &vchPubKey) {
     if (vchPubKey.size() < 33) {
         //  Non-canonical public key: too short
@@ -887,31 +878,28 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     if (stack.size() < 3)
                         return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
-                    const valtype& proof_data = stacktop(-3);
-                    const valtype& agg_pk_bytes = stacktop(-2);
-                    const valtype& msg_root_bytes = stacktop(-1);
+                    valtype proof_data = stacktop(-3);
+                    valtype agg_pk = stacktop(-2);
+                    valtype msg_root = stacktop(-1);
 
+                    const uint256 dummy;
+                    if (agg_pk.size() != dummy.size() || msg_root.size() != dummy.size()) {
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                    }
+
+                    const uint256 aggregate_pk(agg_pk);
+                    const uint256 message_root_uint(msg_root);
                     sangria::BatchProof proof;
                     proof.proof_data = proof_data;
                     proof.batch_size = proof_data.empty() ? 0 : 1;
+                    proof.message_root = message_root_uint;
 
-                    if (!StackValToUint256(msg_root_bytes, proof.message_root)) {
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                    }
-
-                    uint256 aggregate_pk;
-                    if (!StackValToUint256(agg_pk_bytes, aggregate_pk)) {
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                    }
-
-                    if (!sangria::VerifyBatch(proof, aggregate_pk, proof.message_root)) {
+                    if (!sangria::VerifyBatch(proof, aggregate_pk, message_root_uint)) {
                         return set_error(serror, SCRIPT_ERR_BATCH_VERIFICATION_FAILED);
                     }
 
-                    popstack(stack);
-                    popstack(stack);
-                    popstack(stack);
-                    stack.push_back(vchTrue);
+                    popstack(stack); popstack(stack); popstack(stack);
+                    stack.push_back(valtype(1,1)); // true
                 }
                 break;
 
