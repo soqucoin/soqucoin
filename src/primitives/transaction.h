@@ -377,6 +377,8 @@ public:
         }
         return false;
     }
+
+    bool HasDilithiumSignatures() const;
 };
 
 /** A mutable version of CTransaction. */

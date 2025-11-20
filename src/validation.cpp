@@ -569,6 +569,10 @@ bool CheckTransaction(const CTransaction& tx, CValidationState &state, bool fChe
                 return state.DoS(10, false, REJECT_INVALID, "bad-txns-prevout-null");
     }
 
+    if (!tx.HasDilithiumSignatures()) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-txns-requires-dilithium");
+    }
+
     return true;
 }
 
