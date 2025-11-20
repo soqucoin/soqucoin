@@ -329,6 +329,7 @@ libsoqucoin_consensus_a_SOURCES = \
   script/script_error.h \
   crypto/binius/commitment.cpp \
   crypto/binius/verifier.cpp \
+  crypto/sangria/fold.cpp \
   serialize.h \
   tinyformat.h \
   uint256.cpp \
