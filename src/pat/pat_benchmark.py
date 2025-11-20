@@ -100,7 +100,8 @@ def keygen_worker_dilithium(algorithm: str) -> Tuple[bytes, bytes]:
     if algorithm == 'falcon':
         return SimplifiedFalcon.keygen()
     else:  # Default to Dilithium
-        return Dilithium.keygen()
+        public_key, private_key = Dilithium.keygen()
+        return private_key, public_key
 
 def signature_worker_dilithium(args: Tuple[bytes, bytes]) -> bytes:
     """Module-level worker function for signature generation.
@@ -146,13 +147,13 @@ class SimplifiedFalcon:
         """Generate simplified Falcon-like keypair for demonstration.
 
         Returns:
-            Tuple of (public_key, private_key) as bytes.
+            Tuple of (private_key, public_key) as bytes.
 
         Security Note: Uses os.urandom() for entropy - suitable for demos only.
         """
         priv_key = os.urandom(32)  # Avoid raw bytes in production; use secure random
         pub_key = hashlib.sha256(priv_key).digest()
-        return pub_key, priv_key
+        return priv_key, pub_key
 
     @staticmethod
     def sign(private_key: bytes, message: bytes) -> bytes:
@@ -380,7 +381,7 @@ class PatAggregator:
         """Generate Dilithium ML-DSA-44 keypair.
 
         Returns:
-            Tuple of (public_key, private_key) as bytes
+            Tuple of (private_key, public_key) as bytes
 
         Raises:
             PatError: If key generation fails
@@ -389,7 +390,8 @@ class PatAggregator:
             C++ equiv: PQClean Dilithium key generation
         """
         try:
-            return Dilithium.keygen()
+            public_key, private_key = Dilithium.keygen()
+            return private_key, public_key
         except Exception as e:
             raise PatError(f"Dilithium keypair generation failed: {e}", "VALIDATION_ERROR")
 
@@ -1472,7 +1474,7 @@ wallet=pat_test_wallet
             # Generate keypairs and signatures
             print(f"🐕 Generating {num_signatures} PAT signatures...")
             all_keypairs = aggregator.generate_keypairs_parallel(num_signatures, 'dilithium', 2)
-            private_keys = [sk for pk, sk in all_keypairs]
+            private_keys = [private_key for private_key, public_key in all_keypairs]
             all_signatures = aggregator.generate_signatures_parallel(private_keys, message, 2)
 
             # Aggregate signatures
@@ -2111,7 +2113,7 @@ class SecuritySimulator:
         # Generate legitimate signatures for testing
         message = b"Legitimate transaction message"
         keypairs = self.aggregator.generate_keypairs_parallel(num_signatures, 'dilithium', 2)
-        private_keys = [sk for pk, sk in keypairs]
+        private_keys = [private_key for private_key, public_key in keypairs]
         signatures = self.aggregator.generate_signatures_parallel(private_keys, message, 2)
         aggregated_sig = self.aggregator.aggregate_signatures(signatures, strategy)
 
@@ -2334,7 +2336,7 @@ class SecuritySimulator:
         # Generate test signatures
         message = b"Test message for minority attack"
         keypairs = self.aggregator.generate_keypairs_parallel(total_signatures, 'dilithium', 2)
-        private_keys = [sk for pk, sk in keypairs]
+        private_keys = [private_key for private_key, public_key in keypairs]
 
         # Create legitimate signatures
         signatures = self.aggregator.generate_signatures_parallel(private_keys, message, 2)
@@ -2643,10 +2645,10 @@ class PatBenchmark:
             chunk_keypairs = keypairs[i:i + chunk_size]
 
             # Signing for this chunk with memory tracking
-            for pk, sk in chunk_keypairs:
+            for private_key, public_key in chunk_keypairs:
                 start = timeit.default_timer()
                 sig, memory_used = self._track_memory_usage(
-                    self.aggregator.sign_dilithium, sk, message
+                    self.aggregator.sign_dilithium, private_key, message
                 )
                 sign_times.append(timeit.default_timer() - start)
                 signatures.append(sig)
@@ -2684,10 +2686,10 @@ class PatBenchmark:
         test_pairs = keypairs[:test_count]
         test_sigs = signatures[:test_count]
 
-        for (pk, sk), sig in zip(test_pairs, test_sigs):
+        for (private_key, public_key), sig in zip(test_pairs, test_sigs):
             start = timeit.default_timer()
             _, memory_used = self._track_memory_usage(
-                self.aggregator.verify_dilithium, pk, message, sig
+                self.aggregator.verify_dilithium, public_key, message, sig
             )
             verify_times.append(timeit.default_timer() - start)
             peak_memory_verification = max(peak_memory_verification, memory_used)
@@ -2705,7 +2707,7 @@ class PatBenchmark:
         test_pubkeys = keypairs[:test_count]
 
         # Extract public keys only
-        test_pubkeys_only = [pk for pk, sk in test_pubkeys]
+        test_pubkeys_only = [public_key for private_key, public_key in test_pubkeys]
 
         for _ in range(5):  # Multiple runs for averaging
             start = timeit.default_timer()
@@ -2749,7 +2751,7 @@ class PatBenchmark:
         message = b"Dogecoin PAT Test Message"
 
         # Extract private keys for parallel signing
-        private_keys = [sk for pk, sk in keypairs]
+        private_keys = [private_key for private_key, public_key in keypairs]
 
         # Sign messages in parallel
         sign_start = timeit.default_timer()
@@ -2768,9 +2770,9 @@ class PatBenchmark:
         test_sigs = signatures[:test_count]
 
         verify_start = timeit.default_timer()
-        for (pk, sk), sig in zip(test_keypairs, test_sigs):
+        for (private_key, public_key), sig in zip(test_keypairs, test_sigs):
             start = timeit.default_timer()
-            self.aggregator.verify_dilithium(pk, message, sig)
+            self.aggregator.verify_dilithium(public_key, message, sig)
             verify_times.append(timeit.default_timer() - start)
         verify_time = timeit.default_timer() - verify_start
 
@@ -3169,7 +3171,7 @@ class PatBenchmark:
 
             # Simulate PAT operations to measure time
             keypairs = self.aggregator.generate_keypairs_parallel(num_signatures, 'dilithium', 2)
-            private_keys = [sk for pk, sk in keypairs]
+            private_keys = [private_key for private_key, public_key in keypairs]
             message = b"Energy consumption test for PAT operations"
 
             signatures = self.aggregator.generate_signatures_parallel(private_keys, message, 2)

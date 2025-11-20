@@ -13,6 +13,14 @@ The first Scrypt-PoW chain with NIST-standard post-quantum signatures and consta
 **Mainnet genesis: March 1, 2026**
 </h1>
 
+## Current Status (November 20, 2025)
+
+- ML-DSA-44 fully integrated and mining real PQ blocks in regtest
+- PAT Merkle-batch/logarithmic achieve 9,661× commitment-size reduction
+- Batch verification in 2–3 µs (logarithmic) on M4
+- Sangria/Binius recursive verifier scaffolded and ready for final circuit integration (Q1 2026)
+- Mainnet genesis target: March 1, 2026
+
 **IMPORTANT: Starting August 2024, the `master` branch has become the primary
 integration branch and has become unstable. Please check out a tagged version
 before compiling production binaries.**
