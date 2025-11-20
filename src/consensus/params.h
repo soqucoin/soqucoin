@@ -80,6 +80,7 @@ struct Params {
 
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;
+    int32_t dilithiumOnlyHeight;
 
     /** Auxpow parameters */
     int32_t nAuxpowChainId;

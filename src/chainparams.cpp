@@ -118,7 +118,9 @@ public:
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
 
         // By default assume that the signatures in ancestors of this block are valid.
-        consensus.defaultAssumeValid = uint256S("0xe7d4577405223918491477db725a393bcfc349d8ee63b0a4fde23cbfbfd81dea"); // 5,050,000
+        consensus.defaultAssumeValid = uint256S("0x00");
+        consensus.dilithiumOnlyHeight = 0;
+        consensus.dilithiumOnlyHeight = 0;
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!
@@ -278,7 +280,8 @@ public:
         consensus.nMinimumChainWork = uint256S("0x00000000000000000000000000000000000000000000000000540f2f62ff9a26"); // 5,900,000
 
         // By default assume that the signatures in ancestors of this block are valid.
-        consensus.defaultAssumeValid = uint256S("0x199bea6a442310589cbb50a193a30b097c228bd5a0f21af21e4e53dd57c382d3"); // 5,900,000
+        consensus.defaultAssumeValid = uint256S("0x00");
+        consensus.dilithiumOnlyHeight = 0;
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!
@@ -294,18 +297,21 @@ public:
         digishieldConsensus.fSimplifiedRewards = true;
         digishieldConsensus.fPowAllowMinDifficultyBlocks = false;
         digishieldConsensus.nCoinbaseMaturity = 240;
+        digishieldConsensus.dilithiumOnlyHeight = 0;
 
         // Blocks 157500 - 158099 are Digishield with minimum difficulty on all blocks
         minDifficultyConsensus = digishieldConsensus;
         minDifficultyConsensus.nHeightEffective = 157500;
         minDifficultyConsensus.fPowAllowDigishieldMinDifficultyBlocks = true;
         minDifficultyConsensus.fPowAllowMinDifficultyBlocks = true;
+        minDifficultyConsensus.dilithiumOnlyHeight = 0;
 
         // Enable AuxPoW at 158100
         auxpowConsensus = minDifficultyConsensus;
         auxpowConsensus.nHeightEffective = 158100;
         auxpowConsensus.fPowAllowDigishieldMinDifficultyBlocks = true;
         auxpowConsensus.fAllowLegacyBlocks = false;
+        auxpowConsensus.dilithiumOnlyHeight = 0;
 
         // Assemble the binary search tree of parameters
         pConsensusRoot = &digishieldConsensus;
@@ -438,10 +444,12 @@ public:
         digishieldConsensus.nHeightEffective = 10;
         digishieldConsensus.nPowTargetTimespan = 1; // regtest: also retarget every second in digishield mode, for conformity
         digishieldConsensus.fDigishieldDifficultyCalculation = true;
+        digishieldConsensus.dilithiumOnlyHeight = 0;
 
         auxpowConsensus = digishieldConsensus;
         auxpowConsensus.fAllowLegacyBlocks = false;
         auxpowConsensus.nHeightEffective = 20;
+        auxpowConsensus.dilithiumOnlyHeight = 0;
 
         // Assemble the binary search tree of parameters
         digishieldConsensus.pLeft = &consensus;

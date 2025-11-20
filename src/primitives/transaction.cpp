@@ -6,6 +6,7 @@
 #include "primitives/transaction.h"
 
 #include "hash.h"
+#include "script/script.h"
 #include "tinyformat.h"
 #include "utilstrencodings.h"
 
@@ -139,6 +140,40 @@ std::string CTransaction::ToString() const
     for (unsigned int i = 0; i < vout.size(); i++)
         str += "    " + vout[i].ToString() + "\n";
     return str;
+}
+
+bool CTransaction::HasDilithiumSignatures() const
+{
+    if (IsCoinBase()) {
+        return true;
+    }
+
+    for (const auto& txin : vin) {
+        const CScript& scriptSig = txin.scriptSig;
+        if (scriptSig.empty()) {
+            return false;
+        }
+
+        opcodetype opcode;
+        std::vector<unsigned char> data;
+        std::vector<unsigned char> lastPush;
+        CScript::const_iterator pc = scriptSig.begin();
+
+        while (pc != scriptSig.end()) {
+            if (!scriptSig.GetOp(pc, opcode, data)) {
+                return false;
+            }
+            if (opcode <= OP_PUSHDATA4) {
+                lastPush = data;
+            }
+        }
+
+        if (lastPush.empty() || lastPush[0] != 0x00) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 int64_t GetTransactionWeight(const CTransaction& tx)
