@@ -149,26 +149,33 @@ bool CTransaction::HasDilithiumSignatures() const
     }
 
     for (const auto& txin : vin) {
-        const CScript& scriptSig = txin.scriptSig;
-        if (scriptSig.empty()) {
-            return false;
+        const std::vector<unsigned char>* pk_blob = nullptr;
+        std::vector<unsigned char> scriptSigLastPush;
+
+        if (!txin.scriptWitness.IsNull() && !txin.scriptWitness.stack.empty()) {
+            pk_blob = &txin.scriptWitness.stack.back();
+        } else {
+            const CScript& scriptSig = txin.scriptSig;
+            opcodetype opcode;
+            std::vector<unsigned char> data;
+            CScript::const_iterator pc = scriptSig.begin();
+
+            while (pc != scriptSig.end()) {
+                if (!scriptSig.GetOp(pc, opcode, data)) {
+                    return false;
+                }
+                if (opcode <= OP_PUSHDATA4) {
+                    scriptSigLastPush = data;
+                }
+            }
+
+            if (!scriptSigLastPush.empty()) {
+                pk_blob = &scriptSigLastPush;
+            }
         }
 
-        opcodetype opcode;
-        std::vector<unsigned char> data;
-        std::vector<unsigned char> lastPush;
-        CScript::const_iterator pc = scriptSig.begin();
-
-        while (pc != scriptSig.end()) {
-            if (!scriptSig.GetOp(pc, opcode, data)) {
-                return false;
-            }
-            if (opcode <= OP_PUSHDATA4) {
-                lastPush = data;
-            }
-        }
-
-        if (lastPush.empty() || lastPush[0] != 0x00) {
+        // NIST FIPS 204 Table 3 specifies that ML-DSA-44 public keys begin with 0x00.
+        if (pk_blob == nullptr || pk_blob->empty() || (*pk_blob)[0] != 0x00) {
             return false;
         }
     }
