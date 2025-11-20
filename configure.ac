@@ -87,6 +87,8 @@ else
   AX_CXX_COMPILE_STDCXX([11], [noext], [mandatory], [nodefault])
 fi
 
+AX_CXX_COMPILE_STDCXX([14], [noext], [mandatory])
+
 
 dnl Check if -latomic is required for <std::atomic>
 CHECK_ATOMIC
