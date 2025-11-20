@@ -1,0 +1,51 @@
+{
+  "metadata": {
+    "signatures": 256
+  },
+  "ECDSA": {
+    "avg_sign_ms": 0.7179249078035355,
+    "avg_verify_ms": 0.5073454231023788,
+    "size_bytes": 26628,
+    "compression_ratio": 1.0
+  },
+  "Dilithium": {
+    "avg_sign_ms": 16.848151572048664,
+    "avg_verify_ms": 3.498104400932789,
+    "size_bytes": 627968,
+    "compression_ratio": 1.0
+  },
+  "PAT": {
+    "threshold": {
+      "avg_sign_ms": 18.281415541423485,
+      "avg_verify_ms": 3.484529936686158,
+      "avg_batch_verify_ms": 0.0030999071896076202,
+      "total_size_bytes": 627968,
+      "compressed_size_bytes": 69,
+      "compression_ratio": 9100.985507246376
+    },
+    "merkle_batch": {
+      "avg_sign_ms": 18.551332872448256,
+      "avg_verify_ms": 3.488707449287176,
+      "avg_batch_verify_ms": 0.7715667597949505,
+      "total_size_bytes": 627968,
+      "compressed_size_bytes": 65,
+      "compression_ratio": 9661.046153846153
+    },
+    "logarithmic": {
+      "avg_sign_ms": 17.935020327058737,
+      "avg_verify_ms": 3.481305781751871,
+      "avg_batch_verify_ms": 0.0022831372916698456,
+      "total_size_bytes": 627968,
+      "compressed_size_bytes": 69,
+      "compression_ratio": 9100.985507246376
+    },
+    "stacked_multi": {
+      "avg_sign_ms": 17.56875634600874,
+      "avg_verify_ms": 3.483088258653879,
+      "avg_batch_verify_ms": 34.653333108872175,
+      "total_size_bytes": 627968,
+      "compressed_size_bytes": 620577,
+      "compression_ratio": 1.011909883866144
+    }
+  }
+}
