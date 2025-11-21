@@ -279,6 +279,8 @@ crypto_libsoqucoin_crypto_a_SOURCES = \
   crypto/chacha20.h \
   crypto/chacha20.cpp \
   crypto/common.h \
+  crypto/binius64/field.cpp \
+  crypto/binius64/field.h \
   crypto/hmac_sha256.cpp \
   crypto/hmac_sha256.h \
   crypto/hmac_sha512.cpp \
@@ -330,6 +332,10 @@ libsoqucoin_consensus_a_SOURCES = \
   script/script_error.h \
   crypto/binius/commitment.cpp \
   crypto/binius/verifier.cpp \
+  crypto/latticefold/verifier.cpp \
+  crypto/latticefold/verifier.h \
+  crypto/pat/logarithmic.cpp \
+  crypto/pat/logarithmic.h \
   crypto/sangria/fold.cpp \
   serialize.h \
   tinyformat.h \

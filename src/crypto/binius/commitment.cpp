@@ -1,4 +1,4 @@
-#include "binius/commitment.h"
+#include "crypto/binius/commitment.h"
 
 #include <algorithm>
 
