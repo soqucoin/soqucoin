@@ -1,0 +1,31 @@
+#include "script/script.h"
+#include "uint256.h"
+#include <vector>
+
+namespace pat
+{
+
+typedef std::vector<unsigned char> CValType;
+
+struct LogarithmicProof {
+    uint256 merkle_root;
+    uint256 pk_xor; // XOR of all 32-byte ρ prefixes
+    uint32_t count; // number of signatures
+    // 72 bytes total
+};
+
+bool CreateLogarithmicProof(
+    const std::vector<CValType>& vSignatures,
+    const std::vector<CValType>& vPublicKeys,
+    const std::vector<CValType>& vMessages,
+    CValType& vchProofOut,
+    std::vector<CValType>& vSiblingPathOut); // for witness
+
+bool VerifyLogarithmicProof(
+    const CValType& vchProof,
+    const std::vector<CValType>& vSiblingPath,
+    const std::vector<CValType>& vClaimedSigs,
+    const std::vector<CValType>& vClaimedPks,
+    const std::vector<CValType>& vClaimedMsgs);
+
+} // namespace pat

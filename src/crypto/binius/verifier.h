@@ -1,6 +1,6 @@
 #pragma once
 
-#include "binius/commitment.h"
+#include "crypto/binius/commitment.h"
 #include "pat/types.h"
 
 namespace sangria {

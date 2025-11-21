@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "binius/commitment.h"
+#include "crypto/binius/commitment.h"
 
 namespace binius {
 

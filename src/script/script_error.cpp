@@ -25,6 +25,8 @@ const char* ScriptErrorString(const ScriptError serror)
             return "Script failed an OP_NUMEQUALVERIFY operation";
         case SCRIPT_ERR_BATCH_VERIFICATION_FAILED:
             return "Batch verification failed";
+        case SCRIPT_ERR_PAT_VERIFICATION_FAILED:
+            return "PAT batch verification failed";
         case SCRIPT_ERR_SCRIPT_SIZE:
             return "Script is too big";
         case SCRIPT_ERR_PUSH_SIZE:

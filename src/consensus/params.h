@@ -12,14 +12,16 @@
 #include <map>
 #include <string>
 
-namespace Consensus {
-
-enum DeploymentPos
+namespace Consensus
 {
+
+enum DeploymentPos {
     DEPLOYMENT_TESTDUMMY,
-    DEPLOYMENT_CSV, // Deployment of BIP68, BIP112, and BIP113.
+    DEPLOYMENT_CSV,    // Deployment of BIP68, BIP112, and BIP113.
     DEPLOYMENT_SEGWIT, // Deployment of BIP141, BIP143, and BIP147.
     DEPLOYMENT_CHECKBATCHSIG,
+    DEPLOYMENT_CHECKPATAGG,
+    DEPLOYMENT_LATTICEFOLD,
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };
@@ -76,7 +78,7 @@ struct Params {
     /** Soqucoin-specific parameters */
     bool fDigishieldDifficultyCalculation;
     bool fPowAllowDigishieldMinDifficultyBlocks; // Allow minimum difficulty blocks where a retarget would normally occur
-    bool fSimplifiedRewards; // Use block height derived rewards rather than previous block hash derived
+    bool fSimplifiedRewards;                     // Use block height derived rewards rather than previous block hash derived
 
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;
@@ -88,10 +90,10 @@ struct Params {
     bool fAllowLegacyBlocks;
 
     /** Height-aware consensus parameters */
-    uint32_t nHeightEffective; // When these parameters come into use
-    struct Params *pLeft = nullptr;      // Left hand branch
-    struct Params *pRight = nullptr;     // Right hand branch
-    const Consensus::Params *GetConsensus(uint32_t nTargetHeight) const;
+    uint32_t nHeightEffective;       // When these parameters come into use
+    struct Params* pLeft = nullptr;  // Left hand branch
+    struct Params* pRight = nullptr; // Right hand branch
+    const Consensus::Params* GetConsensus(uint32_t nTargetHeight) const;
 };
 } // namespace Consensus
 
