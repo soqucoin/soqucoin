@@ -231,3 +231,22 @@ endif
 	 echo "};"; \
 	} > "$@.new" && mv -f "$@.new" "$@"
 	@echo "Generated $@"
+
+# Fuzz binary
+noinst_PROGRAMS += test/fuzz/fuzz
+test_fuzz_fuzz_SOURCES = \
+  test/fuzz/Fuzz.cpp \
+  test/fuzz/latticefold_verifier.cpp
+test_fuzz_fuzz_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+test_fuzz_fuzz_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+test_fuzz_fuzz_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+test_fuzz_fuzz_LDADD = \
+  $(LIBUNIVALUE) \
+  $(LIBSOQUCOIN_SERVER) \
+  $(LIBSOQUCOIN_COMMON) \
+  $(LIBSOQUCOIN_UTIL) \
+  $(LIBSOQUCOIN_CONSENSUS) \
+  $(LIBSOQUCOIN_CRYPTO) \
+  $(LIBSECP256K1) \
+  $(BOOST_LIBS) \
+  $(CRYPTO_LIBS)

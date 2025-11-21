@@ -7,7 +7,6 @@
 
 #include <cstdint>
 #include <cstdlib>
-#include <span>
 
 //! The Keccak-f[1600] transform.
 void KeccakF(uint64_t (&st)[25]);
@@ -32,8 +31,8 @@ public:
     static constexpr size_t OUTPUT_SIZE = 32;
 
     SHA3_256() = default;
-    SHA3_256& Write(std::span<const unsigned char> data);
-    SHA3_256& Finalize(std::span<unsigned char> output);
+    SHA3_256& Write(const unsigned char* data, size_t len);
+    SHA3_256& Finalize(unsigned char output[OUTPUT_SIZE]);
     SHA3_256& Reset();
 };
 

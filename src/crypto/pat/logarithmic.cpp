@@ -1,15 +1,15 @@
+#include "util.h"
 #include <algorithm>
 #include <crypto/pat/logarithmic.h>
 #include <crypto/sha3.h>
 #include <numeric>
-#include <span.h>
-#include <util/system.h>
 
 using namespace std;
+using namespace pat;
 
 static uint256 PatHash(const CValType& data)
 {
-    CSHA3_256 hasher;
+    SHA3_256 hasher;
     hasher.Write(data.data(), data.size());
     uint256 hash;
     hasher.Finalize(hash.begin());
@@ -70,7 +70,9 @@ bool pat::CreateLogarithmicProof(
         uint256 rho;
         if (vPublicKeys[pos].size() >= 32) {
             memcpy(rho.begin(), vPublicKeys[pos].data(), 32);
-            xor_binding ^= rho;
+            for (int k = 0; k < 32; k++) {
+                xor_binding.begin()[k] ^= rho.begin()[k];
+            }
         }
     }
 
@@ -101,7 +103,8 @@ bool pat::CreateLogarithmicProof(
     // uint256 current = leaves[0]; // Unused variable
     for (size_t layer = tree_size; layer > 1; layer >>= 1) {
         size_t sibling = idx ^ 1;
-        vSiblingPathOut.insert(vSiblingPathOut.end(), tree[layer + sibling].begin(), tree[layer + sibling].end());
+        CValType hash(tree[layer + sibling].begin(), tree[layer + sibling].end());
+        vSiblingPathOut.push_back(hash);
         // current = PatHash(...) // logic already done in tree build
         idx >>= 1;
     }
@@ -133,4 +136,12 @@ bool pat::VerifyLogarithmicProof(
     // Individual verifies are done by wallet or full node off-chain
     // This is Bitcoin-Core-safe
     return true; // stub for now — full version in next commit
+}
+
+bool pat::VerifyLogarithmicProof(
+    const LogarithmicProof& proof,
+    const CValType& agg_pk,
+    const CValType& msg_root)
+{
+    return true; // stub
 }

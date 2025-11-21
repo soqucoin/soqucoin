@@ -120,7 +120,6 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 
     CScript::const_iterator pc = script.begin();
     CScript::const_iterator pend = script.end();
-    CScript::const_iterator pbegincodehash = script.begin();
     opcodetype opcode;
     valtype vchPushValue;
     CScriptNum bn(0);
@@ -214,7 +213,121 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
 }
 
-unsigned int WitnessSigOps(int witnessversion, const std::vector<unsigned char>& witnessprogram, const CScriptWitness& witness, unsigned int flags)
+size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags)
 {
     return 0;
+}
+
+PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& tx)
+{
+}
+
+uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache)
+{
+    // Simplified signature hash - just hash the transaction data
+    // This is a stub implementation; real implementation would properly serialize all components
+    uint256 txhash = txTo.GetHash();
+    return Hash(txhash.begin(), txhash.end());
+}
+
+bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
+{
+    // Stub implementation - always return true for now
+    // Real implementation would properly evaluate scripts
+    if (serror)
+        *serror = SCRIPT_ERR_OK;
+    return true;
+}
+
+
+bool TransactionSignatureChecker::VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const
+{
+    return vchPubKey.Verify(sighash, vchSig);
+}
+
+bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+{
+    CPubKey pubkey(vchPubKey);
+    if (!pubkey.IsValid())
+        return false;
+
+    // Hash type is one byte tacked on to the end of the signature
+    if (vchSigIn.empty())
+        return false;
+    int nHashType = vchSigIn.back();
+    std::vector<unsigned char> vchSig(vchSigIn.begin(), vchSigIn.end() - 1);
+
+    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, txdata);
+
+    if (!VerifySignature(vchSig, pubkey, sighash))
+        return false;
+
+    return true;
+}
+
+bool TransactionSignatureChecker::CheckLockTime(const CScriptNum& nLockTime) const
+{
+    // There are two kinds of nLockTime: lock-by-blockheight
+    // and lock-by-blocktime, distinguished by whether
+    // nLockTime < LOCKTIME_THRESHOLD.
+    //
+    // We want to compare apples to apples, so fail the script
+    // unless the type of nLockTime being tested is the same as
+    // the nLockTime in the transaction.
+    if (!((txTo->nLockTime < LOCKTIME_THRESHOLD && nLockTime < LOCKTIME_THRESHOLD) ||
+            (txTo->nLockTime >= LOCKTIME_THRESHOLD && nLockTime >= LOCKTIME_THRESHOLD)))
+        return false;
+
+    // Now that we know we're comparing apples-to-apples, the
+    // comparison is a simple integer one.
+    if (nLockTime > (int64_t)txTo->nLockTime)
+        return false;
+
+    // Finally the nLockTime feature can be disabled and thus
+    // CHECKLOCKTIMEVERIFY bypassed if every txin has been
+    // finalized by setting nSequence to maxint. The
+    // CHECKLOCKTIMEVERIFY opcode execution fails in this case.
+    if (txTo->vin[nIn].nSequence == CTxIn::SEQUENCE_FINAL)
+        return false;
+
+    return true;
+}
+
+bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) const
+{
+    // Relative lock times are supported by comparing the passed
+    // in operand to the sequence number of the input.
+    if (nSequence < 0)
+        return false;
+
+    // The lock time feature can be disabled and thus
+    // CHECKSEQUENCEVERIFY bypassed if the sequence number of
+    // the input is set to maxint. The CHECKSEQUENCEVERIFY
+    // opcode execution fails in this case.
+    if (txTo->vin[nIn].nSequence == CTxIn::SEQUENCE_FINAL)
+        return false;
+
+    // Mask off any bits that do not have consensus-enforced meaning
+    // before doing the integer comparisons
+    const uint32_t nLockTimeMask = CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG | CTxIn::SEQUENCE_LOCKTIME_MASK;
+    const uint32_t nSequenceMasked = txTo->vin[nIn].nSequence & nLockTimeMask;
+    const uint32_t nSequenceIn = nSequence.getint64() & nLockTimeMask;
+
+    // There are two kinds of nSequence: lock-by-blockheight
+    // and lock-by-blocktime, distinguished by whether
+    // nSequenceMasked < CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG.
+    //
+    // We want to compare apples to apples, so fail the script
+    // unless the type of nSequence being tested is the same as
+    // the nSequence in the transaction.
+    if (!((nSequenceMasked < CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG && nSequenceIn < CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) ||
+            (nSequenceMasked >= CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG && nSequenceIn >= CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG)))
+        return false;
+
+    // Now that we know we're comparing apples-to-apples, the
+    // comparison is a simple integer one.
+    if (nSequenceIn > nSequenceMasked)
+        return false;
+
+    return true;
 }

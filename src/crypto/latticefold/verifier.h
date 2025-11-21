@@ -7,12 +7,14 @@
 
 #include "crypto/binius64/field.h"
 #include "script/script.h"
-#include "span.h"
+
 #include "uint256.h"
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <vector>
+
+using valtype = std::vector<unsigned char>;
 
 // LatticeFold+ verifier (October 2025 revision, ePrint 2025/247)
 // This is the exact 8-round non-interactive verifier from Appendix C of the current revision

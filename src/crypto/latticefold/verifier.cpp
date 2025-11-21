@@ -1,4 +1,3 @@
-```c++
 // Copyright (c) 2025 The Soqucoin Core developers
 // Distributed under the MIT software license
 
@@ -6,18 +5,17 @@
 #include "crypto/common.h"
 #include "crypto/sha256.h"
 #include "script/interpreter.h" // for ScriptError
-#include "span.h"
-#include "util/strencodings.h" // for HexStr
+#include "utilstrencodings.h"   // for HexStr
 #include <iostream>
 
-    // Goldilocks field constants and operations - REMOVED
-    // constexpr uint64_t LatticeFoldVerifier::Fp::P;
+// Goldilocks field constants and operations - REMOVED
+// constexpr uint64_t LatticeFoldVerifier::Fp::P;
 
-    // Operators are now handled by Binius64 class
+// Operators are now handled by Binius64 class
 
-    // Fiat-Shamir sponge (SHA-256 based, exactly as in Appendix C)
-    LatticeFoldVerifier::Fp
-    LatticeFoldVerifier::FiatShamirChallenge(const std::vector<LatticeFoldVerifier::Fp>& transcript)
+// Fiat-Shamir sponge (SHA-256 based, exactly as in Appendix C)
+LatticeFoldVerifier::Fp
+LatticeFoldVerifier::FiatShamirChallenge(const std::vector<LatticeFoldVerifier::Fp>& transcript)
 {
     CSHA256 hasher;
     for (const auto& elem : transcript) {
@@ -86,8 +84,8 @@ bool LatticeFoldVerifier::VerifyDilithiumBatch(const BatchInstance& instance, co
     // Final Fiat-Shamir seed check (prevents malleability)
     Fp final_seed = FiatShamirChallenge(transcript);
     // Check if final_seed matches stored seed (first 128 bits)
-    uint64_t seed_lo = ReadLE64(proof.fiat_shamir_seed.data());
-    uint64_t seed_hi = ReadLE64(proof.fiat_shamir_seed.data() + 8);
+    uint64_t seed_lo = ReadLE64(proof.fiat_shamir_seed.begin());
+    uint64_t seed_hi = ReadLE64(proof.fiat_shamir_seed.begin() + 8);
     if (final_seed.limbs[0] != seed_lo || final_seed.limbs[1] != seed_hi) return false;
 
     return true;
@@ -213,4 +211,3 @@ bool EvalCheckFoldProof(const valtype& vchProof) noexcept
 
     return LatticeFoldVerifier::VerifyDilithiumBatch(instance, proof);
 }
-```

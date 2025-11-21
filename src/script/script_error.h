@@ -6,8 +6,7 @@
 #ifndef BITCOIN_SCRIPT_SCRIPT_ERROR_H
 #define BITCOIN_SCRIPT_SCRIPT_ERROR_H
 
-typedef enum ScriptError_t
-{
+typedef enum ScriptError_t {
     SCRIPT_ERR_OK = 0,
     SCRIPT_ERR_UNKNOWN_ERROR,
     SCRIPT_ERR_EVAL_FALSE,
@@ -29,6 +28,7 @@ typedef enum ScriptError_t
     SCRIPT_ERR_NUMEQUALVERIFY,
     SCRIPT_ERR_BATCH_VERIFICATION_FAILED,
     SCRIPT_ERR_PAT_VERIFICATION_FAILED,
+    SCRIPT_ERR_CHECKFOLDPROOF_FAILED,
 
     /* Logical/Format/Canonical errors */
     SCRIPT_ERR_BAD_OPCODE,
