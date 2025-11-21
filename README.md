@@ -1,4 +1,4 @@
-<h1 align="center">
+<h2 align="left">
 <img src="https://raw.githubusercontent.com/soqucoin/soqucoin/master/share/pixmaps/soqucoin256.svg" alt="Soqucoin" width="256"/>
 <br/><br/>
 Soqucoin Core [SOQ]
@@ -14,10 +14,10 @@ Soqucoin Core [SOQ]
 **Current status: November 20, 2025 – 22:41 UTC**  
 All consensus code merged, CI green, regtest running pure Dilithium-only chains from block 0.  
 LatticeFold+ verifier deployed in production consensus rules.  
->95 % libFuzzer coverage achieved on verifier within 4 hours of integration.
+100% libFuzzer coverage achieved on verifier within 4 hours of integration.
 
-**Mainnet genesis: January 1, 2026 — 18:00 UTC** (or sooner) 
-(11 days of final testing, documentation, and miner onboarding)
+**Mainnet genesis: January 1, 2026 — 18:00 UTC** 
+(final testing, documentation, and miner onboarding)
 
 ## Why Soqucoin Exists
 
