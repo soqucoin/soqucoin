@@ -3,6 +3,7 @@
 // Distributed under the MIT software license
 
 #include "crypto/latticefold/verifier.h"
+#include "crypto/common.h"
 #include "crypto/sha256.h"
 #include "script/interpreter.h" // for ScriptError
 #include "span.h"
