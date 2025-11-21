@@ -9,7 +9,10 @@
 #include "util.h"
 
 #include <set>
+#include <stdexcept>
 #include <stdint.h>
+#include <string>
+#include <vector>
 
 #include <boost/algorithm/string/case_conv.hpp> // for to_lower()
 #include <univalue.h>

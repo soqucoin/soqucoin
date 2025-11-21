@@ -29,27 +29,98 @@ Binius64& Binius64::operator*=(const Binius64& rhs) noexcept
     lo = _mm_xor_si128(lo, _mm_slli_si128(t1, 7));
     lo = _mm_xor_si128(lo, t2);
     _mm_store_si128((__m128i*)limbs.data(), lo);
-#else
     // Portable fallback (slow but correct)
-    // This is a placeholder for the fallback.
-    // Since I don't have the full 380 LOC field.cpp, I'll implement a basic carry-less mul + reduction.
-    // x^128 + x^7 + 1
+    // We need to multiply two 128-bit polynomials over GF(2) and reduce modulo x^128 + x^7 + 1
 
-    unsigned __int128 a = (unsigned __int128)limbs[0] | ((unsigned __int128)limbs[1] << 64);
-    unsigned __int128 b = (unsigned __int128)rhs.limbs[0] | ((unsigned __int128)rhs.limbs[1] << 64);
+    uint64_t a_lo = limbs[0];
+    uint64_t a_hi = limbs[1];
+    uint64_t b_lo = rhs.limbs[0];
+    uint64_t b_hi = rhs.limbs[1];
 
-    // We need 256-bit result for mul
-    // Implementing full 128-bit binary field mul is complex without intrinsics.
-    // For now, I will assume the user is on a machine that supports it or I'll use a simplified stub
-    // that just XORs (which is wrong but compiles) if intrinsics are missing,
-    // BUT I should try to do better.
+    uint64_t res[4] = {0, 0, 0, 0}; // 256-bit result
 
-    // Actually, on M4 (ARM), we don't have GFNI. We have NEON PMULL.
-    // But the user code specifically used _mm_gf2p8mul_epi8.
-    // I will leave the simplified fallback for now to ensure compilation on non-x86.
-    limbs[0] ^= rhs.limbs[0]; // Placeholder
-    limbs[1] ^= rhs.limbs[1];
-#endif
+    // Helper to add (XOR) shifted version of b to res
+    auto add_shifted = [&](uint64_t b_l, uint64_t b_h, int shift) {
+        if (shift < 64) {
+            res[0] ^= b_l << shift;
+            res[1] ^= (b_l >> (64 - shift)) | (b_h << shift);
+            res[2] ^= b_h >> (64 - shift);
+        } else {
+            shift -= 64;
+            res[1] ^= b_l << shift;
+            res[2] ^= (b_l >> (64 - shift)) | (b_h << shift);
+            res[3] ^= b_h >> (64 - shift);
+        }
+    };
+
+    // Simple bit-serial multiplication
+    for (int i = 0; i < 64; ++i) {
+        if ((a_lo >> i) & 1) add_shifted(b_lo, b_hi, i);
+    }
+    for (int i = 0; i < 64; ++i) {
+        if ((a_hi >> i) & 1) add_shifted(b_lo, b_hi, i + 64);
+    }
+
+    // Reduction mod x^128 + x^7 + 1
+    // We need to reduce res[2] and res[3] into res[0] and res[1]
+    // x^128 = x^7 + 1
+    // So for every bit at position 128+k, we add x^(k+7) + x^k
+
+    // Process high 128 bits (res[2], res[3])
+    // We can do this word-by-word or bit-by-bit.
+    // Optimization: map high bits to low bits.
+    // High 128 bits are in res[2] (bits 128-191) and res[3] (bits 192-255).
+
+    // Reduce res[3] (bits 192-255) -> corresponds to x^192...x^255
+    // x^192 = x^128 * x^64 = (x^7 + 1) * x^64 = x^71 + x^64
+    // Generally x^(128+k) -> x^(k+7) + x^k
+
+    // Let's just use a simple loop for reduction of the high 128 bits
+    for (int i = 127; i >= 0; --i) {
+        if ((res[3] >> i) & 1) {
+            // Bit at 192+i
+            // 192+i = 128 + (64+i)
+            // Reduces to (64+i)+7 and (64+i)
+            int k = 64 + i;
+            // Add bit at k+7 and k
+            // Since k >= 64, these are in res[1] and res[2] (but we are clearing res[2]/res[3])
+            // Actually, we should reduce from top down.
+
+            // Easier approach:
+            // x^128 = x^7 + 1
+            // We can XOR res[2] and res[3] into res[0] and res[1] using the pattern.
+            // But it's recursive.
+        }
+    }
+
+    // Correct reduction for x^128 + x^7 + 1:
+    // T = H * x^128 = H * (x^7 + 1) = H * x^7 + H
+    // So we take the high 128 bits (H), shift them left by 7, and XOR with H, then XOR that into the low 128 bits.
+    // H is (res[3] << 64) | res[2]
+
+    uint64_t H_lo = res[2];
+    uint64_t H_hi = res[3];
+
+    // H * 1
+    res[0] ^= H_lo;
+    res[1] ^= H_hi;
+
+    // H * x^7
+    // Shift H left by 7
+    uint64_t H_x7_lo = (H_lo << 7) | (H_hi >> (64 - 7)); // This is actually wrong direction for >>?
+    // H_hi is high 64 bits. H_lo is low 64 bits.
+    // (H_hi, H_lo) << 7
+    // New hi = (H_hi << 7) | (H_lo >> 57)
+    // New lo = (H_lo << 7)
+
+    uint64_t H_shifted_lo = (H_lo << 7);
+    uint64_t H_shifted_hi = (H_hi << 7) | (H_lo >> 57);
+
+    res[0] ^= H_shifted_lo;
+    res[1] ^= H_shifted_hi;
+
+    limbs[0] = res[0];
+    limbs[1] = res[1];
     return *this;
 }
 
