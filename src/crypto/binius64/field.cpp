@@ -29,6 +29,8 @@ Binius64& Binius64::operator*=(const Binius64& rhs) noexcept
     lo = _mm_xor_si128(lo, _mm_slli_si128(t1, 7));
     lo = _mm_xor_si128(lo, t2);
     _mm_store_si128((__m128i*)limbs.data(), lo);
+    return *this;
+#else
     // Portable fallback (slow but correct)
     // We need to multiply two 128-bit polynomials over GF(2) and reduce modulo x^128 + x^7 + 1
 
@@ -43,13 +45,21 @@ Binius64& Binius64::operator*=(const Binius64& rhs) noexcept
     auto add_shifted = [&](uint64_t b_l, uint64_t b_h, int shift) {
         if (shift < 64) {
             res[0] ^= b_l << shift;
-            res[1] ^= (b_l >> (64 - shift)) | (b_h << shift);
-            res[2] ^= b_h >> (64 - shift);
+            if (shift == 0) {
+                res[1] ^= b_h;
+            } else {
+                res[1] ^= (b_l >> (64 - shift)) | (b_h << shift);
+                res[2] ^= b_h >> (64 - shift);
+            }
         } else {
             shift -= 64;
             res[1] ^= b_l << shift;
-            res[2] ^= (b_l >> (64 - shift)) | (b_h << shift);
-            res[3] ^= b_h >> (64 - shift);
+            if (shift == 0) {
+                res[2] ^= b_h;
+            } else {
+                res[2] ^= (b_l >> (64 - shift)) | (b_h << shift);
+                res[3] ^= b_h >> (64 - shift);
+            }
         }
     };
 
@@ -122,6 +132,7 @@ Binius64& Binius64::operator*=(const Binius64& rhs) noexcept
     limbs[0] = res[0];
     limbs[1] = res[1];
     return *this;
+#endif
 }
 
 Binius64 Binius64::mont_inverse() const noexcept

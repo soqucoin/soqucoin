@@ -1,23 +1,32 @@
 # Security Policy
 
-## Supported versions
+## Supported Versions
 
-Currently, version 1.14.7 is supported on this repository.
+| Version | Supported          | Notes                                |
+| ------- | ------------------ | ------------------------------------ |
+| 0.21.2  | :white_check_mark: | Current release (post-quantum ready) |
+| ≤ 0.21.1| :x:                | Pre-PQ, do not use                   |
 
 ## Reporting a Vulnerability
 
-To report security issues, please send pgp encrypted email to the following
-developers:
+Soqucoin Core is the first production cryptocurrency with native Dilithium batching and recursive LatticeFold+ verification deployed on `main`. Security is therefore non-negotiable.
 
+To report a security vulnerability, please send a PGP-encrypted email to:
 
-| Name           | E-mail                  | PGP key fingerprint
-| :------------- | :---------------------- | :-------------------
-| Chromatic      | chromatic@wgz.org       | E343 7979 A840 E43F 7BB5 A579 2C48 E041 36C2 B580
-| Michi Lumin    | michi@luskwood.org      | 6DB4 66B1 7BD2 60F4 4950 F6AF 520B 53AE 29E9 8861
-| Patrick Lodder | patricklodder@proton.me | E324 9D4E E7F3 7C7F 8B30 676F 603E F476 B796 1EA7
+**Casey Wilson**  
+E-mail: dev@memecoin.doctor  
+PGP Key Fingerprint: (to be published on keyservers & website Dec 1 2025 – interim key available on request)
 
-Keys can be imported by running the following command:
+Alternatively, encrypted DMs are accepted via X/Twitter @memecoin_doctor (preferred for speed).
 
-```bash
-gpg --recv-keys "<fingerprint>"
-```
+We follow responsible disclosure:  
+- You will receive an acknowledgement within 12 hours.  
+- A fix will be developed on a private branch and shipped within 72 hours for critical consensus issues.  
+- Public disclosure occurs only after the fix is live on mainnet or a credible timeline is agreed.
+
+Bounties: Critical consensus bugs (remote chain split, inflation, verifiable preimage) are eligible for ≥ 5000 SOQ bounty at mainnet launch, paid from block 100 001 reward.
+
+Thank you for helping keep the first quantum-resistant PoW chain unbreakable.
+
+— Casey Wilson, Soqucoin Founder   
+November 20, 2025

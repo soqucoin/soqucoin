@@ -28,4 +28,9 @@ bool VerifyLogarithmicProof(
     const std::vector<CValType>& vClaimedPks,
     const std::vector<CValType>& vClaimedMsgs);
 
+bool VerifyLogarithmicProof(
+    const LogarithmicProof& proof,
+    const CValType& agg_pk,
+    const CValType& msg_root);
+
 } // namespace pat

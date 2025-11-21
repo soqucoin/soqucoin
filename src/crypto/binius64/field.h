@@ -4,7 +4,7 @@
 #ifndef SOQUCOIN_CRYPTO_BINIUS64_FIELD_H
 #define SOQUCOIN_CRYPTO_BINIUS64_FIELD_H
 
-#include "span.h"
+
 #include "uint256.h"
 #include <array>
 #include <cstdint>

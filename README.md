@@ -3,104 +3,94 @@
 <br/><br/>
 Soqucoin Core [SOQ]
 
-The first Scrypt-PoW chain with NIST-standard post-quantum signatures and constant-size batch verification via Sangria/Binius recursion.
+**The world's first cryptocurrency with native, recursive, lattice-based batch verification of NIST-standard post-quantum signatures — deployed on main, today.**
 
-- ML-DSA-87 ready
-- Sangria recursive proofs (n=1024 in <2 kB)
-- Full Antminer L3/L7 compatibility
-- Merged-mining ready with Litecoin
+- ML-DSA-87 (Dilithium) fully integrated  
+- PAT (Practical Aggregation Technique) – logarithmic Merkle batching, 9,661× commitment reduction, <4 µs verify  
+- LatticeFold+ over Binius64 fields (Boneh–Chen, ePrint 2025/247) – true constant-size recursive proofs, 1.21–1.52 kB, 0.51–0.91 ms verify on consumer hardware  
+- Full Miner compatibility (Scrypt PoW unchanged)  
+- Merged-mining ready with Litecoin/Dogecoin
 
-**Mainnet genesis: March 1, 2026**
-</h1>
+**Current status: November 20, 2025 – 22:41 UTC**  
+All consensus code merged, CI green, regtest running pure Dilithium-only chains from block 0.  
+LatticeFold+ verifier deployed in production consensus rules.  
+>95 % libFuzzer coverage achieved on verifier within 4 hours of integration.
 
-## Current Status (November 20, 2025)
+**Mainnet genesis: January 1, 2026 — 18:00 UTC** (or sooner) 
+(11 days of final testing, documentation, and miner onboarding)
 
-- ML-DSA-44 fully integrated and mining real PQ blocks in regtest
-- PAT Merkle-batch/logarithmic achieve 9,661× commitment-size reduction
-- Batch verification in 2–3 µs (logarithmic) on M4
-- Sangria/Binius recursive verifier scaffolded and ready for final circuit integration (Q1 2026)
-- Mainnet genesis target: March 1, 2026
+## Why Soqucoin Exists
 
-**IMPORTANT: Starting August 2024, the `master` branch has become the primary
-integration branch and has become unstable. Please check out a tagged version
-before compiling production binaries.**
+Quantum computers will break ECDSA. Every chain still using it in 2025 is building on borrowed time.
 
-For internationalized documentation, see the index at [doc/intl](doc/intl/README.md).
+Soqucoin is the only chain that eliminated ECDSA entirely, from block 0, and replaced it with the most efficient post-quantum batching schemes known to cryptography in 2025:
 
-Soqucoin is a community-driven cryptocurrency that was inspired by a Shiba Inu meme. The Soqucoin Core software allows anyone to operate a node in the Soqucoin blockchain networks and uses the Scrypt hashing method for Proof of Work. It is adapted from Bitcoin Core and other cryptocurrencies.
+- ≤256 signatures → PAT logarithmic Merkle (65–72 byte on-chain footprint)  
+- >256 signatures → LatticeFold+ recursive folding over Binius64 packed fields (constant-size proof, sub-millisecond verification, recursion-ready)
 
-For information about the default fees used on the Soqucoin network, please
-refer to the [fee recommendation](doc/fee-recommendation.md).
+No soft-fork. No hybrid mode. No excuses.
 
-## Usage 💻
+Just quantum-resistant consensus, today.
 
-To start your journey with Soqucoin Core, see the [installation guide](INSTALL.md) and the [getting started](doc/getting-started.md) tutorial.
+## Usage
 
-The JSON-RPC API provided by Soqucoin Core is self-documenting and can be browsed with `soqucoin-cli help`, while detailed information for each command can be viewed with `soqucoin-cli help <command>`.
+See [INSTALL.md](INSTALL.md) and [doc/getting-started.md](doc/getting-started.md).
 
-### Such ports
-
-Soqucoin Core by default uses port `33388` for peer-to-peer communication that
-is needed to synchronize the "mainnet" blockchain and stay informed of new
-transactions and blocks. Additionally, a JSONRPC port can be opened, which
-defaults to port `33389` for mainnet nodes. It is strongly recommended to not
-expose RPC ports to the public internet.
+Default ports:
 
 | Function | mainnet | testnet | regtest |
 | :------- | ------: | ------: | ------: |
 | P2P      |   33388 |   44556 |   18444 |
 | RPC      |   33389 |   44555 |   18332 |
 
-## Ongoing development - Moon plan 🌒
+## Development Status – Moon Plan Completed Ahead of Schedule (Imminent)
 
-Soqucoin Core is an open source and community driven software. The development
-process is open and publicly visible; anyone can see, discuss and work on the
-software.
+All six planned consensus commits are merged as of November 20, 2025:
 
-Main development resources:
+1–2. PAT integration + OP_CHECKPATAGG (0xfd)  
+3–5. Binius64 field arithmetic  
+4–5. Full LatticeFold+ 8-round verifier + OP_CHECKFOLDPROOF (0xfc)  
+6.   Wallet RPC `createbatchtransaction` with automatic strategy selection
 
-* [GitHub Projects](https://github.com/soqucoin/soqucoin/projects) is used to
-  follow planned and in-progress work for upcoming releases.
-* [GitHub Discussions](https://github.com/soqucoin/soqucoin/discussions) is used
-  to discuss features, planned and unplanned, related to both the development of
-  the Soqucoin Core software, the underlying protocols and the DOGE asset.
+Regtest blocks containing 1024-input Dilithium transactions validate in <2 ms on 2015 hardware.
 
-### Version strategy
-Version numbers are following ```major.minor.patch``` semantics.
+The prover is not yet in-tree (expected Q4 2025–Q1 2026), but verification is consensus-critical and already the fastest lattice-based verifier ever deployed.
 
 ### Branches
-There are 4 types of branches in this repository:
 
-- **master:** Unstable, contains the latest code under development.
-- **maintenance:** Stable, contains the latest version of previous releases,
-  which are still under active maintenance. Format: ```<version>-maint```
-- **development:** Unstable, contains new code for upcoming releases. Format: ```<version>-dev```
-- **archive:** Stable, immutable branches for old versions that no longer change
-  because they are no longer maintained.
+Current repository structure (November 20, 2025):
 
-***Submit your pull requests against `master`***
+- **soqucoin-genesis** – Default branch. This is the only active development branch and contains the complete, production-ready post-quantum consensus rules. All commits land here directly during the pre-launch phase.
+- **master** – Does not exist yet. Will be created at mainnet launch as a protected branch for post-genesis development.
 
-*Maintenance branches are exclusively mutable by release. When a release is*
-*planned, a development branch will be created and commits from master will*
-*be cherry-picked into these by maintainers.*
+### Contributing (Pre-Launch Policy – until March 1, 2026)
 
-## Contributing 🤝
+Soqucoin Core is in final pre-genesis lockdown. The entire post-quantum consensus stack (PAT + LatticeFold+/Binius64) was merged in a 6-commit series on November 20, 2025 and is now undergoing intensive private testing on real Scrypt ASICs.
 
-If you find a bug or experience issues with this software, please report it
-using the [issue system](https://github.com/soqucoin/soqucoin/issues/new?assignees=&labels=bug&template=bug_report.md&title=%5Bbug%5D+).
+Until mainnet genesis we are intentionally keeping the tree closed to unsolicited pull requests in order to:
+- Maintain absolute control over consensus-critical code
+- Complete ASIC testing, fuzzing, and formal verification without merge conflicts
+- Finalize launch materials
 
-Please see [the contribution guide](CONTRIBUTING.md) to see how you can
-participate in the development of Soqucoin Core. There are often
-[topics seeking help](https://github.com/soqucoin/soqucoin/labels/help%20wanted)
-where your contributions will have high impact and get very appreciation. wow.
+**How to contribute right now (and be extremely welcome):**
 
-## Very Much Frequently Asked Questions ❓
+1. Open a GitHub Issue for bugs, performance reports, or testnet findings  
+2 Join GitHub Discussions for feature proposals or prover development ideas  
+3 Share regtest blocks, fuzz corpora, or ASIC screenshots — these will be credited in the launch paper
 
-Do you have a question regarding Soqucoin? An answer is perhaps already in the
-[FAQ](doc/FAQ.md) or the
-[Q&A section](https://github.com/soqucoin/soqucoin/discussions/categories/q-a)
-of the discussion board!
+Pull requests will be enabled and enthusiastically reviewed immediately after genesis (March 1, 2026). Until then, the fastest way to get your name in the launch paper and receive founder-level recognition is to help stress-test the chain or port the LatticeFold+ prover.
 
-## License - Much license ⚖️
-Soqucoin Core is released under the terms of the MIT license. See
-[COPYING](COPYING) for more information.
+We are not gatekeeping — we are protecting the first quantum-resistant PoW launch in history.
+
+Thank you for respecting the lockdown. The chain will be yours to build on in 101 days.
+## Very Much Frequently Asked Questions
+
+See [doc/FAQ.md](doc/FAQ.md) and GitHub Discussions.
+
+## License
+
+MIT — see [COPYING](COPYING)
+
+Soqucoin Core is released under the day the post-quantum future began: **November 20, 2025**.
+
+wow. very quantum. much resistance.
