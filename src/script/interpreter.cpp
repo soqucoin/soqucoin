@@ -8,6 +8,7 @@
 #include "crypto/binius/verifier.h"
 #include <script/interpreter.h>
 
+
 #include "primitives/transaction.h"
 #include "util.h"
 #include <crypto/latticefold/verifier.h>
@@ -266,36 +267,44 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 // Only OP_CHECKDILITHIUMSIG (0xfb), OP_CHECKPATAGG (0xfd), OP_CHECKFOLDPROOF (0xfc) are allowed
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
-    // Reject any script that contains legacy opcodes we banned
-    for (CScript::const_iterator it = scriptPubKey.begin(); it != scriptPubKey.end();) {
-        opcodetype opcode;
-        if (!scriptPubKey.GetOp(it, opcode)) break;
-        if (opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY ||
-            opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY) {
-            return set_error(serror, SCRIPT_ERR_DISALLOWED_OPCODE);
-        }
+    // Enforce Dilithium Output Type (OP_0 or OP_1 <32-byte hash>)
+    // Witness v0 = OP_0, Witness v1 = OP_1 (Dilithium)
+    bool is_dilithium = (scriptPubKey.size() == 34 &&
+                         (scriptPubKey[0] == OP_0 || scriptPubKey[0] == OP_1) &&
+                         scriptPubKey[1] == 32);
+    bool is_op_return = (scriptPubKey.size() > 0 && scriptPubKey[0] == OP_RETURN);
+
+    if (!is_dilithium && !is_op_return) {
+        return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
-    // Only allow bech32m v1 outputs (Dilithium pubkey hash)
-    if (scriptPubKey.IsPayToScriptHash()) {
-        return set_error(serror, SCRIPT_ERR_DISALLOWED_OUTPUT_TYPE);
+    if (is_op_return) {
+        return set_success(serror);
     }
 
-    // Batch verification paths — delegate to our new opcodes
-    CScript::const_iterator pc = scriptSig.begin();
-    opcodetype opcode;
-    valtype vchData;
-
-    if (scriptSig.GetOp(pc, opcode, vchData)) {
-        if (opcode == OP_CHECKPATAGG) {
-            return EvalCheckPatAgg(vchData, serror);
-        }
-        if (opcode == OP_CHECKFOLDPROOF) {
-            return EvalCheckFoldProof(vchData, serror);
-        }
+    // Dilithium verification
+    if (!witness || witness->stack.size() != 2) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
     }
 
-    return set_error(serror, SCRIPT_ERR_UNKNOWN_SCRIPT_TYPE);
+    const valtype& sig = witness->stack[0];
+    const valtype& pubkey = witness->stack[1];
+
+    // Verify pubkey hash matches scriptPubKey
+    uint256 hash;
+    CSHA256().Write(pubkey.data(), pubkey.size()).Finalize(hash.begin());
+
+    if (memcmp(hash.begin(), scriptPubKey.data() + 2, 32) != 0) {
+        return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+    }
+
+    // Verify signature
+    // Use SIGVERSION_WITNESS_V0 for now as it provides witness sighash structure
+    if (!checker.CheckSig(sig, pubkey, scriptSig, SIGVERSION_WITNESS_V0)) {
+        return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+    }
+
+    return set_success(serror);
 }
 
 
