@@ -1,5 +1,5 @@
 <h2 align="left">
-<img src="https://images.squarespace-cdn.com/content/v1/67b2bbb273ed3f75691938e0/ef369498-13b8-42b9-aac4-9ec7c6110059/soqucoin.png?format=500w" alt="Soqucoin" width="256"/>
+<img src="https://images.squarespace-cdn.com/content/v1/67b2bbb273ed3f75691938e0/b1002822-cf36-4cdc-aa60-678d312f6d5a/Gemini_Generated_Image_c5wxsjc5wxsjc5wx.png?format=500w" alt="Soqucoin" width="256"/>
 <br/><br/>
 Soqucoin Core [SOQ]
 

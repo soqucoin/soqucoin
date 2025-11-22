@@ -82,6 +82,7 @@ BITCOIN_CORE_H = \
   attributes.h \
   auxpow.h \
   base58.h \
+  bech32.h \
   bloom.h \
   blockencodings.h \
   chain.h \
@@ -161,6 +162,7 @@ BITCOIN_CORE_H = \
   ui_interface.h \
   undo.h \
   util.h \
+  utiladdress.h \
   utilmemory.h \
   utilmoneystr.h \
   utiltime.h \
@@ -295,7 +297,19 @@ crypto_libsoqucoin_crypto_a_SOURCES = \
   crypto/sha256.cpp \
   crypto/sha256.h \
   crypto/sha512.cpp \
-  crypto/sha512.h
+  crypto/sha512.h \
+  crypto/sha3.cpp \
+  crypto/sha3.h \
+  crypto/dilithium/sign.c \
+  crypto/dilithium/packing.c \
+  crypto/dilithium/polyvec.c \
+  crypto/dilithium/poly.c \
+  crypto/dilithium/ntt.c \
+  crypto/dilithium/reduce.c \
+  crypto/dilithium/rounding.c \
+  crypto/dilithium/symmetric-shake.c \
+  crypto/dilithium/fips202.c \
+  crypto/dilithium/randombytes.c
 
 # only include SSE2 scrypt sources if USE_SCRYPT_SSE2 is defined
 if USE_SCRYPT_SSE2
@@ -354,6 +368,7 @@ libsoqucoin_common_a_SOURCES = \
   arith_uint256.cpp \
   auxpow.cpp \
   base58.cpp \
+  bech32.cpp \
   chainparams.cpp \
   coins.cpp \
   compressor.cpp \
@@ -370,6 +385,7 @@ libsoqucoin_common_a_SOURCES = \
   scheduler.cpp \
   script/sign.cpp \
   script/standard.cpp \
+  utiladdress.cpp \
   warnings.cpp \
   $(BITCOIN_CORE_H)
 
@@ -473,8 +489,7 @@ soqucoin_tx_LDADD = \
   $(LIBSOQUCOIN_COMMON) \
   $(LIBSOQUCOIN_UTIL) \
   $(LIBSOQUCOIN_CONSENSUS) \
-  $(LIBSOQUCOIN_CRYPTO) \
-  $(LIBSECP256K1)
+  $(LIBSOQUCOIN_CRYPTO)
 
 soqucoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 #

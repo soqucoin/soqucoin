@@ -40,6 +40,8 @@ const char* GetTxnOutputType(txnouttype t)
         return "witness_v0_keyhash";
     case TX_WITNESS_V0_SCRIPTHASH:
         return "witness_v0_scripthash";
+    case TX_WITNESS_V1_SCRIPTHASH:
+        return "witness_v1_scripthash";
     }
     return NULL;
 }
@@ -83,6 +85,11 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
         }
         if (witnessversion == 0 && witnessprogram.size() == 32) {
             typeRet = TX_WITNESS_V0_SCRIPTHASH;
+            vSolutionsRet.push_back(witnessprogram);
+            return true;
+        }
+        if (witnessversion == 1 && witnessprogram.size() == 32) {
+            typeRet = TX_WITNESS_V1_SCRIPTHASH;
             vSolutionsRet.push_back(witnessprogram);
             return true;
         }
@@ -186,8 +193,10 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
     } else if (whichType == TX_PUBKEYHASH) {
         addressRet = CKeyID(uint160(vSolutions[0]));
         return true;
-    } else if (whichType == TX_SCRIPTHASH) {
         addressRet = CScriptID(uint160(vSolutions[0]));
+        return true;
+    } else if (whichType == TX_WITNESS_V1_SCRIPTHASH) {
+        addressRet = WitnessV1ScriptHash(uint256(vSolutions[0]));
         return true;
     }
     // Multisig txns have more than one address...
@@ -257,6 +266,13 @@ public:
     {
         script->clear();
         *script << OP_HASH160 << ToByteVector(scriptID) << OP_EQUAL;
+        return true;
+    }
+
+    bool operator()(const WitnessV1ScriptHash& scriptID) const
+    {
+        script->clear();
+        *script << OP_1 << ToByteVector(scriptID);
         return true;
     }
 };

@@ -77,6 +77,7 @@ public:
     CMainParams()
     {
         strNetworkID = "main";
+        bech32HRP = "sq";
 
         // Blocks 0 - 144999 are conventional difficulty calculation
         consensus.nSubsidyHalvingInterval = 100000;
@@ -244,6 +245,7 @@ public:
     CTestNetParams()
     {
         strNetworkID = "test";
+        bech32HRP = "sq";
 
         // Blocks 0 - 144999 are pre-Digishield
         consensus.nHeightEffective = 0;
@@ -411,6 +413,7 @@ public:
     CRegTestParams()
     {
         strNetworkID = "regtest";
+        bech32HRP = "sq";
         consensus.nSubsidyHalvingInterval = 150;
         consensus.nMajorityEnforceBlockUpgrade = 750;
         consensus.nMajorityRejectBlockOutdated = 950;

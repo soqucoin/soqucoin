@@ -10,8 +10,8 @@
 #include "chainparams.h"
 #include "key.h"
 #include "rpcnestedtests.h"
-#include "util.h"
 #include "uritests.h"
+#include "util.h"
 
 #include <QCoreApplication>
 #include <QObject>
@@ -23,9 +23,9 @@ static int qt_argc = 1;
 static const char* qt_argv = "soqucoin-qt";
 
 // This is all you need to run all the tests
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
-    ECC_Start();
+    // Post-quantum: ECC_Start removed
     SetupEnvironment();
     SetupNetworking();
     SelectParams(CBaseChainParams::MAIN);
@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
 
     // Don't remove this, it's needed to access
     // QCoreApplication:: in the tests
-    QCoreApplication app(qt_argc, const_cast<char **>(&qt_argv));
+    QCoreApplication app(qt_argc, const_cast<char**>(&qt_argv));
     app.setApplicationName("Bitcoin-Qt-test");
 
     URITests test1;
@@ -45,6 +45,6 @@ int main(int argc, char *argv[])
     if (QTest::qExec(&test3) != 0)
         fInvalid = true;
 
-    ECC_Stop();
+    // Post-quantum: ECC_Stop removed
     return fInvalid;
 }

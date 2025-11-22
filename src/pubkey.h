@@ -15,16 +15,13 @@
 #include <vector>
 
 /**
- * secp256k1:
- * const unsigned int PRIVATE_KEY_SIZE = 279;
- * const unsigned int PUBLIC_KEY_SIZE  = 65;
- * const unsigned int SIGNATURE_SIZE   = 72;
- *
- * see www.keylength.com
- * script supports up to 75 for single byte push
+ * Dilithium2 (ML-DSA-44):
+ * const unsigned int PRIVATE_KEY_SIZE = 2560;
+ * const unsigned int PUBLIC_KEY_SIZE  = 1312;
+ * const unsigned int SIGNATURE_SIZE   = 2420;
  */
 
-const unsigned int BIP32_EXTKEY_SIZE = 74;
+const unsigned int BIP32_EXTKEY_SIZE = 1353; // 1 + 4 + 4 + 32 + 1312
 
 /** A reference to a CKey: the Hash160 of its serialized public key */
 class CKeyID : public uint160
@@ -42,11 +39,12 @@ class CPubKey
 public:
     //! Construct an invalid public key.
 
-    static constexpr unsigned int SIZE                   = 65;
-    static constexpr unsigned int COMPRESSED_SIZE        = 33;
+    static constexpr unsigned int SIZE = 1312;
+    static constexpr unsigned int COMPRESSED_SIZE = 1312;
 
- bool static ValidSize(const std::vector<unsigned char> &vch) {
-      return vch.size() > 0 && GetLen(vch[0]) == vch.size();
+    bool static ValidSize(const std::vector<unsigned char>& vch)
+    {
+        return vch.size() > 0 && GetLen(vch[0]) == vch.size();
     }
 
     CPubKey()
@@ -151,7 +149,7 @@ public:
     //! Check whether this is a compressed public key.
     bool IsCompressed() const
     {
-        return size() == 33;
+        return size() == COMPRESSED_SIZE;
     }
 
     /**
@@ -175,10 +173,9 @@ public:
     bool Decompress();
 
     //! Derive BIP32 child pubkey.
-    bool Derive(CPubKey& pubkeyChild, ChainCode &ccChild, unsigned int nChild, const ChainCode& cc) const;
+    bool Derive(CPubKey& pubkeyChild, ChainCode& ccChild, unsigned int nChild, const ChainCode& cc) const;
 
 private:
-
     /**
      * Just store the serialized data.
      * Its length can very cheaply be computed from the first byte.
@@ -188,11 +185,9 @@ private:
     //! Compute the length of a pubkey with a given first byte.
     unsigned int static GetLen(unsigned char chHeader)
     {
-        if (chHeader == 2 || chHeader == 3)
-            return CPubKey::COMPRESSED_SIZE;
-        if (chHeader == 4 || chHeader == 6 || chHeader == 7)
-            return CPubKey::SIZE;
-        return 0;
+        if (chHeader == 0xFF)
+            return 0;
+        return CPubKey::SIZE;
     }
 
     //! Set this key data to be invalid
@@ -200,8 +195,6 @@ private:
     {
         vch[0] = 0xFF;
     }
-
-
 };
 
 struct CExtPubKey {
@@ -211,13 +204,13 @@ struct CExtPubKey {
     ChainCode chaincode;
     CPubKey pubkey;
 
-    friend bool operator==(const CExtPubKey &a, const CExtPubKey &b)
+    friend bool operator==(const CExtPubKey& a, const CExtPubKey& b)
     {
         return a.nDepth == b.nDepth &&
-            memcmp(a.vchFingerprint, b.vchFingerprint, sizeof(vchFingerprint)) == 0 &&
-            a.nChild == b.nChild &&
-            a.chaincode == b.chaincode &&
-            a.pubkey == b.pubkey;
+               memcmp(a.vchFingerprint, b.vchFingerprint, sizeof(vchFingerprint)) == 0 &&
+               a.nChild == b.nChild &&
+               a.chaincode == b.chaincode &&
+               a.pubkey == b.pubkey;
     }
 
     void Encode(unsigned char code[BIP32_EXTKEY_SIZE]) const;
@@ -236,7 +229,7 @@ struct CExtPubKey {
         ::WriteCompactSize(s, len);
         unsigned char code[BIP32_EXTKEY_SIZE];
         Encode(code);
-        s.write((const char *)&code[0], len);
+        s.write((const char*)&code[0], len);
     }
     template <typename Stream>
     void Unserialize(Stream& s)
@@ -245,7 +238,7 @@ struct CExtPubKey {
         unsigned char code[BIP32_EXTKEY_SIZE];
         if (len != BIP32_EXTKEY_SIZE)
             throw std::runtime_error("Invalid extended key size\n");
-        s.read((char *)&code[0], len);
+        s.read((char*)&code[0], len);
         Decode(code);
     }
 };

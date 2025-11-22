@@ -19,10 +19,10 @@
 #include "primitives/transaction.h"
 #include "script/script.h"
 #include "script/sign.h"
-#include <univalue.h>
 #include "util.h"
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
+#include <univalue.h>
 
 #include <stdio.h>
 
@@ -30,8 +30,8 @@
 #include <boost/assign/list_of.hpp>
 
 static bool fCreateBlank;
-static std::map<std::string,UniValue> registers;
-static const int CONTINUE_EXECUTION=-1;
+static std::map<std::string, UniValue> registers;
+static const int CONTINUE_EXECUTION = -1;
 
 //
 // This function returns either one of EXIT_ codes when it's expected to stop the process or
@@ -54,14 +54,13 @@ static int AppInitRawTx(int argc, char* argv[])
 
     fCreateBlank = GetBoolArg("-create", false);
 
-    if (argc<2 || IsArgSet("-?") || IsArgSet("-h") || IsArgSet("-help"))
-    {
+    if (argc < 2 || IsArgSet("-?") || IsArgSet("-h") || IsArgSet("-help")) {
         // First part of help message is specific to this utility
         std::string strUsage = strprintf(_("%s soqucoin-tx utility version"), _(PACKAGE_NAME)) + " " + FormatFullVersion() + "\n\n" +
-            _("Usage:") + "\n" +
-              "  soqucoin-tx [options] <hex-tx> [commands]  " + _("Update hex-encoded soqucoin transaction") + "\n" +
-              "  soqucoin-tx [options] -create [commands]   " + _("Create hex-encoded soqucoin transaction") + "\n" +
-              "\n";
+                               _("Usage:") + "\n" +
+                               "  soqucoin-tx [options] <hex-tx> [commands]  " + _("Update hex-encoded soqucoin transaction") + "\n" +
+                               "  soqucoin-tx [options] -create [commands]   " + _("Create hex-encoded soqucoin transaction") + "\n" +
+                               "\n";
 
         fprintf(stdout, "%s", strUsage.c_str());
 
@@ -82,20 +81,20 @@ static int AppInitRawTx(int argc, char* argv[])
         strUsage += HelpMessageOpt("nversion=N", _("Set TX version to N"));
         strUsage += HelpMessageOpt("outaddr=VALUE:ADDRESS", _("Add address-based output to TX"));
         strUsage += HelpMessageOpt("outpubkey=VALUE:PUBKEY[:FLAGS]", _("Add pay-to-pubkey output to TX") + ". " +
-            _("Optionally add the \"W\" flag to produce a pay-to-witness-pubkey-hash output") + ". " +
-            _("Optionally add the \"S\" flag to wrap the output in a pay-to-script-hash."));
+                                                                         _("Optionally add the \"W\" flag to produce a pay-to-witness-pubkey-hash output") + ". " +
+                                                                         _("Optionally add the \"S\" flag to wrap the output in a pay-to-script-hash."));
         strUsage += HelpMessageOpt("outdata=[VALUE:]DATA", _("Add data-based output to TX"));
         strUsage += HelpMessageOpt("outscript=VALUE:SCRIPT[:FLAGS]", _("Add raw script output to TX") + ". " +
-            _("Optionally add the \"W\" flag to produce a pay-to-witness-script-hash output") + ". " +
-            _("Optionally add the \"S\" flag to wrap the output in a pay-to-script-hash."));
+                                                                         _("Optionally add the \"W\" flag to produce a pay-to-witness-script-hash output") + ". " +
+                                                                         _("Optionally add the \"S\" flag to wrap the output in a pay-to-script-hash."));
         strUsage += HelpMessageOpt("outmultisig=VALUE:REQUIRED:PUBKEYS:PUBKEY1:PUBKEY2:....[:FLAGS]", _("Add Pay To n-of-m Multi-sig output to TX. n = REQUIRED, m = PUBKEYS") + ". " +
-            _("Optionally add the \"W\" flag to produce a pay-to-witness-script-hash output") + ". " +
-            _("Optionally add the \"S\" flag to wrap the output in a pay-to-script-hash."));
+                                                                                                          _("Optionally add the \"W\" flag to produce a pay-to-witness-script-hash output") + ". " +
+                                                                                                          _("Optionally add the \"S\" flag to wrap the output in a pay-to-script-hash."));
         strUsage += HelpMessageOpt("sign=SIGHASH-FLAGS", _("Add zero or more signatures to transaction") + ". " +
-            _("This command requires JSON registers:") +
-            _("prevtxs=JSON object") + ", " +
-            _("privatekeys=JSON object") + ". " +
-            _("See signrawtransaction docs for format of sighash flags, JSON objects."));
+                                                             _("This command requires JSON registers:") +
+                                                             _("prevtxs=JSON object") + ", " +
+                                                             _("privatekeys=JSON object") + ". " +
+                                                             _("See signrawtransaction docs for format of sighash flags, JSON objects."));
         fprintf(stdout, "%s", strUsage.c_str());
 
         strUsage = HelpMessageGroup(_("Register Commands:"));
@@ -151,7 +150,7 @@ static void RegisterLoad(const std::string& strInput)
     std::string filename = strInput.substr(pos + 1, std::string::npos);
     fs::path pathFile = fs::path(filename);
 
-    FILE *f = fsbridge::fopen(pathFile, "r");
+    FILE* f = fsbridge::fopen(pathFile, "r");
     if (!f) {
         std::string strErr = "Cannot open file " + filename;
         throw std::runtime_error(strErr);
@@ -194,7 +193,7 @@ static void MutateTxVersion(CMutableTransaction& tx, const std::string& cmdVal)
     if (newVersion < 1 || newVersion > CTransaction::MAX_STANDARD_VERSION)
         throw std::runtime_error("Invalid TX version requested");
 
-    tx.nVersion = (int) newVersion;
+    tx.nVersion = (int)newVersion;
 }
 
 static void MutateTxLocktime(CMutableTransaction& tx, const std::string& cmdVal)
@@ -203,7 +202,7 @@ static void MutateTxLocktime(CMutableTransaction& tx, const std::string& cmdVal)
     if (newLocktime < 0LL || newLocktime > 0xffffffffLL)
         throw std::runtime_error("Invalid TX locktime requested");
 
-    tx.nLockTime = (unsigned int) newLocktime;
+    tx.nLockTime = (unsigned int)newLocktime;
 }
 
 static void MutateTxAddInput(CMutableTransaction& tx, const std::string& strInput)
@@ -212,7 +211,7 @@ static void MutateTxAddInput(CMutableTransaction& tx, const std::string& strInpu
     boost::split(vStrInputParts, strInput, boost::is_any_of(":"));
 
     // separate TXID:VOUT in string
-    if (vStrInputParts.size()<2)
+    if (vStrInputParts.size() < 2)
         throw std::runtime_error("TX input missing separator");
 
     // extract and validate TXID
@@ -231,7 +230,7 @@ static void MutateTxAddInput(CMutableTransaction& tx, const std::string& strInpu
         throw std::runtime_error("invalid TX input vout");
 
     // extract the optional sequence number
-    uint32_t nSequenceIn=std::numeric_limits<unsigned int>::max();
+    uint32_t nSequenceIn = std::numeric_limits<unsigned int>::max();
     if (vStrInputParts.size() > 2)
         nSequenceIn = std::stoul(vStrInputParts[2]);
 
@@ -316,7 +315,7 @@ static void MutateTxAddOutMultiSig(CMutableTransaction& tx, const std::string& s
     boost::split(vStrInputParts, strInput, boost::is_any_of(":"));
 
     // Check that there are enough parameters
-    if (vStrInputParts.size()<3)
+    if (vStrInputParts.size() < 3)
         throw std::runtime_error("Not enough multisig parameters");
 
     // Extract and validate VALUE
@@ -333,12 +332,11 @@ static void MutateTxAddOutMultiSig(CMutableTransaction& tx, const std::string& s
         throw std::runtime_error("incorrect number of multisig pubkeys");
 
     if (required < 1 || required > 20 || numkeys < 1 || numkeys > 20 || numkeys < required)
-        throw std::runtime_error("multisig parameter mismatch. Required " \
-                            + std::to_string(required) + " of " + std::to_string(numkeys) + "signatures.");
+        throw std::runtime_error("multisig parameter mismatch. Required " + std::to_string(required) + " of " + std::to_string(numkeys) + "signatures.");
 
     // extract and validate PUBKEYs
     std::vector<CPubKey> pubkeys;
-    for(int pos = 1; pos <= int(numkeys); pos++) {
+    for (int pos = 1; pos <= int(numkeys); pos++) {
         CPubKey pubkey(ParseHex(vStrInputParts[pos + 2]));
         if (!pubkey.IsFullyValid())
             throw std::runtime_error("invalid TX output pubkey");
@@ -352,8 +350,7 @@ static void MutateTxAddOutMultiSig(CMutableTransaction& tx, const std::string& s
         std::string flags = vStrInputParts.back();
         bSegWit = (flags.find("W") != std::string::npos);
         bScriptHash = (flags.find("S") != std::string::npos);
-    }
-    else if (vStrInputParts.size() > numkeys + 4) {
+    } else if (vStrInputParts.size() > numkeys + 4) {
         // Validate that there were no more parameters passed
         throw std::runtime_error("Too many parameters");
     }
@@ -383,7 +380,7 @@ static void MutateTxAddOutData(CMutableTransaction& tx, const std::string& strIn
     // separate [VALUE:]DATA in string
     size_t pos = strInput.find(':');
 
-    if (pos==0)
+    if (pos == 0)
         throw std::runtime_error("TX output value not specified");
 
     if (pos != std::string::npos) {
@@ -428,11 +425,11 @@ static void MutateTxAddOutScript(CMutableTransaction& tx, const std::string& str
     }
 
     if (bSegWit) {
-      scriptPubKey = GetScriptForWitness(scriptPubKey);
+        scriptPubKey = GetScriptForWitness(scriptPubKey);
     }
     if (bScriptHash) {
-      CBitcoinAddress addr(scriptPubKey);
-      scriptPubKey = GetScriptForDestination(addr.Get());
+        CBitcoinAddress addr(scriptPubKey);
+        scriptPubKey = GetScriptForDestination(addr.Get());
     }
 
     // construct TxOut, append to transaction output list
@@ -468,15 +465,15 @@ static void MutateTxDelOutput(CMutableTransaction& tx, const std::string& strOut
 
 static const unsigned int N_SIGHASH_OPTS = 6;
 static const struct {
-    const char *flagStr;
+    const char* flagStr;
     int flags;
 } sighashOptions[N_SIGHASH_OPTS] = {
     {"ALL", SIGHASH_ALL},
     {"NONE", SIGHASH_NONE},
     {"SINGLE", SIGHASH_SINGLE},
-    {"ALL|ANYONECANPAY", SIGHASH_ALL|SIGHASH_ANYONECANPAY},
-    {"NONE|ANYONECANPAY", SIGHASH_NONE|SIGHASH_ANYONECANPAY},
-    {"SINGLE|ANYONECANPAY", SIGHASH_SINGLE|SIGHASH_ANYONECANPAY},
+    {"ALL|ANYONECANPAY", SIGHASH_ALL | SIGHASH_ANYONECANPAY},
+    {"NONE|ANYONECANPAY", SIGHASH_NONE | SIGHASH_ANYONECANPAY},
+    {"SINGLE|ANYONECANPAY", SIGHASH_SINGLE | SIGHASH_ANYONECANPAY},
 };
 
 static bool findSighashFlags(int& flags, const std::string& flagStr)
@@ -493,14 +490,14 @@ static bool findSighashFlags(int& flags, const std::string& flagStr)
     return false;
 }
 
-uint256 ParseHashUO(std::map<std::string,UniValue>& o, std::string strKey)
+uint256 ParseHashUO(std::map<std::string, UniValue>& o, std::string strKey)
 {
     if (!o.count(strKey))
         return uint256();
     return ParseHashUV(o[strKey], strKey);
 }
 
-std::vector<unsigned char> ParseHexUO(std::map<std::string,UniValue>& o, std::string strKey)
+std::vector<unsigned char> ParseHexUO(std::map<std::string, UniValue>& o, std::string strKey)
 {
     if (!o.count(strKey)) {
         std::vector<unsigned char> emptyVec;
@@ -566,7 +563,7 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
             if (!prevOut.isObject())
                 throw std::runtime_error("expected prevtxs internal object");
 
-            std::map<std::string,UniValue::VType> types = boost::assign::map_list_of("txid", UniValue::VSTR)("vout",UniValue::VNUM)("scriptPubKey",UniValue::VSTR);
+            std::map<std::string, UniValue::VType> types = boost::assign::map_list_of("txid", UniValue::VSTR)("vout", UniValue::VNUM)("scriptPubKey", UniValue::VSTR);
             if (!prevOut.checkObject(types))
                 throw std::runtime_error("prevtxs internal object typecheck fail");
 
@@ -583,12 +580,12 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
                 CCoinsModifier coins = view.ModifyCoins(txid);
                 if (coins->IsAvailable(nOut) && coins->vout[nOut].scriptPubKey != scriptPubKey) {
                     std::string err("Previous output scriptPubKey mismatch:\n");
-                    err = err + ScriptToAsmStr(coins->vout[nOut].scriptPubKey) + "\nvs:\n"+
-                        ScriptToAsmStr(scriptPubKey);
+                    err = err + ScriptToAsmStr(coins->vout[nOut].scriptPubKey) + "\nvs:\n" +
+                          ScriptToAsmStr(scriptPubKey);
                     throw std::runtime_error(err);
                 }
                 if ((unsigned int)nOut >= coins->vout.size())
-                    coins->vout.resize(nOut+1);
+                    coins->vout.resize(nOut + 1);
                 coins->vout[nOut].scriptPubKey = scriptPubKey;
                 coins->vout[nOut].nValue = 0;
                 if (prevOut.exists("amount")) {
@@ -629,7 +626,7 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
             ProduceSignature(MutableTransactionSignatureCreator(&keystore, &mergedTx, i, amount, nHashType), prevPubKey, sigdata);
 
         // ... and merge in other signatures:
-        BOOST_FOREACH(const CTransaction& txv, txVariants)
+        BOOST_FOREACH (const CTransaction& txv, txVariants)
             sigdata = CombineSignatures(prevPubKey, MutableTransactionSignatureChecker(&mergedTx, i, amount), sigdata, DataFromTransaction(txv, i));
         UpdateTransaction(mergedTx, i, sigdata);
 
@@ -645,24 +642,9 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
     tx = mergedTx;
 }
 
-class Secp256k1Init
+
+static void MutateTx(CMutableTransaction& tx, const std::string& command, const std::string& commandVal)
 {
-    ECCVerifyHandle globalVerifyHandle;
-
-public:
-    Secp256k1Init() {
-        ECC_Start();
-    }
-    ~Secp256k1Init() {
-        ECC_Stop();
-    }
-};
-
-static void MutateTx(CMutableTransaction& tx, const std::string& command,
-                     const std::string& commandVal)
-{
-    std::unique_ptr<Secp256k1Init> ecc;
-
     if (command == "nversion")
         MutateTxVersion(tx, commandVal);
     else if (command == "locktime")
@@ -686,10 +668,8 @@ static void MutateTx(CMutableTransaction& tx, const std::string& command,
     else if (command == "outdata")
         MutateTxAddOutData(tx, commandVal);
 
-    else if (command == "sign") {
-        if (!ecc) { ecc.reset(new Secp256k1Init()); }
+    else if (command == "sign")
         MutateTxSign(tx, commandVal);
-    }
 
     else if (command == "load")
         RegisterLoad(commandVal);
@@ -776,7 +756,7 @@ static int CommandLineRawTx(int argc, char* argv[])
 
             // param: hex-encoded bitcoin transaction
             std::string strHexTx(argv[1]);
-            if (strHexTx == "-")                 // "-" implies standard input
+            if (strHexTx == "-") // "-" implies standard input
                 strHexTx = readStdin();
 
             if (!DecodeHexTx(tx, strHexTx, true))
@@ -805,12 +785,10 @@ static int CommandLineRawTx(int argc, char* argv[])
 
     catch (const boost::thread_interrupted&) {
         throw;
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         strPrint = std::string("error: ") + e.what();
         nRet = EXIT_FAILURE;
-    }
-    catch (...) {
+    } catch (...) {
         PrintExceptionContinue(NULL, "CommandLineRawTx()");
         throw;
     }
@@ -829,8 +807,7 @@ MAIN_FUNCTION
         int ret = AppInitRawTx(argc, argv);
         if (ret != CONTINUE_EXECUTION)
             return ret;
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         PrintExceptionContinue(&e, "AppInitRawTx()");
         return EXIT_FAILURE;
     } catch (...) {
@@ -841,8 +818,7 @@ MAIN_FUNCTION
     int ret = EXIT_FAILURE;
     try {
         ret = CommandLineRawTx(argc, argv);
-    }
-    catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         PrintExceptionContinue(&e, "CommandLineRawTx()");
     } catch (...) {
         PrintExceptionContinue(NULL, "CommandLineRawTx()");
