@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-DIST_SUBDIRS = secp256k1 univalue
+DIST_SUBDIRS = univalue
 
 AM_LDFLAGS = $(PTHREAD_CFLAGS) $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS)
 AM_CXXFLAGS = $(HARDENED_CXXFLAGS) $(ERROR_CXXFLAGS)
@@ -22,7 +22,7 @@ endif
 BITCOIN_CONFIG_INCLUDES=-I$(builddir)/config
 BITCOIN_INCLUDES=-I$(builddir) -I$(builddir)/obj $(BDB_CPPFLAGS) $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS) $(SSL_CFLAGS)
 
-BITCOIN_INCLUDES += -I$(srcdir)/secp256k1/include
+
 BITCOIN_INCLUDES += $(UNIVALUE_CFLAGS)
 
 LIBSOQUCOIN_SERVER=libsoqucoin_server.a
@@ -32,7 +32,7 @@ LIBSOQUCOIN_CLI=libsoqucoin_cli.a
 LIBSOQUCOIN_UTIL=libsoqucoin_util.a
 LIBSOQUCOIN_CRYPTO=crypto/libsoqucoin_crypto.a
 LIBSOQUCOINQT=qt/libsoqucoinqt.a
-LIBSECP256K1=secp256k1/libsecp256k1.la
+
 
 if ENABLE_ZMQ
 LIBSOQUCOIN_ZMQ=libsoqucoin_zmq.a
@@ -44,8 +44,7 @@ if ENABLE_WALLET
 LIBSOQUCOIN_WALLET=libsoqucoin_wallet.a
 endif
 
-$(LIBSECP256K1): $(wildcard secp256k1/src/*) $(wildcard secp256k1/include/*)
-	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
+
 
 # Make is not made aware of per-object dependencies to avoid limiting building parallelization
 # But to build the less dependent modules first, we manually select their order here:
@@ -450,8 +449,8 @@ soqucoind_LDADD = \
   $(LIBSOQUCOIN_CONSENSUS) \
   $(LIBSOQUCOIN_CRYPTO) \
   $(LIBLEVELDB) \
-  $(LIBMEMENV) \
-  $(LIBSECP256K1)
+  $(LIBMEMENV)
+
 
 soqucoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
 
@@ -504,8 +503,8 @@ if GLIBC_BACK_COMPAT
 endif
 
 libsoqucoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
-libsoqucoinconsensus_la_LIBADD = $(LIBSECP256K1)
-libsoqucoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/obj -I$(srcdir)/secp256k1/include -DBUILD_BITCOIN_INTERNAL
+libsoqucoinconsensus_la_LIBADD =
+libsoqucoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/obj -DBUILD_BITCOIN_INTERNAL
 libsoqucoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
 endif
@@ -545,7 +544,7 @@ $(top_srcdir)/$(subdir)/config/bitcoin-config.h.in:  $(am__configure_deps)
 	$(AM_V_at)$(MAKE) -C $(top_srcdir) $(subdir)/config/bitcoin-config.h.in
 
 clean-local:
-	-$(MAKE) -C secp256k1 clean
+
 	-$(MAKE) -C univalue clean
 	-rm -f leveldb/*/*.gcda leveldb/*/*.gcno leveldb/helpers/memenv/*.gcda leveldb/helpers/memenv/*.gcno
 	-rm -f config.h

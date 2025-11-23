@@ -121,11 +121,25 @@ else
     exit 1
 fi
 
-# 9. Launch fuzzing in background
+# 9. Run Benchmarks
+echo "Running Dilithium benchmarks..."
+./src/bench/bench_soqucoin Dilithium > bench_dilithium.log 2>&1
+echo "Benchmarks completed. See bench_dilithium.log"
+
+# 10. Launch fuzzing in background
 echo ""
-echo "Launching fuzzing (8 hours, all CPU cores)..."
-nohup ./src/test/fuzz/fuzz latticefold_verifier -max_total_time=28800 -jobs=$(sysctl -n hw.logicalcpu) -workers=$(sysctl -n hw.logicalcpu) > fuzz.log 2>&1 &
-echo "Fuzzing PID: $!"
+echo "Launching fuzzing (24 hours)..."
+# Calculate jobs per target (split total cores among 4 targets)
+total_cores=$(sysctl -n hw.logicalcpu)
+jobs_per_target=$((total_cores / 4))
+if [ "$jobs_per_target" -lt 1 ]; then jobs_per_target=1; fi
+
+nohup python3 fuzz_wrapper.py latticefold_verifier -max_total_time=86400 -jobs=$jobs_per_target > fuzz_latticefold.log 2>&1 &
+nohup python3 fuzz_wrapper.py dilithium_verify -max_total_time=86400 -jobs=$jobs_per_target > fuzz_dilithium.log 2>&1 &
+nohup python3 fuzz_wrapper.py binius_commit -max_total_time=86400 -jobs=$jobs_per_target > fuzz_binius.log 2>&1 &
+nohup python3 fuzz_wrapper.py pat_aggregate -max_total_time=86400 -jobs=$jobs_per_target > fuzz_pat.log 2>&1 &
+
+echo "Fuzzing launched in background."
 
 # 10. Launch Python stress test
 echo "Launching Python stress test..."

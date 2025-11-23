@@ -1067,8 +1067,7 @@ ZMQ_CFLAGS
 ZMQ_LIBS
 UNIVALUE_CFLAGS
 UNIVALUE_LIBS'
-ac_subdirs_all='src/univalue
-src/secp256k1'
+ac_subdirs_all='src/univalue'
 
 # Initialize some variables set by options.
 ac_init_help=
@@ -37465,7 +37464,6 @@ subdirs="$subdirs src/univalue"
 fi
 
 ac_configure_args="${ac_configure_args} --disable-shared --with-pic --with-bignum=no --enable-module-recovery"
-subdirs="$subdirs src/secp256k1"
 
 
 cat >confcache <<\_ACEOF
