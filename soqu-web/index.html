@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soqucoin | Post-Quantum Security</title>
+    <meta name="description" content="The first production cryptocurrency with native LatticeFold+ verification of Dilithium batches. Quantum-resistant from Block 0.">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container nav-content">
+            <a href="#" class="logo">SOQU<span class="highlight">.ORG</span></a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#technology">Technology</a>
+                <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank" class="btn-secondary">Whitepaper</a>
+                <a href="https://github.com/soqucoin" target="_blank" class="btn-primary">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <section class="hero">
+            <div class="container hero-content">
+                <div class="hero-text">
+                    <div class="badge">Quantum-Resistant from Block 0</div>
+                    <h1>The Future is <span class="gradient-text">Lattice-Based.</span></h1>
+                    <p class="hero-sub">Soqucoin is the first production cryptocurrency to implement <strong>Dilithium ML-DSA-44</strong> with native <strong>LatticeFold+</strong> batch verification.</p>
+                    <div class="hero-actions">
+                        <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank" class="btn-primary large">Read the Whitepaper</a>
+                        <a href="#technology" class="btn-secondary large">View Architecture</a>
+                    </div>
+                </div>
+                <div class="hero-visual">
+                    <div class="terminal-window">
+                        <div class="terminal-header">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <div class="terminal-body">
+                            <div class="code-line"><span class="prompt">$</span> soqucoin-cli getblockchaininfo</div>
+                            <div class="code-output">
+{
+  "chain": "main",
+  "blocks": 12405,
+  "bestblockhash": "0000...a1b2",
+  "verification": "LatticeFold+",
+  "signature_scheme": "Dilithium-ML-DSA-44",
+  "quantum_security": true
+}
+                            </div>
+                            <div class="code-line"><span class="prompt">$</span> _</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="glow-bg"></div>
+        </section>
+
+        <section id="features" class="features">
+            <div class="container">
+                <div class="section-header">
+                    <h2>Built for the <span class="gradient-text">Post-Quantum Era</span></h2>
+                    <p>Classical cryptography is dead. Soqucoin replaces ECDSA with NIST-standardized lattice cryptography.</p>
+                </div>
+                <div class="grid">
+                    <div class="card">
+                        <div class="icon">🛡️</div>
+                        <h3>Dilithium ML-DSA-44</h3>
+                        <p>Exclusively uses Dilithium for all signatures. No legacy secp256k1. Immune to Shor's algorithm attacks.</p>
+                    </div>
+                    <div class="card">
+                        <div class="icon">⚡</div>
+                        <h3>LatticeFold+ Verification</h3>
+                        <p>Recursive folding proofs allow verifying batches of 512+ signatures in milliseconds, enabling massive scalability.</p>
+                    </div>
+                    <div class="card">
+                        <div class="icon">💎</div>
+                        <h3>Greedy UTXO Model</h3>
+                        <p>Optimized unspent transaction output selection prioritizes mature coinbases for high-throughput liquidity.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="technology" class="technology">
+            <div class="container">
+                <div class="tech-split">
+                    <div class="tech-info">
+                        <h2>Recursive Proofs. <br>Infinite Scale.</h2>
+                        <p>Soqucoin introduces <code>OP_CHECKFOLDPROOF</code>, a new opcode that verifies succinct arguments of knowledge for batch validity.</p>
+                        <ul class="tech-list">
+                            <li><strong>Binius Commitments:</strong> Highly efficient binary field commitments.</li>
+                            <li><strong>PAT Aggregation:</strong> Polynomial Aggregation Trees for state compression.</li>
+                            <li><strong>0.18ms Verification:</strong> Blazing fast signature checks on consumer hardware.</li>
+                        </ul>
+                    </div>
+                    <div class="tech-visual">
+                        <!-- Abstract visual representation of folding -->
+                        <div class="folding-graphic">
+                            <div class="layer layer-1"></div>
+                            <div class="layer layer-2"></div>
+                            <div class="layer layer-3"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container footer-content">
+            <div class="footer-col">
+                <a href="#" class="logo">SOQU<span class="highlight">.ORG</span></a>
+                <p>The Post-Quantum Standard.</p>
+            </div>
+            <div class="footer-col">
+                <h4>Resources</h4>
+                <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank">Whitepaper</a>
+                <a href="https://github.com/soqucoin">Documentation</a>
+                <a href="#">Block Explorer</a>
+            </div>
+            <div class="footer-col">
+                <h4>Community</h4>
+                <a href="https://github.com/soqucoin">GitHub</a>
+                <a href="#">Discord</a>
+                <a href="#">Twitter</a>
+            </div>
+        </div>
+        <div class="container copyright">
+            <p>&copy; 2025 Soqucoin Project. Released under the MIT License.</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
