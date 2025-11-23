@@ -5,15 +5,15 @@
 #ifndef BITCOIN_BENCH_BENCH_H
 #define BITCOIN_BENCH_BENCH_H
 
-#include <cstdint>                               // for uint64_t
+#include <cstdint> // for uint64_t
 
-#include <functional>                            // for std::function
-#include <boost/preprocessor/cat.hpp>            // for BOOST_PP_CAT
-#include <boost/preprocessor/stringize.hpp>      // for BOOST_PP_STRINGIZE
+#include <boost/preprocessor/cat.hpp>       // for BOOST_PP_CAT
+#include <boost/preprocessor/stringize.hpp> // for BOOST_PP_STRINGIZE
+#include <functional>                       // for std::function
 
-#include <limits>                                // for numeric_limits
-#include <map>                                   // for map
-#include <string>                                // for string
+#include <limits> // for numeric_limits
+#include <map>    // for map
+#include <string> // for string
 
 // Simple micro-benchmarking framework; API mostly matches a subset of the Google Benchmark
 // framework (see https://github.com/google/benchmark)
@@ -36,45 +36,49 @@ static void CODE_TO_TIME(benchmark::State& state)
 BENCHMARK(CODE_TO_TIME);
 
  */
- 
-namespace benchmark {
 
-    class State {
-        std::string name;
-        double maxElapsed;
-        double beginTime;
-        double lastTime, minTime, maxTime, countMaskInv;
-        uint64_t count;
-        uint64_t countMask;
-        uint64_t beginCycles;
-        uint64_t lastCycles;
-        uint64_t minCycles;
-        uint64_t maxCycles;
-    public:
-        State(std::string _name, double _maxElapsed) : name(_name), maxElapsed(_maxElapsed), count(0) {
-            minTime = std::numeric_limits<double>::max();
-            maxTime = std::numeric_limits<double>::min();
-            minCycles = std::numeric_limits<uint64_t>::max();
-            maxCycles = std::numeric_limits<uint64_t>::min();
-            countMask = 1;
-            countMaskInv = 1./(countMask + 1);
-        }
-        bool KeepRunning();
-    };
+namespace benchmark
+{
 
-    typedef std::function<void(State&)> BenchFunction;
+class State
+{
+    std::string name;
+    double maxElapsed;
+    double beginTime;
+    double lastTime, minTime, maxTime, countMaskInv;
+    uint64_t count;
+    uint64_t countMask;
+    uint64_t beginCycles;
+    uint64_t lastCycles;
+    uint64_t minCycles;
+    uint64_t maxCycles;
 
-    class BenchRunner
+public:
+    State(std::string _name, double _maxElapsed) : name(_name), maxElapsed(_maxElapsed), count(0)
     {
-        typedef std::map<std::string, BenchFunction> BenchmarkMap;
-        static BenchmarkMap &benchmarks();
+        minTime = std::numeric_limits<double>::max();
+        maxTime = std::numeric_limits<double>::min();
+        minCycles = std::numeric_limits<uint64_t>::max();
+        maxCycles = std::numeric_limits<uint64_t>::min();
+        countMask = 1;
+        countMaskInv = 1. / (countMask + 1);
+    }
+    bool KeepRunning();
+};
 
-    public:
-        BenchRunner(std::string name, BenchFunction func);
+typedef std::function<void(State&)> BenchFunction;
 
-        static void RunAll(double elapsedTimeForOne=1.0);
-    };
-}
+class BenchRunner
+{
+    typedef std::map<std::string, BenchFunction> BenchmarkMap;
+    static BenchmarkMap& benchmarks();
+
+public:
+    BenchRunner(std::string name, BenchFunction func);
+
+    static void RunAll(double elapsedTimeForOne = 1.0, const std::string& filter = "");
+};
+} // namespace benchmark
 
 // BENCHMARK(foo) expands to:  benchmark::BenchRunner bench_11foo("foo", foo);
 #define BENCHMARK(n) \

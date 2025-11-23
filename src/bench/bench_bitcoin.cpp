@@ -13,7 +13,9 @@ int main(int argc, char** argv)
     SetupEnvironment();
     fPrintToDebugLog = false; // don't want to write to debug.log file
 
-    benchmark::BenchRunner::RunAll();
+    std::string filter = "";
+    if (argc > 1) filter = argv[1];
+    benchmark::BenchRunner::RunAll(1.0, filter);
 
     // Post-quantum: ECC_Stop removed
 }

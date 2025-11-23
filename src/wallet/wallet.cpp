@@ -2062,7 +2062,14 @@ bool CWallet::SelectCoinsMinConf(const CAmount& nTargetValue, const int nConfMin
     vector<pair<CAmount, pair<const CWalletTx*, unsigned int> > > vValue;
     CAmount nTotalLower = 0;
 
-    shuffle(vCoins.begin(), vCoins.end(), insecure_rand);
+    // Soqucoin: Greedy selection for stress testing - prioritize mature coinbases
+    struct CompareDepthDescending {
+        bool operator()(const COutput& a, const COutput& b) const
+        {
+            return a.nDepth > b.nDepth;
+        }
+    };
+    std::sort(vCoins.begin(), vCoins.end(), CompareDepthDescending());
 
     BOOST_FOREACH (const COutput& output, vCoins) {
         if (!output.fSpendable)

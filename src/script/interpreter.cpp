@@ -79,14 +79,14 @@ bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int fl
         return true;
     }
 
-    error("Soqucoin only permits ML-DSA (Dilithium) signatures and public keys");
+    // Soqucoin only permits ML-DSA (Dilithium) signatures and public keys
     return set_error(serror, SCRIPT_ERR_SIG_DER);
 }
 
 bool static CheckPubKeyEncoding(const valtype& vchPubKey, unsigned int flags, const SigVersion& sigversion, ScriptError* serror)
 {
     if (vchPubKey.empty() || vchPubKey[0] != 0x00) {
-        error("Soqucoin only permits ML-DSA (Dilithium) signatures and public keys");
+        // Soqucoin only permits ML-DSA (Dilithium) signatures and public keys
         return set_error(serror, SCRIPT_ERR_PUBKEYTYPE);
     }
 

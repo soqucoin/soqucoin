@@ -236,7 +236,10 @@ endif
 noinst_PROGRAMS += test/fuzz/fuzz
 test_fuzz_fuzz_SOURCES = \
   test/fuzz/Fuzz.cpp \
-  test/fuzz/latticefold_verifier.cpp
+  test/fuzz/latticefold_verifier.cpp \
+  test/fuzz/dilithium_verify.cpp \
+  test/fuzz/binius_commit.cpp \
+  test/fuzz/pat_aggregate.cpp
 test_fuzz_fuzz_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 test_fuzz_fuzz_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_fuzz_fuzz_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
