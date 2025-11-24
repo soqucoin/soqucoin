@@ -43,7 +43,6 @@ bench_bench_soqucoin_LDADD = \
   $(LIBSOQUCOIN_CRYPTO) \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
-  $(LIBSECP256K1) \
   $(LIBUNIVALUE)
 
 if ENABLE_ZMQ
