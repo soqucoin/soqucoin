@@ -26,9 +26,15 @@
             <div class="nav-links">
                 <a href="#features">Features</a>
                 <a href="#technology">Technology</a>
+                <a href="#explorer">Explorer</a>
                 <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank" class="btn-secondary">Whitepaper</a>
                 <a href="https://github.com/soqucoin" target="_blank" class="btn-primary">GitHub</a>
             </div>
+            <button class="mobile-menu-toggle" aria-label="Toggle menu">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
         </div>
     </nav>
 
@@ -139,6 +145,34 @@
                 </div>
             </div>
         </section>
+
+        <section id="explorer" class="explorer">
+            <div class="container">
+                <div class="section-header">
+                    <h2><span class="gradient-text">Block</span> Explorer</h2>
+                    <p>Latest blocks on the Soqucoin network (sim)</p>
+                </div>
+                <div class="explorer-container">
+                    <div class="explorer-stats">
+                        <div class="stat-card">
+                            <div class="stat-label">Latest Block</div>
+                            <div class="stat-value" id="latest-block">12,405</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Network Hashrate</div>
+                            <div class="stat-value" id="hashrate">2.4 TH/s</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">Difficulty</div>
+                            <div class="stat-value" id="difficulty">12.5M</div>
+                        </div>
+                    </div>
+                    <div class="blocks-list" id="blocks-list">
+                        <!-- Blocks will be dynamically inserted here -->
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <footer>
@@ -155,7 +189,7 @@
                 <h4>Resources</h4>
                 <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank">Whitepaper</a>
                 <a href="https://github.com/soqucoin">Documentation</a>
-                <a href="#">Block Explorer</a>
+                <a href="#explorer">Block Explorer</a>
             </div>
             <div class="footer-col">
                 <h4>Community</h4>

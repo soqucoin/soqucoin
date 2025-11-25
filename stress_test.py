@@ -1,106 +1,87 @@
 #!/usr/bin/env python3
+import subprocess
 import time
 import json
-import sys
 from decimal import Decimal
 
-try:
-    import requests
-except ImportError:
-    print("Error: requests library not found. Install with: pip3 install requests")
-    exit(1)
-
-class JSONRPCException(Exception):
-    pass
-
-class SimpleRPC:
-    def __init__(self, url, user, password):
-        self.url = url
-        self.auth = (user, password)
-        self.id = 0
-    
-    def _call(self, method, params=[]):
-        self.id += 1
-        payload = {
-            "jsonrpc": "1.0",
-            "id": self.id,
-            "method": method,
-            "params": params
-        }
-        try:
-            response = requests.post(self.url, json=payload, auth=self.auth, timeout=30)
-            response.raise_for_status()
-            result = response.json()
-            if result.get("error"):
-                raise JSONRPCException(result["error"]["message"])
-            return result.get("result")
-        except requests.exceptions.RequestException as e:
-            raise JSONRPCException(f"RPC connection error: {e}")
-    
-    def __getattr__(self, method):
-        return lambda *params: self._call(method, list(params))
+def run_cli(command):
+    """Run soqucoin-cli command and return JSON result"""
+    cmd = ['./src/soqucoin-cli', '-regtest', '-rpcuser=miner', '-rpcpassword=soqu'] + command
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+        return json.loads(result.stdout) if result.stdout.strip() else None
+    except subprocess.CalledProcessError as e:
+        print(f"CLI Error: {e.stderr}")
+        raise
+    except subprocess.TimeoutExpired:
+        print("CLI command timed out")
+        raise
+    except json.JSONDecodeError:
+        # Some commands don't return JSON (like sendtoaddress returning just a txid)
+        return result.stdout.strip()
 
 def main():
     print("Starting Soqucoin Stress Test...")
-
+    
     # Configuration
-    rpc_user = "miner"
-    rpc_password = "soqu"
-    rpc_port = 18444  # Regtest RPC port
     num_transactions = 10000
     mine_interval = 1000
-
-    # Connect to local node
-    rpc_url = f"http://127.0.0.1:{rpc_port}"
+    
+    # Test connection
     try:
-        rpc_connection = SimpleRPC(rpc_url, rpc_user, rpc_password)
-        info = rpc_connection.getblockchaininfo()
+        info = run_cli(['getblockchaininfo'])
         print(f"Connected to node. Chain: {info['chain']}, Blocks: {info['blocks']}")
     except Exception as e:
         print(f"Error connecting to node: {e}")
-        print(f"Please ensure soqucoind is running in regtest mode with rpcuser={rpc_user} and rpcpassword={rpc_password}")
-        sys.exit(1)
-
+        print("Please ensure soqucoind is running in regtest mode with rpcuser=miner and rpcpassword=soqu")
+        return 1
+    
     # Generate a new address for receiving transactions
-    dest_address = rpc_connection.getnewaddress()
+    dest_address = run_cli(['getnewaddress'])
+    # Get mining address for block generation
+    mining_address = run_cli(['getnewaddress'])
     print(f"Sending transactions to: {dest_address}")
-
+    print(f"Mining blocks to: {mining_address}")
+    
     start_time = time.time()
     tx_count = 0
-
+    
     try:
         for i in range(1, num_transactions + 1):
             try:
-                # Send 0.0001 SOQU to the destination address
-                rpc_connection.sendtoaddress(dest_address, Decimal("0.0001"))
+                # Send 0.01 SOQU to the destination address
+                run_cli(['sendtoaddress', dest_address, '0.01'])
                 tx_count += 1
                 
                 if i % 100 == 0:
                     print(f"Sent {i} transactions...")
-
+                
                 if i % mine_interval == 0:
                     print(f"Mining a block to clear mempool...")
-                    rpc_connection.generate(1)
+                    run_cli(['generatetoaddress', '1', mining_address])
                     
-            except JSONRPCException as e:
-                print(f"RPC Error on transaction {i}: {e}")
+            except Exception as e:
+                print(f"Error on transaction {i}: {e}")
                 # If mempool is full, try mining
-                if "mempool full" in str(e):
+                if "mempool full" in str(e).lower():
                     print("Mempool full, mining a block...")
-                    rpc_connection.generate(1)
+                    run_cli(['generatetoaddress', '1', mining_address])
                 else:
                     break
-
+    
     except KeyboardInterrupt:
         print("\nStress test interrupted.")
-
+    
     end_time = time.time()
     duration = end_time - start_time
     
     print("\nStress Test Completed!")
     print(f"Total Transactions Sent: {tx_count}")
     print(f"Total Time: {duration:.2f} seconds")
-    print(f"TPS: {tx_count / duration:.2f}")
+    if duration > 0:
+        print(f"TPS: {tx_count / duration:.2f}")
+    
+    return 0
 
 if __name__ == "__main__":
-    main()
+    exit(main())
