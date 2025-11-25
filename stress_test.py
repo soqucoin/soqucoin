@@ -1,79 +1,106 @@
 #!/usr/bin/env python3
-import sys
-import os
 import time
-import random
-import decimal
-import concurrent.futures
-import threading
-
-# Add qa/rpc-tests to path to import test_framework
-sys.path.append(os.path.join(os.getcwd(), "qa", "rpc-tests"))
+import json
+import sys
+from decimal import Decimal
 
 try:
-    from test_framework.authproxy import AuthServiceProxy, JSONRPCException
+    import requests
 except ImportError:
-    print("Error: Could not import AuthServiceProxy. Make sure you are running from the build root.")
-    sys.exit(1)
+    print("Error: requests library not found. Install with: pip3 install requests")
+    exit(1)
 
-def send_batch(rpc_url, dest_address, count):
-    rpc = AuthServiceProxy(rpc_url)
-    for _ in range(count):
+class JSONRPCException(Exception):
+    pass
+
+class SimpleRPC:
+    def __init__(self, url, user, password):
+        self.url = url
+        self.auth = (user, password)
+        self.id = 0
+    
+    def _call(self, method, params=[]):
+        self.id += 1
+        payload = {
+            "jsonrpc": "1.0",
+            "id": self.id,
+            "method": method,
+            "params": params
+        }
         try:
-            rpc.sendtoaddress(dest_address, 1.0)
-        except Exception as e:
-            print(f"Tx Error: {e}")
+            response = requests.post(self.url, json=payload, auth=self.auth, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            if result.get("error"):
+                raise JSONRPCException(result["error"]["message"])
+            return result.get("result")
+        except requests.exceptions.RequestException as e:
+            raise JSONRPCException(f"RPC connection error: {e}")
+    
+    def __getattr__(self, method):
+        return lambda *params: self._call(method, list(params))
 
 def main():
-    print("Starting multi-threaded stress test...")
-    
-    rpc_user = "admin"
-    rpc_password = "admin"
-    rpc_port = 18350
-    rpc_url = f"http://{rpc_user}:{rpc_password}@127.0.0.1:{rpc_port}"
-    
-    total_txs = 10000
-    threads = 10
-    txs_per_thread = total_txs // threads
-    
+    print("Starting Soqucoin Stress Test...")
+
+    # Configuration
+    rpc_user = "miner"
+    rpc_password = "soqu"
+    rpc_port = 18444  # Regtest RPC port
+    num_transactions = 10000
+    mine_interval = 1000
+
+    # Connect to local node
+    rpc_url = f"http://127.0.0.1:{rpc_port}"
     try:
-        # Check connection
-        rpc_main = AuthServiceProxy(rpc_url)
-        info = rpc_main.getblockchaininfo()
-        print(f"Connected to node at block {info['blocks']}")
-        dest_address = rpc_main.getnewaddress()
-        
-        start_time = time.time()
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = []
-            for _ in range(threads):
-                futures.append(executor.submit(send_batch, rpc_url, dest_address, txs_per_thread))
-            
-            # Monitor and mine
-            completed_txs = 0
-            while any(f.running() for f in futures):
-                mempool = rpc_main.getmempoolinfo()
-                size = mempool['size']
-                print(f"\rMempool: {size} txs", end="")
-                
-                if size > 1000:
-                    print("\nMining block to clear mempool...")
-                    rpc_main.generate(1)
-                
-                time.sleep(1)
-            
-            # Wait for all
-            concurrent.futures.wait(futures)
-            
+        rpc_connection = SimpleRPC(rpc_url, rpc_user, rpc_password)
+        info = rpc_connection.getblockchaininfo()
+        print(f"Connected to node. Chain: {info['chain']}, Blocks: {info['blocks']}")
     except Exception as e:
-        print(f"\nFatal Error: {e}")
+        print(f"Error connecting to node: {e}")
+        print(f"Please ensure soqucoind is running in regtest mode with rpcuser={rpc_user} and rpcpassword={rpc_password}")
         sys.exit(1)
+
+    # Generate a new address for receiving transactions
+    dest_address = rpc_connection.getnewaddress()
+    print(f"Sending transactions to: {dest_address}")
+
+    start_time = time.time()
+    tx_count = 0
+
+    try:
+        for i in range(1, num_transactions + 1):
+            try:
+                # Send 0.0001 SOQU to the destination address
+                rpc_connection.sendtoaddress(dest_address, Decimal("0.0001"))
+                tx_count += 1
+                
+                if i % 100 == 0:
+                    print(f"Sent {i} transactions...")
+
+                if i % mine_interval == 0:
+                    print(f"Mining a block to clear mempool...")
+                    rpc_connection.generate(1)
+                    
+            except JSONRPCException as e:
+                print(f"RPC Error on transaction {i}: {e}")
+                # If mempool is full, try mining
+                if "mempool full" in str(e):
+                    print("Mempool full, mining a block...")
+                    rpc_connection.generate(1)
+                else:
+                    break
+
+    except KeyboardInterrupt:
+        print("\nStress test interrupted.")
 
     end_time = time.time()
     duration = end_time - start_time
-    print(f"\nStress test completed in {duration:.2f} seconds")
-    print(f"Throughput: {total_txs / duration:.2f} tx/s")
+    
+    print("\nStress Test Completed!")
+    print(f"Total Transactions Sent: {tx_count}")
+    print(f"Total Time: {duration:.2f} seconds")
+    print(f"TPS: {tx_count / duration:.2f}")
 
 if __name__ == "__main__":
     main()
