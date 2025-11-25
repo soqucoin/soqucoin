@@ -2,12 +2,7 @@
   {
     "name": "univalue-subtree",
     "path": "src/univalue",
-    "remote": "https://github.com/soqucoin/univalue-subtree.git"
-  },
-  {
-    "name": "secp256k1-subtree",
-    "path": "src/secp256k1",
-    "remote": "https://github.com/bitcoin-core/secp256k1.git"
+    "remote": "https://github.com/bitcoin-core/univalue.git"
   },
   {
     "name": "leveldb-subtree",
