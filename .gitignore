@@ -90,7 +90,14 @@ src/test/buildenv.py
 qrc_*.cpp
 
 # Mac specific
+.regtest/
+fuzz_corpus/
+*.profraw
+*.profdata
+compile_commands.json
 .DS_Store
+soqu-web/
+
 build
 
 #lcov
