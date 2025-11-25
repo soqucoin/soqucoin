@@ -1,0 +1,24 @@
+[15:12:30] [L7 WORK PUSH] ('192.168.1.235', 36752): job=000000db, diff=16
+[15:12:31] [<] ('192.168.1.235', 36752): mining.submit
+[15:12:31] [L7 SHARE] miner: job=000000db, nonce=5e8f15ac
+[15:12:31] [<] ('192.168.1.235', 36752): mining.submit
+[15:12:31] [L7 SHARE] miner: job=000000db, nonce=dd93b5ab
+[15:12:31] [<] ('192.168.1.235', 36752): mining.submit
+[15:12:31] [L7 SHARE] miner: job=000000db, nonce=3a9d31e7
+[15:12:31] [<] ('192.168.1.235', 36752): mining.submit
+[15:12:31] [L7 SHARE] miner: job=000000db, nonce=7f56b978
+
+[15:12:31] [SHARE BATCH] Processing 9 shares
+[15:12:31] [SHARE OK] miner: 7f56b978
+[15:12:31] [SHARE OK] miner: 926c7d5e
+[15:12:31] [SHARE OK] miner: 8c78fdc2
+[15:12:31] [SHARE OK] miner: a27a7115
+[15:12:31] [SHARE OK] miner: cf82cde0
+[15:12:31] [SHARE OK] miner: 06869197
+[15:12:31] [SHARE OK] miner: 5e8f15ac
+[15:12:31] [SHARE OK] miner: dd93b5ab
+[15:12:31] [SHARE OK] miner: 3a9d31e7
+
+Antminer L7 @ 9.5 GH/s - Shares accepted: 9 (100% accept rate)
+Connection: 192.168.1.235:36752 → 192.168.1.121:3333
+Status: Mining on Soqucoin regtest with Dilithium coinbase
