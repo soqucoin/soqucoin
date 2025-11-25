@@ -26,6 +26,8 @@ const char* ScriptErrorString(const ScriptError serror)
         return "Batch verification failed";
     case SCRIPT_ERR_PAT_VERIFICATION_FAILED:
         return "PAT batch verification failed";
+    case SCRIPT_ERR_ZKPROOF_FAILED:
+        return "Zero-Knowledge proof verification failed";
     case SCRIPT_ERR_SCRIPT_SIZE:
         return "Script is too big";
     case SCRIPT_ERR_DISALLOWED_OUTPUT_TYPE:

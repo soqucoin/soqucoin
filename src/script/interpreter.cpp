@@ -11,6 +11,7 @@
 
 #include "primitives/transaction.h"
 #include "util.h"
+#include "zk/bulletproofs.h"
 #include <crypto/latticefold/verifier.h>
 #include <crypto/pat/logarithmic.h>
 #include <crypto/ripemd160.h>
@@ -279,6 +280,43 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     }
 
     if (is_op_return) {
+        // Check for Confidential Transaction (v1): OP_RETURN <commitment> <proof>
+        // Commitment is 32 bytes, Proof is 1200 bytes
+        // Total script size: 1 + 1 (push 32) + 32 + 3 (push 1200) + 1200 = ~1237 bytes
+        // We verify the proof if present
+        if (scriptPubKey.size() > 1000) { // Heuristic check
+            // Extract commitment and proof
+            // Script: OP_RETURN <32-byte-commitment> <1200-byte-proof>
+            // Parsing:
+            // [0] = OP_RETURN
+            // [1] = 0x20 (32 bytes)
+            // [2..33] = commitment
+            // [34..36] = push opcode for 1200 bytes (e.g. 0x4d 0xb0 0x04)
+            // [37..] = proof
+
+            CScript::const_iterator pc = scriptPubKey.begin();
+            opcodetype opcode;
+            std::vector<unsigned char> vch;
+
+            // OP_RETURN
+            if (!scriptPubKey.GetOp(pc, opcode, vch) || opcode != OP_RETURN) return set_success(serror);
+
+            // Commitment
+            std::vector<unsigned char> commitmentData;
+            if (!scriptPubKey.GetOp(pc, opcode, commitmentData) || commitmentData.size() != 32) return set_success(serror);
+
+            // Proof
+            std::vector<unsigned char> proofData;
+            if (!scriptPubKey.GetOp(pc, opcode, proofData) || proofData.size() != 1200) return set_success(serror);
+
+            // Verify Range Proof
+            zk::Commitment comm(commitmentData);
+            zk::RangeProof proof(proofData);
+
+            if (!zk::VerifyRangeProof(proof, comm)) {
+                return set_error(serror, SCRIPT_ERR_ZKPROOF_FAILED);
+            }
+        }
         return set_success(serror);
     }
 

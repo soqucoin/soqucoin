@@ -96,7 +96,6 @@ fuzz_corpus/
 *.profdata
 compile_commands.json
 .DS_Store
-soqu-web/
 
 build
 
