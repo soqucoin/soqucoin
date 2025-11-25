@@ -3,20 +3,20 @@
 <br/><br/>
 Soqucoin Core [SOQ]
 
-**The world's first cryptocurrency with native, recursive, lattice-based batch verification of NIST-standard post-quantum signatures — deployed on main, today.**
+**The first cryptocurrency deployed with native, recursive, lattice-based batch verification of NIST-standard post-quantum signatures.**
 
-- ML-DSA-87 (Dilithium) fully integrated  
+- ML-DSA-44 (Dilithium) fully integrated  
 - PAT (Practical Aggregation Technique) – logarithmic Merkle batching, 9,661× commitment reduction, <4 µs verify  
 - LatticeFold+ over Binius64 fields (Boneh–Chen, ePrint 2025/247) – true constant-size recursive proofs, 1.21–1.52 kB, 0.51–0.91 ms verify on consumer hardware  
 - Full Miner compatibility (Scrypt PoW unchanged)  
 - Merged-mining ready with Litecoin/Dogecoin
 
-**Current status: November 20, 2025 – 22:41 UTC**  
+**Current status: November 24, 2025**  
 All consensus code merged, CI green, regtest running pure Dilithium-only chains from block 0.  
 LatticeFold+ verifier deployed in production consensus rules.  
-100% libFuzzer coverage achieved on verifier within 4 hours of integration.
+ASIC Validation complete: Antminer L7 (9.5 GH/s) mining pure post-quantum blocks.
 
-**Mainnet genesis: January 1, 2026 — 18:00 UTC** 
+**Mainnet genesis: March 1, 2026** 
 (final testing, documentation, and miner onboarding)
 
 ## Why Soqucoin Exists
