@@ -1,51 +1,30 @@
-# Contributing to Soqucoin Core
+# Contributing to Soqucoin
 
-Soqucoin is a hard-fork of Dogecoin with NIST-standard post-quantum signatures and recursive batch verification. Consensus code is sacred. We follow Bitcoin Core contribution standards with zero tolerance for slop.
+Soqucoin is a post-quantum cryptocurrency. We welcome contributions, but please note the following strict guidelines due to the security-critical nature of the project.
 
-## Code Style
+## Security Policy
 
-- Follow the [Bitcoin Core Developer Guidelines](https://github.com/bitcoin/bitcoin/blob/master/CONTRIBUTING.md) exactly.
-- C++14, no exceptions, no RTTI
-- `clang-format` with the .clang-format in this repo (run `clang-format -i -style=file <file>` before committing)
-- All new files must have copyright header:
-  ```cpp
-  // Copyright (c) 2025-2026 The Soqucoin developers
-  // Distributed under the MIT software license, see the accompanying file COPYING or https://opensource.org/licenses/MIT
-  ```
+**DO NOT REPORT SECURITY VULNERABILITIES PUBLICLY.**
+If you discover a vulnerability, please email `security@soqu.org`.
 
-## Branch Strategy
+## Development Workflow
 
-- `master` is dead — never commit to it
-- Default branch: `soqucoin-genesis`
-- Feature branches: `feature/<descriptive-name>`
-- All consensus or cryptographic changes require a signed tag and review by at least two core maintainers
+1.  **Fork and Branch**: Create a feature branch from `soqucoin-genesis`.
+2.  **Code Style**: We follow the Bitcoin Core coding standards.
+3.  **Testing**: All PRs must pass the `overnight_suite.sh` test suite.
+    *   Run `make check` for unit tests.
+    *   Run `test/functional/test_runner.py` for functional tests.
+4.  **Post-Quantum Cryptography**:
+    *   **NO ECDSA**: Any re-introduction of `secp256k1` or legacy opcodes will be rejected.
+    *   **Dilithium Only**: All consensus changes must use ML-DSA-44.
 
-## Pull Requests
+## Pull Request Process
 
-- One logical change per PR
-- Rebase, never merge commit
-- Linear history required
-- Sign your commits (`git commit -S`)
-- Include release notes in `doc/release-notes/`
-- Crypto-related PRs require review by @odenrider and at least one external auditor
+1.  Ensure your code compiles on Linux and macOS (Apple Silicon).
+2.  Update documentation (`doc/`) if you change behavior.
+3.  Sign your commits with GPG if possible.
+4.  Request review from core maintainers.
 
-## Testing
+## License
 
-- `make check` must pass
-- `test/functional` must pass
-- All new consensus rules must have functional tests
-- PQ-related code must have property-based tests using test/fuzz
-
-## Cryptography & Consensus Code
-
-- Any change touching `src/consensus/`, `src/script/`, `src/pat/`, or `src/primitives/transaction.cpp` requires **two independent reviews** and a signed tag from @odenrider.
-- No new cryptography without a published paper or NIST standard reference.
-- All new opcodes require a detailed design doc in `doc/design/`
-
-## Issue & PR Template
-
-Use the templates in `.github/` — do not delete or disable them.
-
-Thank you for helping make Soqucoin the first production-ready post-quantum Scrypt-PoW chain.
-
-– The Soqucoin Core Team
+Soqucoin is released under the MIT License.

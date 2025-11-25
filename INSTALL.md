@@ -2,7 +2,42 @@
 
 ### Pre-compiled binaries
 
-The easiest way to install the latest version of the Soqucoin Core software is
+Th
+### Post-Quantum Wallet Setup
+
+Soqucoin uses Dilithium (ML-DSA-44) keys. Legacy ECDSA wallets are **not supported**.
+
+1.  **Generate a new wallet**:
+    ```bash
+    ./src/soqucoin-cli createwallet "pq_wallet"
+    ```
+
+2.  **Get a Dilithium address**:
+    ```bash
+    ./src/soqucoin-cli -rpcwallet=pq_wallet getnewaddress
+    ```
+    *Addresses start with `sq1` (Bech32m).*
+
+3.  **Mining**:
+    Miners must use `generatetoaddress` with a valid Dilithium address.
+    ```bash
+    ./src/soqucoin-cli generatetoaddress 1 $(./src/soqucoin-cli getnewaddress)
+    ```
+
+### Building from Source
+
+**Dependencies**:
+*   Boost 1.85+
+*   OpenSSL 3.0+
+*   Clang 16+ (recommended for AVX2/NEON optimizations)
+
+**Build**:
+```bash
+./autogen.sh
+./configure --enable-fuzz --without-gui
+make -j$(nproc)
+```
+ is
 by to download the latest precompiled binaries for your platform from the
 [release page](https://github.com/soqucoin/soqucoin/releases). Currently,
 binaries are released for the following platforms:
