@@ -2455,7 +2455,13 @@ bool CWallet::CreateTransaction(const vector<CRecipient>& vecSend, CWalletTx& wt
                             return false;
                         }
 
-                        scriptChange = GetScriptForDestination(vchPubKey.GetID());
+                        // For Dilithium, create a witness v1 scripthash from the pubkey hash
+                        // This ensures the change address uses Dilithium (witness_v1_scripthash)
+                        // instead of legacy P2PKH which requires ECDSA signatures
+                        uint256 pubkeyHash;
+                        CSHA256().Write(vchPubKey.begin(), vchPubKey.size()).Finalize(pubkeyHash.begin());
+                        WitnessV1ScriptHash dest(pubkeyHash);
+                        scriptChange = GetScriptForDestination(dest);
                     }
 
                     CTxOut newTxOut(nChange, scriptChange);

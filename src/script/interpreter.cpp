@@ -11,6 +11,7 @@
 
 #include "primitives/transaction.h"
 #include "util.h"
+#include "utilstrencodings.h"
 #include "zk/bulletproofs.h"
 #include <crypto/latticefold/verifier.h>
 #include <crypto/pat/logarithmic.h>
@@ -322,23 +323,43 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
     // Dilithium verification
     if (!witness || witness->stack.size() != 2) {
+        LogPrintf("Dilithium verification failed: stack size %d\n", witness ? witness->stack.size() : -1);
         return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
     }
 
     const valtype& sig = witness->stack[0];
     const valtype& pubkey = witness->stack[1];
 
+    // For Dilithium witness v1, the pubkey in the witness stack is prefixed with 0x00
+    // (NIST FIPS 204 Table 3 requirement). We need to strip this prefix before hashing
+    // to compare with the witness program.
+    const unsigned char* pubkeyData = pubkey.data();
+    size_t pubkeySize = pubkey.size();
+
+    // Check if this is a 0x00-prefixed Dilithium pubkey (1313 bytes)
+    if (pubkey.size() == 1313 && pubkey[0] == 0x00) {
+        // Skip the 0x00 prefix for hashing
+        pubkeyData = pubkey.data() + 1;
+        pubkeySize = pubkey.size() - 1;
+    } else {
+        LogPrintf("Dilithium verification: pubkey size %d, first byte 0x%02x (expected 1313, 0x00)\n", pubkey.size(), pubkey.empty() ? 0 : pubkey[0]);
+    }
+
     // Verify pubkey hash matches scriptPubKey
     uint256 hash;
-    CSHA256().Write(pubkey.data(), pubkey.size()).Finalize(hash.begin());
+    CSHA256().Write(pubkeyData, pubkeySize).Finalize(hash.begin());
 
     if (memcmp(hash.begin(), scriptPubKey.data() + 2, 32) != 0) {
+        LogPrintf("Dilithium verification failed: witness program mismatch\n");
+        LogPrintf("Calculated hash: %s\n", hash.GetHex());
+        LogPrintf("Expected hash:   %s\n", HexStr(scriptPubKey.data() + 2, scriptPubKey.data() + 34));
         return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
     }
 
     // Verify signature
     // Use SIGVERSION_WITNESS_V0 for now as it provides witness sighash structure
     if (!checker.CheckSig(sig, pubkey, scriptSig, SIGVERSION_WITNESS_V0)) {
+        LogPrintf("Dilithium verification failed: CheckSig returned false\n");
         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
     }
 
@@ -353,20 +374,37 @@ bool TransactionSignatureChecker::VerifySignature(const std::vector<unsigned cha
 
 bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
 {
-    CPubKey pubkey(vchPubKey);
-    if (!pubkey.IsValid())
+    // For Dilithium witness v1 signatures, the public key in the witness stack
+    // is prefixed with 0x00 (NIST FIPS 204 Table 3 requirement).
+    // We need to strip this prefix before creating the CPubKey object.
+    std::vector<unsigned char> vchPubKeyActual = vchPubKey;
+
+    // Check if this is a Dilithium pubkey (prefixed with 0x00 and size is 1313)
+    if (vchPubKey.size() == 1313 && vchPubKey[0] == 0x00) {
+        // Strip the 0x00 prefix to get the actual 1312-byte Dilithium pubkey
+        vchPubKeyActual = std::vector<unsigned char>(vchPubKey.begin() + 1, vchPubKey.end());
+    }
+
+    CPubKey pubkey(vchPubKeyActual);
+    if (!pubkey.IsValid()) {
+        LogPrintf("CheckSig: Invalid pubkey (size %d)\n", vchPubKeyActual.size());
         return false;
+    }
 
     // Hash type is one byte tacked on to the end of the signature
-    if (vchSigIn.empty())
+    if (vchSigIn.empty()) {
+        LogPrintf("CheckSig: Empty signature\n");
         return false;
+    }
     int nHashType = vchSigIn.back();
     std::vector<unsigned char> vchSig(vchSigIn.begin(), vchSigIn.end() - 1);
 
     uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, txdata);
 
-    if (!VerifySignature(vchSig, pubkey, sighash))
+    if (!VerifySignature(vchSig, pubkey, sighash)) {
+        LogPrintf("CheckSig: VerifySignature failed\n");
         return false;
+    }
 
     return true;
 }

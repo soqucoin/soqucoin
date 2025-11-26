@@ -172,7 +172,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     // -promiscuousmempoolflags is used.
     // TODO: replace this with a call to main to assess validity of a mempool
     // transaction (which in most cases can be a no-op).
-    fIncludeWitness = IsWitnessEnabled(pindexPrev, consensus) && fMineWitnessTx;
+    fIncludeWitness = (IsWitnessEnabled(pindexPrev, consensus) || GetBoolArg("-prematurewitness", false)) && fMineWitnessTx;
+    LogPrintf("CreateNewBlock: fIncludeWitness=%d (IsWitnessEnabled=%d, -prematurewitness=%d, fMineWitnessTx=%d)\n",
+        fIncludeWitness, IsWitnessEnabled(pindexPrev, consensus), GetBoolArg("-prematurewitness", false), fMineWitnessTx);
 
     addPriorityTxs();
     int nPackagesSelected = 0;
@@ -250,10 +252,14 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
 bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost)
 {
     // TODO: switch to weight-based accounting for packages instead of vsize-based accounting.
-    if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= nBlockMaxWeight)
+    if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= nBlockMaxWeight) {
+        LogPrintf("TestPackage failed: weight %lu + %lu >= %lu\n", nBlockWeight, WITNESS_SCALE_FACTOR * packageSize, nBlockMaxWeight);
         return false;
-    if (nBlockSigOpsCost + packageSigOpsCost >= MAX_BLOCK_SIGOPS_COST)
+    }
+    if (nBlockSigOpsCost + packageSigOpsCost >= MAX_BLOCK_SIGOPS_COST) {
+        LogPrintf("TestPackage failed: sigops %ld + %ld >= %d\n", nBlockSigOpsCost, packageSigOpsCost, MAX_BLOCK_SIGOPS_COST);
         return false;
+    }
     return true;
 }
 
@@ -266,13 +272,18 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
 {
     uint64_t nPotentialBlockSize = nBlockSize; // only used with fNeedSizeAccounting
     BOOST_FOREACH (const CTxMemPool::txiter it, package) {
-        if (!IsFinalTx(it->GetTx(), nHeight, nLockTimeCutoff))
+        if (!IsFinalTx(it->GetTx(), nHeight, nLockTimeCutoff)) {
+            LogPrintf("TestPackageTransactions: tx %s not final\n", it->GetTx().GetHash().ToString());
             return false;
-        if (!fIncludeWitness && it->GetTx().HasWitness())
+        }
+        if (!fIncludeWitness && it->GetTx().HasWitness()) {
+            LogPrintf("TestPackageTransactions: tx %s has witness but fIncludeWitness is false\n", it->GetTx().GetHash().ToString());
             return false;
+        }
         if (fNeedSizeAccounting) {
             uint64_t nTxSize = ::GetSerializeSize(it->GetTx(), SER_NETWORK, PROTOCOL_VERSION);
             if (nPotentialBlockSize + nTxSize >= nBlockMaxSize) {
+                LogPrintf("TestPackageTransactions: tx %s exceeds block max size\n", it->GetTx().GetHash().ToString());
                 return false;
             }
             nPotentialBlockSize += nTxSize;
@@ -494,6 +505,7 @@ void BlockAssembler::addPackageTxs(int& nPackagesSelected, int& nDescendantsUpda
 
         if (packageFees < blockMinFeeRate.GetFee(packageSize)) {
             // Everything else we might consider has a lower fee rate
+            LogPrintf("addPackageTxs: package fees too low: %ld < %ld\n", packageFees, blockMinFeeRate.GetFee(packageSize));
             return;
         }
 

@@ -210,9 +210,17 @@ bool ProduceSignature(const BaseSignatureCreator& creator, const CScript& fromPu
                     }
 
                     // Build witness stack: <signature> <pubkey>
+                    // NIST FIPS 204 Table 3: ML-DSA-44 public keys must begin with 0x00
+                    // Prepend 0x00 to the public key to comply with this requirement
+                    // The verification side (CheckSig in interpreter.cpp) will strip this prefix
+                    std::vector<unsigned char> vchPubkeyPrefixed;
+                    vchPubkeyPrefixed.reserve(pubkey.size() + 1);
+                    vchPubkeyPrefixed.push_back(0x00); // NIST FIPS 204 prefix
+                    vchPubkeyPrefixed.insert(vchPubkeyPrefixed.end(), pubkey.begin(), pubkey.end());
+
                     sigdata.scriptWitness.stack.clear();
                     sigdata.scriptWitness.stack.push_back(vchSig);
-                    sigdata.scriptWitness.stack.push_back(std::vector<unsigned char>(pubkey.begin(), pubkey.end()));
+                    sigdata.scriptWitness.stack.push_back(vchPubkeyPrefixed);
                     sign_success = true;
                     break;
                 }

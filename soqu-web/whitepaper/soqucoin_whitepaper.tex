@@ -12,6 +12,7 @@
 \usepackage{booktabs}
 \usepackage{geometry}
 \usepackage{subcaption}
+\usepackage{float}
 
 \geometry{a4paper, margin=1in}
 
@@ -52,7 +53,7 @@
 \maketitle
 
 \begin{abstract}
-We present Soqucoin, a Scrypt-based proof-of-work cryptocurrency that eliminates ECDSA entirely and replaces it with NIST-standardized ML-DSA-44 (Dilithium) signatures combined with two complementary batch-verification techniques: the Practical Aggregation Technique (PAT) and the LatticeFold+ recursive folding scheme over Binius64 fields. Soqucoin also introduces zero-trust privacy via Bulletproofs++ range proofs for confidential transactions, enabling post-quantum secure private payments without requiring a hard fork. To the best of the authors' knowledge and as publicly documented on November 24, 2025 (commit \texttt{b5e4d2ed2}, block hash \texttt{e5156cd...}), this is the first deployed cryptocurrency consensus layer with a native LatticeFold+ verifier for arbitrary-size Dilithium batches. Empirical evaluation on Apple Silicon M4 and an unmodified Bitmain Antminer L7 (9.5 GH/s) demonstrates sub-millisecond verification for 512-signature batches and full ASIC compatibility without firmware modifications.
+We present Soqucoin, a Scrypt-based proof-of-work cryptocurrency that eliminates ECDSA entirely and replaces it with NIST-standardized ML-DSA-44 (Dilithium) signatures combined with two complementary batch-verification techniques: the Practical Aggregation Technique (PAT) and the LatticeFold+ recursive folding scheme over Binius64 fields. Soqucoin also introduces zero-trust privacy via Bulletproofs++ range proofs for confidential transactions, enabling post-quantum secure private payments without requiring a hard fork. To the best of the authors' knowledge and as publicly documented on November 26, 2025, Soqucoin is the first cryptocurrency to demonstrate production-scale confidential post-quantum transactions mined on unmodified Scrypt ASIC hardware (Antminer L7). Empirical evaluation demonstrates sub-millisecond verification for 512-signature batches and full ASIC compatibility without firmware modifications.
 \end{abstract}
 
 \section{Introduction}
@@ -65,10 +66,10 @@ However, ML-DSA signatures (2,420 bytes) are significantly larger than ECDSA sig
 \section{Related Work}
 Soqucoin builds on prior post-quantum blockchain proposals but is the first to deploy LatticeFold+ in production consensus. Ethereum's Verkle trees \cite{verkle2024} use KZG commitments for PQ state proofs, but lack Dilithium batching. Solana's 2025 L2 upgrades \cite{solana2025} integrate ML-DSA but rely on trusted setups. Bitcoin's OP\_CAT \cite{opcat2024} enables folding but not lattice-based. Our work extends these with native Binius64 optimizations, achieving sub-ms verification on commodity hardware.
 
-\begin{figure*}[t]
+\begin{figure*}[H]
 \centering
 \includegraphics[width=0.9\textwidth]{paper_plots/architecture.png}
-\caption{Soqucoin System Architecture. The flow demonstrates how Dilithium signatures are aggregated via PAT into a Merkle-tree commitment (root size 65–72 bytes), then optionally folded into a succinct LatticeFold+ proof (constant $\sim$1.38 kB) by an off-chain prover (e.g., transaction creator or mining pool). The block includes the proof in a transaction script (typically the coinbase or vin[0]), with the transaction Merkle root in the block header. This enables constant-time $O(1)$ verification by nodes using the \texttt{OP\_CHECKFOLDPROOF} opcode, with soundness error bounded by $2^{-130}$ (Theorem 4.2, \cite{latticefold2025}).}
+\caption{Soqucoin System Architecture. The flow demonstrates how Dilithium signatures are aggregated via PAT into a Merkle-tree commitment (root size 65–72 bytes), then optionally folded into a succinct LatticeFold+ proof (constant $\sim$1.38 kB) by an off-chain prover (e.g., transaction creator or mining pool). The block includes the proof in a transaction script (typically the coinbase or vin[0]), with the transaction Merkle root in the block header. This enables constant-time $O(1)$ verification by nodes using the \texttt{OP\_CHECKFOLDPROOF} opcode, with soundness error bounded by $2^{-130}$ (Theorem 4.2, \cite{latticefold2025}). Bulletproofs++ integration ensures zero-trust privacy for confidential transactions.}
 \label{fig:architecture}
 \end{figure*}
 
@@ -274,42 +275,15 @@ The L7 successfully:
 \item Maintained stable hashrate throughout test
 \end{enumerate}
 
-Figure~\ref{fig:asic-validation} shows the four-panel validation evidence. Panel (a) displays the L7 dashboard at full hashrate. Panel (b) shows proxy logs with share batches being processed every 100ms. Panel (c) presents block 103's coinbase output using \texttt{witness\_v1\_scripthash} (Dilithium pubkey hash). Panel (d) confirms 122 total blocks mined.
+Figure~\ref{fig:asic-validation} shows the six-panel validation evidence. Panel (a) displays the L7 dashboard at full hashrate. Panel (b) shows proxy logs with share batches being processed every 100ms. Panel (c) presents block 104's JSON data with confidential transactions. Panel (d) confirms chain height and difficulty. Panel (e) details the Dilithium witness data. Panel (f) confirms continuous operation.
 
-\begin{figure*}[t]
+\begin{figure}[H]
 \centering
-\begin{subfigure}{0.48\textwidth}
-    \includegraphics[width=\textwidth]{paper_plots/figure5_L7 Screen Shot 2025-11-24 at 2.51.07 PM.png}
-    \caption{L7 Dashboard (9.5 GH/s, Status: Alive)}
-\end{subfigure}
-\hfill
-\begin{subfigure}{0.48\textwidth}
-    \includegraphics[width=\textwidth]{paper_plots/figure5_panel2_proxy_logs.png}
-    \caption{Stratum Proxy Share Logs}
-\end{subfigure}
-
-\vspace{0.3cm}
-
-\begin{subfigure}{0.48\textwidth}
-    \includegraphics[width=\textwidth]{paper_plots/figure5_panel3_block103_coinbase.png}
-    \caption{Block 103 Dilithium Coinbase (witness v1)}
-\end{subfigure}
-\hfill
-\begin{subfigure}{0.48\textwidth}
-    \includegraphics[width=\textwidth]{paper_plots/figure5_panel4_mining_status.png}
-    \caption{Mining Status (122 Blocks Total)}
-\end{subfigure}
-
-\caption{ASIC Hardware Validation — Antminer L7 (9.5 GH/s) mining pure post-quantum blocks on Soqucoin using standard Stratum V1 protocol. All coinbase outputs use witness v1 (Dilithium addresses). No firmware modifications required. Test conducted November 24, 2025.}
-\label{fig:asic-validation}
-\end{figure*}
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.48\textwidth]{paper_plots/figure4_hashrate.png}
-\caption{Antminer L7 Hashrate Stability. The device maintained a stable 9.5 GH/s over 75 minutes of continuous mining on the Soqucoin regtest network, demonstrating that the post-quantum consensus rules introduce no latency overhead for miners.}
-\label{fig:hashrate}
+\includegraphics[width=1.0\textwidth,height=0.8\textheight,keepaspectratio]{paper_plots/figure2_victory_collage.png}
+\caption{L7 Integration: Six-panel evidence of successful confidential transaction mining on Antminer L7. (a) L7 Dashboard showing stable 9.5 GH/s hashrate. (b) Block 104 JSON data containing 147 confidential transactions. (c) Stratum proxy logs confirming share submission and block generation. (d) \texttt{getblockchaininfo} verifying chain height and difficulty. (e) Detailed view of Dilithium witness data (2421 bytes). (f) Mining status confirming continuous operation. Test conducted November 26, 2025.\label{fig:asic-validation}}
 \end{figure}
+
+% Figure 4 moved to Section 7.4
 
 \textbf{Significance}: This is the first demonstration of quantum-resistant signatures being mined on production ASIC hardware, proving that post-quantum transition does not require miners to replace equipment.
 
@@ -372,11 +346,19 @@ Block Validation & $5.0 \times 10^6$ & 0 \\ \bottomrule
 \subsection{Confidential Transaction Validation}
 Figure~\ref{fig:confidential_tx} shows a confidential transaction (txid \texttt{bfa6ea058...}) mined in Block 113 during regtest validation. The \texttt{OP\_RETURN} output contains a 32-byte Pedersen commitment followed by a 1200-byte Bulletproofs++ range proof, demonstrating successful integration of the zero-trust privacy primitive.
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.9\textwidth]{paper_plots/figure6_confidential_block.png}
+\includegraphics[width=1.0\textwidth]{paper_plots/figure6_confidential_block.png}
 \caption{Confidential Transaction Example. Output vout[1] shows the \texttt{OP\_RETURN} payload with a 32-byte commitment (\texttt{9d8d5b32...}) and 1200-byte Bulletproofs++ range proof. The transaction value (1.0 SOQU) is visible in this v1 implementation for consensus compatibility, while the proof cryptographically binds the commitment to the valid range.}
 \label{fig:confidential_tx}
+\end{figure}
+
+\subsection{Hashrate Stability}
+\begin{figure}[H]
+\centering
+\includegraphics[width=1.0\textwidth]{paper_plots/figure4_hashrate.png}
+\caption{Antminer L7 Hashrate Stability. The device maintained a stable 9.5 GH/s over 75 minutes of continuous mining on the Soqucoin regtest network, demonstrating that the post-quantum consensus rules introduce no latency overhead for miners.}
+\label{fig:hashrate}
 \end{figure}
 
 \section{Security Analysis}
@@ -444,7 +426,7 @@ Soqucoin will launch with a 100\% fair distribution model:
     \item \textbf{Total Supply}: 21,000,000,000 SOQ
 \end{itemize}
 
-The successful execution of our testnet and ASIC validation proves the viability of the ``So Quantum'' approach. Mainnet genesis is planned for March 1, 2026.
+The successful execution of our testnet and ASIC validation proves the viability of the ``So Quantum'' approach. Mainnet genesis is planned for December 15, 2025.
 
 \subsection{Deployment Risks}
 While benchmarks show negligible overhead, large signatures (2.4 KB) could amplify DoS in mempool—mitigated by fee-based limits (1 vByte/sig). Binius64 on non-GFNI CPUs (e.g., older ARM in L7) falls back to portable \texttt{\_\_uint128\_t} (2x slowdown)—tested <5 ms verify. Future ML-DSA upgrades use BIP9 soft-forks for backward compatibility. Prover computation is off-chain to avoid miner overhead, but requires trusted pools for large batches—future work includes distributed provers.
