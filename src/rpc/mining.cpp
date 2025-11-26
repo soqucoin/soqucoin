@@ -100,8 +100,8 @@ UniValue getnetworkhashps(const JSONRPCRequest& request)
 
 UniValue generateBlocks(std::shared_ptr<CReserveScript> coinbaseScript, int nGenerate, uint64_t nMaxTries, bool keepScript, int nMineAuxPow)
 {
-    // Soqucoin: Never mine witness tx
-    const bool fMineWitnessTx = false;
+    // Soqucoin: Allow mining witness tx (controlled by CreateNewBlock logic)
+    const bool fMineWitnessTx = true;
     static const int nInnerLoopCount = 0x10000;
     int nHeightStart = 0;
     int nHeightEnd = 0;
@@ -345,8 +345,8 @@ std::string gbt_vb_name(const Consensus::DeploymentPos pos)
 
 UniValue getblocktemplate(const JSONRPCRequest& request)
 {
-    // Soqucoin: Never mine witness tx
-    const bool fMineWitnessTx = false;
+    // Soqucoin: Allow mining witness tx (controlled by CreateNewBlock logic)
+    const bool fMineWitnessTx = true;
     if (request.fHelp || request.params.size() > 1)
         throw runtime_error(
             "getblocktemplate ( TemplateRequest )\n"

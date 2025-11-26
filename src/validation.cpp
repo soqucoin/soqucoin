@@ -3014,6 +3014,9 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
             commitment = std::vector<unsigned char>(out.scriptPubKey.begin(), out.scriptPubKey.end());
             CMutableTransaction tx(*block.vtx[0]);
             tx.vout.push_back(out);
+            // Add witness nonce to coinbase input
+            tx.vin[0].scriptWitness.stack.resize(1);
+            tx.vin[0].scriptWitness.stack[0] = ret;
             block.vtx[0] = MakeTransactionRef(std::move(tx));
         }
     }
@@ -3126,7 +3129,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
     //   {0xaa, 0x21, 0xa9, 0xed}, and the following 32 bytes are SHA256^2(witness root, witness nonce). In case there are
     //   multiple, the last one is used.
     bool fHaveWitness = false;
-    if (VersionBitsState(pindexPrev, consensusParams, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (VersionBitsState(pindexPrev, consensusParams, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE || GetBoolArg("-prematurewitness", false)) {
         int commitpos = GetWitnessCommitmentIndex(block);
         if (commitpos != -1) {
             bool malleated = false;
