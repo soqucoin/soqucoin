@@ -45,6 +45,7 @@
 #include "wallet/wallet.h"
 #endif
 #include "warnings.h"
+#include "zk/bulletproofs.h"
 #include <memory>
 #include <stdint.h>
 #include <stdio.h>
@@ -1219,6 +1220,13 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     LogPrintf("Using at most %i automatic connections (%i file descriptors available)\n", nMaxConnections, nFD);
 
     InitSignatureCache();
+
+    // Initialize Bulletproofs++ range proof context (secp256k1-zkp)
+    LogPrintf("Initializing range proof context (Bulletproofs++)...\n");
+    if (!zk::InitRangeProofContext()) {
+        return InitError(_("Failed to initialize range proof context. secp256k1-zkp may not be available."));
+    }
+    LogPrintf("Range proof context initialized successfully\n");
 
     LogPrintf("Using %u threads for script verification\n", nScriptCheckThreads);
     if (nScriptCheckThreads) {

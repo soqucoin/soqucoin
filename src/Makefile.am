@@ -351,6 +351,8 @@ libsoqucoin_consensus_a_SOURCES = \
   crypto/pat/logarithmic.cpp \
   crypto/pat/logarithmic.h \
   crypto/sangria/fold.cpp \
+  zk/bulletproofs.cpp \
+  zk/bulletproofs.h \
   serialize.h \
   tinyformat.h \
   uint256.cpp \
@@ -451,8 +453,9 @@ soqucoind_LDADD = \
   $(LIBSOQUCOIN_CONSENSUS) \
   $(LIBSOQUCOIN_CRYPTO) \
   $(LIBLEVELDB) \
-  $(LIBMEMENV)
-
+  $(LIBLEVELDB_SSE42) \
+  $(LIBMEMENV) \
+  secp256k1/.libs/libsecp256k1.la
 
 soqucoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
 
@@ -488,9 +491,10 @@ endif
 soqucoin_tx_LDADD = \
   $(LIBUNIVALUE) \
   $(LIBSOQUCOIN_COMMON) \
-  $(LIBSOQUCOIN_UTIL) \
   $(LIBSOQUCOIN_CONSENSUS) \
-  $(LIBSOQUCOIN_CRYPTO)
+  $(LIBSOQUCOIN_UTIL) \
+  $(LIBSOQUCOIN_CRYPTO) \
+  secp256k1/.libs/libsecp256k1.la
 
 soqucoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 #

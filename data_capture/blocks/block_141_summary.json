@@ -1,0 +1,91 @@
+{
+  "height": 141,
+  "hash": "39d4bea9c9c25d41b43db6cdde5dd715e5d3be3597965cba0de2d48951f8c4e3",
+  "time": 1764183939,
+  "size": 40943,
+  "weight": 73832,
+  "tx_count": 9,
+  "confidential_tx_count": 8,
+  "confidential_txs": [
+    {
+      "txid": "99d37b24eb509505e6991f5fb2f00e2d192d59f3ee992a78389b380ff505d1ea",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "a7afb19842b1468946d59ebf2c79d4e2caa7376dbe7d248a9c4b838741e0c2c2",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "739665c8715281ae776a3989e2db6380d023b56528df9e053be6dfd3b3e16658",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "23fbe1fbf8fc996fd4b6ab56b07225a8bb033f36cc8945a94ad470824b7e202e",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "ef37fae83215523deb281eaa443b25aa0783aed704de1ba49bb4b2ae43748a29",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "81b9f8d451f062d2f6bd43ec8a7c2fdb7d8a46551737e9bd073a679ade1ca713",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "7eee3c09bcd48b694538eeba33fb8a4bb221fd44056941065da34022e14e490c",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "309706ef5e270497c71fcc3998c52db496d765244f6e05160462a7ac10fa14a4",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    }
+  ]
+}
