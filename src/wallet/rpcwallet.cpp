@@ -348,11 +348,18 @@ static void SendMoney(const CTxDestination& address, CAmount nValue, bool fSubtr
         uint256 blinding;
         GetStrongRandBytes(blinding.begin(), 32);
 
-        // 2. Generate Commitment
-        zk::Commitment comm = zk::Commit(nValue, blinding);
+        // Generate Pedersen commitment and range proof
+        zk::Commitment comm;
+        if (!zk::GenerateCommitment(nValue, blinding, comm)) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to generate commitment");
+        }
 
-        // 3. Generate Range Proof
-        zk::RangeProof proof = zk::GenRangeProof(nValue, blinding, comm);
+        zk::RangeProof proof;
+        uint256 nonce;
+        GetStrongRandBytes(nonce.begin(), 32); // TODO: Use ECDH for recipient recovery
+        if (!zk::GenRangeProof(nValue, blinding, nonce, comm, proof)) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to generate range proof");
+        }
 
         // 4. Construct Confidential Script: OP_RETURN <commitment> <proof>
         // We use OP_RETURN to embed the proof without consensus change

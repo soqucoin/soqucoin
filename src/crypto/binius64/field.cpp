@@ -117,7 +117,7 @@ Binius64& Binius64::operator*=(const Binius64& rhs) noexcept
 
     // H * x^7
     // Shift H left by 7
-    uint64_t H_x7_lo = (H_lo << 7) | (H_hi >> (64 - 7)); // This is actually wrong direction for >>?
+    // Shift H left by 7
     // H_hi is high 64 bits. H_lo is low 64 bits.
     // (H_hi, H_lo) << 7
     // New hi = (H_hi << 7) | (H_lo >> 57)
@@ -174,4 +174,14 @@ Binius64 eval_multilinear_packed(const std::array<Binius64, 256>& poly, const st
         }
     }
     return layer[0];
+}
+
+// Future: Replace with lattice-based for full PQ privacy (soft-fork v0.22).
+void BiniusPedersenCommit(const Binius64& value, const Binius64& blinding, Binius64& commitment)
+{
+    // Placeholder for lattice-based commitment
+    // In v0.22, this will use ML-KEM or similar lattice construction
+    (void)value;
+    (void)blinding;
+    (void)commitment;
 }

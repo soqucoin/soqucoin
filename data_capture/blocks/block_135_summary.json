@@ -1,0 +1,211 @@
+{
+  "height": 135,
+  "hash": "74cd48d8c624c37e1fac27c00c19e94c48df61d3ca85b84b56360e4f6170fa6f",
+  "time": 1764182926,
+  "size": 101963,
+  "weight": 183164,
+  "tx_count": 21,
+  "confidential_tx_count": 20,
+  "confidential_txs": [
+    {
+      "txid": "3be1f1090daaaa359eba7d5f7806830267740a05e0500e08733a77630792df85",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "b6003712c40fd3a7d2a6cb2d664043bb503804a3b66b827cad104118fcae2346",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "f4ccc157016e3af54bdfda0343ff8835a505ed9a93f3c52ec999efd00010a28f",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "5ea904f910a54f301c690540878189dc705bf95251c94be34b77439d7d396c4a",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "9ec613f05c80594a397e72d21a555bc8c7b6fa1a94ef5d6f686a10b24051428f",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "6604f37d48852facf61bd1d8327177e11aced704776dc5eef5bf2c6dcf89591b",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "b11efef89f95b180b319a1a34f320172e92dc01e4d3a78b23badcb9e791d4120",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "452cd039cdf748c4ff45bb9233d97d5b60f8dc699b9f5c26d13df0cd89540d22",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "556413a55a7ac6f734571b74051695e267cd9c3df3639bea6b70f49a90c7042b",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "0237bc6038e04c642ffa145c33cc5ff13a96a203fd9ea50b2aca03c79e1c9239",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "740b4a2aae9c6fe035493cd071cb3636b3fb06bc76329553411aca0a7757b161",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "d7b1df991ef3fe17c68944849371afefb857cbe1b5bb04f914eabda02a96df76",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "d38e299318064fe052caa037836ae2f006a7a6e184be2dc3da70e074f00dc17e",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "798a7b78ba2420d3a6a8798216f5b2c54db602f09d830a11b2c548ff9669848e",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "67c60296153e58b3280310e5b92a338978f23bcd7bed20aa0fe5f17221c0679e",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "ec8ed462e896990eb0437a44240a6527c99a2802d5354e368cd1b226a23bf1d5",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "d8aecc242469d90906e4a7acad906579c0ab7a78e5804b87679776ff7e3208db",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "517471447c94ba007708a11c91a1281851144b175e4c6496279a502644fe9adf",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "fc49dab4696eb9300bbf11f5dcaac3600eee7e31c1a7c03263b9952b60ddcbe8",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    },
+    {
+      "txid": "f3246c0d0317c254afa105ee36ec6d9c825ef706a0bdeaa7760d8ab4bcc7f9f0",
+      "witness_items": 2,
+      "witness_sizes": [
+        2421,
+        1313
+      ],
+      "size": 5085,
+      "vsize": 2278
+    }
+  ]
+}

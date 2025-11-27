@@ -16,17 +16,21 @@ All consensus code merged, CI green, regtest running pure Dilithium-only chains 
 LatticeFold+ verifier deployed in production consensus rules.  
 ASIC Validation complete: Antminer L7 (9.5 GH/s) mining pure post-quantum blocks.
 
-**Mainnet genesis: March 1, 2026** 
+**Mainnet genesis: December 15, 2026** 
 (final testing, documentation, and miner onboarding)
 
 ## Why Soqucoin Exists
 
 Quantum computers will break ECDSA. Every chain still using it in 2025 is building on borrowed time.
 
-Soqucoin is the only chain that eliminated ECDSA entirely, from block 0, and replaced it with the most efficient post-quantum batching schemes known to cryptography in 2025:
+## 🚀 Key Features
 
-- ≤256 signatures → PAT logarithmic Merkle (65–72 byte on-chain footprint)  
-- >256 signatures → LatticeFold+ recursive folding over Binius64 packed fields (constant-size proof, sub-millisecond verification, recursion-ready)
+- **Post-Quantum Security**: Native ML-DSA-44 (Dilithium) signatures replacing ECDSA.
+- **Confidential Transactions**: Zero-trust privacy via Bulletproofs++ range proofs.
+- **ASIC Compatible**: Fully compatible with existing Scrypt ASICs (Antminer L7/L3+, etc.).
+    - *Validated Nov 2025*: Antminer L7 mining confidential PQ blocks at 9.5 GH/s.
+- **Scalable Verification**: LatticeFold+ recursive folding for constant-size proofs.
+- **Fair Launch**: No premine, no ICO. 100% PoW distribution.
 
 No soft-fork. No hybrid mode. No excuses.
 
@@ -54,7 +58,7 @@ All six planned consensus commits are merged as of November 20, 2025:
 
 Regtest blocks containing 1024-input Dilithium transactions validate in <2 ms on 2015 hardware.
 
-The prover is not yet in-tree (expected Q4 2025–Q1 2026), but verification is consensus-critical and already the fastest lattice-based verifier ever deployed.
+The **LatticeFold+** prover is not yet in-tree (expected Q4 2025–Q1 2026), but its verification is consensus-critical and already the fastest lattice-based verifier ever deployed. **Bulletproofs++** is now fully integrated using the production-grade `secp256k1-zkp` library, providing genuine cryptographic privacy with secure nonce generation. **Dilithium** signing is fully implemented and active today.
 
 ### Branches
 

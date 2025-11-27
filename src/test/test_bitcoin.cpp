@@ -23,6 +23,7 @@
 #include "txmempool.h"
 #include "ui_interface.h"
 #include "validation.h"
+#include "zk/bulletproofs.h"
 
 #include "test/testutil.h"
 
@@ -45,6 +46,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName)
 {
     RandomInit();
     // Post-quantum: ECC_Start removed
+    zk::InitRangeProofContext();
     SetupEnvironment();
     SetupNetworking();
     InitSignatureCache();

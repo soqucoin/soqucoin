@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Antminer L7 Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+
+        .header {
+            background-color: #fff;
+            padding: 15px 20px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo {
+            font-weight: bold;
+            font-size: 24px;
+            color: #000;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            font-size: 16px;
+            font-weight: bold;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            color: #666;
+            font-weight: normal;
+            font-size: 13px;
+        }
+
+        .green {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .hashrate {
+            font-size: 24px;
+            font-weight: bold;
+            color: #000;
+        }
+
+        .unit {
+            font-size: 14px;
+            color: #666;
+            font-weight: normal;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="logo">ANTMINER</div>
+        <div class="status-bar">
+            <span>System: <span class="green">Running</span></span>
+            <span>Uptime: 2h 14m</span>
+            <span>Network: Connected</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Miner Status</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Miner Type</th>
+                    <th>Real-time Hashrate</th>
+                    <th>Avg Hashrate</th>
+                    <th>Accepted</th>
+                    <th>Rejected</th>
+                    <th>Hardware Errors</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Antminer L7</td>
+                    <td><span class="hashrate">9,542.82</span> <span class="unit">MH/s</span></td>
+                    <td>9,480.15 MH/s</td>
+                    <td>14,293</td>
+                    <td>0 (0.00%)</td>
+                    <td>12 (0.00%)</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Pool Configuration</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Pool</th>
+                    <th>URL</th>
+                    <th>User</th>
+                    <th>Status</th>
+                    <th>Diff</th>
+                    <th>Getworks</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>stratum+tcp://192.168.1.121:3333</td>
+                    <td>test.worker</td>
+                    <td><span class="green">Alive</span></td>
+                    <td>131072</td>
+                    <td>4,291</td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td>stratum+tcp://192.168.1.121:3333</td>
+                    <td>test.worker</td>
+                    <td>Dead</td>
+                    <td>-</td>
+                    <td>0</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">Chain Status</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Chain</th>
+                    <th>ASIC#</th>
+                    <th>Frequency</th>
+                    <th>Hashrate (RT)</th>
+                    <th>Temp (PCB)</th>
+                    <th>Temp (Chip)</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>120</td>
+                    <td>1825</td>
+                    <td>2,385.12 MH/s</td>
+                    <td>58°C</td>
+                    <td>72°C</td>
+                    <td><span class="green">O</span></td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td>120</td>
+                    <td>1825</td>
+                    <td>2,391.45 MH/s</td>
+                    <td>59°C</td>
+                    <td>73°C</td>
+                    <td><span class="green">O</span></td>
+                </tr>
+                <tr>
+                    <td>3</td>
+                    <td>120</td>
+                    <td>1825</td>
+                    <td>2,382.88 MH/s</td>
+                    <td>57°C</td>
+                    <td>71°C</td>
+                    <td><span class="green">O</span></td>
+                </tr>
+                <tr>
+                    <td>4</td>
+                    <td>120</td>
+                    <td>1825</td>
+                    <td>2,383.37 MH/s</td>
+                    <td>58°C</td>
+                    <td>72°C</td>
+                    <td><span class="green">O</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+
+</html>

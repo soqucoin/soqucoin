@@ -97,6 +97,7 @@ BITCOIN_TESTS =\
   test/crypto_tests.cpp \
   test/cuckoocache_tests.cpp \
   test/DoS_tests.cpp \
+  test/bulletproofs_tests.cpp \
   test/soqucoin_tests.cpp \
   test/getarg_tests.cpp \
   test/hash_tests.cpp \
@@ -153,8 +154,23 @@ endif
 
 test_test_soqucoin_SOURCES = $(BITCOIN_TESTS) $(JSON_TEST_FILES) $(RAW_TEST_FILES)
 test_test_soqucoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/test/ $(TESTDEFS) $(EVENT_CFLAGS)
-test_test_soqucoin_LDADD = $(LIBSOQUCOIN_SERVER) $(LIBSOQUCOIN_CLI) $(LIBSOQUCOIN_COMMON) $(LIBSOQUCOIN_UTIL) $(LIBSOQUCOIN_CONSENSUS) $(LIBSOQUCOIN_CRYPTO) $(LIBUNIVALUE) $(LIBLEVELDB) $(LIBMEMENV) \
-  $(BOOST_LIBS) $(BOOST_UNIT_TEST_FRAMEWORK_LIB) $(EVENT_LIBS)
+test_test_soqucoin_LDADD = \
+  $(LIBSOQUCOIN_SERVER) \
+  $(LIBSOQUCOIN_CLI) \
+  $(LIBSOQUCOIN_COMMON) \
+  $(LIBSOQUCOIN_UTIL) \
+  $(LIBSOQUCOIN_CONSENSUS) \
+  $(LIBSOQUCOIN_CRYPTO) \
+  $(LIBUNIVALUE) \
+  $(LIBLEVELDB) \
+  $(LIBLEVELDB_SSE42) \
+  $(LIBMEMENV) \
+  $(BOOST_LIBS) \
+  $(BOOST_UNIT_TEST_FRAMEWORK_LIB) \
+  $(LIBSECP256K1) \
+  $(EVENT_LIBS) \
+  $(EVENT_PTHREADS_LIBS) \
+  secp256k1/.libs/libsecp256k1.la
 test_test_soqucoin_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 if ENABLE_WALLET
 test_test_soqucoin_LDADD += $(LIBSOQUCOIN_WALLET)

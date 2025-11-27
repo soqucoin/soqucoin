@@ -584,7 +584,6 @@ BOOST_AUTO_TEST_CASE(dilithium_signature_uniqueness)
     BOOST_CHECK(key.Sign(hash, sig1));
     BOOST_CHECK(key.Sign(hash, sig2));
     BOOST_CHECK(key.Sign(hash, sig3));
-
     // All signatures should verify, regardless of determinism
     CPubKey pubkey = key.GetPubKey();
     BOOST_CHECK(pubkey.Verify(hash, sig1));
@@ -592,22 +591,23 @@ BOOST_AUTO_TEST_CASE(dilithium_signature_uniqueness)
     BOOST_CHECK(pubkey.Verify(hash, sig3));
 }
 
-BOOST_AUTO_TEST_CASE(test_zk_basic)
+BOOST_AUTO_TEST_CASE(script_bulletproofs_test)
 {
-    // Test Bulletproofs++ confidential transaction primitive (v1)
-
     // 1. Setup
     CAmount value = 50 * COIN;
     uint256 blinding;
     GetStrongRandBytes(blinding.begin(), 32);
 
     // 2. Generate Commitment
-    zk::Commitment comm = zk::Commit(value, blinding);
+    zk::Commitment comm;
+    BOOST_CHECK(zk::GenerateCommitment(value, blinding, comm));
     BOOST_CHECK(comm.data.size() == 32);
 
     // 3. Generate Range Proof
-    zk::RangeProof proof = zk::GenRangeProof(value, blinding, comm);
-    BOOST_CHECK(proof.data.size() == 1200);
+    zk::RangeProof proof;
+    uint256 nonce = blinding; // Use blinding as nonce for test
+    BOOST_CHECK(zk::GenRangeProof(value, blinding, nonce, comm, proof));
+    BOOST_CHECK(proof.data.size() == 675); // Approx size
 
     // 4. Verify Proof (Valid)
     BOOST_CHECK(zk::VerifyRangeProof(proof, comm));

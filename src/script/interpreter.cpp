@@ -308,7 +308,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
             // Proof
             std::vector<unsigned char> proofData;
-            if (!scriptPubKey.GetOp(pc, opcode, proofData) || proofData.size() != 1200) return set_success(serror);
+            if (!scriptPubKey.GetOp(pc, opcode, proofData) || proofData.size() < 100) return set_success(serror);
 
             // Verify Range Proof
             zk::Commitment comm(commitmentData);
