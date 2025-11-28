@@ -12,66 +12,69 @@
 \@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{1}{section.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {3}Cryptographic Foundations}{1}{section.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Dilithium ML-DSA-44}{1}{subsection.3.1}\protected@file@percent }
-\citation{binius2023}
-\citation{pat2025}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Soqucoin System Architecture. \textbf  {Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,421 bytes) and Pedersen commitments (33 bytes compressed). \textbf  {Step 2a}: Signatures are batched via PAT into a Merkle-tree commitment (64--72 byte root). \textbf  {Step 2b}: Confidential amounts are verified via Bulletproofs++ (675-byte range proofs, 0.89 ms verification). \textbf  {Step 3}: The PAT commitment is folded into a succinct LatticeFold+ proof ($\sim $1.38 KB constant size) using Binius64 field arithmetic ($\sim $5 cycles/multiplication on AVX2/GFNI hardware). \textbf  {Step 4}: The block header commits to all transactions via the Merkle root; the coinbase includes the LatticeFold+ proof and Bulletproofs++ range proofs. Verification is $O(1)$ via \texttt  {OP\_CHECKFOLDPROOF} with soundness error $< 2^{-130}$ (Theorem 4.2, \cite  {latticefold2025}).}}{2}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:architecture}{{1}{2}{Soqucoin System Architecture. \textbf {Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,421 bytes) and Pedersen commitments (33 bytes compressed). \textbf {Step 2a}: Signatures are batched via PAT into a Merkle-tree commitment (64--72 byte root). \textbf {Step 2b}: Confidential amounts are verified via Bulletproofs++ (675-byte range proofs, 0.89 ms verification). \textbf {Step 3}: The PAT commitment is folded into a succinct LatticeFold+ proof ($\sim $1.38 KB constant size) using Binius64 field arithmetic ($\sim $5 cycles/multiplication on AVX2/GFNI hardware). \textbf {Step 4}: The block header commits to all transactions via the Merkle root; the coinbase includes the LatticeFold+ proof and Bulletproofs++ range proofs. Verification is $O(1)$ via \texttt {OP\_CHECKFOLDPROOF} with soundness error $< 2^{-130}$ (Theorem 4.2, \cite {latticefold2025})}{figure.caption.1}{}}
 \newlabel{lst:sign}{{1}{2}{Dilithium Signing (src/crypto/dilithium/sign.c)}{lstlisting.1}{}}
 \@writefile{lol}{\contentsline {lstlisting}{\numberline {1}{\ignorespaces Dilithium Signing (src/crypto/dilithium/sign.c)}}{2}{lstlisting.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Binius64 and AVX2-Accelerated Packed Fields}{2}{subsection.3.2}\protected@file@percent }
-\newlabel{lst:binius}{{2}{2}{Binius64 GFNI Multiplication}{lstlisting.2}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {2}{\ignorespaces Binius64 GFNI Multiplication}}{2}{lstlisting.2}\protected@file@percent }
+\citation{binius2023}
+\citation{pat2025}
 \citation{latticefold2025}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Binius64 and AVX2-Accelerated Packed Fields}{3}{subsection.3.2}\protected@file@percent }
+\newlabel{lst:binius}{{2}{3}{Binius64 GFNI Multiplication}{lstlisting.2}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {2}{\ignorespaces Binius64 GFNI Multiplication}}{3}{lstlisting.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Practical Aggregation Technique (PAT)}{3}{subsection.3.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {4}LatticeFold+ Verification}{3}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}The Verifier}{3}{subsection.4.1}\protected@file@percent }
-\newlabel{lst:verifier}{{3}{3}{LatticeFold+ Batch Verification}{lstlisting.3}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {3}{\ignorespaces LatticeFold+ Batch Verification}}{3}{lstlisting.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}LatticeFold+ Verification}{4}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}The Verifier}{4}{subsection.4.1}\protected@file@percent }
+\newlabel{lst:verifier}{{3}{4}{LatticeFold+ Batch Verification}{lstlisting.3}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {3}{\ignorespaces LatticeFold+ Batch Verification}}{4}{lstlisting.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {5}Consensus Layer Modifications}{4}{section.5}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {5.1}New Opcodes}{4}{subsection.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Strict Post-Quantum Enforcement}{4}{subsection.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Zero-Trust Privacy via Bulletproofs++}{4}{subsection.5.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.3.1}Cryptographic Construction}{4}{subsubsection.5.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.3.2}Integration}{4}{subsubsection.5.3.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Bulletproofs++ Performance on Soqucoin (M4 Benchmarks)}}{4}{table.caption.2}\protected@file@percent }
-\newlabel{tab:bp_bench}{{1}{4}{Bulletproofs++ Performance on Soqucoin (M4 Benchmarks)}{table.caption.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Strict Post-Quantum Enforcement}{5}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Zero-Trust Privacy via Bulletproofs++}{5}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.3.1}Cryptographic Construction}{5}{subsubsection.5.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {5.3.2}Integration}{5}{subsubsection.5.3.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Bulletproofs++ Performance on Soqucoin (Apple M4, libsecp256k1-zkp). Measured via \texttt  {src/bench/bench\_bulletproofs.cpp} with $n=10{,}000$ iterations.}}{5}{table.caption.2}\protected@file@percent }
+\newlabel{tab:bp_bench}{{1}{5}{Bulletproofs++ Performance on Soqucoin (Apple M4, libsecp256k1-zkp). Measured via \texttt {src/bench/bench\_bulletproofs.cpp} with $n=10{,}000$ iterations}{table.caption.2}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {6}Hardware Validation: ASIC Compatibility}{5}{section.6}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Test Configuration}{5}{subsection.6.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Results}{5}{subsection.6.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces L7 Integration: Six-panel evidence of successful confidential transaction mining on Antminer L7. (a) L7 Dashboard showing stable 9.5 GH/s hashrate. (b) Block 104 JSON data containing 147 confidential transactions. (c) Stratum proxy logs confirming share submission and block generation. (d) \texttt  {getblockchaininfo} verifying chain height and difficulty. (e) Detailed view of Dilithium witness data (2421 bytes). (f) Mining status confirming continuous operation. Test conducted November 26, 2025.}}{6}{figure.caption.3}\protected@file@percent }
-\newlabel{fig:asic-validation}{{2}{6}{L7 Integration: Six-panel evidence of successful confidential transaction mining on Antminer L7. (a) L7 Dashboard showing stable 9.5 GH/s hashrate. (b) Block 104 JSON data containing 147 confidential transactions. (c) Stratum proxy logs confirming share submission and block generation. (d) \texttt {getblockchaininfo} verifying chain height and difficulty. (e) Detailed view of Dilithium witness data (2421 bytes). (f) Mining status confirming continuous operation. Test conducted November 26, 2025}{figure.caption.3}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {7}Performance Evaluation}{6}{section.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Test Environment}{7}{subsection.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Cryptographic Benchmarks}{7}{subsection.7.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Cryptographic Performance on Apple M4 (warm cache, clang -O3, n=10,000 runs per op).}}{7}{table.caption.4}\protected@file@percent }
-\newlabel{tab:crypto_bench}{{2}{7}{Cryptographic Performance on Apple M4 (warm cache, clang -O3, n=10,000 runs per op)}{table.caption.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Network Consensus Testing}{7}{subsection.7.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces 24-Hour Fuzzing Campaign Results (libFuzzer)}}{7}{table.caption.5}\protected@file@percent }
-\newlabel{tab:fuzzing}{{3}{7}{24-Hour Fuzzing Campaign Results (libFuzzer)}{table.caption.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Confidential Transaction Validation}{7}{subsection.7.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Confidential Transaction Example. Output vout[1] shows the \texttt  {OP\_RETURN} payload with a 32-byte commitment (\texttt  {9d8d5b32...}) and 1200-byte Bulletproofs++ range proof. The transaction value (1.0 SOQU) is visible in this v1 implementation for consensus compatibility, while the proof cryptographically binds the commitment to the valid range.}}{8}{figure.caption.6}\protected@file@percent }
-\newlabel{fig:confidential_tx}{{3}{8}{Confidential Transaction Example. Output vout[1] shows the \texttt {OP\_RETURN} payload with a 32-byte commitment (\texttt {9d8d5b32...}) and 1200-byte Bulletproofs++ range proof. The transaction value (1.0 SOQU) is visible in this v1 implementation for consensus compatibility, while the proof cryptographically binds the commitment to the valid range}{figure.caption.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Results}{6}{subsection.6.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces L7 ASIC Integration Evidence. Antminer L7 (9.5 GH/s) successfully connected via standard Stratum V1 and submitted shares for blocks containing real Bulletproofs++ confidential transactions. Block 104 contains 147 confidential transactions with full Dilithium witness encoding (2,421 + 1,313 bytes per input) and range proofs (675 bytes). Full block mining validated on mainnet-mode node. Test conducted November 24--26, 2025.}}{7}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:asic-validation}{{2}{7}{L7 ASIC Integration Evidence. Antminer L7 (9.5 GH/s) successfully connected via standard Stratum V1 and submitted shares for blocks containing real Bulletproofs++ confidential transactions. Block 104 contains 147 confidential transactions with full Dilithium witness encoding (2,421 + 1,313 bytes per input) and range proofs (675 bytes). Full block mining validated on mainnet-mode node. Test conducted November 24--26, 2025}{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Performance Evaluation}{7}{section.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Test Environment}{8}{subsection.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Cryptographic Benchmarks}{8}{subsection.7.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Cryptographic Performance on Apple M4 (warm cache, clang -O3, n=10,000 runs per op).}}{8}{table.caption.4}\protected@file@percent }
+\newlabel{tab:crypto_bench}{{2}{8}{Cryptographic Performance on Apple M4 (warm cache, clang -O3, n=10,000 runs per op)}{table.caption.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Network Consensus Testing}{8}{subsection.7.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces 24-Hour Fuzzing Campaign Results (libFuzzer)}}{8}{table.caption.5}\protected@file@percent }
+\newlabel{tab:fuzzing}{{3}{8}{24-Hour Fuzzing Campaign Results (libFuzzer)}{table.caption.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Confidential Transaction Validation}{8}{subsection.7.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Confidential Transaction Example from Block 104. The \texttt  {OP\_RETURN} output contains a 32-byte Pedersen commitment (\texttt  {982effd9...}) followed by a 675-byte Bulletproofs++ range proof. The witness stack includes a 2,421-byte Dilithium signature and 1,313-byte public key, demonstrating full post-quantum signature integration with confidential amounts.}}{9}{figure.caption.6}\protected@file@percent }
+\newlabel{fig:confidential_tx}{{3}{9}{Confidential Transaction Example from Block 104. The \texttt {OP\_RETURN} output contains a 32-byte Pedersen commitment (\texttt {982effd9...}) followed by a 675-byte Bulletproofs++ range proof. The witness stack includes a 2,421-byte Dilithium signature and 1,313-byte public key, demonstrating full post-quantum signature integration with confidential amounts}{figure.caption.6}{}}
 \citation{nistfips204}
 \citation{latticefold2025}
 \citation{latticefold2025}
 \citation{latticefold2025}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.5}Hashrate Stability}{9}{subsection.7.5}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Antminer L7 Hashrate Stability. The device maintained a stable 9.5 GH/s over 75 minutes of continuous mining on the Soqucoin regtest network, demonstrating that the post-quantum consensus rules introduce no latency overhead for miners.}}{9}{figure.caption.7}\protected@file@percent }
-\newlabel{fig:hashrate}{{4}{9}{Antminer L7 Hashrate Stability. The device maintained a stable 9.5 GH/s over 75 minutes of continuous mining on the Soqucoin regtest network, demonstrating that the post-quantum consensus rules introduce no latency overhead for miners}{figure.caption.7}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {8}Security Analysis}{9}{section.8}\protected@file@percent }
-\newlabel{sec:security}{{8}{9}{Security Analysis}{section.8}{}}
-\@writefile{toc}{\contentsline {paragraph}{ML-DSA-44 Security.}{9}{section*.8}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces ML-DSA-44 parameters used in Soqucoin (identical to FIPS 204).}}{9}{table.caption.9}\protected@file@percent }
-\newlabel{tab:ml-dsa-params}{{4}{9}{ML-DSA-44 parameters used in Soqucoin (identical to FIPS 204)}{table.caption.9}{}}
-\@writefile{toc}{\contentsline {paragraph}{LatticeFold+ Soundness.}{9}{section*.10}\protected@file@percent }
 \citation{ctgrind}
 \citation{dudect}
-\bibcite{nistfips204}{1}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5}Hashrate Stability}{10}{subsection.7.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Antminer L7 ASIC Integration. (a) Live dashboard confirming stable 9.5 GH/s Scrypt hashrate with pool connection to the Soqucoin stratum proxy. (b) Hashrate remained stable throughout the 75-minute test, demonstrating that post-quantum consensus rules (Dilithium signatures, Bulletproofs++ verification) introduce no measurable latency overhead for miners.}}{10}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:hashrate}{{4}{10}{Antminer L7 ASIC Integration. (a) Live dashboard confirming stable 9.5 GH/s Scrypt hashrate with pool connection to the Soqucoin stratum proxy. (b) Hashrate remained stable throughout the 75-minute test, demonstrating that post-quantum consensus rules (Dilithium signatures, Bulletproofs++ verification) introduce no measurable latency overhead for miners}{figure.caption.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Security Analysis}{10}{section.8}\protected@file@percent }
+\newlabel{sec:security}{{8}{10}{Security Analysis}{section.8}{}}
+\@writefile{toc}{\contentsline {paragraph}{ML-DSA-44 Security.}{10}{section*.8}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces ML-DSA-44 parameters used in Soqucoin (identical to FIPS 204).}}{10}{table.caption.9}\protected@file@percent }
+\newlabel{tab:ml-dsa-params}{{4}{10}{ML-DSA-44 parameters used in Soqucoin (identical to FIPS 204)}{table.caption.9}{}}
+\@writefile{toc}{\contentsline {paragraph}{LatticeFold+ Soundness.}{10}{section*.10}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{PAT Security.}{10}{section*.11}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.1}Implementation Security}{10}{subsection.8.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {9}Conclusion}{10}{section.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.1}Fair Launch Parameters}{10}{subsection.9.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {9.2}Deployment Risks}{10}{subsection.9.2}\protected@file@percent }
+\bibcite{nistfips204}{1}
 \bibcite{latticefold2025}{2}
 \bibcite{binius2023}{3}
+\@writefile{toc}{\contentsline {section}{\numberline {9}Conclusion}{11}{section.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1}Fair Launch Parameters}{11}{subsection.9.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.2}Deployment Risks}{11}{subsection.9.2}\protected@file@percent }
 \bibcite{pat2025}{4}
 \bibcite{verkle2024}{5}
 \bibcite{solana2025}{6}
@@ -81,16 +84,16 @@
 \bibcite{nakamoto2008}{10}
 \bibcite{ctgrind}{11}
 \bibcite{dudect}{12}
-\@writefile{toc}{\contentsline {section}{\numberline {A}Reproducibility Appendix}{11}{appendix.A}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {B}PAT Construction and Proof}{11}{appendix.B}\protected@file@percent }
-\newlabel{app:pat}{{B}{11}{PAT Construction and Proof}{appendix.B}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {B.1}Construction}{11}{subsection.B.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {B.2}Security Model (EUF-CMA)}{12}{subsection.B.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {B.3}Proof Sketch}{12}{subsection.B.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {C}Full Parameter Derivations}{13}{appendix.C}\protected@file@percent }
-\newlabel{app:params}{{C}{13}{Full Parameter Derivations}{appendix.C}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {C.1}Binius64 Field Construction}{13}{subsection.C.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {C.2}LatticeFold+ Error Bounds}{13}{subsection.C.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces LatticeFold+ Error Bounds for varying batch sizes. Even at maximum batch size ($N=1024$), the error remains negligible ($< 2^{-250}$).}}{13}{table.caption.14}\protected@file@percent }
-\newlabel{tab:error-bounds}{{5}{13}{LatticeFold+ Error Bounds for varying batch sizes. Even at maximum batch size ($N=1024$), the error remains negligible ($< 2^{-250}$)}{table.caption.14}{}}
-\gdef \@abspage@last{13}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Reproducibility Appendix}{12}{appendix.A}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {B}PAT Construction and Proof}{12}{appendix.B}\protected@file@percent }
+\newlabel{app:pat}{{B}{12}{PAT Construction and Proof}{appendix.B}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.1}Construction}{12}{subsection.B.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.2}Security Model (EUF-CMA)}{13}{subsection.B.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.3}Proof Sketch}{13}{subsection.B.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C}Full Parameter Derivations}{14}{appendix.C}\protected@file@percent }
+\newlabel{app:params}{{C}{14}{Full Parameter Derivations}{appendix.C}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.1}Binius64 Field Construction}{14}{subsection.C.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2}LatticeFold+ Error Bounds}{14}{subsection.C.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces LatticeFold+ Error Bounds for varying batch sizes. Even at maximum batch size ($N=1024$), the error remains negligible ($< 2^{-250}$).}}{14}{table.caption.14}\protected@file@percent }
+\newlabel{tab:error-bounds}{{5}{14}{LatticeFold+ Error Bounds for varying batch sizes. Even at maximum batch size ($N=1024$), the error remains negligible ($< 2^{-250}$)}{table.caption.14}{}}
+\gdef \@abspage@last{14}
