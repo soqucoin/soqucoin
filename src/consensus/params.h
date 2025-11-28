@@ -83,6 +83,7 @@ struct Params {
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;
     int32_t dilithiumOnlyHeight;
+    int32_t nLatticeFoldActivationHeight;
 
     /** Auxpow parameters */
     int32_t nAuxpowChainId;

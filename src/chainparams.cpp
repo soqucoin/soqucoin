@@ -153,6 +153,7 @@ public:
         consensus.defaultAssumeValid = uint256S("0x00");
         consensus.dilithiumOnlyHeight = 0;
         consensus.dilithiumOnlyHeight = 0;
+        consensus.nLatticeFoldActivationHeight = 2147483647; // INT_MAX for now
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!
@@ -318,6 +319,7 @@ public:
         // By default assume that the signatures in ancestors of this block are valid.
         consensus.defaultAssumeValid = uint256S("0x00");
         consensus.dilithiumOnlyHeight = 0;
+        consensus.nLatticeFoldActivationHeight = 0; // Active immediately for testing
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!

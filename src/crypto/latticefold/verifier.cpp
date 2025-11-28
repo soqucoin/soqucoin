@@ -141,15 +141,19 @@ bool LatticeFoldVerifier::VerifySumcheckRound(const std::array<Fp, 64>& round_pr
 // OP_CHECKFOLDPROOF (0xfc) implementation for interpreter.cpp
 bool EvalCheckFoldProof(const valtype& vchProof) noexcept
 {
-    // Size check adjusted to allow for 8 rounds * 64 elements * 8 bytes = 4096 bytes of sumcheck
-    // plus header/footer overhead.
-    // The user comment says "1.38 kB" but the code logic requires ~4.5KB.
-    // We relax the check to allow the code logic to pass.
-    if (vchProof.size() < 100) return false;
+    // Strict bounds check based on wire format spec
+    // Min size = 176 (header) + 480 (footer) = 656 bytes
+    // Max size = 10000 bytes (accommodating 8 rounds * 64 elements * 16 bytes = 8192 bytes + overhead)
+    if (vchProof.size() < 656 || vchProof.size() > 10000) return false;
 
     // Parse proof (fixed layout from spec)
     LatticeFoldVerifier::BatchInstance instance;
-    if (vchProof.size() < 32 + 128 + 16) return false;
+
+    // Header parsing (176 bytes)
+    // 0..31: batch_hash
+    // 32..159: t_coeffs (8 * 16)
+    // 160..175: c (16)
+    if (vchProof.size() < 176) return false; // Redundant but safe
 
     std::copy(vchProof.begin(), vchProof.begin() + 32, instance.batch_hash.begin());
     for (int i = 0; i < 8; ++i) {
@@ -171,11 +175,53 @@ bool EvalCheckFoldProof(const valtype& vchProof) noexcept
     // fiat_shamir_seed: 32
     // Total footer = 480 bytes
 
-    if (vchProof.size() < offset + 480) return false;
-    size_t sumcheck_bytes = vchProof.size() - offset - 480;
+    // Footer size = 480 bytes
+    // Sumcheck size = Total - Header (176) - Footer (480)
+    // Must be divisible by 16 (size of Fp)
+    // Must be exactly 8 rounds * 64 elements * 16 bytes = 8192 bytes?
+    // Wait, the comment says 1.38kB total.
+    // 8 rounds * 64 elements * 16 bytes = 8192 bytes. This contradicts the 1.38kB claim.
+    // Let's check the verifier logic.
+    // "Each round proof contains 64 field elements" (line 62)
+    // If Fp is 16 bytes (128 bits), then 64 * 16 = 1024 bytes per round.
+    // 8 rounds = 8192 bytes.
+    // The 1.38kB claim implies much smaller elements or fewer elements.
+    // However, for now we enforce what the code expects.
+    // Actually, let's look at the previous code:
+    // "Size check adjusted to allow for 8 rounds * 64 elements * 8 bytes = 4096 bytes"
+    // It seems Fp might be treated as 8 bytes in some contexts or the comment was wrong.
+    // But Binius64 is 128-bit (16 bytes).
+    // Let's stick to the code's structural requirements:
+    // sumcheck_bytes must be divisible by 16.
+    // And we should check if it matches 8 * 64 * 16 if we want to be strict,
+    // OR just ensure it's a multiple of 64 * 16 if variable rounds are allowed.
+    // The verifier loop (line 61) iterates 8 times.
+    // So we MUST have at least 8 * 64 elements.
+
+    size_t header_size = 176;
+    size_t footer_size = 480;
+
+    // Overflow check
+    if (vchProof.size() < header_size + footer_size) return false;
+
+    size_t sumcheck_bytes = vchProof.size() - header_size - footer_size;
     if (sumcheck_bytes % 16 != 0) return false;
 
     size_t sumcheck_elements = sumcheck_bytes / 16;
+
+    // Strict check: The verifier expects exactly 8 rounds of 64 elements.
+    // 8 * 64 = 512 elements.
+    // 512 * 16 bytes = 8192 bytes.
+    // This would make the proof ~8.8KB.
+    // If the 1.38kB claim is true, then either:
+    // 1. Elements are smaller (not 16 bytes).
+    // 2. Fewer elements per round.
+    // 3. Fewer rounds.
+    // Given the "maturity mismatch", we will enforce what the verifier *needs* to not crash.
+    // The verifier loops 8 times and reads 64 elements each time.
+    // So we MUST have 512 elements.
+    if (sumcheck_elements != 512) return false;
+
     proof.sumcheck_proof.resize(sumcheck_elements);
 
     for (size_t i = 0; i < sumcheck_elements; ++i) {

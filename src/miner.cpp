@@ -197,7 +197,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
 
     // SOQUCOIN: Force Dilithium-only coinbase outputs (witness v1)
-    if (scriptPubKeyIn.size() != 34 || scriptPubKeyIn[0] != OP_1 || scriptPubKeyIn[1] != 32) {
+    if (nHeight >= consensus.dilithiumOnlyHeight && (scriptPubKeyIn.size() != 34 || scriptPubKeyIn[0] != OP_1 || scriptPubKeyIn[1] != 32)) {
         LogPrintf("%s: Coinbase must pay to Dilithium witness v1 address (OP_1 <32-byte-hash>)\n", __func__);
         return nullptr;
     }

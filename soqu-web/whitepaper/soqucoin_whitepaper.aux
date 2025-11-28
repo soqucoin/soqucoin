@@ -5,39 +5,40 @@
 \citation{verkle2024}
 \citation{solana2025}
 \citation{opcat2024}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{1}{section.2}\protected@file@percent }
 \citation{latticefold2025}
 \citation{latticefold2025}
 \citation{nistfips204}
-\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{1}{section.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}Cryptographic Foundations}{1}{section.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Dilithium ML-DSA-44}{1}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Implementation Status (v1.0)}{2}{subsection.2.1}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Soqucoin System Architecture. \textbf  {Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,421 bytes) and Pedersen commitments (33 bytes compressed). \textbf  {Step 2a}: Signatures are batched via PAT into a Merkle-tree commitment (64--72 byte root). \textbf  {Step 2b}: Confidential amounts are verified via Bulletproofs++ (675-byte range proofs, 0.89 ms verification). \textbf  {Step 3}: The PAT commitment is folded into a succinct LatticeFold+ proof ($\sim $1.38 KB constant size) using Binius64 field arithmetic ($\sim $5 cycles/multiplication on AVX2/GFNI hardware). \textbf  {Step 4}: The block header commits to all transactions via the Merkle root; the coinbase includes the LatticeFold+ proof and Bulletproofs++ range proofs. Verification is $O(1)$ via \texttt  {OP\_CHECKFOLDPROOF} with soundness error $< 2^{-130}$ (Theorem 4.2, \cite  {latticefold2025}).}}{2}{figure.caption.1}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
 \newlabel{fig:architecture}{{1}{2}{Soqucoin System Architecture. \textbf {Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,421 bytes) and Pedersen commitments (33 bytes compressed). \textbf {Step 2a}: Signatures are batched via PAT into a Merkle-tree commitment (64--72 byte root). \textbf {Step 2b}: Confidential amounts are verified via Bulletproofs++ (675-byte range proofs, 0.89 ms verification). \textbf {Step 3}: The PAT commitment is folded into a succinct LatticeFold+ proof ($\sim $1.38 KB constant size) using Binius64 field arithmetic ($\sim $5 cycles/multiplication on AVX2/GFNI hardware). \textbf {Step 4}: The block header commits to all transactions via the Merkle root; the coinbase includes the LatticeFold+ proof and Bulletproofs++ range proofs. Verification is $O(1)$ via \texttt {OP\_CHECKFOLDPROOF} with soundness error $< 2^{-130}$ (Theorem 4.2, \cite {latticefold2025})}{figure.caption.1}{}}
-\newlabel{lst:sign}{{1}{2}{Dilithium Signing (src/crypto/dilithium/sign.c)}{lstlisting.1}{}}
-\@writefile{lol}{\contentsline {lstlisting}{\numberline {1}{\ignorespaces Dilithium Signing (src/crypto/dilithium/sign.c)}}{2}{lstlisting.1}\protected@file@percent }
 \citation{binius2023}
 \citation{pat2025}
-\citation{latticefold2025}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Cryptographic Foundations}{3}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Dilithium ML-DSA-44}{3}{subsection.3.1}\protected@file@percent }
+\newlabel{lst:sign}{{1}{3}{Dilithium Signing (src/crypto/dilithium/sign.c)}{lstlisting.1}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {1}{\ignorespaces Dilithium Signing (src/crypto/dilithium/sign.c)}}{3}{lstlisting.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Binius64 and AVX2-Accelerated Packed Fields}{3}{subsection.3.2}\protected@file@percent }
 \newlabel{lst:binius}{{2}{3}{Binius64 GFNI Multiplication}{lstlisting.2}{}}
 \@writefile{lol}{\contentsline {lstlisting}{\numberline {2}{\ignorespaces Binius64 GFNI Multiplication}}{3}{lstlisting.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Practical Aggregation Technique (PAT)}{3}{subsection.3.3}\protected@file@percent }
+\citation{latticefold2025}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Practical Aggregation Technique (PAT)}{4}{subsection.3.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {4}LatticeFold+ Verification}{4}{section.4}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.1}The Verifier}{4}{subsection.4.1}\protected@file@percent }
 \newlabel{lst:verifier}{{3}{4}{LatticeFold+ Batch Verification}{lstlisting.3}{}}
 \@writefile{lol}{\contentsline {lstlisting}{\numberline {3}{\ignorespaces LatticeFold+ Batch Verification}}{4}{lstlisting.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}Consensus Layer Modifications}{4}{section.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}New Opcodes}{4}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Consensus Layer Modifications}{5}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}New Opcodes}{5}{subsection.5.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Strict Post-Quantum Enforcement}{5}{subsection.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Zero-Trust Privacy via Bulletproofs++}{5}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Classical Privacy Layer via Bulletproofs++}{5}{subsection.5.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {5.3.1}Cryptographic Construction}{5}{subsubsection.5.3.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {5.3.2}Integration}{5}{subsubsection.5.3.2}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Bulletproofs++ Performance on Soqucoin (Apple M4, libsecp256k1-zkp). Measured via \texttt  {src/bench/bench\_bulletproofs.cpp} with $n=10{,}000$ iterations.}}{5}{table.caption.2}\protected@file@percent }
-\newlabel{tab:bp_bench}{{1}{5}{Bulletproofs++ Performance on Soqucoin (Apple M4, libsecp256k1-zkp). Measured via \texttt {src/bench/bench\_bulletproofs.cpp} with $n=10{,}000$ iterations}{table.caption.2}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {6}Hardware Validation: ASIC Compatibility}{5}{section.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Test Configuration}{5}{subsection.6.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Bulletproofs++ Performance on Soqucoin (Apple M4, libsecp256k1-zkp). Measured via \texttt  {src/bench/bench\_bulletproofs.cpp} with $n=10{,}000$ iterations.}}{6}{table.caption.2}\protected@file@percent }
+\newlabel{tab:bp_bench}{{1}{6}{Bulletproofs++ Performance on Soqucoin (Apple M4, libsecp256k1-zkp). Measured via \texttt {src/bench/bench\_bulletproofs.cpp} with $n=10{,}000$ iterations}{table.caption.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Hardware Validation: ASIC Compatibility}{6}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Test Configuration}{6}{subsection.6.1}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Results}{6}{subsection.6.2}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces L7 ASIC Integration Evidence. Antminer L7 (9.5 GH/s) successfully connected via standard Stratum V1 and submitted shares for blocks containing real Bulletproofs++ confidential transactions. Block 104 contains 147 confidential transactions with full Dilithium witness encoding (2,421 + 1,313 bytes per input) and range proofs (675 bytes). Full block mining validated on mainnet-mode node. Test conducted November 24--26, 2025.}}{7}{figure.caption.3}\protected@file@percent }
 \newlabel{fig:asic-validation}{{2}{7}{L7 ASIC Integration Evidence. Antminer L7 (9.5 GH/s) successfully connected via standard Stratum V1 and submitted shares for blocks containing real Bulletproofs++ confidential transactions. Block 104 contains 147 confidential transactions with full Dilithium witness encoding (2,421 + 1,313 bytes per input) and range proofs (675 bytes). Full block mining validated on mainnet-mode node. Test conducted November 24--26, 2025}{figure.caption.3}{}}
