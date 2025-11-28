@@ -183,6 +183,7 @@ enum opcodetype {
     OP_PUBKEYS_TEMPLATE = 0xf2,
     OP_SMALLINTEGER_TEMPLATE = 0xf3,
 
+    OP_CHECKDILITHIUMSIG = 0xfb,
     OP_CHECKFOLDPROOF = 0xfc,
     OP_CHECKPATAGG = 0xfd,
 

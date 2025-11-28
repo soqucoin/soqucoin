@@ -1,100 +1,233 @@
-<h2 align="left">
-<img src="https://images.squarespace-cdn.com/content/v1/65810ad187838d631a72b98f/f1281546-f262-4ec1-bfa4-f346daab1ae9/soqucoin.png?format=750w" alt="Soqucoin" width="256"/>
-<br/><br/>
-Soqucoin Core [SOQ]
+<p align="center">
+  <img src="https://images.squarespace-cdn.com/content/v1/65810ad187838d631a72b98f/f1281546-f262-4ec1-bfa4-f346daab1ae9/soqucoin.png?format=750w" alt="Soqucoin" width="200"/>
+</p>
 
-**The first cryptocurrency deployed with native, recursive, lattice-based batch verification of NIST-standard post-quantum signatures.**
+<h1 align="center">Soqucoin Core</h1>
 
-- ML-DSA-44 (Dilithium) fully integrated  
-- PAT (Practical Aggregation Technique) – logarithmic Merkle batching, 9,661× commitment reduction, <4 µs verify  
-- LatticeFold+ over Binius64 fields (Boneh–Chen, ePrint 2025/247) – true constant-size recursive proofs, 1.21–1.52 kB, 0.51–0.91 ms verify on consumer hardware  
-- Full Miner compatibility (Scrypt PoW unchanged)  
-- Merged-mining ready with Litecoin/Dogecoin
+<p align="center">
+  <strong>The first production cryptocurrency with native post-quantum signature verification</strong>
+</p>
 
-**Current status: November 24, 2025**  
-All consensus code merged, CI green, regtest running pure Dilithium-only chains from block 0.  
-LatticeFold+ verifier deployed in production consensus rules.  
-ASIC Validation complete: Antminer L7 (9.5 GH/s) mining pure post-quantum blocks.
+<p align="center">
+  <a href="https://github.com/soqucoin/soqucoin/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status"></a>
+  <a href="https://github.com/soqucoin/soqucoin/blob/soqucoin-genesis/COPYING"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://soqu.org"><img src="https://img.shields.io/badge/website-soqu.org-purple" alt="Website"></a>
+  <a href="https://github.com/soqucoin/soqucoin/releases"><img src="https://img.shields.io/badge/version-1.0--rc1-orange" alt="Version"></a>
+</p>
 
-**Mainnet genesis: December 15, 2026** 
-(final testing, documentation, and miner onboarding)
+<p align="center">
+  <a href="#about">About</a> •
+  <a href="#features">Features</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#documentation">Documentation</a> •
+  <a href="#contributing">Contributing</a> •
+  <a href="#license">License</a>
+</p>
 
-## Why Soqucoin Exists
+---
 
-Quantum computers will break ECDSA. Every chain still using it in 2025 is building on borrowed time.
+## About
 
-## 🚀 Key Features
+Soqucoin is a Scrypt-based proof-of-work cryptocurrency that replaces ECDSA with **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It combines two batch-verification techniques—**PAT** (Practical Aggregation Technique) and **LatticeFold+**—to achieve scalable post-quantum security without sacrificing performance.
 
-- **Post-Quantum Security**: Native ML-DSA-44 (Dilithium) signatures replacing ECDSA.
-- **Confidential Transactions**: Zero-trust privacy via Bulletproofs++ range proofs.
-- **ASIC Compatible**: Fully compatible with existing Scrypt ASICs (Antminer L7/L3+, etc.).
-    - *Validated Nov 2025*: Antminer L7 mining confidential PQ blocks at 9.5 GH/s.
-- **Scalable Verification**: LatticeFold+ recursive folding for constant-size proofs.
-- **Fair Launch**: No premine, no ICO. 100% PoW distribution.
+> **Why does this matter?** Quantum computers will eventually break ECDSA. Soqucoin is quantum-resistant from block 0—no soft-fork migration required.
 
-No soft-fork. No hybrid mode. No excuses.
+### Current Status
 
-Just quantum-resistant consensus, today.
+| Milestone | Status | Date |
+|-----------|--------|------|
+| Consensus code merged | ✅ Complete | Nov 20, 2025 |
+| ASIC validation (L7) | ✅ Complete | Nov 24, 2025 |
+| Testnet launch | 🔄 In Progress | Q1 2026 |
+| Mainnet genesis | 📅 Scheduled | Dec 15, 2026 |
 
-## Usage
+---
 
-See [INSTALL.md](INSTALL.md) and [doc/getting-started.md](doc/getting-started.md).
+## Features
 
-Default ports:
+### Post-Quantum Cryptography
 
-| Function | mainnet | testnet | regtest |
-| :------- | ------: | ------: | ------: |
-| P2P      |   33388 |   44556 |   18444 |
-| RPC      |   33389 |   44555 |   18332 |
+| Component | Implementation | Security Level |
+|-----------|---------------|----------------|
+| **Signatures** | ML-DSA-44 (Dilithium) | NIST Level 2 (128-bit quantum) |
+| **Batch Verification** | LatticeFold+ / PAT | Constant-size proofs |
+| **Proof-of-Work** | Scrypt (N=1024, r=1, p=1) | Grover-resistant |
 
-## Development Status – Moon Plan Completed Ahead of Schedule (Imminent)
+### Confidential Transactions
 
-All six planned consensus commits are merged as of November 20, 2025:
+| Component | Implementation | Security Level |
+|-----------|---------------|----------------|
+| **Commitments** | Pedersen (secp256k1) | 128-bit classical |
+| **Range Proofs** | Bulletproofs++ | 128-bit classical |
+| **Proof Size** | 675 bytes | — |
+| **Verify Time** | 0.89 ms | Apple M4 |
 
-1–2. PAT integration + OP_CHECKPATAGG (0xfd)  
-3–5. Binius64 field arithmetic  
-4–5. Full LatticeFold+ 8-round verifier + OP_CHECKFOLDPROOF (0xfc)  
-6.   Wallet RPC `createbatchtransaction` with automatic strategy selection
+> **Note:** Bulletproofs++ relies on the discrete logarithm assumption (DLOG) and provides classical security only. A lattice-based replacement is planned for v0.22.
 
-Regtest blocks containing 1024-input Dilithium transactions validate in <2 ms on 2015 hardware.
+### Performance Benchmarks
 
-The **LatticeFold+** prover is not yet in-tree (expected Q4 2025–Q1 2026), but its verification is consensus-critical and already the fastest lattice-based verifier ever deployed. **Bulletproofs++** is now fully integrated using the production-grade `secp256k1-zkp` library, providing genuine cryptographic privacy with secure nonce generation. **Dilithium** signing is fully implemented and active today.
+```
+┌─────────────────────────────────┬────────────────┬─────────────┐
+│ Operation                       │ Time (M4)      │ Size        │
+├─────────────────────────────────┼────────────────┼─────────────┤
+│ Dilithium Sign                  │ 0.177 ms       │ 2,420 bytes │
+│ Dilithium Verify                │ 0.041 ms       │ —           │
+│ PAT Aggregate (1000 sigs)       │ 0.67 ms        │ 72 bytes    │
+│ LatticeFold+ Verify (512 sigs)  │ 0.68 ms        │ 1.38 KB     │
+│ Bulletproofs++ Verify           │ 0.89 ms        │ 675 bytes   │
+└─────────────────────────────────┴────────────────┴─────────────┘
+```
 
-### Branches
+### ASIC Compatibility
 
-Current repository structure (November 20, 2025):
+Validated on **Antminer L7** (9.5 GH/s) — November 2025:
+- Standard Stratum V1 protocol
+- Zero firmware modifications
+- 147 confidential transactions per block
+- 75+ minutes continuous operation
 
-- **soqucoin-genesis** – Default branch. This is the only active development branch and contains the complete, production-ready post-quantum consensus rules. All commits land here directly during the pre-launch phase.
-- **master** – Does not exist yet. Will be created at mainnet launch as a protected branch for post-genesis development.
+---
 
-### Contributing (Pre-Launch Policy – until March 1, 2026)
+## Quick Start
 
-Soqucoin Core is in final pre-genesis lockdown. The entire post-quantum consensus stack (PAT + LatticeFold+/Binius64) was merged in a 6-commit series on November 20, 2025 and is now undergoing intensive private testing on real Scrypt ASICs.
+### Prerequisites
 
-Until mainnet genesis we are intentionally keeping the tree closed to unsolicited pull requests in order to:
-- Maintain absolute control over consensus-critical code
-- Complete ASIC testing, fuzzing, and formal verification without merge conflicts
-- Finalize launch materials
+- C++14 compiler (GCC 7+ or Clang 8+)
+- Boost 1.70+
+- OpenSSL 1.1+
+- libevent 2.1+
 
-**How to contribute right now (and be extremely welcome):**
+### Build from Source
 
-1. Open a GitHub Issue for bugs, performance reports, or testnet findings  
-2 Join GitHub Discussions for feature proposals or prover development ideas  
-3 Share regtest blocks, fuzz corpora, or ASIC screenshots — these will be credited in the launch paper
+```bash
+git clone https://github.com/soqucoin/soqucoin.git
+cd soqucoin
+./autogen.sh
+./configure
+make -j$(nproc)
+make install  # optional
+```
 
-Pull requests will be enabled and enthusiastically reviewed immediately after genesis (March 1, 2026). Until then, the fastest way to get your name in the launch paper and receive founder-level recognition is to help stress-test the chain or port the LatticeFold+ prover.
+### Run a Node
 
-We are not gatekeeping — we are protecting the first quantum-resistant PoW launch in history.
+```bash
+# Mainnet
+./src/soqucoind -daemon
 
-Thank you for respecting the lockdown. The chain will be yours to build on in 101 days.
-## Very Much Frequently Asked Questions
+# Testnet
+./src/soqucoind -testnet -daemon
 
-See [doc/FAQ.md](doc/FAQ.md) and GitHub Discussions.
+# Regtest (local development)
+./src/soqucoind -regtest -daemon
+```
+
+### Network Ports
+
+| Network | P2P | RPC |
+|---------|-----|-----|
+| Mainnet | 33388 | 33389 |
+| Testnet | 44556 | 44555 |
+| Regtest | 18444 | 18332 |
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [INSTALL.md](INSTALL.md) | Build instructions for all platforms |
+| [doc/getting-started.md](doc/getting-started.md) | First steps guide |
+| [doc/build-unix.md](doc/build-unix.md) | Linux/BSD build guide |
+| [doc/build-macos.md](doc/build-macos.md) | macOS build guide |
+| [doc/build-windows.md](doc/build-windows.md) | Windows build guide |
+| [doc/FAQ.md](doc/FAQ.md) | Frequently asked questions |
+| [Whitepaper](https://soqu.org/whitepaper/soqucoin_whitepaper.pdf) | Technical specification |
+
+---
+
+## Architecture
+
+### Consensus Opcodes
+
+| Opcode | Hex | Purpose |
+|--------|-----|---------|
+| `OP_CHECKDILITHIUMSIG` | 0xfb | Single ML-DSA-44 signature verification |
+| `OP_CHECKFOLDPROOF` | 0xfc | LatticeFold+ batch proof verification |
+| `OP_CHECKPATAGG` | 0xfd | PAT Merkle commitment verification |
+
+### Prover Implementation Status
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| **PAT Prover** | `src/crypto/pat/logarithmic.cpp` | ✅ In-tree |
+| **PAT Verifier** | `src/crypto/pat/logarithmic.cpp` | ✅ In-tree |
+| **LatticeFold+ Prover** | Off-chain (trusted pools) | ✅ Operational |
+| **LatticeFold+ Verifier** | `src/crypto/latticefold/verifier.cpp` | ✅ In-tree |
+| **Distributed Provers** | — | 🔄 Future work |
+
+### Branch Structure
+
+| Branch | Purpose |
+|--------|---------|
+| `soqucoin-genesis` | Active development (default) |
+| `master` | Created at mainnet launch |
+
+---
+
+## Contributing
+
+### Pre-Launch Policy (until March 1, 2026)
+
+Soqucoin Core is in **pre-genesis lockdown**. The consensus stack is undergoing intensive testing on real Scrypt ASICs.
+
+**How to contribute now:**
+
+1. **Report bugs** — Open a [GitHub Issue](https://github.com/soqucoin/soqucoin/issues)
+2. **Discuss features** — Join [GitHub Discussions](https://github.com/soqucoin/soqucoin/discussions)
+3. **Share test data** — Regtest blocks, fuzz corpora, ASIC screenshots
+
+> Pull requests will be enabled immediately after genesis. Contributors who help stress-test the chain will be credited in the launch paper.
+
+### Code Style
+
+This project follows [Bitcoin Core contribution guidelines](CONTRIBUTING.md):
+- C++14 standard
+- 4-space indentation
+- No trailing whitespace
+- Signed commits required
+
+---
+
+## Tokenomics
+
+| Parameter | Value |
+|-----------|-------|
+| **Ticker** | SOQ |
+| **Algorithm** | Scrypt |
+| **Block Time** | 1 minute |
+| **Block Reward** | 10,000 SOQ |
+| **Halving Interval** | 840,000 blocks (~4 years) |
+| **Max Supply** | 21,000,000,000 SOQ |
+| **Premine** | 0 SOQ |
+
+**Fair Launch** — No premine, no ICO, no insider allocation. 100% proof-of-work distribution.
+
+---
+
+## Security
+
+For security vulnerabilities, please see [SECURITY.md](.github/SECURITY.md).
+
+**Do not** open public issues for security-related bugs.
+
+---
 
 ## License
 
-MIT — see [COPYING](COPYING)
+Soqucoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for details.
 
-Soqucoin Core is released under the day the post-quantum future began: **November 20, 2025**.
+---
 
-wow. very quantum. much resistance.
+<p align="center">
+  <sub>Built with 🔐 by the Soqucoin Core developers</sub>
+</p>

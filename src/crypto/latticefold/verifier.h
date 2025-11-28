@@ -39,6 +39,24 @@ public:
 
     struct Proof {
         // 1.38 kB total in practice for 512 sig batch
+        //
+        // Wire Format Specification (v1):
+        // -----------------------------------------------------------------------------------------
+        // | Field             | Size (Bytes) | Description                                        |
+        // |-------------------|--------------|----------------------------------------------------|
+        // | Batch Header      | 32           | batch_hash (Merkle root or FS seed)                |
+        // | t_coeffs          | 128          | 8 * 16 bytes (folded t vector)                     |
+        // | c                 | 16           | folded challenge                                   |
+        // | Sumcheck Proof    | N * 16       | N elements (N % 64 == 0), 8 rounds * 64 elements   |
+        // | Range Openings    | 256          | 16 * 16 bytes (algebraic range proof)              |
+        // | Folded Commitment | 128          | 8 * 16 bytes (final Ajtai commitment)              |
+        // | Double Openings   | 64           | 4 * 16 bytes (double commitment openings)          |
+        // | Fiat-Shamir Seed  | 32           | Final seed for non-malleability                    |
+        // -----------------------------------------------------------------------------------------
+        // Total Footer Size = 256 + 128 + 64 + 32 = 480 bytes
+        // Total Header Size = 32 + 128 + 16 = 176 bytes
+        // Min Size = 176 + 480 = 656 bytes (with 0 sumcheck rounds, though 8 is standard)
+
         std::vector<Fp> sumcheck_proof;      // 8 rounds × ~64 elements per round
         std::array<Fp, 16> range_openings;   // algebraic range proof openings (new §4.3)
         std::array<Fp, 8> folded_commitment; // final folded Ajtai commitment

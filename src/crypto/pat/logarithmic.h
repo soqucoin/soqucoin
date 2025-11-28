@@ -9,10 +9,13 @@ typedef std::vector<unsigned char> CValType;
 
 struct LogarithmicProof {
     uint256 merkle_root;
-    uint256 pk_xor; // XOR of all 32-byte ρ prefixes
-    uint32_t count; // number of signatures
-    // 72 bytes total
+    uint256 pk_xor;   // XOR of all 32-byte ρ prefixes
+    uint256 msg_root; // Root of the message tree (or commitment)
+    uint32_t count;   // number of signatures
+    // 104 bytes total (32+32+32+4)
 };
+
+bool ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proofOut);
 
 bool CreateLogarithmicProof(
     const std::vector<CValType>& vSignatures,
