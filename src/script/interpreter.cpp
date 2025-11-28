@@ -85,31 +85,6 @@ bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int fl
     return set_error(serror, SCRIPT_ERR_SIG_DER);
 }
 
-bool static CheckPubKeyEncoding(const valtype& vchPubKey, unsigned int flags, const SigVersion& sigversion, ScriptError* serror)
-{
-    if (vchPubKey.empty() || vchPubKey[0] != 0x00) {
-        // Soqucoin only permits ML-DSA (Dilithium) signatures and public keys
-        return set_error(serror, SCRIPT_ERR_PUBKEYTYPE);
-    }
-
-    return true;
-}
-
-bool static CheckMinimalPush(const valtype& data, opcodetype opcode)
-{
-    if (data.size() == 0) {
-        if (opcode != OP_0) return false;
-    } else if (data.size() == 1) {
-        if (opcode != OP_1NEGATE && opcode != OP_1 && opcode != (opcodetype)data[0]) return false;
-    } else if (opcode == OP_PUSHDATA1) {
-        if (data.size() <= 75) return false;
-    } else if (opcode == OP_PUSHDATA2) {
-        if (data.size() <= 255) return false;
-    } else if (opcode == OP_PUSHDATA4) {
-        if (data.size() <= 65535) return false;
-    }
-    return true;
-}
 
 bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
@@ -216,29 +191,6 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
 }
 
-static bool EvalCheckPatAgg(const valtype& proof, ScriptError* serror)
-{
-    // Parse LogarithmicProof from proof_data
-    pat::LogarithmicProof patProof;
-    // TODO: Parse proof data into proof struct
-
-    valtype dummy_agg_pk;
-    valtype dummy_msg_root;
-
-    if (!pat::VerifyLogarithmicProof(patProof, dummy_agg_pk, dummy_msg_root)) {
-        return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
-    }
-
-    return set_success(serror);
-}
-
-static bool EvalCheckFoldProof(const valtype& proof, ScriptError* serror)
-{
-    if (!::EvalCheckFoldProof(proof)) {
-        return set_error(serror, SCRIPT_ERR_CHECKFOLDPROOF_FAILED);
-    }
-    return set_success(serror);
-}
 
 size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags)
 {
