@@ -44,117 +44,6 @@ static size_t NextPowerOfTwo(size_t n)
     return n;
 }
 
-// Forward declarations for helper functions used in both Create and Verify
-static uint256 ComputeMsgRoot(const std::vector<CValType>& vMsgs);
-
-bool pat::CreateLogarithmicProof(
-    const vector<CValType>& vSignatures,
-    const vector<CValType>& vPublicKeys,
-    const vector<CValType>& vMessages,
-    CValType& vchProofOut,
-    vector<CValType>& vSiblingPathOut)
-{
-    size_t n = vSignatures.size();
-    if (n == 0 || n > 1 << 20 || n != vPublicKeys.size() || n != vMessages.size()) return false;
-
-    // Sort indices by message hash (canonical order)
-    vector<uint32_t> order(n);
-    iota(order.begin(), order.end(), 0);
-    sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
-        return PatHash(vMessages[a]) < PatHash(vMessages[b]);
-    });
-
-    // Build leaves and XOR binding
-    vector<uint256> leaves(n);
-    uint256 xor_binding = uint256();
-    for (uint32_t i = 0; i < n; ++i) {
-        uint32_t pos = order[i];
-        leaves[i] = LeafHash(i, vSignatures[pos], vPublicKeys[pos], vMessages[pos]);
-        fprintf(stderr, "CREATE LEAF[%u]: pos=%u hash=%s\n", i, pos, leaves[i].GetHex().c_str());
-        uint256 rho;
-        if (vPublicKeys[pos].size() >= 32) {
-            memcpy(rho.begin(), vPublicKeys[pos].data(), 32);
-            for (int k = 0; k < 32; k++) {
-                xor_binding.begin()[k] ^= rho.begin()[k];
-            }
-        }
-    }
-
-    // Standard Merkle tree with power-of-two padding
-    size_t tree_size = NextPowerOfTwo(n);
-    vector<uint256> tree(tree_size * 2);
-    copy(leaves.begin(), leaves.end(), tree.begin() + tree_size);
-
-    for (size_t i = tree_size + n; i < tree_size * 2; ++i)
-        tree[i] = uint256();
-
-    vSiblingPathOut.clear();
-    for (size_t layer = tree_size; layer > 1; layer >>= 1) {
-        for (size_t i = layer; i < layer * 2; i += 2) {
-            // Hash pair
-            CValType buf;
-            buf.reserve(64);
-            buf.insert(buf.end(), tree[i].begin(), tree[i].end());
-            buf.insert(buf.end(), tree[i + 1].begin(), tree[i + 1].end());
-            tree[i / 2] = PatHash(buf);
-        }
-    }
-
-    // Build sibling path for each leaf (log n hashes per leaf, but we only need one path for the whole batch in witness)
-    // For simplicity, we provide the full path for the first leaf; in production we can optimize to multi-proof
-    // This is sufficient for genesis and matches your Python prototype
-    uint32_t idx = 0;
-    // uint256 current = leaves[0]; // Unused variable
-    for (size_t layer = tree_size; layer > 1; layer >>= 1) {
-        size_t sibling = idx ^ 1;
-        CValType hash(tree[layer + sibling].begin(), tree[layer + sibling].end());
-        vSiblingPathOut.push_back(hash);
-        fprintf(stderr, "CREATE DEBUG: layer=%zu sibling_pos=%zu hash=%s\n",
-            layer, layer + sibling, uint256(hash).GetHex().c_str());
-        // current = PatHash(...) // logic already done in tree build
-        idx >>= 1;
-    }
-    fprintf(stderr, "CREATE DEBUG: tree[1] (root) = %s\n", tree[1].GetHex().c_str());
-
-    LogarithmicProof proof;
-    proof.merkle_root = tree[1];
-    proof.pk_xor = xor_binding;
-
-    // Compute message root from sorted order (matches canonical ordering in Merkle tree)
-    std::vector<CValType> sorted_msgs(n);
-    for (uint32_t i = 0; i < n; ++i) {
-        sorted_msgs[i] = vMessages[order[i]];
-    }
-    proof.msg_root = ComputeMsgRoot(sorted_msgs);
-    proof.count = n;
-
-    vchProofOut.clear();
-    vchProofOut.insert(vchProofOut.end(), proof.merkle_root.begin(), proof.merkle_root.end());
-    vchProofOut.insert(vchProofOut.end(), proof.pk_xor.begin(), proof.pk_xor.end());
-    vchProofOut.insert(vchProofOut.end(), proof.msg_root.begin(), proof.msg_root.end());
-    uint32_t le_n = htole32(n);
-    vchProofOut.insert(vchProofOut.end(), (uint8_t*)&le_n, (uint8_t*)&le_n + 4);
-    // Total 32+32+32+4 = 100 bytes.
-    // Previous code padded to 72. We don't need padding if we define the size.
-    // vchProofOut.resize(72, 0x00); // Removed
-
-    return true;
-}
-
-bool pat::ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proofOut)
-{
-    if (vchProof.size() != 100) return false;
-
-    memcpy(proofOut.merkle_root.begin(), vchProof.data(), 32);
-    memcpy(proofOut.pk_xor.begin(), vchProof.data() + 32, 32);
-    memcpy(proofOut.msg_root.begin(), vchProof.data() + 64, 32);
-
-    uint32_t le_n;
-    memcpy(&le_n, vchProof.data() + 96, 4);
-    proofOut.count = le32toh(le_n);
-
-    return true;
-}
 
 /**
  * Helper: Reconstruct a Merkle tree node hash from two child hashes
@@ -185,25 +74,22 @@ static uint256 ReconstructMerkleRoot(
     uint256 current = leaf_hash;
     uint32_t idx = leaf_idx;
 
-    fprintf(stderr, "RECONSTRUCT: Starting with leaf_idx=%u hash=%s\n", idx, current.GetHex().c_str());
 
     for (size_t i = 0; i < sibling_path.size(); ++i) {
         const uint256& sibling = sibling_path[i];
 
-        fprintf(stderr, "RECONSTRUCT: Layer %zu, idx=%u, sibling=%s\n", i, idx, sibling.GetHex().c_str());
 
         // Determine if current node is left (even index) or right (odd index)
         if (idx % 2 == 0) {
             // Current is left child
-            fprintf(stderr, "RECONSTRUCT: Current is LEFT, hashing (current, sibling)\n");
+
             current = NodeHash(current, sibling);
         } else {
             // Current is right child
-            fprintf(stderr, "RECONSTRUCT: Current is RIGHT, hashing (sibling, current)\n");
+
             current = NodeHash(sibling, current);
         }
 
-        fprintf(stderr, "RECONSTRUCT: Result=%s\n", current.GetHex().c_str());
 
         idx = idx / 2; // Move up one level
     }
@@ -248,6 +134,111 @@ static uint256 ComputeMsgRoot(const std::vector<CValType>& vMsgs)
 
     return PatHash(buf);
 }
+
+bool pat::CreateLogarithmicProof(
+    const vector<CValType>& vSignatures,
+    const vector<CValType>& vPublicKeys,
+    const vector<CValType>& vMessages,
+    CValType& vchProofOut,
+    vector<CValType>& vSiblingPathOut)
+{
+    size_t n = vSignatures.size();
+    if (n == 0 || n > 1 << 20 || n != vPublicKeys.size() || n != vMessages.size()) return false;
+
+    // Sort indices by message hash (canonical order)
+    vector<uint32_t> order(n);
+    iota(order.begin(), order.end(), 0);
+    sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
+        return PatHash(vMessages[a]) < PatHash(vMessages[b]);
+    });
+
+    // Build leaves and XOR binding
+    vector<uint256> leaves(n);
+    uint256 xor_binding = uint256();
+    for (uint32_t i = 0; i < n; ++i) {
+        uint32_t pos = order[i];
+        leaves[i] = LeafHash(i, vSignatures[pos], vPublicKeys[pos], vMessages[pos]);
+
+        uint256 rho;
+        if (vPublicKeys[pos].size() >= 32) {
+            memcpy(rho.begin(), vPublicKeys[pos].data(), 32);
+            for (int k = 0; k < 32; k++) {
+                xor_binding.begin()[k] ^= rho.begin()[k];
+            }
+        }
+    }
+
+    // Standard Merkle tree with power-of-two padding
+    size_t tree_size = NextPowerOfTwo(n);
+    vector<uint256> tree(tree_size * 2);
+    copy(leaves.begin(), leaves.end(), tree.begin() + tree_size);
+
+    for (size_t i = tree_size + n; i < tree_size * 2; ++i)
+        tree[i] = uint256();
+
+    vSiblingPathOut.clear();
+    for (size_t layer = tree_size; layer > 1; layer >>= 1) {
+        for (size_t i = layer; i < layer * 2; i += 2) {
+            // Hash pair using NodeHash (includes domain separator 0x01)
+            tree[i / 2] = NodeHash(tree[i], tree[i + 1]);
+        }
+    }
+
+    // Build sibling path for each leaf (log n hashes per leaf, but we only need one path for the whole batch in witness)
+    // For simplicity, we provide the full path for the first leaf; in production we can optimize to multi-proof
+    // This is sufficient for genesis and matches your Python prototype
+    uint32_t idx = 0;
+    // uint256 current = leaves[0]; // Unused variable
+    for (size_t layer = tree_size; layer > 1; layer >>= 1) {
+        size_t sibling = idx ^ 1;
+        CValType hash(tree[layer + sibling].begin(), tree[layer + sibling].end());
+        vSiblingPathOut.push_back(hash);
+
+        // current = PatHash(...) // logic already done in tree build
+        idx >>= 1;
+    }
+
+
+    LogarithmicProof proof;
+    proof.merkle_root = tree[1];
+    proof.pk_xor = xor_binding;
+
+    // Compute message root from sorted order (matches canonical ordering in Merkle tree)
+    std::vector<CValType> sorted_msgs(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        sorted_msgs[i] = vMessages[order[i]];
+    }
+    proof.msg_root = ComputeMsgRoot(sorted_msgs);
+    proof.count = n;
+
+    vchProofOut.clear();
+    vchProofOut.insert(vchProofOut.end(), proof.merkle_root.begin(), proof.merkle_root.end());
+    vchProofOut.insert(vchProofOut.end(), proof.pk_xor.begin(), proof.pk_xor.end());
+    vchProofOut.insert(vchProofOut.end(), proof.msg_root.begin(), proof.msg_root.end());
+    uint32_t le_n = htole32(n);
+    vchProofOut.insert(vchProofOut.end(), (uint8_t*)&le_n, (uint8_t*)&le_n + 4);
+    // Total 32+32+32+4 = 100 bytes.
+    // Previous code padded to 72. We don't need padding if we define the size.
+    // vchProofOut.resize(72, 0x00); // Removed
+
+    return true;
+}
+
+bool pat::ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proofOut)
+{
+    if (vchProof.size() != 100) return false;
+
+    memcpy(proofOut.merkle_root.begin(), vchProof.data(), 32);
+    memcpy(proofOut.pk_xor.begin(), vchProof.data() + 32, 32);
+    memcpy(proofOut.msg_root.begin(), vchProof.data() + 64, 32);
+
+    uint32_t le_n;
+    memcpy(&le_n, vchProof.data() + 96, 4);
+    proofOut.count = le32toh(le_n);
+
+    return true;
+}
+
 
 /**
  * Full PAT Verification with Merkle Reconstruction
@@ -382,8 +373,6 @@ bool pat::VerifyLogarithmicProof(
         sorted_pks[verify_idx],
         sorted_msgs[verify_idx]);
 
-    fprintf(stderr, "VERIFY LEAF[%u]: hash=%s\n", verify_idx, leaf_hash.GetHex().c_str());
-
 
     // Convert sibling path from CValType to uint256
     std::vector<uint256> sibling_hashes;
@@ -392,7 +381,6 @@ bool pat::VerifyLogarithmicProof(
         uint256 hash;
         memcpy(hash.begin(), node.data(), 32);
         sibling_hashes.push_back(hash);
-        fprintf(stderr, "VERIFY DEBUG: sibling hash=%s\n", hash.GetHex().c_str());
     }
 
 
@@ -407,10 +395,7 @@ bool pat::VerifyLogarithmicProof(
         LogPrint("pat", "  Computed: %s\n", computed_root.GetHex().c_str());
 
         // DEBUG: Print more details
-        fprintf(stderr, "DEBUG PAT: n=%u depth=%u verify_idx=%u\n", n, depth, verify_idx);
-        fprintf(stderr, "DEBUG PAT: leaf_hash=%s\n", leaf_hash.GetHex().c_str());
-        fprintf(stderr, "DEBUG PAT: Expected root=%s\n", proof.merkle_root.GetHex().c_str());
-        fprintf(stderr, "DEBUG PAT: Computed root=%s\n", computed_root.GetHex().c_str());
+
 
         return false;
     }

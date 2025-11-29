@@ -185,6 +185,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         popstack(stack);
                         stack.push_back(valtype(1, 1)); // true
                     } else if (opcode == OP_CHECKPATAGG) {
+                        // Stack layout (Simple): <proof> <agg_pk> <msg_root>
+                        // Stack layout (Full):   <sigs...> <pks...> <msgs...> <sibling_path> <count> <proof> <agg_pk> <msg_root>
+
                         if (stack.size() < 3)
                             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
@@ -192,19 +195,107 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         valtype agg_pk = stacktop(-2);
                         valtype msg_root = stacktop(-1);
 
-                        // Parse LogarithmicProof from proof_data
+                        // 1. Parse LogarithmicProof from proof_data
                         pat::LogarithmicProof proof;
                         if (!pat::ParseLogarithmicProof(proof_data, proof)) {
                             return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
                         }
 
+                        // 2. Always perform Simple Verification (consistency check)
                         if (!pat::VerifyLogarithmicProof(proof, agg_pk, msg_root)) {
                             return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
                         }
 
-                        popstack(stack);
-                        popstack(stack);
-                        popstack(stack);
+                        // 3. Check for Full Verification (Witness Data)
+                        uint32_t n = proof.count;
+                        // Required items: 3 (base) + 1 (count) + 1 (sibling_path) + 3*n (witness triples)
+                        // Note: We assume sibling_path is a single blob on the stack
+                        size_t required_items = 5 + 3 * n;
+
+                        if (stack.size() >= required_items) {
+                            // Full Mode: Verify witness data
+                            try {
+                                // Extract count (sanity check)
+                                valtype count_blob = stacktop(-4);
+                                if (count_blob.size() == 4) {
+                                    uint32_t stack_n;
+                                    memcpy(&stack_n, count_blob.data(), 4);
+                                    stack_n = le32toh(stack_n);
+                                    if (stack_n != n) {
+                                        return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
+                                    }
+                                }
+
+                                // Extract sibling path
+                                valtype sibling_blob = stacktop(-5);
+                                if (sibling_blob.size() % 32 != 0) {
+                                    return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
+                                }
+                                std::vector<valtype> sibling_path;
+                                for (size_t i = 0; i < sibling_blob.size(); i += 32) {
+                                    sibling_path.emplace_back(sibling_blob.begin() + i, sibling_blob.begin() + i + 32);
+                                }
+
+                                // Extract witness triples
+                                // Stack layout from BOTTOM to TOP:
+                                // 0..n-1: sigs
+                                // n..2n-1: pks
+                                // 2n..3n-1: msgs
+                                // 3n: sibling_path
+                                // 3n+1: count
+                                // 3n+2: proof
+                                // 3n+3: agg_pk
+                                // 3n+4: msg_root
+                                // Total: 3n + 5 = 17 for n=4
+
+                                std::vector<valtype> msgs, pks, sigs;
+                                msgs.reserve(n);
+                                pks.reserve(n);
+                                sigs.reserve(n);
+
+                                // Indices from top:
+                                // -1 = msg_root (stack[16])
+                                // -2 = agg_pk (stack[15])
+                                // -3 = proof (stack[14])
+                                // -4 = count (stack[13])
+                                // -5 = sibling_path (stack[12])
+                                // -6..-9 = msgs[3]..msgs[0] (stack[11]..stack[8])
+                                // -10..-13 = pks[3]..pks[0] (stack[7]..stack[4])
+                                // -14..-17 = sigs[3]..sigs[0] (stack[3]..stack[0])
+
+                                // Extract msgs (indices -6 to -(5+n))
+                                for (uint32_t i = 0; i < n; i++) {
+                                    msgs.push_back(stacktop(-(6 + i)));
+                                }
+
+                                // Extract pks (indices -(6+n) to -(5+2*n))
+                                for (uint32_t i = 0; i < n; i++) {
+                                    pks.push_back(stacktop(-(6 + n + i)));
+                                }
+
+                                // Extract sigs (indices -(6+2*n) to -(5+3*n))
+                                for (uint32_t i = 0; i < n; i++) {
+                                    sigs.push_back(stacktop(-(6 + 2 * n + i)));
+                                }
+
+                                if (!pat::VerifyLogarithmicProof(proof_data, sibling_path, sigs, pks, msgs)) {
+                                    return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
+                                }
+
+                                // Pop all items
+                                for (size_t i = 0; i < required_items; i++) {
+                                    popstack(stack);
+                                }
+                            } catch (const std::exception& e) {
+                                return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
+                            }
+                        } else {
+                            // Simple Mode: Just pop the 3 items
+                            popstack(stack);
+                            popstack(stack);
+                            popstack(stack);
+                        }
+
                         stack.push_back(valtype(1, 1)); // true
                     } else if (opcode == OP_CHECKFOLDPROOF) {
                         if (stack.size() < 1) return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
@@ -277,6 +368,19 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         popstack(stack);
                         stack.push_back(valtype(1, 1)); // true
                     }
+                }
+            } else {
+                //
+                // Push value
+                //
+                if (fExec) {
+                    if (opcode == OP_0)
+                        stack.push_back(vchFalse);
+                    else if (opcode >= OP_1 && opcode <= OP_16) {
+                        CScriptNum bn((int)opcode - (int)(OP_1 - 1));
+                        stack.push_back(bn.getvch());
+                    } else
+                        stack.push_back(vchPushValue);
                 }
             }
         }

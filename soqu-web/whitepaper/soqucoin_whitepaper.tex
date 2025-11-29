@@ -82,7 +82,7 @@ The following features are implemented as prototypes and reserved for future act
 \begin{figure}[!ht]
 \centering
 \includegraphics[width=\textwidth]{paper_plots/architecture.png}
-\caption{Soqucoin System Architecture. \textbf{Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,421 bytes) and Pedersen commitments (33 bytes compressed). \textbf{Step 2a}: Signatures are batched via PAT into a Merkle-tree commitment (64--72 byte root). \textbf{Step 2b}: Confidential amounts are verified via Bulletproofs++ (675-byte range proofs, 0.89 ms verification). \textbf{Step 3}: The PAT commitment is folded into a succinct LatticeFold+ proof ($\sim$1.38 KB constant size) using Binius64 field arithmetic ($\sim$5 cycles/multiplication on AVX2/GFNI hardware). \textbf{Step 4}: The block header commits to all transactions via the Merkle root; the coinbase includes the LatticeFold+ proof and Bulletproofs++ range proofs. Verification is $O(1)$ via \texttt{OP\_CHECKFOLDPROOF} with soundness error $< 2^{-130}$ (Theorem 4.2, \cite{latticefold2025}).}
+\caption{Soqucoin System Architecture. \textbf{Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,420 bytes, \texttt{dilithium/params.h:15}); confidential transactions include Pedersen commitments (33 bytes). \textbf{Step 2a}: Signatures are batched via PAT into a 100-byte proof (32-byte Merkle root + 32-byte pk\_xor + 32-byte msg\_root + 4-byte count, \texttt{pat/logarithmic.h:10--15}). \textbf{Step 2b}: Confidential amounts are proven valid via Bulletproofs++ range proofs (675 bytes, 0.89 ms verification; classical DLOG security). \textbf{Step 3}: The PAT proof is folded into a succinct LatticeFold+ proof ($\sim$1.38 KB constant size) using Binius64 field arithmetic ($\sim$5 cycles/mul on AVX2/GFNI, \texttt{binius64/field.cpp}). \textbf{Step 4}: Block assembly via Scrypt PoW; the block includes the header, LatticeFold+ proof, BP++ range proofs, and transactions. \textbf{Step 5}: Full nodes verify via \texttt{OP\_CHECKFOLDPROOF} (0.68 ms, \texttt{interpreter.cpp:line~182}), \texttt{OP\_CHECKPATAGG} ($<$4 $\mu$s, \texttt{interpreter.cpp:line~187}), and BP++ verification (0.89 ms). Soundness error $<2^{-130}$ (Theorem 4.2, \cite{latticefold2025}).}
 \label{fig:architecture}
 \end{figure}
 
@@ -94,7 +94,7 @@ Soqucoin uses ML-DSA-44 (\cite{nistfips204}) as its sole signature scheme. The i
 \begin{itemize}
     \item \textbf{Public Key Size}: 1,312 bytes
     \item \textbf{Secret Key Size}: 2,560 bytes
-    \item \textbf{Signature Size}: 2,420 bytes
+    \item \textbf{Signature Size}: 2,420 bytes (\texttt{src/crypto/dilithium/params.h:15})
     \item \textbf{Security Level}: NIST Level 2 (128-bit quantum security)
 \end{itemize}
 
@@ -157,10 +157,10 @@ This achieves $\sim$5 cycles per multiplication on modern Intel/AMD CPUs, enabli
 Soqucoin implements the \textbf{Practical Aggregation Technique (PAT)} (\cite{pat2025}) to address the scalability challenges of large post-quantum signatures. Unlike theoretical cryptographic aggregation schemes which remain impractical, PAT utilizes a Merkle-tree commitment structure to batch Dilithium signatures efficiently.
 
 \begin{itemize}
-    \item \textbf{Mechanism}: A batch of $n$ signatures is represented on-chain by a single 64-72 byte Merkle root. Individual signatures are stored off-chain or in witness data.
+    \item \textbf{Mechanism}: A batch of $n$ signatures is represented on-chain by a 100-byte proof structure containing a 32-byte Merkle root, 32-byte XOR binding (pk\_xor), 32-byte message commitment (msg\_root), and 4-byte count (\texttt{src/crypto/pat/logarithmic.h:10--15}). Individual signatures are stored off-chain or in witness data.
     \item \textbf{Scalability}: PAT achieves a \textbf{9,661$\times$ commitment-size reduction} for batches of $n=10,000$ signatures using logarithmic batching.
-    \item \textbf{Security}: Individual signatures retain full Dilithium EUF-CMA security. The Merkle root ensures binding via SHA-256 collision resistance.
-    \item \textbf{Performance}: C++ implementation processes 1,500+ signatures/second on M4 hardware.
+    \item \textbf{Security}: Individual signatures retain full Dilithium EUF-CMA security. The Merkle root ensures binding via SHA-256 collision resistance (\texttt{src/crypto/pat/logarithmic.cpp:75--120}).
+    \item \textbf{Performance}: C++ implementation processes 1.5M+ signatures/second on M4 hardware (0.67 ms for 1,000 signatures, \texttt{README.md:75}).
 \end{itemize}
 
 \section{LatticeFold+ Verification}
@@ -290,11 +290,12 @@ The L7 successfully:
 \item Connected via standard Stratum V1 protocol (\texttt{cgminer/4.12.1})
 \item Submitted shares at 9.5 GH/s with 100\% acceptance rate
 \item Mined blocks 103--141 (38 blocks) with Dilithium coinbase outputs
-\item Block 104 contained 147 real confidential transactions with Bulletproofs++ proofs
+\item Block 104 contained 147 real confidential transactions with Bulletproofs++ proofs  
+\item Each transaction: 2,420-byte Dilithium signature (\texttt{dilithium/params.h:15}) + 675-byte range proof
 \item Maintained stable hashrate for 75+ minutes of continuous operation
 \end{enumerate}
 
-Figure~\ref{fig:asic-validation} shows the validation evidence. The L7 dashboard displays stable 9.5 GH/s hashrate with ``Alive'' status. Block 104 (hash \texttt{15af9b02...}) contains 148 transactions totaling 747,757 bytes, with each confidential transaction carrying a 2,421-byte Dilithium signature, 1,313-byte public key, and 675-byte Bulletproofs++ range proof.
+Figure~\ref{fig:asic-validation} shows the validation evidence. The L7 dashboard displays stable 9.5 GH/s hashrate with ``Alive'' status. Block 104 (hash \texttt{15af9b02...}) contains 148 transactions totaling 747,757 bytes, with each confidential transaction carrying a 2,420-byte Dilithium signature (\texttt{dilithium/params.h:15}), 1,312-byte public key (\texttt{params.h:14}), and 675-byte Bulletproofs++ range proof.
 
 \begin{figure}[H]
 \centering
@@ -365,13 +366,13 @@ Block Validation & $5.0 \times 10^6$ & 0 \\ \bottomrule
 \subsection{Confidential Transaction Validation}
 Figure~\ref{fig:confidential_tx} shows Block 104, which contained 147 confidential transactions with real Bulletproofs++ range proofs mined during L7 ASIC integration testing. Each transaction includes:
 \begin{itemize}
-    \item \textbf{Dilithium Witness}: 2,421 bytes (ML-DSA-44 signature)
-    \item \textbf{Public Key}: 1,313 bytes (ML-DSA-44 public key)
+    \item \textbf{Dilithium Witness}: 2,420 bytes (ML-DSA-44 signature, \texttt{dilithium/params.h:15})
+    \item \textbf{Public Key}: 1,312 bytes (ML-DSA-44 public key, \texttt{params.h:14})
     \item \textbf{Range Proof}: 675 bytes (Bulletproofs++ via \texttt{OP\_RETURN})
-    \item \textbf{Total TX Size}: 5,085 bytes (vsize: 2,278 bytes)
+    \item \textbf{Total TX Size}: 5,084 bytes (vsize: 2,277 bytes)
 \end{itemize}
 
-Block 104 statistics: hash \texttt{15af9b02...}, size 747,757 bytes, weight 1,340,257, containing 148 transactions (147 confidential + 1 coinbase).
+Block 104 statistics: hash \texttt{15af9b02...}, size 747,757 bytes, weight 1,340,257, containing 148 transactions (147 confidential + 1 coinbase). Full block data available via \texttt{soqucoin-cli getblock 15af9b02...}.
 
 \begin{figure}[H]
 \centering
