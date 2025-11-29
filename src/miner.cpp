@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "miner.h"
+#include "auxpow.h"
 
 #include "amount.h"
 #include "chain.h"
@@ -155,11 +156,11 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     // FIXME: Active version bits after the always-auxpow fork!
     // const int32_t nVersion = ComputeBlockVersion(pindexPrev, consensus);
     const int32_t nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
-    pblock->SetBaseVersion(nVersion, nChainId);
+    pblock->nVersion = nVersion;
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
     if (chainparams.MineBlocksOnDemand())
-        pblock->SetBaseVersion(GetArg("-blockversion", pblock->GetBaseVersion()), nChainId);
+        pblock->nVersion = GetArg("-blockversion", pblock->nVersion);
 
     pblock->nTime = GetAdjustedTime();
     const int64_t nMedianTimePast = pindexPrev->GetMedianTimePast();

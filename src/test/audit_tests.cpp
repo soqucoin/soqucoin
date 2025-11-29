@@ -25,20 +25,10 @@ BOOST_AUTO_TEST_CASE(op_checkfoldproof_tests)
 
     // Switch to REGTEST to ensure opcode is active (activation height = 0)
     SelectParams(CBaseChainParams::REGTEST);
-    // Also need to ensure we are at height 0 or higher (default is 0)
-    // chainActive.Height() is used in interpreter.
-    // BasicTestingSetup doesn't necessarily set up a chain.
-    // If chainActive.Height() returns -1 or 0, it should be fine since activation is 0.
-    // But we need to make sure chainActive is initialized or at least not crashing.
-    // interpreter.cpp uses chainActive.Height().
-    // If chainActive is empty, Height() might be -1.
-    // We might need to mock height or use a TestingSetup that has a chain.
-    // But let's try just selecting params first.
 
-    // Mock chain height to be > 0
-    CBlockIndex* pindex = new CBlockIndex();
-    pindex->nHeight = 100;
-    chainActive.SetTip(pindex);
+    // We removed direct chainActive dependency in interpreter.cpp
+    // Now we need to pass SCRIPT_VERIFY_LATTICEFOLD flag to EvalScript
+    unsigned int flags = SCRIPT_VERIFY_LATTICEFOLD;
 
     ScriptError serror = SCRIPT_ERR_OK;
     BaseSignatureChecker checker;
@@ -59,7 +49,7 @@ BOOST_AUTO_TEST_CASE(op_checkfoldproof_tests)
         CScript script = CScript() << OP_CHECKFOLDPROOF;
         std::vector<std::vector<unsigned char> > stack;
         stack.push_back(CreateDummyProof(100)); // < 1280
-        BOOST_CHECK(!EvalScript(stack, script, 0, checker, SIGVERSION_BASE, &serror));
+        BOOST_CHECK(!EvalScript(stack, script, flags, checker, SIGVERSION_BASE, &serror));
         BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_CHECKFOLDPROOF_FAILED);
     }
 
@@ -68,7 +58,7 @@ BOOST_AUTO_TEST_CASE(op_checkfoldproof_tests)
         CScript script = CScript() << OP_CHECKFOLDPROOF;
         std::vector<std::vector<unsigned char> > stack;
         stack.push_back(CreateDummyProof(1280)); // Valid size
-        BOOST_CHECK(!EvalScript(stack, script, 0, checker, SIGVERSION_BASE, &serror));
+        BOOST_CHECK(!EvalScript(stack, script, flags, checker, SIGVERSION_BASE, &serror));
         BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_CHECKFOLDPROOF_FAILED);
     }
 }
@@ -82,6 +72,7 @@ BOOST_AUTO_TEST_CASE(op_checkpatagg_tests)
 
     ScriptError serror;
     BaseSignatureChecker checker;
+    unsigned int flags = SCRIPT_VERIFY_LATTICEFOLD;
 
     // Construct valid inputs for the prototype verifier
     // proof_data: 32 bytes root || 32 bytes xor || 32 bytes msg_root || 4 bytes count
@@ -107,7 +98,7 @@ BOOST_AUTO_TEST_CASE(op_checkpatagg_tests)
         stack.push_back(agg_pk);
         stack.push_back(msg_root);
 
-        bool result = EvalScript(stack, script, 0, checker, SIGVERSION_BASE, &serror);
+        bool result = EvalScript(stack, script, flags, checker, SIGVERSION_BASE, &serror);
         BOOST_CHECK(result);
         BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_OK);
         BOOST_CHECK_EQUAL(stack.size(), 1);
@@ -126,7 +117,7 @@ BOOST_AUTO_TEST_CASE(op_checkpatagg_tests)
         stack.push_back(bad_agg_pk);
         stack.push_back(msg_root);
 
-        BOOST_CHECK(!EvalScript(stack, script, 0, checker, SIGVERSION_BASE, &serror));
+        BOOST_CHECK(!EvalScript(stack, script, flags, checker, SIGVERSION_BASE, &serror));
         BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
     }
 
