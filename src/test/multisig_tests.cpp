@@ -5,19 +5,25 @@
 #include "key.h"
 #include "keystore.h"
 #include "policy/policy.h"
+#include "script/interpreter.h"
+#include "script/ismine.h"
 #include "script/script.h"
 #include "script/script_error.h"
-#include "script/interpreter.h"
 #include "script/sign.h"
-#include "script/ismine.h"
-#include "uint256.h"
 #include "test/test_bitcoin.h"
+#include "uint256.h"
 
 
 #include <boost/foreach.hpp>
 #include <boost/test/unit_test.hpp>
 
 typedef std::vector<unsigned char> valtype;
+
+// Post-Quantum Note: These tests are disabled because they rely entirely on ECDSA-based
+// multisig (OP_CHECKSIG, OP_CHECKMULTISIG) which has been removed in favor of Dilithium.
+// Dilithium multisig is not yet implemented. These tests should be replaced with
+// Dilithium-based signature tests once the PQ multisig scheme is designed.
+#if 0 // Disabled: ECDSA multisig tests
 
 BOOST_FIXTURE_TEST_SUITE(multisig_tests, BasicTestingSetup)
 
@@ -307,3 +313,5 @@ BOOST_AUTO_TEST_CASE(multisig_Sign)
 
 
 BOOST_AUTO_TEST_SUITE_END()
+
+#endif // End disabled ECDSA multisig tests
