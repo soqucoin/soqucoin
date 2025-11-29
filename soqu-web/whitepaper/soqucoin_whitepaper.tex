@@ -42,24 +42,24 @@
 
 \lstset{style=mystyle}
 
-\title{\textbf{Soqucoin: A Production Post-Quantum Proof-of-Work Cryptocurrency with Native LatticeFold+ Verification of Dilithium Batches}}
+\title{\textbf{Soqucoin: A Production Post-Quantum Proof-of-Work Cryptocurrency with Reserved LatticeFold+ Verification of Dilithium Batches}}
 
 \author{J. Casey Wilson \\ \textit{Soqucoin Core Developers} \\ \texttt{dev@soqu.org}}
 
-\date{November 25, 2025}
+\date{November 28, 2025}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
-We present Soqucoin, a Scrypt-based proof-of-work cryptocurrency that eliminates ECDSA entirely and replaces it with NIST-standardized ML-DSA-44 (Dilithium) signatures combined with two complementary batch-verification techniques: the Practical Aggregation Technique (PAT) and the LatticeFold+ recursive folding scheme over Binius64 fields. Soqucoin also includes a classical privacy layer via Bulletproofs++ range proofs (675 bytes, 0.89 ms verification) for confidential transactions; note that Bulletproofs++ provides 128-bit classical security (DLOG-based) and is not quantum-resistant---a lattice-based replacement is planned for v0.22. To the best of the authors' knowledge and as publicly documented on November 26, 2025, Soqucoin is the first cryptocurrency to demonstrate confidential post-quantum transactions mined on unmodified Scrypt ASIC hardware in a test environment. Empirical validation on an Antminer L7 (9.5 GH/s) successfully mined blocks containing 147 confidential transactions with real Bulletproofs++ proofs and 2,421-byte Dilithium signatures, proving full ASIC compatibility without firmware modifications. Note: LatticeFold+ and PAT opcodes are reserved and implemented as prototypes in v1.0, with full consensus enforcement scheduled for the v0.22 soft fork.
+We present Soqucoin, a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and replaces it with NIST-standardized ML-DSA-44 (Dilithium) signatures combined with two complementary batch-verification techniques: the Practical Aggregation Technique (PAT) and the LatticeFold+ recursive folding scheme over Binius64 fields. Soqucoin also includes a classical privacy layer via Bulletproofs++ range proofs (675 bytes, 0.89 ms verification) attached to outputs in preparation for future confidential-amount semantics; in v1 the explicit amounts remain visible on-chain, and the proofs only certify range correctness. Bulletproofs++ provides 128-bit classical security (DLOG-based) and is not quantum-resistant---a lattice-based replacement is planned for v0.22. To the best of the authors' knowledge and as publicly documented on November 26, 2025, Soqucoin is the first cryptocurrency to demonstrate confidential post-quantum transactions mined on unmodified Scrypt ASIC hardware in a test environment. Empirical validation on an Antminer L7 (9.5 GH/s) successfully mined blocks containing 147 confidential transactions with real Bulletproofs++ proofs and 2,420-byte Dilithium signatures, proving full ASIC compatibility without firmware modifications. Note: LatticeFold+ and PAT opcodes are reserved and implemented as prototypes in v1.0, with full consensus enforcement scheduled for the v0.22 soft fork.
 \end{abstract}
 
 \section{Introduction}
 The security of Bitcoin and nearly all modern cryptocurrencies relies on the discrete logarithm problem, which is vulnerable to Shor's algorithm running on a sufficiently powerful quantum computer. While such computers do not yet exist at the scale needed to break 256-bit ECDSA, the ``store now, decrypt later'' threat model necessitates an immediate transition to post-quantum cryptography (PQC).
 
-Soqucoin represents a radical departure from legacy blockchain architectures. By removing ECDSA signatures from the consensus and wallet layers, we eliminate the primary attack surface for quantum adversaries. We retain \texttt{secp256k1} solely for the Bulletproofs++ privacy layer (which relies on the discrete logarithm problem and is thus classically secure), while all transaction authorization uses the Module-Lattice-Based Digital Signature Algorithm (ML-DSA), specifically the Dilithium2 parameter set (ML-DSA-44), which offers NIST Level 2 security (equivalent to AES-128).
+Soqucoin represents a radical departure from legacy blockchain architectures. By removing ECDSA signatures from consensus validation and the standard wallet spending path, we eliminate the primary transaction-level attack surface for quantum adversaries. Legacy ECDSA primitives remain in the codebase only for compatibility and testing purposes. We retain \texttt{secp256k1} solely for the Bulletproofs++ privacy layer (which relies on the discrete logarithm problem and is thus classically secure), while all transaction authorization uses the Module-Lattice-Based Digital Signature Algorithm (ML-DSA), specifically the Dilithium2 parameter set (ML-DSA-44), which offers NIST Level 2 security (equivalent to AES-128).
 
 However, ML-DSA signatures (2,420 bytes) are significantly larger than ECDSA signatures (64 bytes). To maintain blockchain scalability, we implement two complementary batching strategies: (1) PAT for efficient on-chain commitment, and (2) LatticeFold+ for succinct verification proofs.
 
@@ -71,18 +71,21 @@ The v1.0 release focuses on Dilithium integration and ASIC compatibility. The fo
 \begin{itemize}
     \item \textbf{Dilithium Signatures}: ML-DSA-44 is the sole signature scheme for transaction authorization.
     \item \textbf{Scrypt PoW}: Fully compatible with existing hardware.
-    \item \textbf{Confidential Transactions (v1)}: Amounts are hidden via Pedersen commitments and verified by Bulletproofs++ range proofs (classical DLOG security; see \S5.3 for quantum considerations).
+    \item \textbf{Confidential Transactions (v1)}: Outputs may carry Pedersen commitments and Bulletproofs++ range proofs (classical DLOG security; see \S5.3 for quantum considerations). In v1 the explicit on-chain amounts (\texttt{vout.nValue}) remain visible; the proofs serve as a forward-compatible correctness layer for future full confidential-amount semantics (planned v0.22).
 \end{itemize}
 The following features are implemented as prototypes and reserved for future activation (v0.22):
 \begin{itemize}
-    \item \textbf{LatticeFold+ Verification}: \texttt{OP\_CHECKFOLDPROOF} (0xfc) is reserved and wired to the verifier, but currently performs prototype checks.
+    \item \textbf{LatticeFold+ Verification}: \texttt{OP\_CHECKFOLDPROOF} (0xfc) is reserved and wired to the in-tree verifier. It is enabled on regtest/testnet, but gated off on mainnet via \texttt{nLatticeFoldActivationHeight} and will only become consensus-enforced after a future v0.22 soft-fork.
     \item \textbf{PAT Aggregation}: \texttt{OP\_CHECKPATAGG} (0xfd) is reserved for batch verification.
 \end{itemize}
+
+\section{System Architecture Overview}
+\label{sec:system-architecture}
 
 \begin{figure}[!ht]
 \centering
 \includegraphics[width=\textwidth]{paper_plots/architecture.png}
-\caption{Soqucoin System Architecture. \textbf{Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,420 bytes, \texttt{dilithium/params.h:15}); confidential transactions include Pedersen commitments (33 bytes). \textbf{Step 2a}: Signatures are batched via PAT into a 100-byte proof (32-byte Merkle root + 32-byte pk\_xor + 32-byte msg\_root + 4-byte count, \texttt{pat/logarithmic.h:10--15}). \textbf{Step 2b}: Confidential amounts are proven valid via Bulletproofs++ range proofs (675 bytes, 0.89 ms verification; classical DLOG security). \textbf{Step 3}: The PAT proof is folded into a succinct LatticeFold+ proof ($\sim$1.38 KB constant size) using Binius64 field arithmetic ($\sim$5 cycles/mul on AVX2/GFNI, \texttt{binius64/field.cpp}). \textbf{Step 4}: Block assembly via Scrypt PoW; the block includes the header, LatticeFold+ proof, BP++ range proofs, and transactions. \textbf{Step 5}: Full nodes verify via \texttt{OP\_CHECKFOLDPROOF} (0.68 ms, \texttt{interpreter.cpp:line~182}), \texttt{OP\_CHECKPATAGG} ($<$4 $\mu$s, \texttt{interpreter.cpp:line~187}), and BP++ verification (0.89 ms). Soundness error $<2^{-130}$ (Theorem 4.2, \cite{latticefold2025}).}
+\caption{Soqucoin System Architecture. \textbf{Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,420 bytes, as in \texttt{src/crypto/dilithium/params.h}); confidential transactions include Pedersen commitments (33 bytes). \textbf{Step 2a}: Signatures are batched via PAT into a 100-byte proof (32-byte Merkle root + 32-byte pk\_xor + 32-byte msg\_root + 4-byte count, \texttt{src/crypto/pat/logarithmic.h}). \textbf{Step 2b}: Confidential amounts are proven valid via Bulletproofs++ range proofs (675 bytes, 0.89 ms verification; classical DLOG security). \textbf{Step 3}: The PAT proof is folded into a succinct LatticeFold+ proof ($\sim$1.38 KB constant size) using Binius64 field arithmetic ($\sim$5 cycles/mul on AVX2/GFNI, \texttt{src/crypto/binius64/field.cpp}). \textbf{Step 4}: Block assembly via Scrypt PoW; the block includes the header, LatticeFold+ proof, BP++ range proofs, and transactions. \textbf{Step 5}: Full nodes verify via \texttt{OP\_CHECKFOLDPROOF}, \texttt{OP\_CHECKPATAGG}, and BP++ verification, as implemented in \texttt{src/script/interpreter.cpp}. Soundness error $<2^{-130}$ (Theorem 4.2, \cite{latticefold2025}).}
 \label{fig:architecture}
 \end{figure}
 
@@ -229,7 +232,7 @@ The witness v1 format (\texttt{OP\_1 <32-byte-hash>}) is used for Dilithium addr
 All legacy opcodes (\texttt{OP\_CHECKSIG}, \texttt{OP\_CHECKMULTISIG}) are permanently disabled. Any transaction containing ECDSA signatures is rejected at consensus level with \texttt{SCRIPT\_ERR\_DISALLOWED\_CLASSICAL\_CRYPTO}.
 
 \subsection{Classical Privacy Layer via Bulletproofs++}
-Soqucoin introduces a classical privacy layer in v1, leveraging Bulletproofs++ for confidential transactions. This feature allows users to hide transaction amounts while cryptographically proving that the values are non-negative and within valid ranges.
+Soqucoin introduces a classical privacy layer in v1, leveraging Bulletproofs++ as a range-correctness proof attached to outputs. In the v1 implementation, transaction amounts remain explicitly represented in \texttt{vout.nValue}; the Bulletproofs++ proof certifies that a corresponding Pedersen commitment encodes a value in the valid range without yet replacing the transparent amount. A future v0.22 fork will migrate to full confidential-amount semantics where values are carried solely by commitments.
 
 \textbf{Important Security Note:} Bulletproofs++ relies on the discrete logarithm (DLOG) assumption over the secp256k1 curve, which provides 128-bit \textit{classical} security but is \textit{not} quantum-resistant. A sufficiently powerful quantum computer running Shor's algorithm could theoretically break the commitment binding property, potentially allowing an attacker to forge range proofs. However, this would require a cryptographically-relevant quantum computer (CRQC) estimated to be 10--20 years away. The privacy (hiding) property remains unconditional and is not affected by quantum attacks.
 
@@ -305,7 +308,7 @@ Figure~\ref{fig:asic-validation} shows the validation evidence. The L7 dashboard
 
 % Figure 4 moved to Section 7.4
 
-\textbf{Significance}: This is the first demonstration of quantum-resistant signatures being mined on production ASIC hardware, proving that post-quantum transition does not require miners to replace equipment.
+\textbf{Significance}: To the best of the authors' knowledge as of November 26, 2025, this is the first public demonstration of quantum-resistant signatures being mined on production Scrypt ASIC hardware, indicating that a post-quantum transition need not require miners to replace equipment.
 
 
 \section{Performance Evaluation}
@@ -337,6 +340,8 @@ PAT Aggregate (1000 sigs) & 0.67 $\pm$ 0.08 ms & $<$ 5 ms \\ \bottomrule
 \label{tab:crypto_bench}
 \end{table}
 
+All timings in Table~\ref{tab:crypto_bench} were obtained on a single Apple M4 Max reference machine using the in-tree benchmarks under \texttt{src/bench/}. They are empirical measurements rather than protocol parameters: independent reviewers can reproduce or refine these results by compiling and running the same benchmarks on their own hardware.
+
 \subsection{Network Consensus Testing}
 \textbf{Results}:
 \begin{itemize}
@@ -362,6 +367,8 @@ Block Validation & $5.0 \times 10^6$ & 0 \\ \bottomrule
 \caption{24-Hour Fuzzing Campaign Results (libFuzzer)}
 \label{tab:fuzzing}
 \end{table}
+
+The execution counts in Table~\ref{tab:fuzzing} correspond to a 24-hour libFuzzer campaign using the harnesses under \texttt{src/test/fuzz/}. They are operational measurements, not protocol assumptions, and can be extended by future reviewers with additional fuzz targets or longer runs.
 
 \subsection{Confidential Transaction Validation}
 Figure~\ref{fig:confidential_tx} shows Block 104, which contained 147 confidential transactions with real Bulletproofs++ range proofs mined during L7 ASIC integration testing. Each transaction includes:
@@ -443,11 +450,11 @@ Side-channel testing with ct-grind \cite{ctgrind} and dudect \cite{dudect} on th
 Miners are recommended to disable hyper-threading on verification cores.
 
 \section{Conclusion}
-Soqucoin demonstrates that a fully quantum-resistant cryptocurrency is not only possible but practical. By integrating ML-DSA-44 signatures with PAT and LatticeFold+ batch verification, we achieve NIST Level 2 security without sacrificing the scalability or hardware compatibility required for a global payment network.
+Soqucoin demonstrates that a fully quantum-resistant cryptocurrency is not only possible but practical. By integrating ML-DSA-44 signatures with PAT and LatticeFold+ batch verification, we achieve NIST Level 2 security without sacrificing the scalability or hardware compatibility required for a global payment network. The hard-coded genesis output script in \texttt{src/chainparams.cpp} retains the historical secp256k1 \texttt{OP\_CHECKSIG} form inherited from Dogecoin; this output is never spent under Soqucoin consensus rules and carries no user funds, while all spendable outputs from height 1 onward are authorized exclusively by Dilithium.
 
 Key contributions:
 \begin{enumerate}
-\item First cryptocurrency with native LatticeFold+ verification in production consensus (November 2025)
+\item First cryptocurrency codebase with LatticeFold+ batch verification integrated into the consensus engine and active on regtest/testnet, reserved for mainnet activation via a v0.22 soft-fork (November 2025)
 \item Proven ASIC compatibility: Antminer L7 (9.5 GH/s) mined 38 blocks with 147 confidential TXs each
 \item Real Bulletproofs++ integration: 675-byte proofs, 0.89 ms verification (measured on Apple M4)
 \item Full Dilithium witness encoding: 2,421-byte signatures + 1,313-byte public keys per input

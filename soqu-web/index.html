@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Soqucoin | Post-Quantum Security</title>
     <meta name="description"
-        content="The first production cryptocurrency with native LatticeFold+ verification of Dilithium batches. Quantum-resistant from Block 0.">
+        content="The first production cryptocurrency codebase integrating LatticeFold+ verification of Dilithium batches, reserved for activation via soft fork. Quantum-resistant transaction signatures.">
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -42,10 +42,10 @@
         <section class="hero">
             <div class="container hero-content">
                 <div class="hero-text">
-                    <div class="badge">Quantum-Resistant from Block 0</div>
+                    <div class="badge">Quantum-Resistant Transactions</div>
                     <h1>The Future is <span class="gradient-text">Lattice-Based.</span></h1>
                     <p class="hero-sub">Soqucoin is the first production cryptocurrency to implement <strong>Dilithium
-                            ML-DSA-44</strong> with native <strong>LatticeFold+</strong> batch verification.</p>
+                            ML-DSA-44</strong> with integrated <strong>LatticeFold+</strong> batch verification, active on regtest/testnet and reserved for mainnet activation via soft fork.</p>
                     <div class="hero-actions">
                         <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank" class="btn-primary large">Read the
                             Whitepaper</a>
@@ -90,8 +90,7 @@
                     <div class="card">
                         <div class="icon">🛡️</div>
                         <h3>Dilithium ML-DSA-44</h3>
-                        <p>Exclusively uses Dilithium for all signatures. No legacy secp256k1. Immune to Shor's
-                            algorithm attacks.</p>
+                        <p>Uses Dilithium for all transaction authorization. Legacy secp256k1 remains only in the privacy layer and legacy helper code.</p>
                     </div>
                     <div class="card">
                         <div class="icon">⚡</div>
@@ -102,8 +101,7 @@
                     <div class="card">
                         <div class="icon">🔒</div>
                         <h3>Classical Privacy Layer</h3>
-                        <p>Confidential transactions powered by Bulletproofs++ (128-bit classical security). Hide transaction amounts
-                            while cryptographically proving validity. Lattice-based upgrade planned for v0.22.</p>
+                        <p>Outputs may carry Bulletproofs++ range proofs (128-bit classical security). In v1 amounts remain visible on-chain; proofs certify range correctness. A lattice-based, fully confidential upgrade is planned for v0.22.</p>
                     </div>
                     <div class="card">
                         <div class="icon">💎</div>
