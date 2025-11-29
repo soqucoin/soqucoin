@@ -73,6 +73,7 @@ BOOST_AUTO_TEST_CASE(verify_logic_check)
     BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, agg_pk, bad_msg_root));
 
     // 4. Null merkle root (should fail per logic)
+    proof.merkle_root = uint256();
     BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, agg_pk, msg_root));
 }
 
