@@ -1,10 +1,5 @@
 [
   {
-    "name": "univalue-subtree",
-    "path": "src/univalue",
-    "remote": "https://github.com/bitcoin-core/univalue.git"
-  },
-  {
     "name": "leveldb-subtree",
     "path": "src/leveldb",
     "remote": "https://github.com/bitcoin-core/leveldb-subtree"

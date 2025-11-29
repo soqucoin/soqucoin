@@ -24,7 +24,7 @@ jobs:
       CACHE_NONCE: "1"
       WINEDEBUG: fixme-all
       WINEPREFIX: /tmp/wineprefix/
-      SDK_URL: https://depends.soqucoincore.org
+      SDK_URL: https://bitcoincore.org/depends-sources/sdks
 
     strategy:
       fail-fast: false
