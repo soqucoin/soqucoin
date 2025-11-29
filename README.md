@@ -28,9 +28,9 @@
 
 ## About
 
-Soqucoin is a Scrypt-based proof-of-work cryptocurrency that replaces ECDSA with **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It combines two batch-verification techniques—**PAT** (Practical Aggregation Technique) and **LatticeFold+**—to achieve scalable post-quantum security without sacrificing performance.
+Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It combines two batch-verification techniques—**PAT** (Practical Aggregation Technique) and **LatticeFold+**—to achieve scalable post-quantum security without sacrificing performance.
 
-> **Why does this matter?** Quantum computers will eventually break ECDSA. Soqucoin is quantum-resistant from block 0—no soft-fork migration required.
+> **Why does this matter?** Quantum computers will eventually break ECDSA. Soqucoin makes all user transaction signatures quantum-resistant without requiring a soft-fork migration from an ECDSA-based design.
 
 ### Current Status
 
@@ -222,6 +222,8 @@ make install  # optional
 | **LatticeFold+ Prover** | Off-chain (trusted pools) | ✅ Operational |
 | **LatticeFold+ Verifier** | `src/crypto/latticefold/verifier.cpp` | ✅ In-tree |
 | **Distributed Provers** | — | 🔄 Future work |
+
+Note: LatticeFold+ verification is enabled on regtest/testnet and reserved for mainnet activation via a future v0.22 soft-fork.
 
 ### Branch Structure
 
