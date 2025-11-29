@@ -116,12 +116,12 @@ bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int fl
 
 
 #include "chainparams.h"
-#include "validation.h"
+// #include "validation.h" // Removed to avoid circular dependency and linker errors
 
-bool IsLatticeFoldActive(int nHeight, const Consensus::Params& consensusParams)
-{
-    return nHeight >= consensusParams.nLatticeFoldActivationHeight;
-}
+// bool IsLatticeFoldActive(int nHeight, const Consensus::Params& consensusParams)
+// {
+//     return nHeight >= consensusParams.nLatticeFoldActivationHeight;
+// }
 
 bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
@@ -302,42 +302,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         const valtype& vchProof = stacktop(-1);
 
                         // Consensus gating
-                        // We need current height. Since EvalScript doesn't take it, we rely on the caller
-                        // to have set flags or we access global state (less ideal but pragmatic for this patch).
-                        // However, we implemented IsLatticeFoldActive taking height.
-                        // We can get height from chainActive.Height() via validation.h
-                        // Note: This couples interpreter to validation, which is generally discouraged but
-                        // acceptable for this specific activation logic if flags aren't used.
-                        // A better approach would be SCRIPT_VERIFY_LATTICEFOLD flag, but we are following the plan.
-
-                        int nHeight = chainActive.Height();
-                        const Consensus::Params& consensusParams = Params().GetConsensus(nHeight);
-
-                        if (!IsLatticeFoldActive(nHeight, consensusParams)) {
-                            // If not active, it acts as a NOP or fails?
-                            // Usually upgrades make NOPs into opcodes.
-                            // But this opcode was reserved.
-                            // If we want it to be a NOP before activation, we should just pop and return true?
-                            // Or fail?
-                            // The report says: "return set_error(serror, SCRIPT_ERR_CHECKFOLDPROOF_DISABLED);"
-                            // But we don't have that error code.
-                            // Let's treat it as OP_SUCCESS (return true) or NOP (pop and continue) or Fail.
-                            // "Reserved" usually means OP_NOP or failure.
-                            // If we want to be safe, we fail if it's executed before activation?
-                            // Or we treat it as a NOP that pops the stack?
-                            // The plan says: "Enforce opcode only after activation height."
-                            // If we enforce it, it means BEFORE activation it should NOT be enforced.
-                            // If it's a soft fork, it replaces a NOP.
-                            // So before activation, it should behave like a NOP (do nothing, or pop and do nothing).
-                            // However, OP_CHECKFOLDPROOF (0xfc) is NOT a standard NOP. It's a new opcode.
-                            // If it was previously invalid, then making it valid is a hard fork unless it was OP_NOPx.
-                            // 0xfc is NOT OP_NOPx.
-                            // So technically this is a hard fork feature unless 0xfc was defined as OP_NOP before.
-                            // But Soqucoin is new, so we can define it as we want.
-                            // Let's assume it fails if not active, or we just fail with BAD_OPCODE.
-                            // But the report says "Gate activation... only allow ... to succeed once deployment is active".
-                            // This implies it fails otherwise.
-                            // Let's fail with BAD_OPCODE or similar if not active.
+                        // Check flag instead of direct height check
+                        if (!(flags & SCRIPT_VERIFY_LATTICEFOLD)) {
                             return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
                         }
 
