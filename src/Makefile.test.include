@@ -174,7 +174,7 @@ test_test_soqucoin_LDADD = \
   $(LIBSECP256K1) \
   $(EVENT_LIBS) \
   $(EVENT_PTHREADS_LIBS) \
-  secp256k1/.libs/libsecp256k1.la
+  $(LIBMEMENV)
 test_test_soqucoin_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 if ENABLE_WALLET
 test_test_soqucoin_LDADD += $(LIBSOQUCOIN_WALLET)
