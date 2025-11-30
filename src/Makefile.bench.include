@@ -45,7 +45,7 @@ bench_bench_soqucoin_LDADD = \
   $(LIBLEVELDB) \
   $(LIBMEMENV) \
   $(LIBUNIVALUE) \
-  secp256k1/.libs/libsecp256k1.la
+  $(LIBMEMENV)
 
 if ENABLE_ZMQ
 bench_bench_soqucoin_LDADD += $(LIBSOQUCOIN_ZMQ) $(ZMQ_LIBS)
