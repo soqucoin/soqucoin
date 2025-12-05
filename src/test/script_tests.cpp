@@ -601,13 +601,13 @@ BOOST_AUTO_TEST_CASE(script_bulletproofs_test)
     // 2. Generate Commitment
     zk::Commitment comm;
     BOOST_CHECK(zk::GenerateCommitment(value, blinding, comm));
-    BOOST_CHECK(comm.data.size() == 32);
+    BOOST_CHECK(comm.data.size() == 33);
 
     // 3. Generate Range Proof
     zk::RangeProof proof;
     uint256 nonce = blinding; // Use blinding as nonce for test
     BOOST_CHECK(zk::GenRangeProof(value, blinding, nonce, comm, proof));
-    BOOST_CHECK(proof.data.size() == 675); // Approx size
+    BOOST_CHECK_EQUAL(proof.data.size(), 2660); // Approx size
 
     // 4. Verify Proof (Valid)
     BOOST_CHECK(zk::VerifyRangeProof(proof, comm));

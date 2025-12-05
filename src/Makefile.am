@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-DIST_SUBDIRS = univalue
+DIST_SUBDIRS = univalue secp256k1
 
 AM_LDFLAGS = $(PTHREAD_CFLAGS) $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS)
 AM_CXXFLAGS = $(HARDENED_CXXFLAGS) $(ERROR_CXXFLAGS)
@@ -18,6 +18,11 @@ $(LIBUNIVALUE): $(wildcard univalue/lib/*) $(wildcard univalue/include/*)
 else
 LIBUNIVALUE = $(UNIVALUE_LIBS)
 endif
+
+LIBSECP256K1 = secp256k1/libsecp256k1.la
+
+$(LIBSECP256K1): $(wildcard secp256k1/src/*) $(wildcard secp256k1/include/*)
+	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
 
 BITCOIN_CONFIG_INCLUDES=-I$(builddir)/config
 BITCOIN_INCLUDES=-I$(builddir) -I$(builddir)/obj $(BDB_CPPFLAGS) $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS) $(SSL_CFLAGS)
@@ -456,7 +461,7 @@ soqucoind_LDADD = \
   $(LIBLEVELDB_SSE42) \
   $(LIBMEMENV)
 
-soqucoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
+soqucoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS) $(LIBSECP256K1)
 
 # bitcoin-cli binary #
 soqucoin_cli_SOURCES = bitcoin-cli.cpp
@@ -474,7 +479,7 @@ soqucoin_cli_LDADD = \
   $(LIBSOQUCOIN_UTIL) \
   $(LIBSOQUCOIN_CRYPTO)
 
-soqucoin_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
+soqucoin_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS) $(LIBSECP256K1)
 #
 
 # bitcoin-tx binary #
@@ -494,7 +499,7 @@ soqucoin_tx_LDADD = \
   $(LIBSOQUCOIN_UTIL) \
   $(LIBSOQUCOIN_CRYPTO)
 
-soqucoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+soqucoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS) $(LIBSECP256K1)
 #
 
 # bitcoinconsensus library #

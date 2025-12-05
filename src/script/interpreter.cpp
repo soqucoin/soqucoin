@@ -13,37 +13,10 @@
 #include "primitives/transaction.h"
 #include "util.h"
 #include "utilstrencodings.h"
-#include "validation.h" // For GetCurrentBlockHeight (or similar) - wait, interpreter shouldn't depend on validation directly if possible.
+#include "validation.h"
 #include "zk/bulletproofs.h"
 #include <crypto/latticefold/verifier.h>
 #include <crypto/pat/logarithmic.h>
-// Actually, interpreter usually takes flags or checker.
-// Standard Bitcoin way: Pass flags or use a checker that knows height.
-// But for this patch, we might need to access global chainActive or similar if not passed.
-// However, `EvalScript` doesn't take height.
-// We can use `chainActive.Height()` if we include validation.h, but that couples interpreter to chain state.
-// A better way is to pass it in `flags` or `checker`.
-// But `BaseSignatureChecker` doesn't have height.
-// Let's check how other upgrades (BIP65/66) are handled. They use flags (SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY).
-// The flags are set in `VerifyScript` based on height.
-// So we should define a new flag `SCRIPT_VERIFY_LATTICEFOLD` in `script_flags.h` (or script.h).
-// And set it in `init.cpp` or `validation.cpp` where flags are calculated.
-// BUT, the instructions said: "Implement a helper IsLatticeFoldActive(int height, const Consensus::Params&) used by the interpreter or VerifyScript."
-// If we use flags, `EvalScript` just checks the flag.
-// Let's stick to the plan: "Implement a helper... used by the interpreter".
-// If `EvalScript` doesn't take height, we can't pass it easily without changing signature.
-// Changing `EvalScript` signature is invasive.
-// Using a flag is the standard way.
-// Let's define SCRIPT_VERIFY_LATTICEFOLD = (1U << 21) (or next available).
-// And update `validation.cpp` to set it.
-// Wait, the user plan said: "Implement a helper IsLatticeFoldActive... used by the interpreter OR VerifyScript."
-// If used by VerifyScript, it sets the flag.
-// So:
-// 1. Define SCRIPT_VERIFY_LATTICEFOLD in script_error.h or script.h
-// 2. In interpreter.cpp, check if (flags & SCRIPT_VERIFY_LATTICEFOLD)
-// 3. In validation.cpp (ConnectBlock/CheckInputs), set the flag if height >= activation.
-// This is cleaner.
-
 #include <crypto/ripemd160.h>
 #include <crypto/sha1.h>
 #include <crypto/sha256.h>
@@ -116,12 +89,6 @@ bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int fl
 
 
 #include "chainparams.h"
-// #include "validation.h" // Removed to avoid circular dependency and linker errors
-
-// bool IsLatticeFoldActive(int nHeight, const Consensus::Params& consensusParams)
-// {
-//     return nHeight >= consensusParams.nLatticeFoldActivationHeight;
-// }
 
 bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
@@ -321,8 +288,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 
                         // We need the message hash. In standard CheckSig, it's calculated.
                         // Here we are in an opcode. We need to calculate the sighash.
-                        // But CheckSig usually takes sig and pubkey.
-                        // Let's use the checker.
+                        // Use the checker to validate.
 
                         // Note: This is a simplified implementation.
                         // Real implementation would need to handle sighash type from sig.
@@ -377,8 +343,7 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
         uint256 hashPrevouts;
         uint256 hashSequence;
         uint256 hashOutputs;
-        // TODO: exact Bitcoin Core v28 implementation — copy from upstream src/script/interpreter.cpp lines 450-550
-        // Full implementation identical to Dogecoin master Nov 2025
+        // TODO: exact Bitcoin Core v28 implementation — copy from upstream src/script/interpreter.cpp
         // For now, return transaction hash as placeholder
         return txTo.GetHash();
     }
@@ -403,7 +368,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
     if (is_op_return) {
         // Check for Confidential Transaction (v1): OP_RETURN <commitment> <proof>
-        // Commitment is 32 bytes, Proof is 1200 bytes
+        // Commitment is 33 bytes, Proof is ~2660 bytes
         // Total script size: 1 + 1 (push 32) + 32 + 3 (push 1200) + 1200 = ~1237 bytes
         // We verify the proof if present
         if (scriptPubKey.size() > 1000) { // Heuristic check
@@ -411,7 +376,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
             // Script: OP_RETURN <32-byte-commitment> <1200-byte-proof>
             // Parsing:
             // [0] = OP_RETURN
-            // [1] = 0x20 (32 bytes)
+            // [1] = 0x21 (33 bytes)
             // [2..33] = commitment
             // [34..36] = push opcode for 1200 bytes (e.g. 0x4d 0xb0 0x04)
             // [37..] = proof
@@ -421,15 +386,15 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
             std::vector<unsigned char> vch;
 
             // OP_RETURN
-            if (!scriptPubKey.GetOp(pc, opcode, vch) || opcode != OP_RETURN) return set_success(serror);
+            if (!scriptPubKey.GetOp(pc, opcode, vch) || opcode != OP_RETURN) return set_error(serror, SCRIPT_ERR_OP_RETURN);
 
             // Commitment
             std::vector<unsigned char> commitmentData;
-            if (!scriptPubKey.GetOp(pc, opcode, commitmentData) || commitmentData.size() != 32) return set_success(serror);
+            if (!scriptPubKey.GetOp(pc, opcode, commitmentData) || commitmentData.size() != 33) return set_error(serror, SCRIPT_ERR_OP_RETURN);
 
             // Proof
             std::vector<unsigned char> proofData;
-            if (!scriptPubKey.GetOp(pc, opcode, proofData) || proofData.size() < 100) return set_success(serror);
+            if (!scriptPubKey.GetOp(pc, opcode, proofData) || proofData.size() < 100) return set_error(serror, SCRIPT_ERR_OP_RETURN);
 
             // Verify Range Proof
             zk::Commitment comm(commitmentData);
@@ -438,8 +403,9 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
             if (!zk::VerifyRangeProof(proof, comm)) {
                 return set_error(serror, SCRIPT_ERR_ZKPROOF_FAILED);
             }
+            return set_success(serror);
         }
-        return set_success(serror);
+        return set_error(serror, SCRIPT_ERR_OP_RETURN);
     }
 
     // Dilithium verification
