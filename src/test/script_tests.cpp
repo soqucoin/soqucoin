@@ -221,26 +221,7 @@ BOOST_AUTO_TEST_CASE(script_PushData, *boost::unit_test::disabled())
     BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_OK, ScriptErrorString(err));
 }
 
-BOOST_AUTO_TEST_CASE(script_standard_push, *boost::unit_test::disabled())
-{
-    ScriptError err;
-    for (int i = 0; i < 67000; i++) {
-        CScript script;
-        script << i;
-        BOOST_CHECK_MESSAGE(script.IsPushOnly(), "Number " << i << " is not pure push.");
-        BOOST_CHECK_MESSAGE(VerifyScript(script, CScript() << OP_1, NULL, SCRIPT_VERIFY_MINIMALDATA, BaseSignatureChecker(), &err), "Number " << i << " push is not minimal data.");
-        BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_OK, ScriptErrorString(err));
-    }
-
-    for (unsigned int i = 0; i <= MAX_SCRIPT_ELEMENT_SIZE; i++) {
-        std::vector<unsigned char> data(i, '\111');
-        CScript script;
-        script << data;
-        BOOST_CHECK_MESSAGE(script.IsPushOnly(), "Length " << i << " is not pure push.");
-        BOOST_CHECK_MESSAGE(VerifyScript(script, CScript() << OP_1, NULL, SCRIPT_VERIFY_MINIMALDATA, BaseSignatureChecker(), &err), "Length " << i << " push is not minimal data.");
-        BOOST_CHECK_MESSAGE(err == SCRIPT_ERR_OK, ScriptErrorString(err));
-    }
-}
+// script_standard_push removed (Legacy ECDSA/Push limits)
 
 BOOST_AUTO_TEST_CASE(script_IsPushOnly_on_invalid_scripts)
 {
