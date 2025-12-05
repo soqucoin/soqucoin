@@ -472,7 +472,7 @@ Soqucoin will launch with a 100\% fair distribution model:
     \item \textbf{Total Supply}: 21,000,000,000 SOQ
 \end{itemize}
 
-The successful execution of our testnet and ASIC validation proves the viability of the ``So Quantum'' approach. Mainnet genesis is planned for December 15, 2025.
+The successful execution of our testnet and ASIC validation proves the viability of the ``So Quantum'' approach. Mainnet genesis is planned for Q1 2026.
 
 \subsection{Deployment Risks}
 While benchmarks show negligible overhead, large signatures (2.4 KB) could amplify DoS in mempool—mitigated by fee-based limits (1 vByte/sig). Binius64 on non-GFNI CPUs (e.g., older ARM in L7) falls back to portable \texttt{\_\_uint128\_t} (2x slowdown)—tested <5 ms verify. Future ML-DSA upgrades use BIP9 soft-forks for backward compatibility. Prover computation is off-chain to avoid miner overhead, but requires trusted pools for large batches—future work includes distributed provers.

@@ -2,7 +2,7 @@
   <img src="https://images.squarespace-cdn.com/content/v1/65810ad187838d631a72b98f/f1281546-f262-4ec1-bfa4-f346daab1ae9/soqucoin.png?format=750w" alt="Soqucoin" width="200"/>
 </p>
 
-<h1 align="center">Soqucoin Core</h1>
+<h1 align="center">Soqucoin™ Core</h1>
 
 <p align="center">
   <strong>The first production cryptocurrency with native post-quantum signature verification</strong>
