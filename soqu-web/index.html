@@ -25,6 +25,7 @@
             </a>
             <div class="nav-links">
                 <a href="#features">Features</a>
+                <a href="#ssoq">sSOQ</a>
                 <a href="#technology">Technology</a>
                 <a href="#explorer">Explorer</a>
                 <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank" class="btn-secondary">Whitepaper</a>
@@ -38,6 +39,21 @@
         </div>
     </nav>
 
+    <!-- Scam Alert Banner -->
+    <div id="scamAlertBanner" class="scam-alert" role="alert">
+        <div class="container alert-content">
+            <div class="alert-icon">⚠️</div>
+            <div class="alert-text">
+                <strong>Security Alert:</strong> Beware of fake Soqucoin tokens.
+                No token is official until announced on verified channels.
+                Official sSOQ contract: <code id="contractAddress">Deploying Dec 6, 2025</code>.
+                Only trust <a href="https://soqu.org" class="alert-link">soqu.org</a> and official announcements from
+                <a href="https://x.com/soqucoin" class="alert-link">@soqucoin</a>.
+            </div>
+            <button class="alert-close" onclick="dismissScamAlert()" aria-label="Dismiss alert">×</button>
+        </div>
+    </div>
+
     <main>
         <section class="hero">
             <div class="container hero-content">
@@ -45,7 +61,8 @@
                     <div class="badge">Quantum-Resistant Transactions</div>
                     <h1>The Future is <span class="gradient-text">Lattice-Based.</span></h1>
                     <p class="hero-sub">Soqucoin is the first production cryptocurrency to implement <strong>Dilithium
-                            ML-DSA-44</strong> with integrated <strong>LatticeFold+</strong> batch verification, active on regtest/testnet and reserved for mainnet activation via soft fork.</p>
+                            ML-DSA-44</strong> with integrated <strong>LatticeFold+</strong> batch verification, active
+                        on regtest/testnet and reserved for mainnet activation via soft fork.</p>
                     <div class="hero-actions">
                         <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank" class="btn-primary large">Read the
                             Whitepaper</a>
@@ -61,16 +78,14 @@
                         </div>
                         <div class="terminal-body">
                             <div class="code-line"><span class="prompt">$</span> soqucoin-cli getblockchaininfo</div>
-                            <div class="code-output">
-                                {
-                                "chain": "main",
-                                "blocks": 12405,
-                                "bestblockhash": "0000...a1b2",
-                                "verification": "LatticeFold+",
-                                "signature_scheme": "Dilithium-ML-DSA-44",
-                                "quantum_security": true
-                                }
-                            </div>
+                            <pre class="code-output">{
+  "chain": "main",
+  "blocks": 12405,
+  "bestblockhash": "0000...a1b2",
+  "verification": "LatticeFold+",
+  "signature_scheme": "Dilithium-ML-DSA-44",
+  "quantum_security": true
+}</pre>
                             <div class="code-line"><span class="prompt">$</span> _</div>
                         </div>
                     </div>
@@ -90,7 +105,8 @@
                     <div class="card">
                         <div class="icon">🛡️</div>
                         <h3>Dilithium ML-DSA-44</h3>
-                        <p>Uses Dilithium for all transaction authorization. Legacy secp256k1 remains only in the privacy layer and legacy helper code.</p>
+                        <p>Uses Dilithium for all transaction authorization. Legacy secp256k1 remains only in the
+                            privacy layer and legacy helper code.</p>
                     </div>
                     <div class="card">
                         <div class="icon">⚡</div>
@@ -101,13 +117,114 @@
                     <div class="card">
                         <div class="icon">🔒</div>
                         <h3>Classical Privacy Layer</h3>
-                        <p>Outputs may carry Bulletproofs++ range proofs (128-bit classical security). In v1 amounts remain visible on-chain; proofs certify range correctness. A lattice-based, fully confidential upgrade is planned for v0.22.</p>
+                        <p>Outputs may carry Bulletproofs++ range proofs (128-bit classical security). In v1 amounts
+                            remain visible on-chain; proofs certify range correctness. A lattice-based, fully
+                            confidential upgrade is planned for v0.22.</p>
                     </div>
                     <div class="card">
                         <div class="icon">💎</div>
                         <h3>Scrypt Proof-of-Work</h3>
                         <p>ASIC-ready mining with Scrypt (1024, 1, 1, 256). Fully compatible with Dogecoin/Litecoin
                             hardware.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- sSOQ: Quantum Meme Incubator Section -->
+        <section id="ssoq" class="ssoq">
+            <div class="container">
+                <div class="ssoq-hero">
+                    <div class="ssoq-badge">DEPLOYING DEC 6, 2025</div>
+                    <h2>Introducing <span class="gradient-text">sSOQ™</span></h2>
+                    <p class="ssoq-tagline">The Quantum Meme Incubator</p>
+                    <p class="ssoq-subtitle">
+                        Bridge the gap between DeFi hype and post-quantum security.
+                        sSOQ™ is a Solana SPL token designed for community growth, meme-driven engagement,
+                        and educational outreach—<strong>intended to be exchangeable on a 1:1 basis for SOQ™</strong>
+                        following a successful mainnet launch (currently targeted for Q1 2026),
+                        <strong>subject to technical implementation, security audits, and applicable law</strong>.
+                        No guarantee is given that such a bridge or peg will be implemented or maintained.
+                    </p>
+                </div>
+
+                <div class="ssoq-grid">
+                    <div class="ssoq-card">
+                        <div class="ssoq-icon"></div>
+                        <h3>DeFi Liquidity</h3>
+                        <p>sSOQ may be listed on third-party Solana DeFi protocols (such as Raydium or Marginfi),
+                            enabling users to trade or participate in liquidity pools. Any yields or incentives, if
+                            available,
+                            are provided by those independent protocols and are not guaranteed, endorsed, or controlled
+                            by the Soqucoin project.</p>
+                    </div>
+                    <div class="ssoq-card">
+                        <div class="ssoq-icon"></div>
+                        <h3>Meme Culture</h3>
+                        <p>Schrödinger's Coin campaigns, Lattice Legends NFTs, Discord airdrops.
+                            Education through entertainment. Distribution via community programs and airdrops only—no
+                            public token sale.</p>
+                    </div>
+                    <div class="ssoq-card">
+                        <div class="ssoq-icon"></div>
+                        <h3>Intended 1:1 SOQ Peg</h3>
+                        <p>A post-mainnet bridge is planned via independent cross-chain oracle infrastructure (such as
+                            Wormhole),
+                            enabling sSOQ ↔ SOQ transfers. Any such bridge will be subject to independent security
+                            audits,
+                            third-party protocol risk, and evolving regulatory requirements. No assurance given.</p>
+                    </div>
+                    <div class="ssoq-card">
+                        <div class="ssoq-icon"></div>
+                        <h3>Learn PQ Concepts</h3>
+                        <p>Understand ML-DSA-44, LatticeFold+, and Bulletproofs++ through interactive demos and gamified
+                            challenges.
+                            Educational gateway to post-quantum cryptography.</p>
+                    </div>
+                </div>
+
+                <div class="ssoq-cta">
+                    <div class="ssoq-actions">
+                        <a href="airdrop-info.html" class="btn-primary large">Airdrop Information</a>
+                        <a href="whitepaper/ssoq_addendum.pdf" target="_blank" class="btn-secondary large">Read
+                            Addendum</a>
+                    </div>
+
+                    <div class="ssoq-contract">
+                        <div class="contract-label">Official SPL Contract Address</div>
+                        <div class="contract-value">
+                            <code id="ssoqContract">Deploying December 6, 2025</code>
+                            <button class="copy-btn" onclick="copyContract()"
+                                title="Copy contract address">Copy</button>
+                        </div>
+                        <p class="contract-warning">Contract interactions are at your own risk. Always verify the
+                            address independently through official channels.</p>
+                    </div>
+
+                    <div class="ssoq-disclaimer-box">
+                        <h4>Important Legal Notices</h4>
+                        <div class="disclaimer-grid">
+                            <div class="disclaimer-item">
+                                <strong>Experimental Technology:</strong>
+                                <p>sSOQ is experimental and may lose all value. Nothing on this site constitutes
+                                    financial, investment, tax, or legal advice.</p>
+                            </div>
+                            <div class="disclaimer-item">
+                                <strong>High Risk:</strong>
+                                <p>Participation involves extreme volatility and no value guarantees. Total loss of
+                                    capital is possible.</p>
+                            </div>
+                            <div class="disclaimer-item">
+                                <strong>Jurisdictional Restrictions:</strong>
+                                <p>Not offered or sold to U.S. Persons or persons in restricted jurisdictions. You
+                                    represent that you are not a U.S. Person and are of legal age (18+).</p>
+                            </div>
+                            <div class="disclaimer-item">
+                                <strong>Forward-Looking Statements:</strong>
+                                <p>Statements regarding network launches, bridge mechanisms, and peg designs are
+                                    forward-looking and inherently uncertain. Actual outcomes may differ materially.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -193,20 +310,75 @@
             </div>
             <div class="footer-col">
                 <h4>Resources</h4>
-                <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank">Whitepaper</a>
-                <a href="https://github.com/soqucoin">Documentation</a>
-                <a href="#explorer">Block Explorer</a>
+                <a href="whitepaper/soqucoin_whitepaper.pdf" target="_blank">📄 Core Whitepaper (Nov 2025)</a>
+                <a href="whitepaper/ssoq_addendum.pdf" target="_blank">📄 sSOQ Addendum (Dec 2025)</a>
+                <a href="terms.html" target="_blank">📜 Terms of Use</a>
+                <a href="privacy.html" target="_blank">🔒 Privacy Policy</a>
+                <a href="https://github.com/soqucoin">📚 Documentation</a>
+                <a href="#explorer">🔍 Block Explorer</a>
+                <a href="#legal">⚖️ Legal Disclaimers</a>
             </div>
             <div class="footer-col">
                 <h4>Community</h4>
                 <a href="https://github.com/soqucoin">GitHub</a>
-                <a href="#">Discord</a>
-                <a href="https://x.com/soqucoin">Twitter</a>
+                <a href="https://discord.gg/pAnMGrTm" target="_blank">Discord</a>
+                <a href="https://x.com/soqucoin" target="_blank">X (Twitter)</a>
                 <a href="mailto:dev@soqu.org">Email</a>
             </div>
         </div>
+
+        <!-- Legal Disclaimers Footer -->
+        <div class="container footer-legal">
+            <h4 id="legal">Legal Disclaimers</h4>
+            <div class="legal-grid">
+                <div class="legal-item">
+                    <strong>Experimental Technology</strong>
+                    <p>sSOQ and SOQ are experimental cryptographic protocols. No warranties, express or implied.</p>
+                </div>
+                <div class="legal-item">
+                    <strong>No Offer or Solicitation</strong>
+                    <p>Information on this site does not constitute an offer to sell or solicitation to buy securities,
+                        financial instruments, or digital assets in any jurisdiction.</p>
+                </div>
+                <div class="legal-item">
+                    <strong>Not Financial Advice</strong>
+                    <p>Nothing constitutes investment, financial, tax, or legal advice. Consult qualified professionals.
+                    </p>
+                </div>
+                <div class="legal-item">
+                    <strong>High Risk</strong>
+                    <p>Cryptocurrency investments carry extreme volatility risk, including total loss of capital.</p>
+                </div>
+                <div class="legal-item">
+                    <strong>Jurisdictional Restrictions</strong>
+                    <p>sSOQ tokens are not offered to U.S. Persons (as defined in Regulation S) or persons in
+                        OFAC-sanctioned jurisdictions.</p>
+                </div>
+                <div class="legal-item">
+                    <strong>Smart Contract Risk</strong>
+                    <p>Solana SPL tokens, Wormhole bridges, and AMM pools may contain vulnerabilities. Use at your own
+                        risk.</p>
+                </div>
+                <div class="legal-item">
+                    <strong>Forward-Looking Statements</strong>
+                    <p>Statements regarding future events are inherently uncertain. Actual outcomes may differ
+                        materially.</p>
+                </div>
+            </div>
+
+            <div class="legal-footer-meta">
+                <p><strong>Trademark Notice:</strong> "Soqucoin," "SOQ," and "sSOQ" are registered trademarks.
+                    Unauthorized use prohibited.</p>
+                <p><strong>Official Channels:</strong> Only trust <a href="https://soqu.org">soqu.org</a>, <a
+                        href="https://x.com/soqucoin" target="_blank">@soqucoin</a> (X), and <a
+                        href="https://discord.gg/pAnMGrTm" target="_blank">verified Discord</a>.</p>
+                <p><strong>Third-Party Services:</strong> References to third-party platforms are for informational
+                    purposes only. Not controlled by Soqucoin.</p>
+            </div>
+        </div>
+
         <div class="container copyright">
-            <p>&copy; 2025 Soqucoin Project. Released under the MIT License.</p>
+            <p>&copy; 2025 Soqucoin™ Project. Released under the MIT License.</p>
         </div>
     </footer>
 

@@ -180,3 +180,41 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add transition to blocks list
     blocksList.style.transition = 'opacity 0.3s ease';
 });
+
+// ========== sSOQ INTEGRATION CODE ==========
+
+// Scam Alert Banner Management
+function dismissScamAlert() {
+    const banner = document.getElementById('scamAlertBanner');
+    if (banner) {
+        banner.classList.add('hidden');
+        localStorage.setItem('scamAlertDismissed', 'true');
+    }
+}
+
+// Check if user previously dismissed the alert
+window.addEventListener('DOMContentLoaded', () => {
+    const dismissed = localStorage.getItem('scamAlertDismissed');
+    const banner = document.getElementById('scamAlertBanner');
+    if (dismissed === 'true' && banner) {
+        banner.classList.add('hidden');
+    }
+});
+
+// Contract Address Copy Function
+function copyContract() {
+    const contractText = document.getElementById('ssoqContract')?.textContent;
+    if (!contractText) return;
+
+    if (contractText.includes('Deploying')) {
+        alert('⚠️ Contract not yet deployed. Check back December 6, 2025.');
+        return;
+    }
+
+    navigator.clipboard.writeText(contractText).then(() => {
+        alert('✅ Contract address copied! Verify independently before interacting.');
+    }).catch(() => {
+        alert('⚠️ Copy failed. Please select and copy manually.');
+    });
+}
+

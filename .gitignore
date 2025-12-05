@@ -135,3 +135,9 @@ stage/
 *.iws
 *.iml
 *.ipr
+
+# clangd cache
+.cache/
+
+# Test output
+src/test_output.txt
