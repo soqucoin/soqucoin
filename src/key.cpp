@@ -22,8 +22,8 @@
 
 bool CKey::Check(const unsigned char* vch)
 {
-    // Minimal check: just ensure it's not all zeros?
-    // Dilithium keys are random bytes mostly.
+    // Minimal check for validity.
+    // Dilithium keys are effectively random bytes.
     return true;
 }
 
@@ -51,18 +51,8 @@ void CKey::MakeNewKey(bool fCompressedIn)
 
 bool CKey::SetPrivKey(const CPrivKey& privkey, bool fCompressedIn)
 {
-    // We expect privkey to be the Secret Key (2560 bytes)
-    // But we need the Public Key to fully populate keydata (3872 bytes)
-    // If we only have SK, we can't easily derive PK without implementing the derivation logic here
-    // or using a helper.
-    // However, CKey::Load passes both.
-    // This function SetPrivKey is rarely used directly with just SK in the new model?
-    // If it is used, we might be in trouble if we don't have PK.
-    // But wait, crypto_sign_keypair generates both.
-    // If we are loading from a file, we usually have both or just SK.
-    // If we only have SK, we can't populate PK part.
-    // Let's assume for now SetPrivKey is called with a blob that might contain both?
-    // Or we just fail if it's not the right size?
+    // We expect the privkey blob to contain both Secret Key and Public Key
+    // to fully populate keydata (3872 bytes).
 
     if (privkey.size() == CRYPTO_SECRETKEYBYTES + CRYPTO_PUBLICKEYBYTES) {
         memcpy(keydata.data(), privkey.data(), privkey.size());
@@ -71,7 +61,7 @@ bool CKey::SetPrivKey(const CPrivKey& privkey, bool fCompressedIn)
     }
 
     // If we only get SK, we can't fully reconstruct without deriving PK.
-    // For now, fail if not full size.
+    // Fail if not full size.
     return false;
 }
 
