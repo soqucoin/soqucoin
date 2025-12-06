@@ -23,9 +23,12 @@ RPC_PASS = "TestnetSecure2025!"
 STRATUM_HOST = "0.0.0.0"
 STRATUM_PORT = 3333
 
-# Difficulty for L7 (Scrypt ASIC)
-# 65536 is a reasonable starting point for a ~9GH/s miner on a testnet
-MIN_DIFFICULTY = 512  # Reasonable for testnet with L7/Goldshell
+# VarDiff Configuration
+INITIAL_DIFFICULTY = 256
+MIN_VARDIFF = 64
+MAX_VARDIFF = 65536
+TARGET_SPM = 4       # Shares per minute
+RETARGET_WINDOW = 30 # Seconds
 
 LOG_LEVEL = logging.INFO
 
@@ -329,12 +332,51 @@ class StratumBridge:
         ]
         msg = {"id": None, "method": "mining.notify", "params": params}
         serialized = json.dumps(msg) + "\n"
-        for writer in self.clients.values():
+        for client in self.clients.values():
+            writer = client['writer']
             try:
                 writer.write(serialized.encode())
                 await writer.drain()
             except:
                 pass
+
+    def adjust_difficulty(self, client_id):
+        if client_id not in self.clients: return
+        client = self.clients[client_id]
+        
+        client['shares_in_window'] += 1
+        now = time.time()
+        elapsed = now - client['window_start']
+        
+        if elapsed >= RETARGET_WINDOW:
+            # Calculate SPM (Shares Per Minute)
+            # Avoid division by zero
+            if elapsed < 1: elapsed = 1
+            spm = client['shares_in_window'] / (elapsed / 60.0)
+            
+            old_diff = client['difficulty']
+            new_diff = old_diff
+            
+            if spm > (TARGET_SPM * 2): # > 8
+                new_diff *= 2
+            elif spm < (TARGET_SPM / 2): # < 2
+                new_diff /= 2
+                
+            # Clamp
+            new_diff = max(MIN_VARDIFF, min(MAX_VARDIFF, new_diff))
+            
+            if new_diff != old_diff:
+                client['difficulty'] = int(new_diff)
+                logger.info(f"VarDiff: Retargeting {client['addr']} to {new_diff} (SPM: {spm:.2f})")
+                try:
+                    msg = {"id": None, "method": "mining.set_difficulty", "params": [new_diff]}
+                    client['writer'].write((json.dumps(msg) + "\n").encode())
+                except:
+                    pass
+            
+            # Reset window
+            client['shares_in_window'] = 0
+            client['window_start'] = now
 
     async def handle_client(self, reader, writer):
         addr = writer.get_extra_info('peername')
@@ -342,7 +384,13 @@ class StratumBridge:
         
         self.extranonce1_counter += 1
         client_id = self.extranonce1_counter
-        self.clients[client_id] = writer
+        self.clients[client_id] = {
+            'writer': writer,
+            'difficulty': INITIAL_DIFFICULTY,
+            'window_start': time.time(),
+            'shares_in_window': 0,
+            'addr': addr
+        }
         
         extranonce1 = struct.pack(">I", client_id).hex() 
         extranonce1_bin = struct.pack(">I", client_id)
@@ -363,8 +411,9 @@ class StratumBridge:
                     writer.write((json.dumps(resp) + "\n").encode())
                     await writer.drain()
                     
+                    
                     # Send initial difficulty
-                    diff_msg = {"id": None, "method": "mining.set_difficulty", "params": [float(MIN_DIFFICULTY)]}
+                    diff_msg = {"id": None, "method": "mining.set_difficulty", "params": [float(self.clients[client_id]['difficulty'])]}
                     writer.write((json.dumps(diff_msg) + "\n").encode())
                     await writer.drain()
                     await asyncio.sleep(0.5)
@@ -382,6 +431,7 @@ class StratumBridge:
                     await writer.drain()
                     
                 elif method == "mining.submit":
+                    logger.info(f"Received submit from {addr}")
                     # params: [worker_name, job_id, extranonce2, ntime, nonce]
                     worker = req['params'][0]
                     job_id = req['params'][1]
@@ -460,20 +510,42 @@ class StratumBridge:
                     logger.info(f"Submitting Block: {submission_hex[:64]}...")
                     try:
                         res = await self.rpc_request("submitblock", [submission_hex])
-                        if res is None:
-                            logger.info("SUCCESS: Block Accepted!")
-                            writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
-                            await writer.drain()
-                        elif res.get('result') == 'inconclusive':
-                            logger.info("SUCCESS: Block Accepted (Inconclusive)!")
-                            writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
-                            await writer.drain()
+                        # submitblock returns NULL (None) on success
+                        if res is None: # RPC failed
+                            logger.error("SubmitBlock RPC Connection Failed")
+                            writer.write((json.dumps({"id": mid, "result": False, "error": [20, "RPC Connection Failed", None]}) + "\n").encode())
+                        elif res.get('error'): # RPC returned error
+                             logger.info(f"Block Rejected: {res.get('error')}")
+                             writer.write((json.dumps({"id": mid, "result": False, "error": [20, str(res.get('error')), None]}) + "\n").encode())
                         else:
-                            logger.error(f"SubmitBlock Rejected: {res.get('result')}")
-                            writer.write((json.dumps({"id": mid, "result": False, "error": [20, res.get('result', 'Unknown Error'), None]}) + "\n").encode())
-                            await writer.drain()
+                            # Result is present. Check if it's None (Success) or String (Error)
+                            result_val = res.get('result')
+                            success = False
+                            if result_val is None:
+                                logger.info(f"Block Accepted! hash={sha256d(header).hex()}")
+                                writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
+                                success = True
+                            elif result_val == 'inconclusive':
+                                logger.info(f"Block Accepted (inconclusive)! hash={sha256d(header).hex()}")
+                                writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
+                                success = True
+                            elif result_val == 'high-hash':
+                                # Valid share for pool, but didn't meet network difficulty.
+                                # Treat as Success for the miner's stats.
+                                logger.info(f"Share Accepted (Valid PoW)! hash={sha256d(header).hex()}")
+                                writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
+                                success = True
+                            else:
+                                logger.info(f"Block Rejected: {result_val}")
+                                writer.write((json.dumps({"id": mid, "result": False, "error": [20, result_val, None]}) + "\n").encode())
+                            
+                            if success:
+                                self.adjust_difficulty(client_id)
+                        
+                        await writer.drain()
+
                     except Exception as e:
-                        logger.error(f"SubmitBlock Failed: {e}")
+                        logger.error(f"SubmitBlock RPC Failed: {e}")
                         writer.write((json.dumps({"id": mid, "result": False, "error": [20, str(e), None]}) + "\n").encode())
                         await writer.drain()
                     
