@@ -24,7 +24,7 @@ STRATUM_HOST = "0.0.0.0"
 STRATUM_PORT = 3333
 
 # VarDiff Configuration
-INITIAL_DIFFICULTY = 256
+INITIAL_DIFFICULTY = 32 # Start low for Goldshell stability. L7 will scale up.
 MIN_VARDIFF = 64
 MAX_VARDIFF = 65536
 TARGET_SPM = 4       # Shares per minute
@@ -562,8 +562,19 @@ class StratumBridge:
             logger.info(f"Client disconnected: {addr}")
 
     async def poller(self):
+        last_heartbeat = time.time()
         while True:
             await self.update_template()
+            
+            # Heatbeat every 60s
+            now = time.time()
+            if now - last_heartbeat > 60:
+                client_count = len(self.clients)
+                # Calculate average difficulty?
+                # or just list active clients
+                logger.info(f"❤️ Heartbeat: {client_count} Clients Connected. Job: {self.job_counter}")
+                last_heartbeat = now
+                
             await asyncio.sleep(1)
 
 async def main():
