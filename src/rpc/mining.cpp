@@ -489,11 +489,11 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     if (!g_connman)
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
 
-    if (g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) == 0)
-        throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "Soqucoin is not connected!");
+    // if (g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) == 0)
+    //    throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "Soqucoin is not connected!");
 
-    if (IsInitialBlockDownload())
-        throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Soqucoin is downloading blocks...");
+    // if (IsInitialBlockDownload())
+    //    throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Soqucoin is downloading blocks...");
 
     static unsigned int nTransactionsUpdatedLast;
 
@@ -563,7 +563,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
         fLastTemplateSupportsSegwit = fSupportsSegwit;
 
         // Create new block
-        CScript scriptDummy = CScript() << OP_TRUE;
+        CScript scriptDummy = CScript() << OP_1 << std::vector<unsigned char>(32, 0);
         pblocktemplate = BlockAssembler(Params()).CreateNewBlock(scriptDummy, fMineWitnessTx);
         if (!pblocktemplate)
             throw JSONRPCError(RPC_OUT_OF_MEMORY, "Out of memory");
@@ -692,6 +692,10 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     result.pushKV("transactions", transactions);
     result.pushKV("coinbaseaux", aux);
     result.pushKV("coinbasevalue", (int64_t)pblock->vtx[0]->vout[0].nValue);
+
+    UniValue coinbaseTxn(UniValue::VOBJ);
+    coinbaseTxn.pushKV("data", EncodeHexTx(*pblock->vtx[0]));
+    result.pushKV("coinbasetxn", coinbaseTxn);
     result.pushKV("longpollid", chainActive.Tip()->GetBlockHash().GetHex() + i64tostr(nTransactionsUpdatedLast));
     result.pushKV("target", hashTarget.GetHex());
     result.pushKV("mintime", (int64_t)pindexPrev->GetMedianTimePast() + 1);

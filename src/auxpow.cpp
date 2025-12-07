@@ -42,7 +42,7 @@ void CMerkleTx::InitMerkleBranch(const CBlock& block, int posInBlock)
     vMerkleBranch = BlockMerkleBranch(block, nIndex);
 }
 
-int CMerkleTx::GetDepthInMainChain(const CBlockIndex* &pindexRet) const
+int CMerkleTx::GetDepthInMainChain(const CBlockIndex*& pindexRet) const
 {
     if (hashUnset())
         return 0;
@@ -77,28 +77,24 @@ bool CMerkleTx::AcceptToMemoryPool(const CAmount& nAbsurdFee, CValidationState& 
 
 /* ************************************************************************** */
 
-bool
-CAuxPow::check(const uint256& hashAuxBlock, int nChainId,
-               const Consensus::Params& params) const
+bool CAuxPow::check(const uint256& hashAuxBlock, int nChainId, const Consensus::Params& params) const
 {
     if (nIndex != 0)
         return error("AuxPow is not a generate");
 
-    if (params.fStrictChainId && parentBlock.GetChainId () == nChainId)
+    if (params.fStrictChainId && parentBlock.GetChainId() == nChainId)
         return error("Aux POW parent has our chain ID");
 
     if (vChainMerkleBranch.size() > 30)
         return error("Aux POW chain merkle branch too long");
 
     // Check that the chain merkle root is in the coinbase
-    const uint256 nRootHash
-      = CheckMerkleBranch(hashAuxBlock, vChainMerkleBranch, nChainIndex);
+    const uint256 nRootHash = CheckMerkleBranch(hashAuxBlock, vChainMerkleBranch, nChainIndex);
     std::vector<unsigned char> vchRootHash(nRootHash.begin(), nRootHash.end());
     std::reverse(vchRootHash.begin(), vchRootHash.end()); // correct endian
 
     // Check that we are in the parent block merkle tree
-    if (CheckMerkleBranch(GetHash(), vMerkleBranch, nIndex)
-          != parentBlock.hashMerkleRoot)
+    if (CheckMerkleBranch(GetHash(), vMerkleBranch, nIndex) != parentBlock.hashMerkleRoot)
         return error("Aux POW merkle root incorrect");
 
     // Check that there is at least one input.
@@ -119,17 +115,14 @@ CAuxPow::check(const uint256& hashAuxBlock, int nChainId,
     if (pc == script.end())
         return error("Aux POW missing chain merkle root in parent coinbase");
 
-    if (pcHead != script.end())
-    {
+    if (pcHead != script.end()) {
         // Enforce only one chain merkle root by checking that a single instance of the merged
         // mining header exists just before.
         if (script.end() != std::search(pcHead + 1, script.end(), UBEGIN(pchMergedMiningHeader), UEND(pchMergedMiningHeader)))
             return error("Multiple merged mining headers in coinbase");
         if (pcHead + sizeof(pchMergedMiningHeader) != pc)
             return error("Merged mining header is not just before chain merkle root");
-    }
-    else
-    {
+    } else {
         // For backward compatibility.
         // Enforce only one chain merkle root by checking that it starts early in the coinbase.
         // 8-12 bytes are enough to encode extraNonce and nBits.
@@ -153,92 +146,89 @@ CAuxPow::check(const uint256& hashAuxBlock, int nChainId,
 
     uint32_t nNonce;
     memcpy(&nNonce, &pc[4], 4);
-    nNonce = le32toh (nNonce);
-    if (nChainIndex != getExpectedIndex (nNonce, nChainId, merkleHeight))
+    nNonce = le32toh(nNonce);
+    if (nChainIndex != getExpectedIndex(nNonce, nChainId, merkleHeight))
         return error("Aux POW wrong index");
 
     return true;
 }
 
-int
-CAuxPow::getExpectedIndex (uint32_t nNonce, int nChainId, unsigned h)
+int CAuxPow::getExpectedIndex(uint32_t nNonce, int nChainId, unsigned h)
 {
-  // Choose a pseudo-random slot in the chain merkle tree
-  // but have it be fixed for a size/nonce/chain combination.
-  //
-  // This prevents the same work from being used twice for the
-  // same chain while reducing the chance that two chains clash
-  // for the same slot.
+    // Choose a pseudo-random slot in the chain merkle tree
+    // but have it be fixed for a size/nonce/chain combination.
+    //
+    // This prevents the same work from being used twice for the
+    // same chain while reducing the chance that two chains clash
+    // for the same slot.
 
-  /* This computation can overflow the uint32 used.  This is not an issue,
-     though, since we take the mod against a power-of-two in the end anyway.
-     This also ensures that the computation is, actually, consistent
-     even if done in 64 bits as it was in the past on some systems.
+    /* This computation can overflow the uint32 used.  This is not an issue,
+       though, since we take the mod against a power-of-two in the end anyway.
+       This also ensures that the computation is, actually, consistent
+       even if done in 64 bits as it was in the past on some systems.
 
-     Note that h is always <= 30 (enforced by the maximum allowed chain
-     merkle branch length), so that 32 bits are enough for the computation.  */
+       Note that h is always <= 30 (enforced by the maximum allowed chain
+       merkle branch length), so that 32 bits are enough for the computation.  */
 
-  uint32_t rand = nNonce;
-  rand = rand * 1103515245 + 12345;
-  rand += nChainId;
-  rand = rand * 1103515245 + 12345;
+    uint32_t rand = nNonce;
+    rand = rand * 1103515245 + 12345;
+    rand += nChainId;
+    rand = rand * 1103515245 + 12345;
 
-  return rand % (1 << h);
+    return rand % (1 << h);
 }
 
 uint256
-CAuxPow::CheckMerkleBranch (uint256 hash,
-                            const std::vector<uint256>& vMerkleBranch,
-                            int nIndex)
+CAuxPow::CheckMerkleBranch(uint256 hash,
+    const std::vector<uint256>& vMerkleBranch,
+    int nIndex)
 {
-  if (nIndex == -1)
-    return uint256 ();
-  for (std::vector<uint256>::const_iterator it(vMerkleBranch.begin ());
-       it != vMerkleBranch.end (); ++it)
-  {
-    if (nIndex & 1)
-      hash = Hash (BEGIN (*it), END (*it), BEGIN (hash), END (hash));
-    else
-      hash = Hash (BEGIN (hash), END (hash), BEGIN (*it), END (*it));
-    nIndex >>= 1;
-  }
-  return hash;
+    if (nIndex == -1)
+        return uint256();
+    for (std::vector<uint256>::const_iterator it(vMerkleBranch.begin());
+        it != vMerkleBranch.end(); ++it) {
+        if (nIndex & 1)
+            hash = Hash(BEGIN(*it), END(*it), BEGIN(hash), END(hash));
+        else
+            hash = Hash(BEGIN(hash), END(hash), BEGIN(*it), END(*it));
+        nIndex >>= 1;
+    }
+    return hash;
 }
 
-void
-CAuxPow::initAuxPow (CBlockHeader& header)
+void CAuxPow::initAuxPow(CBlockHeader& header)
 {
-  /* Set auxpow flag right now, since we take the block hash below.  */
-  header.SetAuxpowFlag(true);
+    /* Set auxpow flag right now, since we take the block hash below.  */
+    header.SetAuxpowFlag(true);
 
-  /* Build a minimal coinbase script input for merge-mining.  */
-  const uint256 blockHash = header.GetHash ();
-  std::vector<unsigned char> inputData(blockHash.begin (), blockHash.end ());
-  std::reverse (inputData.begin (), inputData.end ());
-  inputData.push_back (1);
-  inputData.insert (inputData.end (), 7, 0);
+    /* Build a minimal coinbase script input for merge-mining.  */
+    const uint256 blockHash = header.GetHash();
+    std::vector<unsigned char> inputData(blockHash.begin(), blockHash.end());
+    std::reverse(inputData.begin(), inputData.end());
+    inputData.push_back(1);
+    inputData.insert(inputData.end(), 7, 0);
 
-  /* Fake a parent-block coinbase with just the required input
-     script and no outputs.  */
-  CMutableTransaction coinbase;
-  coinbase.vin.resize(1);
-  coinbase.vin[0].prevout.SetNull();
-  coinbase.vin[0].scriptSig = (CScript () << inputData);
-  assert (coinbase.vout.empty());
-  CTransactionRef coinbaseRef = MakeTransactionRef(coinbase);
+    /* Fake a parent-block coinbase with just the required input
+       script and no outputs.  */
+    CMutableTransaction coinbase;
+    coinbase.vin.resize(1);
+    coinbase.vin[0].prevout.SetNull();
+    coinbase.vin[0].scriptSig = (CScript() << inputData);
+    assert(coinbase.vout.empty());
+    CTransactionRef coinbaseRef = MakeTransactionRef(coinbase);
 
-  /* Build a fake parent block with the coinbase.  */
-  CBlock parent;
-  parent.nVersion = 1;
-  parent.vtx.resize(1);
-  parent.vtx[0] = coinbaseRef;
-  parent.hashMerkleRoot = BlockMerkleRoot(parent);
+    /* Build a fake parent block with the coinbase.  */
+    CBlock parent;
+    parent.nVersion = 1;
+    parent.vtx.resize(1);
+    parent.vtx[0] = coinbaseRef;
+    parent.hashMerkleRoot = BlockMerkleRoot(parent);
 
-  /* Construct the auxpow object.  */
-  header.SetAuxpow(new CAuxPow(coinbaseRef));
-  assert (header.auxpow->vChainMerkleBranch.empty());
-  header.auxpow->nChainIndex = 0;
-  assert (header.auxpow->vMerkleBranch.empty());
-  header.auxpow->nIndex = 0;
-  header.auxpow->parentBlock = parent;
+    /* Construct the auxpow object.  */
+    header.SetAuxpow(new CAuxPow(coinbaseRef));
+    assert(header.auxpow->vChainMerkleBranch.empty());
+    header.auxpow->nChainIndex = 0;
+    assert(header.auxpow->vMerkleBranch.empty());
+    header.auxpow->nIndex = 0;
+    header.auxpow->parentBlock = parent;
 }
