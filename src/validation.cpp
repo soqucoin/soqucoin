@@ -1382,7 +1382,7 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
 
         // If prev is coinbase, check that it's matured
         if (coins->IsCoinBase()) {
-            // Soqucoin: Switch maturity at depth 145,000
+            // Soqucoin: Switch maturity at depth based on consensus params
             int nCoinbaseMaturity = params.GetConsensus(coins->nHeight).nCoinbaseMaturity;
             if (nSpendHeight - coins->nHeight < nCoinbaseMaturity)
                 return state.Invalid(false,
@@ -2960,10 +2960,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
 bool IsWitnessEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
 {
-    // Soqucoin: Disable SegWit
-    return false;
-    // LOCK(cs_main);
-    // return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
+    // Handle genesis block case where pindexPrev is NULL
+    if (pindexPrev == nullptr) {
+        // SegWit is ALWAYS_ACTIVE, so return true even at genesis
+        return true;
+    }
+    LOCK(cs_main);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == THRESHOLD_ACTIVE);
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
@@ -3112,8 +3115,8 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
     if (chainParams.NetworkIDString() != CBaseChainParams::REGTEST) {
         for (const auto& txout : block.vtx[0]->vout) {
             const CScript& scriptPubKey = txout.scriptPubKey;
-            // Dilithium P2WPKH-equivalent: OP_0 <32-byte hash>
-            bool is_dilithium = (scriptPubKey.size() == 34 && scriptPubKey[0] == OP_0 && scriptPubKey[1] == 32);
+            // Dilithium P2WPKH-equivalent: OP_1 <32-byte hash>
+            bool is_dilithium = (scriptPubKey.size() == 34 && scriptPubKey[0] == OP_1 && scriptPubKey[1] == 32);
             bool is_op_return = (scriptPubKey.size() > 0 && scriptPubKey[0] == OP_RETURN);
             if (!is_dilithium && !is_op_return) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-cb-output-type", false, "coinbase output must be Dilithium bech32m");
@@ -4294,12 +4297,23 @@ CBlockFileInfo* GetBlockFileInfo(size_t n)
 ThresholdState VersionBitsTipState(const Consensus::Params& params, Consensus::DeploymentPos pos)
 {
     LOCK(cs_main);
+    // Handle fresh chain (genesis only) - if ALWAYS_ACTIVE, return ACTIVE
+    if (chainActive.Tip() == nullptr || chainActive.Tip()->pprev == nullptr) {
+        if (params.vDeployments[pos].nStartTime == Consensus::BIP9Deployment::ALWAYS_ACTIVE) {
+            return THRESHOLD_ACTIVE;
+        }
+        return THRESHOLD_DEFINED;
+    }
     return VersionBitsState(chainActive.Tip(), params, pos, versionbitscache);
 }
 
 int VersionBitsTipStateSinceHeight(const Consensus::Params& params, Consensus::DeploymentPos pos)
 {
     LOCK(cs_main);
+    // Handle fresh chain (genesis only)
+    if (chainActive.Tip() == nullptr || chainActive.Tip()->pprev == nullptr) {
+        return 0;
+    }
     return VersionBitsStateSinceHeight(chainActive.Tip(), params, pos, versionbitscache);
 }
 
