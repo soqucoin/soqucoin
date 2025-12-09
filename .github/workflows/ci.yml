@@ -95,7 +95,7 @@ jobs:
           - name: x86_64-linux-nowallet
             host: x86_64-unknown-linux-gnu
             container: ubuntu:20.04
-            packages: python3
+            packages: python3 libdb++-dev libdb-dev
             run-bench: true
             test-script: |
               make check $MAKEJOBS VERBOSE=1
