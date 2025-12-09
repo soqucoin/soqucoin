@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types.h"
+#include <string>
 
 class CDilithiumKey
 {
@@ -22,4 +23,3 @@ private:
     CDilithiumPublicKey pubkey;
     bool fValid;
 };
-
