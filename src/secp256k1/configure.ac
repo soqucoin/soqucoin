@@ -582,12 +582,13 @@ if test x"$enable_experimental" = x"no"; then
   if test x"$enable_module_surjectionproof" = x"yes"; then
     AC_MSG_ERROR([Surjection proof module is experimental. Use --enable-experimental to allow.])
   fi
-  if test x"$enable_module_rangeproof" = x"yes"; then
-    AC_MSG_ERROR([Range proof module is experimental. Use --enable-experimental to allow.])
-  fi
-  if test x"$enable_module_generator" = x"yes"; then
-    AC_MSG_ERROR([NUMS generator module is experimental. Use --enable-experimental to allow.])
-  fi
+  dnl rangeproof and generator are always enabled in Soqucoin
+  dnl if test x"$enable_module_rangeproof" = x"yes"; then
+  dnl   AC_MSG_ERROR([Range proof module is experimental. Use --enable-experimental to allow.])
+  dnl fi
+  dnl if test x"$enable_module_generator" = x"yes"; then
+  dnl   AC_MSG_ERROR([NUMS generator module is experimental. Use --enable-experimental to allow.])
+  dnl fi
   if test x"$set_asm" = x"arm32"; then
     AC_MSG_ERROR([ARM32 assembly is experimental. Use --enable-experimental to allow.])
   fi
