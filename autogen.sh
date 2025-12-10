@@ -12,4 +12,9 @@ if [ -z ${LIBTOOLIZE} ] && GLIBTOOLIZE="`which glibtoolize 2>/dev/null`"; then
 fi
 which autoreconf >/dev/null || \
   (echo "configuration failed, please install autoconf first" && exit 1)
+
+# Force regeneration of secp256k1 configure (for rangeproof/generator modules)
+echo "Running autoreconf in src/secp256k1..."
+(cd src/secp256k1 && ./autogen.sh)
+
 autoreconf --install --force --warnings=all
