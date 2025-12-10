@@ -95,7 +95,7 @@ jobs:
           - name: x86_64-linux-nowallet
             host: x86_64-unknown-linux-gnu
             container: ubuntu:20.04
-            packages: python3 libdb++-dev libdb-dev
+            packages: python3 libdb++-dev libdb-dev libts-dev libx11-dev libdouble-conversion-dev libgbm-dev libegl1-mesa-dev
             run-bench: true
             test-script: |
               make check $MAKEJOBS VERBOSE=1
@@ -192,7 +192,7 @@ jobs:
           - name: x86_64-linux-experimental
             host: x86_64-linux-gnu
             container: ubuntu:20.04
-            packages: bc python3-zmq
+            packages: bc python3-zmq libts-dev libx11-dev libdouble-conversion-dev libgbm-dev libegl1-mesa-dev
             run-bench: true
             test-script: |
               make check $MAKEJOBS VERBOSE=1
