@@ -195,12 +195,12 @@ AC_ARG_ENABLE(module_ellswift,
 AC_ARG_ENABLE(module_generator,
     AS_HELP_STRING([--enable-module-generator],[enable NUMS generator module [default=no]]),
     [],
-    [SECP_SET_DEFAULT([enable_module_generator], [no], [yes])])
+    [SECP_SET_DEFAULT([enable_module_generator], [yes], [yes])])
 
 AC_ARG_ENABLE(module_rangeproof,
     AS_HELP_STRING([--enable-module-rangeproof],[enable Pedersen / zero-knowledge range proofs module [default=no]]),
     [],
-    [SECP_SET_DEFAULT([enable_module_rangeproof], [no], [yes])])
+    [SECP_SET_DEFAULT([enable_module_rangeproof], [yes], [yes])])
 
 AC_ARG_ENABLE(module_surjectionproof,
     AS_HELP_STRING([--enable-module-surjectionproof],[enable surjection proof module [default=no]]),
