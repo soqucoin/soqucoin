@@ -54,6 +54,8 @@ jobs:
             --disable-wallet \
             --without-miniupnpc \
             --enable-reduce-exports \
+            --with-boost=/mingw64 \
+            --with-boost-libdir=/mingw64/lib \
             CPPFLAGS="-I/mingw64/include" \
             LDFLAGS="-L/mingw64/lib -static" \
             CXXFLAGS="-O2"
