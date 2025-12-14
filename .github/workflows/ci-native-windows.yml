@@ -1,0 +1,76 @@
+name: Windows Native Build
+
+on:
+  push:
+    branches: [soqucoin-genesis, master]
+  pull_request:
+    branches: [soqucoin-genesis, master]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-boost
+            mingw-w64-x86_64-libevent
+            mingw-w64-x86_64-zeromq
+            mingw-w64-x86_64-miniupnpc
+            mingw-w64-x86_64-db
+            autoconf
+            automake
+            libtool
+            make
+            pkg-config
+            git
+      
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: windows-native-ccache-${{ github.sha }}
+          restore-keys: |
+            windows-native-ccache-
+      
+      - name: Build Soqucoin
+        shell: msys2 {0}
+        run: |
+          ./autogen.sh
+          ./configure \
+            --disable-gui \
+            --disable-tests \
+            --disable-bench \
+            --without-miniupnpc \
+            --enable-reduce-exports \
+            CXXFLAGS="-O2" \
+            LDFLAGS="-static"
+          make -j$(nproc) V=1
+      
+      - name: Smoke Test - Version
+        shell: msys2 {0}
+        run: |
+          ./src/soqucoind.exe --version
+          ./src/soqucoin-cli.exe --version
+          ./src/soqucoin-tx.exe --version
+          echo "SUCCESS: All binaries report version correctly"
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: soqucoin-windows-x64
+          path: |
+            src/soqucoind.exe
+            src/soqucoin-cli.exe
+            src/soqucoin-tx.exe

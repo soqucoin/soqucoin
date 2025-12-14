@@ -1,0 +1,112 @@
+name: macOS Native Build
+
+on:
+  push:
+    branches: [soqucoin-genesis, master]
+  pull_request:
+    branches: [soqucoin-genesis, master]
+
+jobs:
+  build-macos-intel:
+    runs-on: macos-13  # Intel runner
+    timeout-minutes: 120
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Install Dependencies
+        run: |
+          brew install automake libtool boost miniupnpc \
+            libevent zeromq berkeley-db@4 ccache pkg-config
+      
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: macos-intel-ccache-${{ github.sha }}
+          restore-keys: |
+            macos-intel-ccache-
+      
+      - name: Build Soqucoin
+        run: |
+          export PATH="/usr/local/opt/ccache/libexec:$PATH"
+          ./autogen.sh
+          ./configure \
+            --disable-gui \
+            --disable-tests \
+            --disable-bench \
+            --with-boost=$(brew --prefix boost) \
+            LDFLAGS="-L$(brew --prefix berkeley-db@4)/lib" \
+            CPPFLAGS="-I$(brew --prefix berkeley-db@4)/include"
+          make -j$(sysctl -n hw.ncpu) V=1
+      
+      - name: Smoke Test - Version
+        run: |
+          ./src/soqucoind --version
+          ./src/soqucoin-cli --version
+          ./src/soqucoin-tx --version
+          echo "SUCCESS: All binaries report version correctly"
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: soqucoin-macos-intel
+          path: |
+            src/soqucoind
+            src/soqucoin-cli
+            src/soqucoin-tx
+
+  build-macos-arm64:
+    runs-on: macos-14  # Apple Silicon (M1) runner
+    timeout-minutes: 120
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Install Dependencies
+        run: |
+          brew install automake libtool boost miniupnpc \
+            libevent zeromq berkeley-db@4 ccache pkg-config
+      
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: macos-arm64-ccache-${{ github.sha }}
+          restore-keys: |
+            macos-arm64-ccache-
+      
+      - name: Build Soqucoin
+        run: |
+          export PATH="/opt/homebrew/opt/ccache/libexec:$PATH"
+          ./autogen.sh
+          ./configure \
+            --disable-gui \
+            --disable-tests \
+            --disable-bench \
+            --with-boost=$(brew --prefix boost) \
+            LDFLAGS="-L$(brew --prefix berkeley-db@4)/lib" \
+            CPPFLAGS="-I$(brew --prefix berkeley-db@4)/include"
+          make -j$(sysctl -n hw.ncpu) V=1
+      
+      - name: Smoke Test - Version
+        run: |
+          ./src/soqucoind --version
+          ./src/soqucoin-cli --version
+          ./src/soqucoin-tx --version
+          echo "SUCCESS: All binaries report version correctly"
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: soqucoin-macos-arm64
+          path: |
+            src/soqucoind
+            src/soqucoin-cli
+            src/soqucoin-tx
