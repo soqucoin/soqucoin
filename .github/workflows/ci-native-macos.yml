@@ -45,6 +45,7 @@ jobs:
             --disable-wallet \
             --without-miniupnpc \
             --with-boost="$BOOST_ROOT" \
+            --with-boost-libdir="$BOOST_ROOT/lib" \
             CPPFLAGS="-I$BOOST_ROOT/include -I$OPENSSL_ROOT/include -I$LIBEVENT_ROOT/include" \
             LDFLAGS="-L$BOOST_ROOT/lib -L$OPENSSL_ROOT/lib -L$LIBEVENT_ROOT/lib"
           make -j$(sysctl -n hw.ncpu) V=1

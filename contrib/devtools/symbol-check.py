@@ -55,7 +55,15 @@ MAX_VERSIONS = {
 # Ignore symbols that are exported as part of every executable
 IGNORE_EXPORTS = {
   '_edata', '_end', '_init', '__bss_start', '_fini', '_IO_stdin_used',
-  'stdin', 'stdout', 'stderr'
+  'stdin', 'stdout', 'stderr',
+  # C++ standard library internal symbols that may be exported when Qt is statically linked
+  # These are template instantiation symbols from libstdc++ and don't affect ABI compatibility
+  '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPcEEvT_S7_St20forward_iterator_tag',
+  '_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE12_M_constructIPKcEEvT_S8_St20forward_iterator_tag',
+  '_ZNKSt5ctypeIcE8do_widenEc',
+  '_ZNSt7__cxx1115basic_stringbufIcSt11char_traitsIcESaIcEED0Ev',
+  '_ZNSt7__cxx1115basic_stringbufIcSt11char_traitsIcESaIcEED1Ev',
+  '_ZNSt7__cxx1115basic_stringbufIcSt11char_traitsIcESaIcEED2Ev',
 }
 
 # Expected linker-loader names can be found here:
