@@ -28,7 +28,6 @@ jobs:
             mingw-w64-x86_64-libevent
             mingw-w64-x86_64-zeromq
             mingw-w64-x86_64-miniupnpc
-            mingw-w64-x86_64-db
             autoconf
             automake
             libtool
@@ -52,6 +51,7 @@ jobs:
             --disable-gui \
             --disable-tests \
             --disable-bench \
+            --disable-wallet \
             --without-miniupnpc \
             --enable-reduce-exports \
             CXXFLAGS="-O2" \
