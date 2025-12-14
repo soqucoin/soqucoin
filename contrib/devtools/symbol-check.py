@@ -101,7 +101,9 @@ ELF_ALLOWED_LIBRARIES = {
 'libxkbcommon-x11.so.0', # keyboard keymapping
 'libfontconfig.so.1', # font support
 'libfreetype.so.6', # font parsing
-'libdl.so.2' # programming interface to dynamic linker
+'libdl.so.2', # programming interface to dynamic linker
+'libstdc++.so.6', # C++ Standard Library
+'libdouble-conversion.so.3', # Qt numeric conversion
 }
 
 MACHO_ALLOWED_LIBRARIES = {
