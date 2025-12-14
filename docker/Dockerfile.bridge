@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install aiohttp
+
+# Copy bridge script
+COPY bridge/stratum_bridge.py .
+
+# Expose Stratum port
+EXPOSE 3333
+
+# Run bridge
+CMD ["python", "stratum_bridge.py"]

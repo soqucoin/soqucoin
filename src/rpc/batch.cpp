@@ -1,6 +1,10 @@
 // Copyright (c) 2025 The Soqucoin Core developers
 // createbatchtransaction RPC - automatically chooses PAT (PAT logarithmic Merkle for ≤256 sigs, LatticeFold+ for >256)
 
+#include "config/bitcoin-config.h"
+
+#ifdef ENABLE_WALLET
+
 #include "base58.h"
 #include "core_io.h"
 #include "crypto/latticefold/verifier.h"
@@ -150,3 +154,14 @@ void RegisterBatchRPCCommands(CRPCTable& t)
     for (const auto& c : commands)
         t.appendCommand(c.name, &c);
 }
+
+#else // ENABLE_WALLET
+
+#include "rpc/server.h"
+
+void RegisterBatchRPCCommands(CRPCTable& t)
+{
+    // Batch transactions require wallet
+}
+
+#endif // ENABLE_WALLET

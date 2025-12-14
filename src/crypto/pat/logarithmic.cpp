@@ -1,4 +1,3 @@
-#include "util.h"
 #include <algorithm>
 #include <crypto/pat/logarithmic.h>
 #include <crypto/sha3.h>
@@ -271,7 +270,6 @@ bool pat::VerifyLogarithmicProof(
     // Step 1: Parse the proof
     LogarithmicProof proof;
     if (!ParseLogarithmicProof(vchProof, proof)) {
-        LogPrint("pat", "PAT verification failed: invalid proof format\n");
         return false;
     }
 
@@ -281,8 +279,6 @@ bool pat::VerifyLogarithmicProof(
     if (vClaimedSigs.size() != n ||
         vClaimedPks.size() != n ||
         vClaimedMsgs.size() != n) {
-        LogPrint("pat", "PAT verification failed: count mismatch (expected %u, got sigs=%zu pks=%zu msgs=%zu)\n",
-            n, vClaimedSigs.size(), vClaimedPks.size(), vClaimedMsgs.size());
         return false;
     }
 
@@ -312,34 +308,24 @@ bool pat::VerifyLogarithmicProof(
     }
 
     if (vSiblingPath.size() != depth) {
-        LogPrint("pat", "PAT verification failed: sibling path length mismatch (expected %u, got %zu)\n",
-            depth, vSiblingPath.size());
         return false;
     }
 
     // Step 4: Validate all field sizes (all must be exactly 32 bytes)
     for (uint32_t i = 0; i < n; i++) {
         if (vClaimedSigs[i].size() != 32) {
-            LogPrint("pat", "PAT verification failed: signature %u has size %zu (expected 32)\n",
-                i, vClaimedSigs[i].size());
             return false;
         }
         if (vClaimedPks[i].size() != 32) {
-            LogPrint("pat", "PAT verification failed: public key %u has size %zu (expected 32)\n",
-                i, vClaimedPks[i].size());
             return false;
         }
         if (vClaimedMsgs[i].size() != 32) {
-            LogPrint("pat", "PAT verification failed: message %u has size %zu (expected 32)\n",
-                i, vClaimedMsgs[i].size());
             return false;
         }
     }
 
     for (uint32_t i = 0; i < depth; i++) {
         if (vSiblingPath[i].size() != 32) {
-            LogPrint("pat", "PAT verification failed: sibling path node %u has size %zu (expected 32)\n",
-                i, vSiblingPath[i].size());
             return false;
         }
     }
@@ -348,18 +334,12 @@ bool pat::VerifyLogarithmicProof(
     // NOTE: msg_root is computed from sorted (canonical) order to match Create
     uint256 computed_msg_root = ComputeMsgRoot(sorted_msgs);
     if (computed_msg_root != proof.msg_root) {
-        LogPrint("pat", "PAT verification failed: msg_root mismatch\n");
-        LogPrint("pat", "  Expected: %s\n", proof.msg_root.GetHex().c_str());
-        LogPrint("pat", "  Computed: %s\n", computed_msg_root.GetHex().c_str());
         return false;
     }
 
     // Step 6: Recompute and verify PK XOR binding (using sorted order)
     uint256 computed_pk_xor = ComputePkXor(sorted_pks);
     if (computed_pk_xor != proof.pk_xor) {
-        LogPrint("pat", "PAT verification failed: pk_xor mismatch (rogue-key attack?)\n");
-        LogPrint("pat", "  Expected: %s\n", proof.pk_xor.GetHex().c_str());
-        LogPrint("pat", "  Computed: %s\n", computed_pk_xor.GetHex().c_str());
         return false;
     }
 
@@ -390,18 +370,10 @@ bool pat::VerifyLogarithmicProof(
         sibling_hashes);
 
     if (computed_root != proof.merkle_root) {
-        LogPrint("pat", "PAT verification failed: merkle_root mismatch\n");
-        LogPrint("pat", "  Expected: %s\n", proof.merkle_root.GetHex().c_str());
-        LogPrint("pat", "  Computed: %s\n", computed_root.GetHex().c_str());
-
-        // DEBUG: Print more details
-
-
         return false;
     }
 
     // Step 8: All checks passed
-    LogPrint("pat", "PAT verification succeeded for batch of %u signatures\n", n);
     return true;
 }
 

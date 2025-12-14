@@ -9,11 +9,8 @@
 #include <script/interpreter.h>
 
 
-#include "chainparams.h"
 #include "primitives/transaction.h"
-#include "util.h"
 #include "utilstrencodings.h"
-#include "validation.h"
 #include "zk/bulletproofs.h"
 #include <crypto/latticefold/verifier.h>
 #include <crypto/pat/logarithmic.h>
@@ -87,8 +84,6 @@ bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int fl
     return set_error(serror, SCRIPT_ERR_SIG_DER);
 }
 
-
-#include "chainparams.h"
 
 bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
@@ -410,7 +405,6 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
     // Dilithium verification
     if (!witness || witness->stack.size() != 2) {
-        LogPrintf("Dilithium verification failed: stack size %d\n", witness ? witness->stack.size() : -1);
         return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
     }
 
@@ -429,7 +423,6 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         pubkeyData = pubkey.data() + 1;
         pubkeySize = pubkey.size() - 1;
     } else {
-        LogPrintf("Dilithium verification: pubkey size %d, first byte 0x%02x (expected 1313, 0x00)\n", pubkey.size(), pubkey.empty() ? 0 : pubkey[0]);
     }
 
     // Verify pubkey hash matches scriptPubKey
@@ -437,16 +430,12 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     CSHA256().Write(pubkeyData, pubkeySize).Finalize(hash.begin());
 
     if (memcmp(hash.begin(), scriptPubKey.data() + 2, 32) != 0) {
-        LogPrintf("Dilithium verification failed: witness program mismatch\n");
-        LogPrintf("Calculated hash: %s\n", hash.GetHex());
-        LogPrintf("Expected hash:   %s\n", HexStr(scriptPubKey.data() + 2, scriptPubKey.data() + 34));
         return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
     }
 
     // Verify signature
     // Use SIGVERSION_WITNESS_V0 for now as it provides witness sighash structure
     if (!checker.CheckSig(sig, pubkey, scriptSig, SIGVERSION_WITNESS_V0)) {
-        LogPrintf("Dilithium verification failed: CheckSig returned false\n");
         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
     }
 
@@ -474,13 +463,11 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
 
     CPubKey pubkey(vchPubKeyActual);
     if (!pubkey.IsValid()) {
-        LogPrintf("CheckSig: Invalid pubkey (size %d)\n", vchPubKeyActual.size());
         return false;
     }
 
     // Hash type is one byte tacked on to the end of the signature
     if (vchSigIn.empty()) {
-        LogPrintf("CheckSig: Empty signature\n");
         return false;
     }
     int nHashType = vchSigIn.back();
@@ -489,7 +476,6 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
     uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, txdata);
 
     if (!VerifySignature(vchSig, pubkey, sighash)) {
-        LogPrintf("CheckSig: VerifySignature failed\n");
         return false;
     }
 
