@@ -7,60 +7,9 @@ on:
     branches: [soqucoin-genesis, master]
 
 jobs:
-  build-macos-intel:
-    runs-on: macos-15  # macos-13 has been retired
-    timeout-minutes: 120
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      
-      - name: Install Dependencies
-        run: |
-          # berkeley-db@4 is deprecated, build without wallet for now
-          brew install automake libtool boost miniupnpc \
-            libevent zeromq ccache pkgconf
-      
-      - name: Cache ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/ccache
-          key: macos-intel-ccache-${{ github.sha }}
-          restore-keys: |
-            macos-intel-ccache-
-      
-      - name: Build Soqucoin
-        run: |
-          export PATH="/usr/local/opt/ccache/libexec:$PATH"
-          ./autogen.sh
-          ./configure \
-            --disable-gui \
-            --disable-tests \
-            --disable-bench \
-            --disable-wallet \
-            --with-boost=$(brew --prefix boost)
-          make -j$(sysctl -n hw.ncpu) V=1
-      
-      - name: Smoke Test - Version
-        run: |
-          ./src/soqucoind --version
-          ./src/soqucoin-cli --version
-          ./src/soqucoin-tx --version
-          echo "SUCCESS: All binaries report version correctly"
-      
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: soqucoin-macos-intel
-          path: |
-            src/soqucoind
-            src/soqucoin-cli
-            src/soqucoin-tx
-
+  # Note: macos-15 is ARM64 only. Intel builds are done via cross-compilation.
   build-macos-arm64:
-    runs-on: macos-15  # Updated from macos-14
+    runs-on: macos-15
     timeout-minutes: 120
     
     steps:
@@ -72,8 +21,7 @@ jobs:
       - name: Install Dependencies
         run: |
           # berkeley-db@4 is deprecated, build without wallet for now
-          brew install automake libtool boost miniupnpc \
-            libevent zeromq ccache pkgconf
+          brew install automake libtool boost libevent zeromq ccache pkgconf openssl@3
       
       - name: Cache ccache
         uses: actions/cache@v4
@@ -87,12 +35,18 @@ jobs:
         run: |
           export PATH="/opt/homebrew/opt/ccache/libexec:$PATH"
           ./autogen.sh
+          BOOST_ROOT=$(brew --prefix boost)
+          OPENSSL_ROOT=$(brew --prefix openssl@3)
+          LIBEVENT_ROOT=$(brew --prefix libevent)
           ./configure \
             --disable-gui \
             --disable-tests \
             --disable-bench \
             --disable-wallet \
-            --with-boost=$(brew --prefix boost)
+            --without-miniupnpc \
+            --with-boost="$BOOST_ROOT" \
+            CPPFLAGS="-I$BOOST_ROOT/include -I$OPENSSL_ROOT/include -I$LIBEVENT_ROOT/include" \
+            LDFLAGS="-L$BOOST_ROOT/lib -L$OPENSSL_ROOT/lib -L$LIBEVENT_ROOT/lib"
           make -j$(sysctl -n hw.ncpu) V=1
       
       - name: Smoke Test - Version

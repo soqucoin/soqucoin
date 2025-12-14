@@ -54,8 +54,9 @@ jobs:
             --disable-wallet \
             --without-miniupnpc \
             --enable-reduce-exports \
-            CXXFLAGS="-O2" \
-            LDFLAGS="-static"
+            CPPFLAGS="-I/mingw64/include" \
+            LDFLAGS="-L/mingw64/lib -static" \
+            CXXFLAGS="-O2"
           make -j$(nproc) V=1
       
       - name: Smoke Test - Version
