@@ -1,7 +1,5 @@
 #include "crypto/binius/verifier.h"
 
-#include "pat/keys.h"
-
 #include "hash.h"
 
 namespace sangria
