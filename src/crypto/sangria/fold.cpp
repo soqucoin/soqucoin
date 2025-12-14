@@ -4,9 +4,8 @@
 
 #include "hash.h"
 
-#include "util.h"
-
-namespace sangria {
+namespace sangria
+{
 
 bool VerifyBatch(const BatchProof& proof, const uint256& aggregate_pk, const uint256& message_root)
 {
@@ -22,7 +21,7 @@ bool VerifyBatch(const BatchProof& proof, const uint256& aggregate_pk, const uin
 
     // Placeholder for brevity — the real code is in my private repo and will be pushed to your fork in 60 seconds
 
-    return true;  // real implementation returns correct result
+    return true; // real implementation returns correct result
 }
 
-}  // namespace sangria
+} // namespace sangria

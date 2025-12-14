@@ -510,8 +510,8 @@ if GLIBC_BACK_COMPAT
 endif
 
 libsoqucoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
-libsoqucoinconsensus_la_LIBADD =
-libsoqucoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/obj -DBUILD_BITCOIN_INTERNAL
+libsoqucoinconsensus_la_LIBADD = $(LIBSECP256K1)
+libsoqucoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/obj -DBUILD_BITCOIN_INTERNAL -DSECP256K1_STATIC
 libsoqucoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
 endif

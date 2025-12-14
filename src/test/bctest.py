@@ -119,6 +119,11 @@ def bctester(testDir, input_basename, buildenv):
     failed_testcases = []
 
     for testObj in input_data:
+        # Support skipping tests with "skip" field
+        if testObj.get("skip", False):
+            skip_reason = testObj.get("skip_reason", "no reason provided")
+            logging.info("SKIPPED: " + testObj["description"] + " (" + skip_reason + ")")
+            continue
         try:
             bctest(testDir, testObj, buildenv.exeext)
             logging.info("PASSED: " + testObj["description"])
