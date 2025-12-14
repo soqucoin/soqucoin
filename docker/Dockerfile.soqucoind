@@ -1,0 +1,70 @@
+# Stage 1: Build
+FROM ubuntu:22.04 AS builder
+
+# Install build dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libtool \
+    autotools-dev \
+    automake \
+    pkg-config \
+    bsdmainutils \
+    python3 \
+    libssl-dev \
+    libevent-dev \
+    libboost-system-dev \
+    libboost-filesystem-dev \
+    libboost-chrono-dev \
+    libboost-test-dev \
+    libboost-thread-dev \
+    libzmq3-dev \
+    git \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copy source code
+COPY . /soqucoin
+WORKDIR /soqucoin
+
+# Build soqucoind
+RUN ./autogen.sh && \
+    ./configure --without-gui --disable-wallet --disable-tests --disable-bench --enable-experimental && \
+    make -j$(nproc)
+
+# Stage 2: Runtime
+FROM ubuntu:22.04
+
+# Install runtime dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    libevent-dev \
+    libboost-system-dev \
+    libboost-filesystem-dev \
+    libboost-chrono-dev \
+    libboost-thread-dev \
+    libzmq3-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Create user for security
+RUN useradd -m soqucoin
+USER soqucoin
+WORKDIR /home/soqucoin
+
+# Install binaries
+COPY --from=builder /soqucoin/src/soqucoind /usr/local/bin/
+COPY --from=builder /soqucoin/src/soqucoin-cli /usr/local/bin/
+
+# Install configuration
+# Note: config is expected at /home/soqucoin/.soqucoin/soqucoin.conf
+RUN mkdir -p /home/soqucoin/.soqucoin
+COPY docker/soqucoin.conf /home/soqucoin/.soqucoin/soqucoin.conf
+
+# Expose ports (P2P, RPC)
+EXPOSE 18333 18332
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \
+  CMD soqucoin-cli -testnet getnetworkinfo || exit 1
+
+CMD ["soqucoind"]

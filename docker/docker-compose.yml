@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  soqucoind:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.soqucoind
+    container_name: soqucoind
+    restart: unless-stopped
+    ports:
+      - "18333:18333" # Testnet P2P
+      - "127.0.0.1:18332:18332" # RPC (localhost only for security)
+    volumes:
+      - soqu-data:/home/soqucoin/.soqucoin
+    command: soqucoind -printtoconsole -testnet # Force testnet and stdout logs
+
+  bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.bridge
+    container_name: stratum_bridge
+    restart: unless-stopped
+    ports:
+      - "3333:3333" # Stratum Port (Miners connect here)
+    environment:
+      - RPC_URL=http://soqucoind:18332
+      - RPC_USER=soqu
+      - RPC_PASS=change_this_password_in_production
+    depends_on:
+      - soqucoind
+
+volumes:
+  soqu-data:

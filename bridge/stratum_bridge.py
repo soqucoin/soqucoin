@@ -16,9 +16,13 @@ import logging
 import hashlib
 
 # --- CONFIGURATION ---
-RPC_URL = "http://127.0.0.1:44556"
-RPC_USER = "soqupublic"
-RPC_PASS = "TestnetSecure2025!"
+import os
+
+# --- CONFIGURATION ---
+# Default to Docker-friendly defaults or localhost fallback
+RPC_URL = os.getenv("RPC_URL", "http://127.0.0.1:18332") 
+RPC_USER = os.getenv("RPC_USER", "soqu")
+RPC_PASS = os.getenv("RPC_PASS", "change_this_password_in_production")
 
 STRATUM_HOST = "0.0.0.0"
 STRATUM_PORT = 3333
