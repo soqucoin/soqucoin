@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-macos-intel:
-    runs-on: macos-13  # Intel runner
+    runs-on: macos-15  # macos-13 has been retired
     timeout-minutes: 120
     
     steps:
@@ -19,8 +19,9 @@ jobs:
       
       - name: Install Dependencies
         run: |
+          # berkeley-db@4 is deprecated, build without wallet for now
           brew install automake libtool boost miniupnpc \
-            libevent zeromq berkeley-db@4 ccache pkg-config
+            libevent zeromq ccache pkgconf
       
       - name: Cache ccache
         uses: actions/cache@v4
@@ -38,9 +39,8 @@ jobs:
             --disable-gui \
             --disable-tests \
             --disable-bench \
-            --with-boost=$(brew --prefix boost) \
-            LDFLAGS="-L$(brew --prefix berkeley-db@4)/lib" \
-            CPPFLAGS="-I$(brew --prefix berkeley-db@4)/include"
+            --disable-wallet \
+            --with-boost=$(brew --prefix boost)
           make -j$(sysctl -n hw.ncpu) V=1
       
       - name: Smoke Test - Version
@@ -60,7 +60,7 @@ jobs:
             src/soqucoin-tx
 
   build-macos-arm64:
-    runs-on: macos-14  # Apple Silicon (M1) runner
+    runs-on: macos-15  # Updated from macos-14
     timeout-minutes: 120
     
     steps:
@@ -71,8 +71,9 @@ jobs:
       
       - name: Install Dependencies
         run: |
+          # berkeley-db@4 is deprecated, build without wallet for now
           brew install automake libtool boost miniupnpc \
-            libevent zeromq berkeley-db@4 ccache pkg-config
+            libevent zeromq ccache pkgconf
       
       - name: Cache ccache
         uses: actions/cache@v4
@@ -90,9 +91,8 @@ jobs:
             --disable-gui \
             --disable-tests \
             --disable-bench \
-            --with-boost=$(brew --prefix boost) \
-            LDFLAGS="-L$(brew --prefix berkeley-db@4)/lib" \
-            CPPFLAGS="-I$(brew --prefix berkeley-db@4)/include"
+            --disable-wallet \
+            --with-boost=$(brew --prefix boost)
           make -j$(sysctl -n hw.ncpu) V=1
       
       - name: Smoke Test - Version
