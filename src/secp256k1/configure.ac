@@ -278,6 +278,14 @@ AC_ARG_WITH([valgrind], [AS_HELP_STRING([--with-valgrind=yes|no|auto],
 ### Handle config options (except for modules)
 ###
 
+dnl ======================================================================
+dnl SOQUCOIN: Force generator and rangeproof modules unconditionally
+dnl These are required for bulletproofs support and must always be enabled.
+dnl This overrides any defaults or passed-in flags.
+dnl ======================================================================
+enable_module_generator=yes
+enable_module_rangeproof=yes
+
 if test x"$req_valgrind" = x"no"; then
   enable_valgrind=no
 else
