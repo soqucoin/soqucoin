@@ -9,7 +9,6 @@
 #include <crypto/sha3.h>
 
 #include <algorithm>
-#include <bit>
 #include <cassert>
 #include <iterator>
 
