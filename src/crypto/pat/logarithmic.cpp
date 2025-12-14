@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <crypto/pat/logarithmic.h>
 #include <crypto/sha3.h>
+#include <cstdint>
 #include <numeric>
 
 using namespace std;
@@ -28,7 +29,18 @@ static uint256 LeafHash(uint32_t idx, const CValType& sig, const CValType& pk, c
     return PatHash(buf);
 }
 
-// Helper for power of two
+// Helper: Count the number of bits needed to represent a value (portable, no __builtin_clz)
+static uint32_t PortableCountBits(uint32_t x)
+{
+    uint32_t count = 0;
+    while (x) {
+        x >>= 1;
+        ++count;
+    }
+    return count;
+}
+
+// Helper for power of two (works on both 32-bit and 64-bit systems)
 static size_t NextPowerOfTwo(size_t n)
 {
     if (n == 0) return 1;
@@ -38,7 +50,9 @@ static size_t NextPowerOfTwo(size_t n)
     n |= n >> 4;
     n |= n >> 8;
     n |= n >> 16;
-    n |= n >> 32;
+#if SIZE_MAX > UINT32_MAX
+    n |= n >> 32; // Only shift 32 on 64-bit systems
+#endif
     n++;
     return n;
 }
@@ -304,7 +318,7 @@ bool pat::VerifyLogarithmicProof(
     uint32_t tree_size = NextPowerOfTwo(n);
     uint32_t depth = 0;
     if (tree_size > 1) {
-        depth = 32 - __builtin_clz(tree_size - 1); // Position of highest bit
+        depth = PortableCountBits(tree_size - 1); // ceil(log2(tree_size))
     }
 
     if (vSiblingPath.size() != depth) {
