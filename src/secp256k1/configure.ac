@@ -682,6 +682,7 @@ echo "  valgrind                = $enable_valgrind"
 echo "  CC                      = $CC"
 echo "  CPPFLAGS                = $CPPFLAGS"
 echo "  SECP_CFLAGS             = $SECP_CFLAGS"
+echo "  SECP_CONFIG_DEFINES     = $SECP_CONFIG_DEFINES"
 echo "  CFLAGS                  = $CFLAGS"
 echo "  LDFLAGS                 = $LDFLAGS"
 
