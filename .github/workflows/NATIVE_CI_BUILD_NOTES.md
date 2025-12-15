@@ -1,14 +1,16 @@
 # Native CI Build System Issue
 
-## Status: Temporarily Disabled
+## Status: ✅ RESOLVED
 
 **Date:** 2025-12-14  
-**Commit:** `022f8a0dc`  
-**Priority:** Medium (cross-compiled builds provide full coverage)
+**Fix Commit:** `5eed0b223`  
+**Priority:** Complete
 
 ---
 
-## Quick Summary
+## Resolution Summary
+
+**Patched `ax_boost_system.m4`** to detect Boost 1.69+ and skip library search since `boost::system` is header-only. Native CI workflows are now enabled and should pass.
 
 Native macOS and Windows CI workflows are disabled due to incompatibility between modern Boost (1.69+) header-only `boost::system` and legacy autoconf macros.
 
