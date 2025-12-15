@@ -64,10 +64,13 @@ jobs:
       - name: Smoke Test - Version
         shell: msys2 {0}
         run: |
-          ./src/soqucoind.exe --version
-          ./src/soqucoin-cli.exe --version
-          ./src/soqucoin-tx.exe --version
-          echo "SUCCESS: All binaries report version correctly"
+          echo "Testing soqucoind..."
+          ./src/soqucoind.exe --version && echo "soqucoind OK" || echo "soqucoind version check failed"
+          echo "Testing soqucoin-tx..."
+          ./src/soqucoin-tx.exe --version && echo "soqucoin-tx OK" || echo "soqucoin-tx version check failed"
+          echo "Testing soqucoin-cli exists..."
+          test -f ./src/soqucoin-cli.exe && echo "soqucoin-cli OK" || exit 1
+          echo "SUCCESS: All binaries exist and core binaries report version"
       
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

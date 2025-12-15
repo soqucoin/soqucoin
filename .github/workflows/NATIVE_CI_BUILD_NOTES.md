@@ -10,9 +10,12 @@
 
 ## Resolution Summary
 
-**Patched `ax_boost_system.m4`** to detect Boost 1.69+ and skip library search since `boost::system` is header-only. Native CI workflows are now enabled and should pass.
+**Patched `build-aux/m4/ax_boost_system.m4`** to detect Boost 1.69+ and skip library search since `boost::system` is header-only. Native CI workflows are now enabled and should pass.
 
-Native macOS and Windows CI workflows are disabled due to incompatibility between modern Boost (1.69+) header-only `boost::system` and legacy autoconf macros.
+## Future Roadmap
+
+For long-term build system improvements, see:
+- **[CMake Migration Roadmap](../../doc/build-system/CMAKE_MIGRATION_ROADMAP.md)** - Comprehensive plan for migrating to CMake following Bitcoin Core's lead
 
 **Files affected:**
 - `ci-native-macos.yml.disabled`
