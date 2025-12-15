@@ -82,7 +82,9 @@ The following features are implemented as prototypes and reserved for future act
 \section{System Architecture Overview}
 \label{sec:system-architecture}
 
-\begin{figure}[!ht]
+This section presents the overall system architecture of Soqucoin, illustrating how post-quantum signatures, batch verification, and confidential transactions integrate with the Scrypt proof-of-work consensus.
+
+\begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{paper_plots/architecture.png}
 \caption{Soqucoin System Architecture. \textbf{Step 1}: Users create transactions with ML-DSA-44 (Dilithium) signatures (2,420 bytes, as in \texttt{src/crypto/dilithium/params.h}); confidential transactions include Pedersen commitments (33 bytes). \textbf{Step 2a}: Signatures are batched via PAT into a 100-byte proof (32-byte Merkle root + 32-byte pk\_xor + 32-byte msg\_root + 4-byte count, \texttt{src/crypto/pat/logarithmic.h}). \textbf{Step 2b}: Confidential amounts are proven valid via Bulletproofs++ range proofs (675 bytes, 0.89 ms verification; classical DLOG security). \textbf{Step 3}: The PAT proof is folded into a succinct LatticeFold+ proof ($\sim$1.38 KB constant size) using Binius64 field arithmetic ($\sim$5 cycles/mul on AVX2/GFNI, \texttt{src/crypto/binius64/field.cpp}). \textbf{Step 4}: Block assembly via Scrypt PoW; the block includes the header, LatticeFold+ proof, BP++ range proofs, and transactions. \textbf{Step 5}: Full nodes verify via \texttt{OP\_CHECKFOLDPROOF}, \texttt{OP\_CHECKPATAGG}, and BP++ verification, as implemented in \texttt{src/script/interpreter.cpp}. Soundness error $<2^{-130}$ (Theorem 4.2, \cite{latticefold2025}).}
