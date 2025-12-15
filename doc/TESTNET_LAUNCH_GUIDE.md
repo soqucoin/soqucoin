@@ -5,6 +5,19 @@
 
 ---
 
+## Deployment Options
+
+| Option | Best For | Guide |
+|--------|----------|-------|
+| **VPS (Recommended)** | Stable testnet for miners | [VPS_DEPLOYMENT_GUIDE.md](VPS_DEPLOYMENT_GUIDE.md) |
+| Docker (Local) | Development/testing | Below |
+| Native Build | Local development | Below |
+
+> [!TIP]
+> **For testnet.soqu.org**: Use VPS deployment to keep testnet stable while continuing development on your Mac.
+
+---
+
 ## Quick Start
 
 ### Option A: Docker (Recommended)
