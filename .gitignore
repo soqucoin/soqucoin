@@ -141,3 +141,35 @@ stage/
 
 # Test output
 src/test_output.txt
+
+# ===========================================
+# SECURITY: Operational/Infrastructure Files
+# ===========================================
+# These should NEVER be committed to public repo
+# Use private soqucoin-ops repo instead
+
+# Operational configs with real values
+*_testnet.conf
+*_mainnet.conf
+soqucoin_*.conf
+!contrib/**/*.conf.example
+
+# Infrastructure documentation
+doc/VPS_*.md
+doc/TESTNET_*.md
+doc/*_DEPLOYMENT*.md
+
+# Deployment automation
+scripts/setup-*.sh
+scripts/deploy-*.sh
+
+# Docker configs with credentials
+docker/*.conf
+!docker/*.conf.example
+
+# Website source (use separate deployment)
+soqu-web/
+
+# Test data with real network info
+test_data/scripts/
+test_data/*_dashboard.html
