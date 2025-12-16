@@ -35,10 +35,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
   libssl-dev \
   libevent-dev \
-  libboost-system-dev \
-  libboost-filesystem-dev \
-  libboost-chrono-dev \
-  libboost-thread-dev \
+  libboost-all-dev \
   libzmq3-dev \
   && rm -rf /var/lib/apt/lists/*
 
