@@ -4,23 +4,19 @@ FROM ubuntu:22.04 AS builder
 # Install build dependencies
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    libtool \
-    autotools-dev \
-    automake \
-    pkg-config \
-    bsdmainutils \
-    python3 \
-    libssl-dev \
-    libevent-dev \
-    libboost-system-dev \
-    libboost-filesystem-dev \
-    libboost-chrono-dev \
-    libboost-test-dev \
-    libboost-thread-dev \
-    libzmq3-dev \
-    git \
- && rm -rf /var/lib/apt/lists/*
+  build-essential \
+  libtool \
+  autotools-dev \
+  automake \
+  pkg-config \
+  bsdmainutils \
+  python3 \
+  libssl-dev \
+  libevent-dev \
+  libboost-all-dev \
+  libzmq3-dev \
+  git \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy source code
 COPY . /soqucoin
@@ -28,8 +24,8 @@ WORKDIR /soqucoin
 
 # Build soqucoind
 RUN ./autogen.sh && \
-    ./configure --without-gui --disable-wallet --disable-tests --disable-bench --enable-experimental && \
-    make -j$(nproc)
+  ./configure --without-gui --disable-wallet --disable-tests --disable-bench --enable-experimental && \
+  make -j$(nproc)
 
 # Stage 2: Runtime
 FROM ubuntu:22.04
@@ -37,14 +33,14 @@ FROM ubuntu:22.04
 # Install runtime dependencies
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
-    libssl-dev \
-    libevent-dev \
-    libboost-system-dev \
-    libboost-filesystem-dev \
-    libboost-chrono-dev \
-    libboost-thread-dev \
-    libzmq3-dev \
- && rm -rf /var/lib/apt/lists/*
+  libssl-dev \
+  libevent-dev \
+  libboost-system-dev \
+  libboost-filesystem-dev \
+  libboost-chrono-dev \
+  libboost-thread-dev \
+  libzmq3-dev \
+  && rm -rf /var/lib/apt/lists/*
 
 # Create user for security
 RUN useradd -m soqucoin
