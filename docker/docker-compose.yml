@@ -9,7 +9,8 @@ services:
     restart: unless-stopped
     ports:
       - "18333:18333" # Testnet P2P
-      - "127.0.0.1:18332:18332" # RPC (localhost only for security)
+      # RPC exposed to Docker network only (no host binding for security)
+      # Bridge connects via Docker network name 'soqucoind:18332'
     volumes:
       - soqu-data:/home/soqucoin/.soqucoin
     command: soqucoind -printtoconsole -testnet # Force testnet and stdout logs
@@ -25,7 +26,7 @@ services:
     environment:
       - RPC_URL=http://soqucoind:18332
       - RPC_USER=soqu
-      - RPC_PASS=change_this_password_in_production
+      - RPC_PASS=${RPC_PASSWORD:-soqu_testnet_pass}
     depends_on:
       - soqucoind
 
