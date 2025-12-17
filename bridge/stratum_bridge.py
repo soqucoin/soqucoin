@@ -270,6 +270,10 @@ class StratumBridge:
 
             tpl = resp['result']
             
+            # Update network stats
+            height = tpl.get('height', 0)
+            miner_stats.update_network_info(height, 0)  # Hashrate calculated elsewhere
+            
             # --- Transaction Parsing to preserve Outputs ---
             if 'coinbasetxn' not in tpl:
                 logger.error("Template Update Error: 'coinbasetxn' missing.")
