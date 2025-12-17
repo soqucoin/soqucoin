@@ -63,18 +63,44 @@ class MinerStats:
             if os.path.exists(self.stats_file):
                 with open(self.stats_file, 'r') as f:
                     data = json.load(f)
-                    self.stats = data.get('miners', {})
-                    logger.info(f"Loaded stats for {len(self.stats)} miners")
+                    # Handle both old format (miners as list) and new format (miners as dict)
+                    miners_data = data.get('miners', {})
+                    if isinstance(miners_data, list):
+                        # Convert list format back to dict format
+                        self.stats = {}
+                        for miner in miners_data:
+                            worker = miner.get('worker', 'unknown')
+                            self.stats[worker] = {
+                                "total_shares": miner.get('shares', 0),
+                                "blocks_found": miner.get('blocks', 0),
+                                "first_seen": miner.get('first_seen', ''),
+                                "last_seen": miner.get('last_seen', ''),
+                                "hashrate_mhs": miner.get('hashrate_mhs', 0.0)
+                            }
+                        logger.info(f"Converted stats for {len(self.stats)} miners from list format")
+                    elif isinstance(miners_data, dict):
+                        self.stats = miners_data
+                        logger.info(f"Loaded stats for {len(self.stats)} miners")
+                    else:
+                        logger.warning(f"Unexpected miners format: {type(miners_data)}")
+                        self.stats = {}
         except Exception as e:
             logger.warning(f"Could not load stats: {e}")
             self.stats = {}
     
     def _save(self):
-        """Persist stats to JSON file"""
+        """Persist stats to JSON file (saves internal format for reload)"""
         try:
             os.makedirs(os.path.dirname(self.stats_file) or '.', exist_ok=True)
+            # Save internal format (dict) for proper reloading
+            save_data = {
+                "block_height": self.block_height,
+                "network_hashrate": self.network_hashrate,
+                "miners": self.stats,  # Save as dict, not list!
+                "updated": datetime.utcnow().isoformat() + "Z"
+            }
             with open(self.stats_file, 'w') as f:
-                json.dump(self._get_export_data(), f, indent=2)
+                json.dump(save_data, f, indent=2)
         except Exception as e:
             logger.error(f"Could not save stats: {e}")
     
@@ -651,50 +677,78 @@ class StratumBridge:
                     logger.info(f"Submitting Block: {submission_hex[:64]}...")
                     try:
                         res = await self.rpc_request("submitblock", [submission_hex])
-                        # submitblock returns NULL (None) on success
-                        if res is None: # RPC failed
+                        
+                        # Debug: Log the raw RPC response type and content
+                        logger.debug(f"SubmitBlock RPC Response: type={type(res)}, value={res}")
+                        
+                        # Handle connection failures (None returned from rpc_request)
+                        if res is None:
                             logger.error("SubmitBlock RPC Connection Failed")
                             writer.write((json.dumps({"id": mid, "result": False, "error": [20, "RPC Connection Failed", None]}) + "\n").encode())
-                        elif res.get('error'): # RPC returned error
-                             logger.info(f"Block Rejected: {res.get('error')}")
-                             writer.write((json.dumps({"id": mid, "result": False, "error": [20, str(res.get('error')), None]}) + "\n").encode())
+                            await writer.drain()
+                            continue
+                        
+                        # Defensive type check - res should be a dict
+                        if not isinstance(res, dict):
+                            logger.error(f"Unexpected RPC response type: {type(res)} - {res}")
+                            writer.write((json.dumps({"id": mid, "result": False, "error": [20, f"Unexpected response: {res}", None]}) + "\n").encode())
+                            await writer.drain()
+                            continue
+                        
+                        # Check for RPC-level error
+                        rpc_error = res.get('error')
+                        if rpc_error:
+                            error_msg = str(rpc_error.get('message', rpc_error)) if isinstance(rpc_error, dict) else str(rpc_error)
+                            logger.info(f"Block Rejected (RPC error): {error_msg}")
+                            writer.write((json.dumps({"id": mid, "result": False, "error": [20, error_msg, None]}) + "\n").encode())
+                            await writer.drain()
+                            continue
+                        
+                        # Get the result value
+                        result_val = res.get('result')
+                        success = False
+                        
+                        # submitblock returns NULL (None) on success
+                        if result_val is None:
+                            logger.info(f"🎉 Block Accepted! hash={sha256d(header).hex()}")
+                            writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
+                            success = True
+                            miner_stats.record_share(worker, is_block=True)
+                        elif result_val == 'inconclusive':
+                            logger.info(f"Block Accepted (inconclusive)! hash={sha256d(header).hex()}")
+                            writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
+                            success = True
+                            miner_stats.record_share(worker, is_block=True)
+                        elif result_val == 'high-hash':
+                            # Share meets pool difficulty but not network difficulty
+                            # This is normal operation - these are valid shares
+                            logger.info(f"Share Accepted (pool diff met, net diff not met)")
+                            writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
+                            success = True
+                            miner_stats.record_share(worker, is_block=False)
+                        elif isinstance(result_val, str):
+                            # Other rejection reasons (duplicate, bad-*, etc.)
+                            logger.warning(f"Block Rejected: {result_val}")
+                            writer.write((json.dumps({"id": mid, "result": False, "error": [20, result_val, None]}) + "\n").encode())
                         else:
-                            # Result is present. Check if it's None (Success) or String (Error)
-                            result_val = res.get('result')
-                            success = False
-                            if result_val is None:
-                                logger.info(f"Block Accepted! hash={sha256d(header).hex()}")
-                                writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
-                                success = True
-                                # Record block found
-                                miner_stats.record_share(worker, is_block=True)
-                            elif result_val == 'inconclusive':
-                                logger.info(f"Block Accepted (inconclusive)! hash={sha256d(header).hex()}")
-                                writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
-                                success = True
-                                # Record block found (inconclusive still counts)
-                                miner_stats.record_share(worker, is_block=True)
-                            elif result_val == 'high-hash':
-                                # Valid share for pool, but didn't meet network difficulty.
-                                # Treat as Success for the miner's stats.
-                                logger.info(f"Share Accepted (Valid PoW)! hash={sha256d(header).hex()}")
-                                writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
-                                success = True
-                                # Record share (not a block)
-                                miner_stats.record_share(worker, is_block=False)
-                            else:
-                                logger.info(f"Block Rejected: {result_val}")
-                                writer.write((json.dumps({"id": mid, "result": False, "error": [20, result_val, None]}) + "\n").encode())
-                            
-                            if success:
-                                self.adjust_difficulty(client_id)
+                            # Unexpected result type
+                            logger.error(f"Unexpected result type: {type(result_val)} - {result_val}")
+                            writer.write((json.dumps({"id": mid, "result": False, "error": [20, f"Unexpected: {result_val}", None]}) + "\n").encode())
                         
                         await writer.drain()
+                        
+                        if success:
+                            self.adjust_difficulty(client_id)
 
                     except Exception as e:
-                        logger.error(f"SubmitBlock RPC Failed: {e}")
-                        writer.write((json.dumps({"id": mid, "result": False, "error": [20, str(e), None]}) + "\n").encode())
-                        await writer.drain()
+                        logger.error(f"SubmitBlock Exception: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        try:
+                            writer.write((json.dumps({"id": mid, "result": False, "error": [20, str(e), None]}) + "\n").encode())
+                            await writer.drain()
+                        except:
+                            pass
                     
                 else: 
                      logger.warning(f"Unknown method: {method}")
