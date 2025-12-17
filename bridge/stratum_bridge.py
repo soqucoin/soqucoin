@@ -3,6 +3,7 @@
 Soqucoin Testnet Stratum Bridge for L7 Antminer
 Translates Stratum V1 <-> Soqucoin RPC (getblocktemplate + submitblock)
 Preserves Dilithium Coinbase Outputs
+Tracks miner statistics for leaderboard
 """
 
 import asyncio
@@ -14,9 +15,10 @@ import urllib.request
 import base64
 import logging
 import hashlib
-
-# --- CONFIGURATION ---
 import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from datetime import datetime
 
 # --- CONFIGURATION ---
 # Default to Docker-friendly defaults or localhost fallback
@@ -26,6 +28,8 @@ RPC_PASS = os.getenv("RPC_PASS", "change_this_password_in_production")
 
 STRATUM_HOST = "0.0.0.0"
 STRATUM_PORT = 3333
+STATS_PORT = 8080
+STATS_FILE = os.getenv("STATS_FILE", "/data/miner_stats.json")
 
 # VarDiff Configuration
 INITIAL_DIFFICULTY = 32 # Start low for Goldshell stability. L7 will scale up.
@@ -36,13 +40,137 @@ RETARGET_WINDOW = 30 # Seconds
 
 LOG_LEVEL = logging.INFO
 
-
-LOG_LEVEL = logging.INFO
-
 # ---------------------
 
 logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("Bridge")
+
+
+class MinerStats:
+    """Track per-worker mining statistics with JSON persistence"""
+    
+    def __init__(self, stats_file=STATS_FILE):
+        self.stats_file = stats_file
+        self.stats = {}
+        self.block_height = 0
+        self.network_hashrate = 0.0
+        self.lock = threading.Lock()
+        self._load()
+    
+    def _load(self):
+        """Load existing stats from file"""
+        try:
+            if os.path.exists(self.stats_file):
+                with open(self.stats_file, 'r') as f:
+                    data = json.load(f)
+                    self.stats = data.get('miners', {})
+                    logger.info(f"Loaded stats for {len(self.stats)} miners")
+        except Exception as e:
+            logger.warning(f"Could not load stats: {e}")
+            self.stats = {}
+    
+    def _save(self):
+        """Persist stats to JSON file"""
+        try:
+            os.makedirs(os.path.dirname(self.stats_file) or '.', exist_ok=True)
+            with open(self.stats_file, 'w') as f:
+                json.dump(self._get_export_data(), f, indent=2)
+        except Exception as e:
+            logger.error(f"Could not save stats: {e}")
+    
+    def record_share(self, worker_name, is_block=False):
+        """Record a successful share submission"""
+        with self.lock:
+            now = datetime.utcnow().isoformat() + "Z"
+            if worker_name not in self.stats:
+                self.stats[worker_name] = {
+                    "total_shares": 0,
+                    "blocks_found": 0,
+                    "first_seen": now,
+                    "last_seen": now,
+                    "hashrate_mhs": 0.0
+                }
+            
+            self.stats[worker_name]["total_shares"] += 1
+            self.stats[worker_name]["last_seen"] = now
+            
+            if is_block:
+                self.stats[worker_name]["blocks_found"] += 1
+                logger.info(f"🏆 Block found by {worker_name}! Total: {self.stats[worker_name]['blocks_found']}")
+            
+            self._save()
+    
+    def update_hashrate(self, worker_name, hashrate_mhs):
+        """Update estimated hashrate for a worker"""
+        with self.lock:
+            if worker_name in self.stats:
+                self.stats[worker_name]["hashrate_mhs"] = round(hashrate_mhs, 2)
+    
+    def update_network_info(self, block_height, network_hashrate):
+        """Update network-level info"""
+        with self.lock:
+            self.block_height = block_height
+            self.network_hashrate = network_hashrate
+    
+    def _get_export_data(self):
+        """Get data for JSON export"""
+        miners_list = []
+        for worker, data in self.stats.items():
+            miners_list.append({
+                "worker": worker,
+                "shares": data["total_shares"],
+                "blocks": data["blocks_found"],
+                "hashrate_mhs": data["hashrate_mhs"],
+                "first_seen": data["first_seen"],
+                "last_seen": data["last_seen"]
+            })
+        
+        # Sort by blocks found, then shares
+        miners_list.sort(key=lambda x: (-x["blocks"], -x["shares"]))
+        
+        return {
+            "block_height": self.block_height,
+            "network_hashrate_ths": round(self.network_hashrate / 1000, 2),
+            "total_miners": len(self.stats),
+            "total_blocks": self.block_height,
+            "miners": miners_list,
+            "updated": datetime.utcnow().isoformat() + "Z"
+        }
+    
+    def get_stats_json(self):
+        """Get JSON string for HTTP response"""
+        with self.lock:
+            return json.dumps(self._get_export_data(), indent=2)
+
+
+# Global miner stats instance
+miner_stats = MinerStats()
+
+
+class StatsRequestHandler(BaseHTTPRequestHandler):
+    """Simple HTTP handler to serve stats.json"""
+    
+    def do_GET(self):
+        if self.path == '/stats.json' or self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')  # CORS for static site
+            self.end_headers()
+            self.wfile.write(miner_stats.get_stats_json().encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def log_message(self, format, *args):
+        pass  # Suppress HTTP logs
+
+
+def run_stats_server():
+    """Run HTTP stats server in background thread"""
+    server = HTTPServer(('0.0.0.0', STATS_PORT), StatsRequestHandler)
+    logger.info(f"Stats HTTP server listening on port {STATS_PORT}")
+    server.serve_forever()
+
 
 def hex_to_bytes(h):
     return binascii.unhexlify(h)
@@ -393,7 +521,8 @@ class StratumBridge:
             'difficulty': INITIAL_DIFFICULTY,
             'window_start': time.time(),
             'shares_in_window': 0,
-            'addr': addr
+            'addr': addr,
+            'worker_name': None  # Set on authorize
         }
         
         extranonce1 = struct.pack(">I", client_id).hex() 
@@ -430,6 +559,10 @@ class StratumBridge:
                         await writer.drain()
                         
                 elif method == "mining.authorize":
+                    # Capture worker name for stats tracking
+                    worker_name = req['params'][0] if req.get('params') else 'unknown'
+                    self.clients[client_id]['worker_name'] = worker_name
+                    logger.info(f"Authorized worker: {worker_name}")
                     resp = {"id": mid, "result": True, "error": None}
                     writer.write((json.dumps(resp) + "\n").encode())
                     await writer.drain()
@@ -529,16 +662,22 @@ class StratumBridge:
                                 logger.info(f"Block Accepted! hash={sha256d(header).hex()}")
                                 writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
                                 success = True
+                                # Record block found
+                                miner_stats.record_share(worker, is_block=True)
                             elif result_val == 'inconclusive':
                                 logger.info(f"Block Accepted (inconclusive)! hash={sha256d(header).hex()}")
                                 writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
                                 success = True
+                                # Record block found (inconclusive still counts)
+                                miner_stats.record_share(worker, is_block=True)
                             elif result_val == 'high-hash':
                                 # Valid share for pool, but didn't meet network difficulty.
                                 # Treat as Success for the miner's stats.
                                 logger.info(f"Share Accepted (Valid PoW)! hash={sha256d(header).hex()}")
                                 writer.write((json.dumps({"id": mid, "result": True, "error": None}) + "\n").encode())
                                 success = True
+                                # Record share (not a block)
+                                miner_stats.record_share(worker, is_block=False)
                             else:
                                 logger.info(f"Block Rejected: {result_val}")
                                 writer.write((json.dumps({"id": mid, "result": False, "error": [20, result_val, None]}) + "\n").encode())
@@ -582,6 +721,10 @@ class StratumBridge:
             await asyncio.sleep(1)
 
 async def main():
+    # Start HTTP stats server in background thread
+    stats_thread = threading.Thread(target=run_stats_server, daemon=True)
+    stats_thread.start()
+    
     bridge = StratumBridge()
     server = await asyncio.start_server(bridge.handle_client, STRATUM_HOST, STRATUM_PORT)
     logger.info(f"Stratum Bridge listening on {STRATUM_HOST}:{STRATUM_PORT}")

@@ -23,12 +23,17 @@ services:
     restart: unless-stopped
     ports:
       - "3333:3333" # Stratum Port (Miners connect here)
+      - "8080:8080" # Stats API (leaderboard data)
+    volumes:
+      - bridge-data:/data # Persist miner stats
     environment:
-      - RPC_URL=http://soqucoind:18332
+      - RPC_URL=http://soqucoind:44555
       - RPC_USER=soqu
       - RPC_PASS=${RPC_PASSWORD:-soqu_testnet_pass}
+      - STATS_FILE=/data/miner_stats.json
     depends_on:
       - soqucoind
 
 volumes:
   soqu-data:
+  bridge-data:
