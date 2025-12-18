@@ -154,9 +154,13 @@ class MinerStats:
         # Sort by blocks found, then shares
         miners_list.sort(key=lambda x: (-x["blocks"], -x["shares"]))
         
+        # Calculate pool hashrate as sum of all miners
+        pool_hashrate_mhs = sum(data.get("hashrate_mhs", 0) for data in self.stats.values())
+        
         return {
             "block_height": self.block_height,
             "network_hashrate_ths": round(self.network_hashrate / 1000, 2),
+            "pool_hashrate_ths": round(pool_hashrate_mhs / 1000, 2),
             "total_miners": len(self.stats),
             "total_blocks": self.block_height,
             "miners": miners_list,
