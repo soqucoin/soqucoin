@@ -550,12 +550,14 @@ class StratumBridge:
             client['window_start'] = now
             
             # Calculate and update hashrate for this worker
-            # Hashrate formula: difficulty * 2^32 / time_per_share
-            # For Scrypt: hashrate_MH/s ≈ difficulty * 4.295 / seconds_per_share
+            # Standard formula: hashrate = difficulty * 2^32 / time_per_share
+            # For Scrypt pools: difficulty is scaled by 2^16, so use 2^16 = 65536
+            # hashrate_MH/s = difficulty * 65536 / seconds_per_share / 1,000,000
+            #               = difficulty * 0.065536 / seconds_per_share
             worker_name = client.get('worker_name')
             if worker_name and spm > 0:
                 seconds_per_share = 60.0 / spm
-                hashrate_mhs = (client['difficulty'] * 4.295) / seconds_per_share
+                hashrate_mhs = (client['difficulty'] * 0.065536) / seconds_per_share
                 miner_stats.update_hashrate(worker_name, hashrate_mhs)
 
     async def handle_client(self, reader, writer):
