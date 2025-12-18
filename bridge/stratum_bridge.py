@@ -160,7 +160,7 @@ class MinerStats:
         return {
             "block_height": self.block_height,
             "network_hashrate_ths": round(self.network_hashrate / 1000, 2),
-            "pool_hashrate_ths": round(pool_hashrate_mhs / 1000, 2),
+            "pool_hashrate_ths": round(pool_hashrate_mhs / 1000000, 4),  # MH/s to TH/s
             "total_miners": len(self.stats),
             "total_blocks": self.block_height,
             "miners": miners_list,
