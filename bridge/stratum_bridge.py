@@ -296,9 +296,18 @@ class StratumBridge:
 
             tpl = resp['result']
             
-            # Update network stats
+            # Update network stats - fetch network hashrate
             height = tpl.get('height', 0)
-            miner_stats.update_network_info(height, 0)  # Hashrate calculated elsewhere
+            try:
+                mining_info = await self.rpc_request("getmininginfo", [])
+                if mining_info and mining_info.get('result'):
+                    # networkhashps is in H/s, convert to MH/s
+                    net_hashrate_mhs = mining_info['result'].get('networkhashps', 0) / 1_000_000
+                    miner_stats.update_network_info(height, net_hashrate_mhs)
+                else:
+                    miner_stats.update_network_info(height, 0)
+            except:
+                miner_stats.update_network_info(height, 0)
             
             # --- Transaction Parsing to preserve Outputs ---
             if 'coinbasetxn' not in tpl:
@@ -539,6 +548,15 @@ class StratumBridge:
             # Reset window
             client['shares_in_window'] = 0
             client['window_start'] = now
+            
+            # Calculate and update hashrate for this worker
+            # Hashrate formula: difficulty * 2^32 / time_per_share
+            # For Scrypt: hashrate_MH/s ≈ difficulty * 4.295 / seconds_per_share
+            worker_name = client.get('worker_name')
+            if worker_name and spm > 0:
+                seconds_per_share = 60.0 / spm
+                hashrate_mhs = (client['difficulty'] * 4.295) / seconds_per_share
+                miner_stats.update_hashrate(worker_name, hashrate_mhs)
 
     async def handle_client(self, reader, writer):
         addr = writer.get_extra_info('peername')
