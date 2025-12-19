@@ -630,6 +630,9 @@ class StratumBridge:
                     ntime_hex = req['params'][3]
                     nonce_hex = req['params'][4]
                     
+                    # Debug: Log submission parameters to diagnose L2 compatibility
+                    logger.info(f"Submit params: worker={worker}, job={job_id}, en2={en2_hex}(len={len(en2_hex)}), ntime={ntime_hex}(len={len(ntime_hex)}), nonce={nonce_hex}(len={len(nonce_hex)})")
+                    
                     if job_id not in self.jobs:
                         logger.warning(f"Share for unknown job {job_id}")
                         resp = {"id": mid, "result": False, "error": [21, "Job not found", None]}
