@@ -593,7 +593,7 @@ class StratumBridge:
                 
                 if method == "mining.subscribe":
                     # Standard Stratum response
-                    res = [[["mining.set_difficulty", "1"], ["mining.notify", "1"]], extranonce1, 4]
+                    res = [[["mining.set_difficulty", "1"], ["mining.notify", "1"]], extranonce1, 8]  # 8 bytes for Goldshell L2 compatibility
                     resp = {"id": mid, "result": res, "error": None}
                     writer.write((json.dumps(resp) + "\n").encode())
                     await writer.drain()
