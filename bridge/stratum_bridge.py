@@ -11,14 +11,14 @@ import json
 import time
 import binascii
 import struct
-import urllib.request
 import base64
 import logging
 import hashlib
 import os
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
+
+import aiohttp
+from aiohttp import web
 
 # --- CONFIGURATION ---
 # Default to Docker-friendly defaults or localhost fallback
@@ -177,29 +177,27 @@ class MinerStats:
 miner_stats = MinerStats()
 
 
-class StatsRequestHandler(BaseHTTPRequestHandler):
-    """Simple HTTP handler to serve stats.json"""
-    
-    def do_GET(self):
-        if self.path == '/stats.json' or self.path == '/':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')  # CORS for static site
-            self.end_headers()
-            self.wfile.write(miner_stats.get_stats_json().encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def log_message(self, format, *args):
-        pass  # Suppress HTTP logs
+# Async stats handler using aiohttp.web
+async def stats_handler(request):
+    """Async HTTP handler to serve stats.json"""
+    return web.Response(
+        text=miner_stats.get_stats_json(),
+        content_type='application/json',
+        headers={'Access-Control-Allow-Origin': '*'}
+    )
 
 
-def run_stats_server():
-    """Run HTTP stats server in background thread"""
-    server = HTTPServer(('0.0.0.0', STATS_PORT), StatsRequestHandler)
+async def start_stats_server():
+    """Start aiohttp stats server (runs in main asyncio loop)"""
+    app = web.Application()
+    app.router.add_get('/', stats_handler)
+    app.router.add_get('/stats.json', stats_handler)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', STATS_PORT)
+    await site.start()
     logger.info(f"Stats HTTP server listening on port {STATS_PORT}")
-    server.serve_forever()
 
 
 def hex_to_bytes(h):
@@ -256,29 +254,30 @@ class StratumBridge:
         self.extranonce1_counter = 0
 
     async def rpc_request(self, method, params=[]):
-        def do_request():
-            payload = json.dumps({
-                "jsonrpc": "1.0",
-                "id": "bridge",
-                "method": method,
-                "params": params
-            }).encode()
-            
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": "Basic " + base64.b64encode(f"{RPC_USER}:{RPC_PASS}".encode()).decode()
-            }
-            
-            req = urllib.request.Request(RPC_URL, data=payload, headers=headers)
-            try:
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    return json.loads(response.read().decode())
-            except Exception as e:
-                logger.error(f"RPC Connection Error: {e}")
-                return None
-
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, do_request)
+        """Async RPC request using aiohttp"""
+        payload = json.dumps({
+            "jsonrpc": "1.0",
+            "id": "bridge",
+            "method": method,
+            "params": params
+        })
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Basic " + base64.b64encode(f"{RPC_USER}:{RPC_PASS}".encode()).decode()
+        }
+        
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(RPC_URL, data=payload, headers=headers) as response:
+                    return await response.json()
+        except asyncio.TimeoutError:
+            logger.error(f"RPC Timeout: {method}")
+            return None
+        except Exception as e:
+            logger.error(f"RPC Connection Error: {e}")
+            return None
 
     def pack_varint(self, n):
         if n < 0xfd:
@@ -803,9 +802,8 @@ class StratumBridge:
             await asyncio.sleep(1)
 
 async def main():
-    # Start HTTP stats server in background thread
-    stats_thread = threading.Thread(target=run_stats_server, daemon=True)
-    stats_thread.start()
+    # Start HTTP stats server in main asyncio loop (no threading!)
+    await start_stats_server()
     
     bridge = StratumBridge()
     server = await asyncio.start_server(bridge.handle_client, STRATUM_HOST, STRATUM_PORT)
