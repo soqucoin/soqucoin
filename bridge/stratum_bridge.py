@@ -379,8 +379,8 @@ class StratumBridge:
             
             # CoinB1 = Version + VinCount + PrevHash + PrevIdx + ScriptLen + HeightPush
             # CoinB2 = Sequence + Outputs + Locktime
-            # Script = HeightPush + EN1(4) + EN2(4)
-            script_sig_len = len(height_push) + 8
+            # Script = HeightPush + EN1(4) + EN2(8) = 12 bytes extranonce
+            script_sig_len = len(height_push) + 12
             coinb1 = tx_version + self.pack_varint(vin_count) + (b'\x00'*32) + (b'\xff'*4) + self.pack_varint(script_sig_len) + height_push
             coinb2 = b'\xff\xff\xff\xff' + vouts_and_locktime
 
