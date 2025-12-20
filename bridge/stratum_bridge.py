@@ -33,8 +33,8 @@ STATS_PORT = 8080
 STATS_FILE = os.getenv("STATS_FILE", "/data/miner_stats.json")
 
 # VarDiff Configuration
-INITIAL_DIFFICULTY = 8  # Lowered for Elphapex DG Home compatibility test
-MIN_VARDIFF = 8         # Allow very low difficulty for debugging
+INITIAL_DIFFICULTY = 32  # Standard for mixed fleet
+MIN_VARDIFF = 64         # Minimum difficulty floor
 MAX_VARDIFF = 65536
 TARGET_SPM = 4       # Shares per minute
 RETARGET_WINDOW = 30 # Seconds
