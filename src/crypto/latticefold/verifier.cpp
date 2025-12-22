@@ -4,9 +4,6 @@
 #include "crypto/latticefold/verifier.h"
 #include "crypto/common.h"
 #include "crypto/sha256.h"
-#include "script/interpreter.h" // for ScriptError
-#include "utilstrencodings.h"   // for HexStr
-#include <iostream>
 
 // Goldilocks field constants and operations - REMOVED
 // constexpr uint64_t LatticeFoldVerifier::Fp::P;

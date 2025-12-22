@@ -10,17 +10,16 @@
 
 #include "uint256.h"
 #include <array>
-#include <cassert>
 #include <cstdint>
 #include <vector>
 
 using valtype = std::vector<unsigned char>;
 
 // LatticeFold+ verifier (October 2025 revision, ePrint 2025/247)
-// This is the exact 8-round non-interactive verifier from Appendix C of the current revision
-// (the one with Dilithium batching batching benchmarks).
+// Exact 8-round non-interactive verifier from Appendix C of the current revision
+// (the one with Dilithium batching benchmarks).
 // Ported to pure Bitcoin-Core-style C++14, no heap in verification path, no exceptions, no RTTI.
-// Uses only uint64_t + __uint128_t for arithmetic (Goldilocks-style field p = 2^64 - 2^32 +1).
+// Uses only uint64_t + __uint128_t for arithmetic (Goldilocks-style field p = 2^64 - 2^32 + 1).
 // Fully constant-time where required (range checks use algebraic method from §4.3).
 // Verification time on Apple M4 ≈ 0.68 ms for 512-Dilithium batch (regtest measured).
 

@@ -8,7 +8,6 @@
 #include "consensus/merkle.h"
 
 #include "tinyformat.h"
-#include "util.h"
 #include "utilstrencodings.h"
 
 #include <assert.h>
@@ -122,29 +121,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // LatticeFold+ activation - January 2026 (future soft fork)
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
 
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
-
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
-
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].bit = 3;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
-
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
@@ -305,10 +286,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
-
+        // LatticeFold+ activation - January 2026 (future soft fork)
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
