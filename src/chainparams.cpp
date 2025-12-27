@@ -362,7 +362,7 @@ public:
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         minDifficultyConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        assert(consensus.hashGenesisBlock == uint256S("0x000001cf9dfb272cb071d8490aa5a1108897de05bfa4b95f48097a2d4f0e7809"));
+        assert(consensus.hashGenesisBlock == uint256S("0xcde63e00ef4c268af3bb351e2f7c9f4a2cbb21ec9f3d989e2c6594df810b7594"));
         assert(genesis.hashMerkleRoot == uint256S("0x5a23cb4c71feb8767bb07cdedc1dd316ac648ec35416222027d0d2d8e0287415"));
 
         // Clear all Dogecoin seeds - Soqucoin testnet is isolated
