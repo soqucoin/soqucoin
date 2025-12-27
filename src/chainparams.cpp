@@ -356,39 +356,14 @@ public:
 
         // Soqucoin Testnet3 Genesis Block - Dec 2025
         // Unique genesis isolates Soqucoin from Dogecoin testnet
-        genesis = CreateGenesisBlockTestnet3(1766813480, 0, 0x1e0ffff0, 1, 88 * COIN);
-
-        // TEMPORARY: Mine genesis block to find valid nonce
-        // Remove this block after finding correct nonce and updating genesis parameters
-        arith_uint256 bnTarget;
-        bnTarget.SetCompact(genesis.nBits);
-        fprintf(stderr, "Mining Testnet3 genesis block... Target: %s\\n", bnTarget.GetHex().c_str());
-        fprintf(stderr, "Merkle Root: %s\\n", genesis.hashMerkleRoot.GetHex().c_str());
-
-        while (true) {
-            uint256 hash = genesis.GetPoWHash();
-            if (UintToArith256(hash) <= bnTarget) {
-                fprintf(stderr, "\\n=== TESTNET3 GENESIS FOUND ===\\n");
-                fprintf(stderr, "nTime: %u\\n", genesis.nTime);
-                fprintf(stderr, "nNonce: %u\\n", genesis.nNonce);
-                fprintf(stderr, "hashGenesisBlock: %s\\n", hash.GetHex().c_str());
-                fprintf(stderr, "hashMerkleRoot: %s\\n", genesis.hashMerkleRoot.GetHex().c_str());
-                fprintf(stderr, "==============================\\n");
-                break;
-            }
-            genesis.nNonce++;
-            if (genesis.nNonce % 100000 == 0) {
-                fprintf(stderr, "  Nonce: %u...\\n", genesis.nNonce);
-            }
-        }
-
+        // "First quantum-resistant Scrypt chain - Soqucoin Testnet3 Dec 2025"
+        genesis = CreateGenesisBlockTestnet3(1766813480, 1014070, 0x1e0ffff0, 1, 88 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         minDifficultyConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        // TODO: After mining, update with correct hash values and remove mining code
-        // assert(consensus.hashGenesisBlock == uint256S("0xXXX"));
-        // assert(genesis.hashMerkleRoot == uint256S("0xXXX"));
+        assert(consensus.hashGenesisBlock == uint256S("0x000001cf9dfb272cb071d8490aa5a1108897de05bfa4b95f48097a2d4f0e7809"));
+        assert(genesis.hashMerkleRoot == uint256S("0x5a23cb4c71feb8767bb07cdedc1dd316ac648ec35416222027d0d2d8e0287415"));
 
         // Clear all Dogecoin seeds - Soqucoin testnet is isolated
         vSeeds.clear();
