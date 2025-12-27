@@ -12,6 +12,7 @@
 #include "rpc/server.h"
 #include "timedata.h"
 #include "util.h"
+#include "utiladdress.h" // For Dilithium bech32m address support
 #include "utilstrencodings.h"
 #include "validation.h"
 #ifdef ENABLE_WALLET
@@ -193,18 +194,43 @@ UniValue validateaddress(const JSONRPCRequest& request)
     LOCK(cs_main);
 #endif
 
-    CBitcoinAddress address(request.params[0].get_str());
-    bool isValid = address.IsValid();
+    string inputAddress = request.params[0].get_str();
+    CTxDestination dest;
+    bool isValid = false;
+    string displayAddress;
+
+    // First, try legacy Base58 address parsing (P2PKH, P2SH)
+    CBitcoinAddress address(inputAddress);
+    if (address.IsValid()) {
+        isValid = true;
+        dest = address.Get();
+        displayAddress = address.ToString();
+    } else {
+        // Try Dilithium bech32m address parsing (witness v1)
+        dest = DecodeDestination(inputAddress, Params().Bech32HRP());
+        if (IsValidDestination(dest)) {
+            isValid = true;
+            displayAddress = inputAddress;
+        }
+    }
 
     UniValue ret(UniValue::VOBJ);
     ret.pushKV("isvalid", isValid);
     if (isValid) {
-        CTxDestination dest = address.Get();
-        string currentAddress = address.ToString();
-        ret.pushKV("address", currentAddress);
+        ret.pushKV("address", displayAddress);
 
         CScript scriptPubKey = GetScriptForDestination(dest);
         ret.pushKV("scriptPubKey", HexStr(scriptPubKey.begin(), scriptPubKey.end()));
+
+        // Check if this is a Dilithium address (witness v1)
+        if (dest.which() == 3) { // WitnessV1ScriptHash
+            ret.pushKV("isdilithium", true);
+            ret.pushKV("witness_version", 1);
+            const WitnessV1ScriptHash* witness_v1 = boost::get<WitnessV1ScriptHash>(&dest);
+            if (witness_v1) {
+                ret.pushKV("witness_program", HexStr(witness_v1->begin(), witness_v1->end()));
+            }
+        }
 
 #ifdef ENABLE_WALLET
         isminetype mine = pwalletMain ? IsMine(*pwalletMain, dest) : ISMINE_NO;
