@@ -56,6 +56,17 @@ static CBlock CreateGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits
 }
 
 /**
+ * Soqucoin Testnet3 Genesis Block - Dec 2025
+ * First quantum-resistant Scrypt chain
+ */
+static CBlock CreateGenesisBlockTestnet3(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
+{
+    const char* pszTimestamp = "First quantum-resistant Scrypt chain - Soqucoin Testnet3 Dec 2025";
+    const CScript genesisOutputScript = CScript() << ParseHex("040184710fa689ad5023690c80f3a49c8f13f8d45b8c857fbcbc8bc4a8e4d3eb4b10f4d4604fa08dce601aaf0f470216fe1b51850b4acf21b179c45070ac7b03a9") << OP_CHECKSIG;
+    return CreateGenesisBlock(pszTimestamp, genesisOutputScript, nTime, nNonce, nBits, nVersion, genesisReward);
+}
+
+/**
  * Main network
  */
 /**
@@ -342,17 +353,20 @@ public:
         nDefaultPort = 44556;
         nPruneAfterHeight = 1000;
 
-        genesis = CreateGenesisBlock(1391503289, 997879, 0x1e0ffff0, 1, 88 * COIN);
+        // Soqucoin Testnet3 Genesis Block - Dec 2025
+        // Unique genesis isolates Soqucoin from Dogecoin testnet
+        genesis = CreateGenesisBlockTestnet3(1766813480, 1014070, 0x1e0ffff0, 1, 88 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         minDifficultyConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        assert(consensus.hashGenesisBlock == uint256S("0xbb0a78264637406b6360aad926284d544d7049f45189db5664f3c4d07350559e"));
-        assert(genesis.hashMerkleRoot == uint256S("0x5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69"));
+        assert(consensus.hashGenesisBlock == uint256S("0x000001cf9dfb272cb071d8490aa5a1108897de05bfa4b95f48097a2d4f0e7809"));
+        assert(genesis.hashMerkleRoot == uint256S("0x5a23cb4c71feb8767bb07cdedc1dd316ac648ec35416222027d0d2d8e0287415"));
 
+        // Clear all Dogecoin seeds - Soqucoin testnet is isolated
         vSeeds.clear();
-        // nodes with support for servicebits filtering should be at the top
-        vSeeds.push_back(CDNSSeedData("jrn.me.uk", "testseed.jrn.me.uk"));
+        // Soqucoin-only seed nodes (add more as deployed)
+        // vSeeds.push_back(CDNSSeedData("soqu.org", "seed.soqu.org"));
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 113); // 0x71
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 196); // 0xc4
@@ -368,7 +382,7 @@ public:
         fMineBlocksOnDemand = false;
 
         checkpointData = (CCheckpointData){
-            boost::assign::map_list_of(0, uint256S("0xbb0a78264637406b6360aad926284d544d7049f45189db5664f3c4d07350559e"))};
+            boost::assign::map_list_of(0, uint256S("0x000001cf9dfb272cb071d8490aa5a1108897de05bfa4b95f48097a2d4f0e7809"))};
 
         chainTxData = ChainTxData{
             0,

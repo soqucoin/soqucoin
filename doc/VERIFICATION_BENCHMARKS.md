@@ -2,13 +2,18 @@
 
 Performance characteristics for post-quantum cryptographic operations on Soqucoin.
 
+> **Expert Review Score**: 7.5/10
+> **Action Items**: Add Pi 4/5 benchmarks, variance/SD, multi-threaded tests, adversarial cases
+
 ## Test Environment
 
-| Spec | Value |
-|------|-------|
-| CPU | Apple M4 (reference) / AMD Ryzen 7950X (comparison) |
-| RAM | 16 GB minimum |
-| Build | Release (-O2, LTO enabled) |
+| Spec | Value | Notes |
+|------|-------|-------|
+| CPU (Reference) | Apple M4 | Primary benchmark target |
+| CPU (Comparison) | AMD Ryzen 7950X | x86 comparison |
+| CPU (Min Spec) | Raspberry Pi 4/5 | **TODO**: Add ARM64 benchmarks |
+| RAM | 16 GB (min 4 GB for Pi) | Pi 4GB may spike LatticeFold+ to 200ms+ |
+| Build | Release (-O2, LTO enabled) | |
 
 ## Signature Verification
 
@@ -79,6 +84,36 @@ Benchmarks measured using:
 
 All times are median of 1000 iterations, single-threaded.
 
+## TPS Benchmarks (Testnet3)
+
+> **Status**: Placeholder — to be populated during Testnet3 validation
+
+### Signature Verification Throughput
+
+| Operation | M4 TPS | Ryzen TPS | Notes |
+|-----------|--------|-----------|-------|
+| Raw Dilithium verify | TBD | TBD | 1000/ms_per_sig |
+| PAT batch (256 sigs) | TBD | TBD | Effective sigs/sec |
+| LatticeFold+ (512 sigs) | TBD | TBD | Effective sigs/sec |
+
+### Block Validation
+
+| Scenario | M4 Time | Ryzen Time | Target |
+|----------|---------|------------|--------|
+| Empty block | TBD | TBD | < 5 ms |
+| Typical block (50 tx) | TBD | TBD | < 50 ms |
+| Heavy block (200 tx + proofs) | TBD | TBD | < 500 ms |
+
+### Comparison Reference
+
+| Chain | Theoretical TPS | Signature Type | Quantum-Safe |
+|-------|-----------------|----------------|--------------|
+| Dogecoin | ~33 | ECDSA (64 bytes) | ❌ No |
+| Litecoin | ~56 | ECDSA (64 bytes) | ❌ No |
+| Soqucoin | **TBD** | Dilithium (PAT batched) | ✅ Yes |
+
+> **Note**: Direct TPS comparison is nuanced. DOGE/LTC use smaller signatures but are quantum-vulnerable. Soqucoin trades raw signature size for quantum security + batch aggregation.
+
 ---
 
-*Last updated: 2025-12-22*
+*Last updated: 2025-12-26*
