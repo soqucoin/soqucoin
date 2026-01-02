@@ -10,9 +10,10 @@
 // boost::thread / boost::function / boost::chrono should be ported to
 // std::thread / std::function / std::chrono when we support C++11.
 //
-#include <functional>
 #include <boost/chrono/chrono.hpp>
 #include <boost/thread.hpp>
+#include <functional>
+#include <list>
 #include <map>
 
 //
@@ -63,12 +64,12 @@ public:
     // Tell any threads running serviceQueue to stop as soon as they're
     // done servicing whatever task they're currently servicing (drain=false)
     // or when there is no work left to be done (drain=true)
-    void stop(bool drain=false);
+    void stop(bool drain = false);
 
     // Returns number of tasks waiting to be serviced,
     // and first and last task times
-    size_t getQueueInfo(boost::chrono::system_clock::time_point &first,
-                        boost::chrono::system_clock::time_point &last) const;
+    size_t getQueueInfo(boost::chrono::system_clock::time_point& first,
+        boost::chrono::system_clock::time_point& last) const;
 
 private:
     std::multimap<boost::chrono::system_clock::time_point, Function> taskQueue;
@@ -78,6 +79,45 @@ private:
     bool stopRequested;
     bool stopWhenEmpty;
     bool shouldStop() { return stopRequested || (stopWhenEmpty && taskQueue.empty()); }
+};
+
+/**
+ * Class used by CScheduler clients which may schedule multiple jobs
+ * which are required to be run serially. Jobs may not be run on the
+ * same thread, but no two jobs will be executed at the same time and
+ * memory will be release-acquire consistent between callback executions.
+ *
+ * This is essential for validation interface signals to prevent race conditions.
+ */
+class SingleThreadedSchedulerClient
+{
+private:
+    CScheduler* m_pscheduler;
+
+    boost::mutex m_cs_callbacks_pending;
+    std::list<std::function<void()> > m_callbacks_pending;
+    bool m_are_callbacks_running;
+
+    void MaybeScheduleProcessQueue();
+    void ProcessQueue();
+
+public:
+    explicit SingleThreadedSchedulerClient(CScheduler* pschedulerIn)
+        : m_pscheduler(pschedulerIn), m_are_callbacks_running(false) {}
+
+    /**
+     * Add a callback to be executed. Callbacks are executed serially
+     * and memory is release-acquire consistent between callback executions.
+     */
+    void AddToProcessQueue(std::function<void()> func);
+
+    /**
+     * Processes all remaining queue members on the calling thread, blocking until queue is empty.
+     * Must be called after the CScheduler has no remaining processing threads!
+     */
+    void EmptyQueue();
+
+    size_t CallbacksPending();
 };
 
 #endif

@@ -121,8 +121,8 @@ void CScheduler::scheduleEvery(CScheduler::Function f, int64_t deltaSeconds)
     scheduleFromNow(boost::bind(&Repeat, this, f, deltaSeconds), deltaSeconds);
 }
 
-size_t CScheduler::getQueueInfo(boost::chrono::system_clock::time_point &first,
-                             boost::chrono::system_clock::time_point &last) const
+size_t CScheduler::getQueueInfo(boost::chrono::system_clock::time_point& first,
+    boost::chrono::system_clock::time_point& last) const
 {
     boost::unique_lock<boost::mutex> lock(newTaskMutex);
     size_t result = taskQueue.size();
@@ -131,4 +131,78 @@ size_t CScheduler::getQueueInfo(boost::chrono::system_clock::time_point &first,
         last = taskQueue.rbegin()->first;
     }
     return result;
+}
+
+// SingleThreadedSchedulerClient methods
+
+void SingleThreadedSchedulerClient::MaybeScheduleProcessQueue()
+{
+    // Called with m_cs_callbacks_pending held
+    if (m_are_callbacks_running) return;
+    if (m_callbacks_pending.empty()) return;
+    m_are_callbacks_running = true;
+
+    m_pscheduler->schedule(std::bind(&SingleThreadedSchedulerClient::ProcessQueue, this),
+        boost::chrono::system_clock::now());
+}
+
+void SingleThreadedSchedulerClient::ProcessQueue()
+{
+    std::function<void()> callback;
+    {
+        boost::unique_lock<boost::mutex> lock(m_cs_callbacks_pending);
+        if (m_callbacks_pending.empty()) {
+            m_are_callbacks_running = false;
+            return;
+        }
+        callback = std::move(m_callbacks_pending.front());
+        m_callbacks_pending.pop_front();
+    }
+
+    // Release lock before calling callback - this allows new callbacks to be added
+    // while we're processing, which will trigger MaybeScheduleProcessQueue again
+    callback();
+
+    // After callback completes, schedule next one if any
+    {
+        boost::unique_lock<boost::mutex> lock(m_cs_callbacks_pending);
+        if (m_callbacks_pending.empty()) {
+            m_are_callbacks_running = false;
+        } else {
+            // Schedule next callback
+            m_pscheduler->schedule(std::bind(&SingleThreadedSchedulerClient::ProcessQueue, this),
+                boost::chrono::system_clock::now());
+        }
+    }
+}
+
+void SingleThreadedSchedulerClient::AddToProcessQueue(std::function<void()> func)
+{
+    boost::unique_lock<boost::mutex> lock(m_cs_callbacks_pending);
+    m_callbacks_pending.emplace_back(std::move(func));
+    MaybeScheduleProcessQueue();
+}
+
+void SingleThreadedSchedulerClient::EmptyQueue()
+{
+    // Process all pending callbacks on the calling thread
+    while (true) {
+        std::function<void()> callback;
+        {
+            boost::unique_lock<boost::mutex> lock(m_cs_callbacks_pending);
+            if (m_callbacks_pending.empty()) {
+                m_are_callbacks_running = false;
+                return;
+            }
+            callback = std::move(m_callbacks_pending.front());
+            m_callbacks_pending.pop_front();
+        }
+        callback();
+    }
+}
+
+size_t SingleThreadedSchedulerClient::CallbacksPending()
+{
+    boost::unique_lock<boost::mutex> lock(m_cs_callbacks_pending);
+    return m_callbacks_pending.size();
 }

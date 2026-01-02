@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2016 The Bitcoin Core developers
-// Copyright (c) 2021-2023 The Soqucoin Core developers
+// Copyright (c) 2021-2026 The Soqucoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -13,6 +13,11 @@
 
 #include <univalue.h>
 
+/**
+ * Catches the state of a submitted block.
+ * Registers as a validation interface and waits for the BlockChecked callback.
+ * Thread-safe with the new CScheduler-based validation interface.
+ */
 class submitblock_StateCatcher : public CValidationInterface
 {
 public:
@@ -20,10 +25,11 @@ public:
     bool found;
     CValidationState state;
 
-    submitblock_StateCatcher(const uint256 &hashIn) : hash(hashIn), found(false), state() {}
+    submitblock_StateCatcher(const uint256& hashIn) : hash(hashIn), found(false), state() {}
 
-protected:
-    virtual void BlockChecked(const CBlock& block, const CValidationState& stateIn) {
+    // Called when block validation completes - this is now dispatched through the scheduler
+    void BlockChecked(const CBlock& block, const CValidationState& stateIn) override
+    {
         if (block.GetHash() != hash)
             return;
         found = true;
@@ -33,4 +39,4 @@ protected:
 
 UniValue BIP22ValidationResult(const CValidationState& state);
 
-#endif //BITCOIN_RPCMINING_H
+#endif // BITCOIN_RPCMINING_H

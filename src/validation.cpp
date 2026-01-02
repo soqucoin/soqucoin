@@ -187,45 +187,14 @@ std::set<CBlockIndex*> setDirtyBlockIndex;
 std::set<int> setDirtyFileInfo;
 } // namespace
 
-/* Use this class to start tracking transactions that are removed from the
- * mempool and pass all those transactions through SyncTransaction when the
- * object goes out of scope. This is currently only used to call SyncTransaction
- * on conflicts removed from the mempool during block connection.  Applied in
- * ActivateBestChain around ActivateBestStep which in turn calls:
- * ConnectTip->removeForBlock->removeConflicts
+/* MemPoolConflictRemovalTracker REMOVED
+ *
+ * This class used boost::signals2 NotifyEntryRemoved signal to track conflicted
+ * transactions. It had the same race condition as the validation interface signals,
+ * causing segfaults during high-frequency mining.
+ *
+ * See Bitcoin Core PR #17477 for the proper fix using TransactionRemovedFromMempool.
  */
-class MemPoolConflictRemovalTracker
-{
-private:
-    std::vector<CTransactionRef> conflictedTxs;
-    CTxMemPool& pool;
-
-public:
-    MemPoolConflictRemovalTracker(CTxMemPool& _pool) : pool(_pool)
-    {
-        pool.NotifyEntryRemoved.connect(boost::bind(&MemPoolConflictRemovalTracker::NotifyEntryRemoved,
-            this, boost::placeholders::_1,
-            boost::placeholders::_2));
-    }
-
-    void NotifyEntryRemoved(CTransactionRef txRemoved, MemPoolRemovalReason reason)
-    {
-        if (reason == MemPoolRemovalReason::CONFLICT) {
-            conflictedTxs.push_back(txRemoved);
-        }
-    }
-
-    ~MemPoolConflictRemovalTracker()
-    {
-        pool.NotifyEntryRemoved.disconnect(boost::bind(&MemPoolConflictRemovalTracker::NotifyEntryRemoved,
-            this, boost::placeholders::_1,
-            boost::placeholders::_2));
-        for (const auto& tx : conflictedTxs) {
-            GetMainSignals().SyncTransaction(*tx, NULL, CMainSignals::SYNC_TRANSACTION_NOT_IN_BLOCK);
-        }
-        conflictedTxs.clear();
-    }
-};
 
 CBlockIndex* FindForkInGlobalIndex(const CChain& chain, const CBlockLocator& locator)
 {
@@ -2511,18 +2480,13 @@ bool ActivateBestChain(CValidationState& state, const CChainParams& chainparams,
         bool fInitialDownload;
         {
             LOCK(cs_main);
-            { // TODO: Tempoarily ensure that mempool removals are notified before
-              // connected transactions.  This shouldn't matter, but the abandoned
-              // state of transactions in our wallet is currently cleared when we
-              // receive another notification and there is a race condition where
-              // notification of a connected conflict might cause an outside process
-              // to abandon a transaction and then have it inadvertently cleared by
-              // the notification that the conflicted transaction was evicted.
-                MemPoolConflictRemovalTracker mrt(mempool);
+            { // MemPoolConflictRemovalTracker removed - had race conditions
+              // See Bitcoin Core PR #17477 for async TransactionRemovedFromMempool
                 CBlockIndex* pindexOldTip = chainActive.Tip();
                 if (pindexMostWork == NULL) {
                     pindexMostWork = FindMostWorkChain();
                 }
+
 
                 // Whether we have anything to do at all.
                 if (pindexMostWork == NULL || pindexMostWork == chainActive.Tip())
@@ -2543,7 +2507,7 @@ bool ActivateBestChain(CValidationState& state, const CChainParams& chainparams,
 
                 // throw all transactions though the signal-interface
 
-            } // MemPoolConflictRemovalTracker destroyed and conflict evictions are notified
+            } // MemPoolConflictRemovalTracker scope removed
 
             // Transactions in the connected block are notified
             for (const auto& pair : connectTrace.blocksConnected) {
@@ -3110,7 +3074,7 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
         }
     }
 
-    // Gemini3: Enforce strict Dilithium coinbase output (OP_0 <32-byte hash>)
+    // Enforce strict Dilithium coinbase output (OP_1 <32-byte hash>)
     // Reject any coinbase output that is not Dilithium bech32m v1 (or OP_RETURN for witness commitment)
     if (chainParams.NetworkIDString() != CBaseChainParams::REGTEST) {
         for (const auto& txout : block.vtx[0]->vout) {
@@ -3972,6 +3936,13 @@ bool InitBlockIndex(const CChainParams& chainparams)
             CBlockIndex* pindex = AddToBlockIndex(block);
             if (!ReceivedBlockTransactions(block, state, pindex, blockPos))
                 return error("LoadBlockIndex(): genesis block not accepted");
+
+            // Force genesis into candidate set to ensure ActivateBestChain finds it
+            if (setBlockIndexCandidates.count(pindex) == 0) {
+                LogPrintf("InitBlockIndex: Manually adding genesis to setBlockIndexCandidates\n");
+                setBlockIndexCandidates.insert(pindex);
+            }
+
             // Force a chainstate write so that when we VerifyDB in a moment, it doesn't check stale data
             return FlushStateToDisk(state, FLUSH_STATE_ALWAYS);
         } catch (const std::runtime_error& e) {

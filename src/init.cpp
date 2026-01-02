@@ -265,6 +265,9 @@ void Shutdown()
     }
 #endif
     UnregisterAllValidationInterfaces();
+    // Flush any remaining background callbacks before cleanup
+    FlushBackgroundCallbacks();
+    UnregisterBackgroundSignalScheduler();
 #ifdef ENABLE_WALLET
     delete pwalletMain;
     pwalletMain = NULL;
@@ -1238,6 +1241,9 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     CScheduler::Function serviceLoop = boost::bind(&CScheduler::serviceQueue, &scheduler);
     threadGroup.create_thread(boost::bind(&TraceThread<CScheduler::Function>, "scheduler", serviceLoop));
 
+    // Register the scheduler with validation interface for thread-safe signal dispatch
+    RegisterBackgroundSignalScheduler(scheduler);
+
     /* Start the RPC server already.  It will be started in "warmup" mode
      * and not really process calls already (but it will signify connections
      * that the server is there and will be ready later).  Warmup mode will
@@ -1653,16 +1659,22 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
             vImportFiles.push_back(strFile);
     }
 
+
+    LogPrintf("AppInitMain: ThreadImport starting\n");
     threadGroup.create_thread(boost::bind(&ThreadImport, vImportFiles));
 
     // Wait for genesis block to be processed
     {
+        LogPrintf("AppInitMain: Waiting for genesis...\n");
         boost::unique_lock<boost::mutex> lock(cs_GenesisWait);
         while (!fHaveGenesis) {
+            LogPrintf("AppInitMain: In genesis wait loop, fHaveGenesis=%d\n", fHaveGenesis);
             condvar_GenesisWait.wait(lock);
+            LogPrintf("AppInitMain: Woke up from genesis wait, fHaveGenesis=%d\n", fHaveGenesis);
         }
         uiInterface.NotifyBlockTip.disconnect(&BlockNotifyGenesisWait);
     }
+    LogPrintf("AppInitMain: Genesis processing complete\n");
 
     // ********************************************************* Step 11: start node
 

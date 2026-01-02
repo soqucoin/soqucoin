@@ -14,7 +14,7 @@ Features:
 - Apple M4 hardware optimization
 - Comprehensive performance metrics
 
-Author: Casey Wilson and Grok4 AI Assistant for Dogecoin PAT Research
+Author: Casey Wilson - Soqucoin PAT Research
 """
 
 import sys

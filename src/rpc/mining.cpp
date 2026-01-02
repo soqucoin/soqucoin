@@ -785,7 +785,10 @@ UniValue submitblock(const JSONRPCRequest& request)
     submitblock_StateCatcher sc(block.GetHash());
     RegisterValidationInterface(&sc);
     bool fAccepted = ProcessNewBlock(Params(), blockptr, true, NULL);
+    // Wait for all validation interface callbacks to complete
+    SyncWithValidationInterfaceQueue();
     UnregisterValidationInterface(&sc);
+
     if (fBlockPresent) {
         if (fAccepted && !sc.found)
             return "duplicate-inconclusive";

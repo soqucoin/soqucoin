@@ -1,8 +1,14 @@
 # Soqucoin Verification Benchmarks
 
+> ⚠️ **CONFIDENTIAL - INTERNAL USE ONLY**
+> This document contains sensitive performance data.
+> Do NOT commit to public repositories.
+> **Authorized repository**: `soqucoin-ops` (private GitHub only)
+
 Performance characteristics for post-quantum cryptographic operations on Soqucoin.
 
 > **Expert Review Score**: 7.5/10
+> **Last Updated**: 2025-12-27
 > **Action Items**: Add Pi 4/5 benchmarks, variance/SD, multi-threaded tests, adversarial cases
 
 ## Test Environment
