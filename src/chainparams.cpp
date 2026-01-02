@@ -149,8 +149,8 @@ public:
         consensus.nLatticeFoldActivationHeight = 2147483647; // INT_MAX for now
 
         // AuxPoW parameters
-        consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = true;
+        consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
+        consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nHeightEffective = 0;
 
@@ -313,7 +313,7 @@ public:
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = true;
+        consensus.fStrictChainId = false;  // Allow legacy blocks without embedded chain ID
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
 
@@ -454,8 +454,8 @@ public:
         consensus.defaultAssumeValid = uint256S("0x00");
 
         // AuxPow parameters
-        consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = true;
+        consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
+        consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
 
         // Soqucoin parameters
