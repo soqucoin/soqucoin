@@ -149,9 +149,9 @@ public:
         consensus.nLatticeFoldActivationHeight = 2147483647; // INT_MAX for now
 
         // AuxPoW parameters
-        consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!
+        consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
         consensus.fStrictChainId = true;
-        consensus.fAllowLegacyBlocks = true;
+        consensus.fAllowLegacyBlocks = false; // No legacy blocks for new chain
         consensus.nHeightEffective = 0;
 
         // Blocks 145000 - 371336 are Digishield without AuxPoW
@@ -312,10 +312,10 @@ public:
         consensus.nLatticeFoldActivationHeight = 0; // Active immediately for testing
 
         // AuxPoW parameters
-        consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!
-        consensus.fStrictChainId = false;
+        consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
+        consensus.fStrictChainId = true;
         consensus.nHeightEffective = 0;
-        consensus.fAllowLegacyBlocks = true;
+        consensus.fAllowLegacyBlocks = false; // AuxPoW enabled at genesis for testnet3
 
         // Blocks 145000 - 157499 are Digishield without minimum difficulty on all blocks
         digishieldConsensus = consensus;
@@ -454,9 +454,9 @@ public:
         consensus.defaultAssumeValid = uint256S("0x00");
 
         // AuxPow parameters
-        consensus.nAuxpowChainId = 0x0062; // 98 - Josh Wise!
+        consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
         consensus.fStrictChainId = true;
-        consensus.fAllowLegacyBlocks = true;
+        consensus.fAllowLegacyBlocks = false; // AuxPoW enabled at genesis for regtest
 
         // Soqucoin parameters
         consensus.fSimplifiedRewards = true;
