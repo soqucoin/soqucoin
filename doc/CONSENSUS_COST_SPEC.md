@@ -1,6 +1,6 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 1.3 | **Status**: Public Reference
+> **Version**: 1.4 | **Status**: Public Reference
 > **Last Updated**: January 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 
@@ -246,33 +246,66 @@ Nodes can adjust, miners can override:
 | **Min Relay Fee** | 0.001 SOQ/kB | `-minrelaytxfee` | Modified |
 | **Dust Limit** | 0.01 SOQ | `-dustlimit` | Modified |
 
+## 9. Staged Activation Schedule
+
+### Overview
+
+Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cryptographic features activate at predetermined block heights rather than at genesis.
+
+> [!IMPORTANT]
+> **Pre-activation behavior**: Transactions using BP++ or LatticeFold proofs are **consensus-invalid** before their activation height. This is a security feature, not a limitation.
+
+### Mainnet Activation Schedule
+
+| Stage | Height | ~Calendar | Features | Rationale |
+|-------|--------|-----------|----------|-----------|
+| **Genesis** | 0 | Q1 2026 | Dilithium signatures, PAT aggregation, AuxPoW | Core PQ identity |
+| **Stage 1** | 100,000 | +~69 days | Bulletproofs++ range proofs | Privacy layer, proven ECC crypto |
+| **Stage 2** | 200,000 | +~139 days | LatticeFold+ batch verification | Scaling optimization, highest complexity |
+
+### Testnet Activation Schedule
+
+| Stage | Height | Features | Notes |
+|-------|--------|----------|-------|
+| Genesis | 0 | All features | Testnet enables all features for testing |
+
+### Activation Ordering Rationale
+
+**Why BP++ activates before LatticeFold:**
+
+1. **Cryptographic maturity**: BP++ uses secp256k1-zkp (Elements/Blockstream), a battle-tested library. LatticeFold is a custom implementation of recent research (ePrint 2025/247).
+
+2. **Blast radius management**: LatticeFold is the highest-complexity primitive. Activating it last provides maximum operational signal before enabling.
+
+3. **Chain operation**: Neither feature is required for basic operation. Users can send Dilithium transactions at genesis; advanced features activate progressively.
+
+4. **Privacy value**: BP++ enables confidential transactions, a high-value feature for mainnet users.
+
+### Pre-Activation Behavior
+
+| Feature | Before Activation | After Activation |
+|---------|-------------------|------------------|
+| **BP++ range proofs** | Consensus-invalid | Standard, relay enabled |
+| **LatticeFold proofs** | Consensus-invalid | Standard, relay enabled |
+
+### Upgrade Policy
+
+- **Activation heights are consensus-frozen** once a tagged release is published
+- **Height changes require a new release** with coordinated upgrade window
+- **Emergency softfork process**: Documented in operational runbooks (private)
+
 ---
 
-## 9. Activation Status
+## 10. Network Alignment
 
-### Currently Active (Genesis)
-
-All features active from block 0 on Testnet3 and Mainnet:
-
-| Feature | Status | Height |
-|---------|--------|--------|
-| Dilithium signatures (OP_CHECKDILITHIUMSIG) | ✅ Active | Genesis |
-| Bulletproofs++ range proofs | ✅ Active | Genesis |
-| PAT Merkle aggregation | ✅ Active | Genesis |
-| LatticeFold+ recursive SNARKs | ✅ Active | Genesis |
-| AuxPoW merged mining (Chain ID 0x5351) | ✅ Active | Genesis |
-| DigiShield difficulty adjustment | ✅ Active | Genesis |
-
-### Network Alignment
-
-| Network | Genesis | Chain ID | Status |
-|---------|---------|----------|--------|
-| Mainnet | Q1 2026 | 0x5351 | Pending |
-| Testnet3 | Dec 2025 | 0x5351 | Active |
+| Network | Genesis | Chain ID | BP++ Activation | LatticeFold Activation |
+|---------|---------|----------|-----------------|------------------------|
+| Mainnet | Q1 2026 | 0x5351 | Height 100,000 | Height 200,000 |
+| Testnet3 | Dec 2025 | 0x5351 | Genesis (all features) | Genesis (all features) |
 
 ---
 
-## 10. DoS Protections
+## 11. DoS Protections
 
 | Attack Vector | Mitigation | Type |
 |---------------|------------|------|
@@ -286,7 +319,7 @@ All features active from block 0 on Testnet3 and Mainnet:
 
 ---
 
-## 11. Reference Implementation
+## 12. Reference Implementation
 
 All values are defined in the Soqucoin Core source code at the following paths:
 
@@ -302,7 +335,7 @@ All values are defined in the Soqucoin Core source code at the following paths:
 
 ---
 
-## 12. Summary Table
+## 13. Summary Table
 
 | Category | Limit | Type | Source |
 |----------|-------|------|--------|
