@@ -38,7 +38,8 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 |-----------|--------|------|
 | Consensus code merged | ✅ Complete | Nov 20, 2025 |
 | ASIC validation (L7) | ✅ Complete | Nov 24, 2025 |
-| Testnet launch | 🔄 In Progress | Q1 2026 |
+| Testnet3 launch | ✅ Complete | Dec 2025 |
+| Stability testing (1200+ blocks) | ✅ Complete | Jan 2, 2026 |
 | Mainnet genesis | 🔄 In Progress | Q1 2026 |
 
 ---
@@ -62,7 +63,7 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 | **Proof Size** | 675 bytes | — |
 | **Verify Time** | 0.89 ms | Apple M4 |
 
-> **Note:** Bulletproofs++ relies on the discrete logarithm assumption (DLOG) and provides classical security only. A lattice-based replacement is planned for v0.22.
+> **Note:** Bulletproofs++ relies on the discrete logarithm assumption (DLOG) and provides classical security only. Activates at **Height 50,000** on mainnet. A lattice-based replacement is planned for a future soft-fork.
 
 ### Performance Benchmarks
 
@@ -223,7 +224,7 @@ make install  # optional
 | **LatticeFold+ Verifier** | `src/crypto/latticefold/verifier.cpp` | ✅ In-tree |
 | **Distributed Provers** | — | 🔄 Future work |
 
-Note: LatticeFold+ verification is enabled on regtest/testnet and reserved for mainnet activation via a future v0.22 soft-fork.
+Note: LatticeFold+ verification is enabled on regtest/testnet and activates at **Height 100,000** on mainnet via staged consensus activation.
 
 ### Branch Structure
 
@@ -265,12 +266,13 @@ This project follows [Bitcoin Core contribution guidelines](CONTRIBUTING.md):
 | **Ticker** | SOQ |
 | **Algorithm** | Scrypt |
 | **Block Time** | 1 minute |
-| **Block Reward** | 10,000 SOQ |
-| **Halving Interval** | 840,000 blocks (~4 years) |
-| **Max Supply** | 21,000,000,000 SOQ |
+| **Initial Block Reward** | 500,000 SOQ |
+| **Halving Interval** | 100,000 blocks (~69 days) |
+| **Terminal Emission** | 10,000 SOQ perpetual (after block 600,000) |
+| **Supply Model** | Inflationary with declining rate |
 | **Premine** | 0 SOQ |
 
-**Fair Launch** — No premine, no ICO, no insider allocation. 100% proof-of-work distribution.
+**Fair Launch** — No premine, no ICO, no founder allocation, no treasury. 100% proof-of-work distribution.
 
 ---
 
