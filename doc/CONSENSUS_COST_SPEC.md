@@ -1,6 +1,6 @@
 # Soqucoin Consensus Cost Specification
 
-> **Version**: 1.1 | **Status**: Public Reference
+> **Version**: 1.2 | **Status**: Public Reference
 > **Last Updated**: January 2026
 > **Network**: Mainnet (Q1 2026)
 
@@ -21,12 +21,93 @@ Understanding which parameters are inherited vs novel is critical for risk asses
 | Category | Examples | Risk Profile |
 |----------|----------|--------------|
 | **Inherited (Dogecoin)** | Block weight, script limits, DigiShield | Low — battle-tested |
-| **Modified** | Coinbase maturity, fee structure | Medium — adapted for SOQ |
-| **Novel (Soqucoin)** | PQ verify costs, LatticeFold caps | Higher — requires audit focus |
+| **Modified** | Block reward schedule, fee structure | Medium — adapted for SOQ |
+| **Novel (Soqucoin)** | PQ verify costs, LatticeFold caps, Chain ID | Higher — requires audit focus |
 
 ---
 
-## 2. Per-Block Budgets
+## 2. Design Rationale for Modified Parameters
+
+This section explains **why** each modified parameter differs from Dogecoin's base values.
+
+### 2.1 Block Reward: Random → Deterministic
+
+| Dogecoin | Soqucoin | Rationale |
+|----------|----------|-----------|
+| Blocks 0-100k: Random 0-1,000,000 DOGE | Blocks 0-100k: Fixed 500,000 SOQ | **Predictability** |
+
+Dogecoin's random block rewards were a "fun" feature reflecting its meme origins. For a serious post-quantum chain:
+- Miners and investors require **predictable economic models**
+- Mining pool variance creates unnecessary volatility
+- Institutional due diligence requires deterministic supply curves
+
+### 2.2 Terminal Emission: Aligned with Dogecoin Philosophy
+
+| Dogecoin | Soqucoin | Rationale |
+|----------|----------|-----------|
+| 10,000 DOGE perpetual (after block 600k) | 10,000 SOQ perpetual (after block 600k) | **Miner incentive sustainability** |
+
+Both chains converge to **identical terminal emission**: 10,000 tokens/block indefinitely. This is intentional:
+- Perpetual inflation ensures ongoing miner incentives
+- Prevents "fee-only" security model concerns
+- Aligns with Dogecoin's proven long-term approach
+
+### 2.3 Fee Structure: Placeholder for Mainnet Economics
+
+| Dogecoin | Soqucoin | Rationale |
+|----------|----------|-----------|
+| ~1 DOGE/kB recommended | 0.01 SOQ/kB recommended | **Lower initial barrier** |
+
+Fee parameters are **policy, not consensus**. The 0.01 SOQ value is conservative:
+- Prevents spam while SOQ has low/no market value
+- Subject to community review post-mainnet launch
+- Will be adjusted based on actual transaction economics
+
+### 2.4 Chain ID: Security-Critical Unique Identifier
+
+| Dogecoin | Soqucoin | Rationale |
+|----------|----------|-----------|
+| 0x0062 (98 decimal) | 0x5351 (21329 decimal, "SQ") | **Merged mining isolation** |
+
+This is a **mandatory security parameter**:
+- Same Chain ID enables cross-chain replay attacks
+- Blocks mined for Dogecoin could be accepted on Soqucoin
+- Unique ID is required for any AuxPoW chain
+
+The value `0x5351` encodes "SQ" in ASCII, serving as a human-readable identifier.
+
+### 2.5 Post-Quantum Verification Costs: Novel Requirement
+
+These parameters don't exist in Dogecoin (no PQ cryptography):
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `DILITHIUM_VERIFY_COST = 1` | Baseline unit; Dilithium is our fastest proof |
+| `BPPP_VERIFY_COST = 50` | ~50× Dilithium due to elliptic curve operations |
+| `PAT_VERIFY_COST = 20` | Merkle verification, moderate complexity |
+| `LATTICEFOLD_VERIFY_COST = 200` | Recursive SNARK requires intensive computation |
+
+Cost ratios derived from **Apple M4 Max benchmarks**. May require rebalancing based on:
+- Mainnet hardware diversity telemetry
+- Future algorithm optimizations
+- Actual block composition patterns
+
+### 2.6 LatticeFold Rate Limit: DoS Prevention
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `MAX_LATTICEFOLD_PER_BLOCK = 10` | 10 proofs × 40ms ≈ 400ms verification budget |
+
+LatticeFold+ proofs are computationally expensive. Without a hard cap:
+- Attackers could craft blocks taking >60s to verify
+- Validators would fall behind chain tip
+- Network could experience consensus forks
+
+The limit of 10 ensures block validation completes well within target block time.
+
+---
+
+## 3. Per-Block Budgets
 
 ### Block Size & Weight Limits (Inherited)
 
@@ -47,7 +128,7 @@ Understanding which parameters are inherited vs novel is critical for risk asses
 
 ---
 
-## 3. Post-Quantum Proof Verification Costs (Novel)
+## 4. Post-Quantum Proof Verification Costs (Novel)
 
 Each post-quantum proof type has an assigned verification cost. The **total verification cost** in a block cannot exceed `MAX_BLOCK_VERIFY_COST` (80,000 units).
 
@@ -72,7 +153,7 @@ Each post-quantum proof type has an assigned verification cost. The **total veri
 
 ---
 
-## 4. Transaction Limits
+## 5. Transaction Limits
 
 ### Inherited from Bitcoin/Dogecoin
 
@@ -97,7 +178,7 @@ Standard Bitcoin witness limits were designed for ECDSA (~72 byte signatures). D
 
 ---
 
-## 5. Fee Policy (Modified)
+## 6. Fee Policy (Modified)
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
@@ -110,7 +191,7 @@ Standard Bitcoin witness limits were designed for ECDSA (~72 byte signatures). D
 
 ---
 
-## 6. Chain Parameters
+## 7. Chain Parameters
 
 | Parameter | Value | Source |
 |-----------|-------|--------|
@@ -128,7 +209,7 @@ Standard Bitcoin witness limits were designed for ECDSA (~72 byte signatures). D
 
 ---
 
-## 7. Consensus vs. Policy
+## 8. Consensus vs. Policy
 
 Understanding the difference is critical for node operators and miners:
 
@@ -157,7 +238,7 @@ Nodes can adjust, miners can override:
 
 ---
 
-## 8. Activation Status
+## 9. Activation Status
 
 ### Currently Active (Genesis)
 
@@ -181,7 +262,7 @@ All features active from block 0 on Testnet3 and Mainnet:
 
 ---
 
-## 9. DoS Protections
+## 10. DoS Protections
 
 | Attack Vector | Mitigation | Type |
 |---------------|------------|------|
@@ -195,7 +276,7 @@ All features active from block 0 on Testnet3 and Mainnet:
 
 ---
 
-## 10. Reference Implementation
+## 11. Reference Implementation
 
 All values are defined in the Soqucoin Core source code:
 
@@ -208,7 +289,7 @@ All values are defined in the Soqucoin Core source code:
 
 ---
 
-## 11. Summary Table
+## 12. Summary Table
 
 | Category | Limit | Type | Source |
 |----------|-------|------|--------|
