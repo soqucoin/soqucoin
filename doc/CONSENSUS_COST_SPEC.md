@@ -1,6 +1,6 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 1.5 | **Status**: Public Reference
+> **Version**: 1.6 | **Status**: Public Reference
 > **Last Updated**: January 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 
@@ -337,8 +337,9 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 
 | Network | Genesis | Chain ID | BP++ Activation | LatticeFold Activation |
 |---------|---------|----------|-----------------|------------------------|
-| Mainnet | Q1 2026 | 0x5351 | Height 100,000 | Height 200,000 |
+| Mainnet | Q1 2026 | 0x5351 | Height 50,000 | Height 100,000 |
 | Testnet3 | Dec 2025 | 0x5351 | Genesis (all features) | Genesis (all features) |
+| Mainnet-candidate | Pre-launch | 0x5351 | Height 50,000 | Height 100,000 |
 
 ---
 
@@ -389,6 +390,74 @@ All values are defined in the Soqucoin Core source code at the following paths:
 
 ---
 
+## Appendix A: Security Assumptions & Threat Model (Summary)
+
+### Adversary Models
+
+| Adversary | Assumed Capability | Mitigation |
+|-----------|-------------------|------------|
+| **Mempool spammer** | Can broadcast many low-fee transactions | Relay fees, verify-cost budget |
+| **Merged-mining manipulation** | Controls auxiliary chain hashrate | Unique Chain ID (0x5351), AuxPoW validation |
+| **Eclipse/Sybil attacker** | Controls multiple network nodes | Peer rotation, DNS seeds, checkpoint awareness |
+| **Miner cartel** | >50% hashrate coordination | DigiShield difficulty adjustment, community monitoring |
+| **Malicious proof generator** | Crafts adversarial proofs | Per-op verification costs, MAX_LATTICEFOLD_PER_BLOCK cap |
+| **Quantum adversary** | Shor's algorithm capability | Dilithium signatures (NIST PQ standard) |
+
+### Known Limitations
+
+- **Long-range reorg under low AuxPoW participation**: Mitigated by monitoring, checkpoints (if needed)
+- **Novel cryptography risk**: LatticeFold is research-grade; staged activation provides buffer
+- **Fee economics pre-market**: Policy parameters are placeholders pending real market data
+
+---
+
+## Appendix B: Supply Curve & Allocations
+
+### Emission Schedule
+
+| Block Range | Reward per Block | Cumulative Supply |
+|-------------|------------------|-------------------|
+| 0 - 100,000 | 500,000 SOQ | 50 billion SOQ |
+| 100,001 - 200,000 | 250,000 SOQ | 75 billion SOQ |
+| 200,001 - 300,000 | 125,000 SOQ | 87.5 billion SOQ |
+| 300,001 - 400,000 | 62,500 SOQ | 93.75 billion SOQ |
+| 400,001 - 500,000 | 31,250 SOQ | 96.875 billion SOQ |
+| 500,001 - 600,000 | 15,625 SOQ | 98.4375 billion SOQ |
+| 600,001+ | 10,000 SOQ | Perpetual inflation |
+
+### Allocations
+
+| Category | Allocation | Notes |
+|----------|------------|-------|
+| **Premine** | **NONE** | 0 SOQ premined |
+| **Founder allocation** | **NONE** | No reserved tokens |
+| **Treasury** | **NONE** | No protocol treasury |
+| **Distribution** | 100% mining | Fair launch, all SOQ mined |
+
+> All SOQ is distributed through proof-of-work mining. There is no premine, founder allocation, or treasury.
+
+---
+
+## Appendix C: Cryptographic Components & Implementations
+
+| Component | Standard | Library | Test Vectors | Side-Channel Posture |
+|-----------|----------|---------|--------------|----------------------|
+| **Dilithium (ML-DSA-44)** | NIST FIPS 204 | Custom (NIST reference) | NIST KAT | Constant-time implementation |
+| **Bulletproofs++** | Academic (Bünz et al.) | secp256k1-zkp (Blockstream) | Elements test suite | Constant-time multiexp |
+| **PAT Aggregation** | Novel | Custom | Soqucoin test suite | N/A (hash-based) |
+| **LatticeFold+** | ePrint 2025/247 | Custom | Soqucoin test suite | Constant-time field ops |
+| **Scrypt PoW** | RFC 7914 | Colin Percival reference | Litecoin/Dogecoin | N/A (PoW) |
+
+### Audit Scope Notes
+
+- **NIST-grade**: Dilithium uses NIST PQ standard parameters
+- **Battle-tested**: Bulletproofs++ uses Elements/Liquid production library
+- **Research-grade**: LatticeFold+ is novel; requires focused audit attention
+- **Inherited**: Scrypt PoW, consensus rules from Dogecoin/Bitcoin
+
+---
+
 *Soqucoin Protocol Parameters Specification*
 *Prepared for community and investor reference*
 *Soqucoin Core Development Team — January 2026*
+
