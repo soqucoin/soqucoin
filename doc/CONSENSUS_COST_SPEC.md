@@ -1,8 +1,18 @@
-# Soqucoin Consensus Cost Specification
+# Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 1.2 | **Status**: Public Reference
+> **Version**: 1.3 | **Status**: Public Reference
 > **Last Updated**: January 2026
-> **Network**: Mainnet (Q1 2026)
+> **Specification Tag**: Mainnet Candidate v1.0
+
+---
+
+> [!IMPORTANT]
+> **Pre-Mainnet Notice**: The following parameters are subject to change before mainnet launch:
+> - **Policy parameters** (fees, dust limits) may be adjusted based on market conditions
+> - **Benchmark-derived weights** (PQ verification costs) may be rebalanced based on hardware telemetry
+> - **Consensus parameters** are frozen and will not change without a coordinated network upgrade
+>
+> This document reflects the current mainnet candidate specification.
 
 ---
 
@@ -278,14 +288,17 @@ All features active from block 0 on Testnet3 and Mainnet:
 
 ## 11. Reference Implementation
 
-All values are defined in the Soqucoin Core source code:
+All values are defined in the Soqucoin Core source code at the following paths:
 
 | File | Contains |
 |------|----------|
-| `src/consensus/consensus.h` | Block/verify cost limits (lines 13-52) |
-| `src/policy/policy.h` | Fee and dust defaults (lines 23-81) |
-| `src/script/script.h` | Script size limits (lines 22-31) |
-| `src/chainparams.cpp` | Chain parameters, maturity (lines 94-163) |
+| `src/consensus/consensus.h` | Block size, sigops, and verification cost limits |
+| `src/policy/policy.h` | Fee and dust policy defaults |
+| `src/script/script.h` | Script size limits |
+| `src/chainparams.cpp` | Chain parameters and maturity rules |
+
+> Refer to the tagged release corresponding to this specification for exact line numbers.
+> Public repository: `https://github.com/soqucoin/soqucoin`
 
 ---
 
@@ -306,6 +319,6 @@ All values are defined in the Soqucoin Core source code:
 
 ---
 
-*Document prepared for community reference*
+*Soqucoin Protocol Parameters Specification*
+*Prepared for community and investor reference*
 *Soqucoin Core Development Team — January 2026*
-*Commit: 178212cae*
