@@ -1,6 +1,6 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 1.4 | **Status**: Public Reference
+> **Version**: 1.5 | **Status**: Public Reference
 > **Last Updated**: January 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 
@@ -260,26 +260,52 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 | Stage | Height | ~Calendar | Features | Rationale |
 |-------|--------|-----------|----------|-----------|
 | **Genesis** | 0 | Q1 2026 | Dilithium signatures, PAT aggregation, AuxPoW | Core PQ identity |
-| **Stage 1** | 100,000 | +~69 days | Bulletproofs++ range proofs | Privacy layer, proven ECC crypto |
-| **Stage 2** | 200,000 | +~139 days | LatticeFold+ batch verification | Scaling optimization, highest complexity |
+| **Stage 1** | 50,000 | +~35 days | Bulletproofs++ range proofs | Privacy primitive (secp256k1-zkp) |
+| **Stage 2** | 100,000 | +~69 days | LatticeFold+ batch verification | Scaling optimization |
 
 ### Testnet Activation Schedule
 
 | Stage | Height | Features | Notes |
 |-------|--------|----------|-------|
-| Genesis | 0 | All features | Testnet enables all features for testing |
+| Testnet3 | 0 | All features | Development/testing (all active) |
+| **Mainnet-candidate testnet** | Mirrors mainnet | Staged activation | Upgrade rehearsal environment |
+
+### What Each Feature Provides
+
+**BP++ Range Proofs (Stage 1)**:
+- Pedersen commitments with cryptographic range proofs [0, 2^64)
+- Based on secp256k1-zkp (Elements/Blockstream) — battle-tested library
+- **Note**: This is range proof infrastructure, not full confidential transactions
+- Full privacy features (CT, confidential assets) planned for future softfork (see Roadmap)
+
+**LatticeFold+ Batch Verification (Stage 2)**:
+- Verifies up to 512 Dilithium signatures in ~0.68ms (vs ~102ms individually)
+- ~150x verification speedup for blocks with many transactions
+- Based on ePrint 2025/247 (October revision) — custom research implementation
+- **Not required** for basic operation; optimization for high-throughput scenarios
+
+### Quantitative Impact
+
+| Metric | Before Stage 2 | After Stage 2 |
+|--------|----------------|---------------|
+| **Single signature verification** | ~0.2ms | ~0.2ms (unchanged) |
+| **512-signature block verification** | ~102ms | ~0.68ms |
+| **Speedup for high-tx blocks** | 1x | ~150x |
+| **Throughput ceiling** | Adequate for early adoption | Scales to high volume |
+
+*Benchmarks: Apple M4 Max (single-threaded). x86 server ~1.2ms for batch; low-end VPS ~3-5ms.*
 
 ### Activation Ordering Rationale
 
 **Why BP++ activates before LatticeFold:**
 
-1. **Cryptographic maturity**: BP++ uses secp256k1-zkp (Elements/Blockstream), a battle-tested library. LatticeFold is a custom implementation of recent research (ePrint 2025/247).
+1. **Cryptographic maturity**: BP++ uses battle-tested secp256k1-zkp. LatticeFold is custom research code (ePrint 2025/247).
 
-2. **Blast radius management**: LatticeFold is the highest-complexity primitive. Activating it last provides maximum operational signal before enabling.
+2. **Blast radius**: LatticeFold has highest complexity. Activating it last maximizes operational signal.
 
-3. **Chain operation**: Neither feature is required for basic operation. Users can send Dilithium transactions at genesis; advanced features activate progressively.
+3. **Independence**: Neither is required for basic operation. Dilithium transactions work at genesis.
 
-4. **Privacy value**: BP++ enables confidential transactions, a high-value feature for mainnet users.
+4. **We accept lower throughput early to minimize consensus risk.** Expected early throughput is adequate for initial adoption patterns.
 
 ### Pre-Activation Behavior
 
@@ -288,11 +314,22 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 | **BP++ range proofs** | Consensus-invalid | Standard, relay enabled |
 | **LatticeFold proofs** | Consensus-invalid | Standard, relay enabled |
 
-### Upgrade Policy
+### Roadmap Features (Future Softforks)
+
+| Feature | Target | Description |
+|---------|--------|-------------|
+| **Stage 3: Lattice-BP Hybrid** | v0.22 | Full confidential transactions with PQ privacy |
+| **Stage 4: Solana Bridge** | TBD | Cross-chain SOQ ↔ pSOQ integration |
+
+*These features require separate softforks and are not consensus-frozen in this specification.*
+
+### Upgrade & Security Response Policy
 
 - **Activation heights are consensus-frozen** once a tagged release is published
-- **Height changes require a new release** with coordinated upgrade window
-- **Emergency softfork process**: Documented in operational runbooks (private)
+- **Height changes require a new release** with minimum 2-week upgrade window
+- **Security response**: Critical vulnerabilities trigger coordinated disclosure to major miners/exchanges within 24 hours, followed by emergency release
+- **Release signing**: All binaries signed by core maintainers; reproducible builds available
+- **Rollback policy**: No consensus rollbacks except for chain-halting bugs affecting >50% of network
 
 ---
 
