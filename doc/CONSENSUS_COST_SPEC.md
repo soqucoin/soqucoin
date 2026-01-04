@@ -1,6 +1,6 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 1.6 | **Status**: Public Reference
+> **Version**: 1.7 | **Status**: Public Reference
 > **Last Updated**: January 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 
@@ -277,6 +277,20 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 - Based on secp256k1-zkp (Elements/Blockstream) — battle-tested library
 - **Note**: This is range proof infrastructure, not full confidential transactions
 - Full privacy features (CT, confidential assets) planned for future softfork (see Roadmap)
+
+> [!WARNING]
+> **Privacy Status Clarification (v1.0)**
+> 
+> In Soqucoin v1.0, BP++ range proofs are **consensus-verified** but **amounts remain plaintext**:
+> 
+> | Aspect | v1.0 (Stage 1) | Future (Stage 3) |
+> |--------|----------------|------------------|
+> | `vout.nValue` | **Visible** (plaintext on-chain) | Hidden (zero on-chain) |
+> | Pedersen commitment | Present in `OP_RETURN` | Primary amount carrier |
+> | Range proof verification | Consensus-enforced | Consensus-enforced |
+> | Privacy | ❌ None | ✅ Full CT |
+> 
+> **Rationale**: Stage 1 activates the *plumbing* for confidential transactions — the verification code path, consensus cost accounting, and proof byte budgets. This allows wallets and infrastructure to test CT workflows with real proofs before privacy semantics activate. Full confidential transactions (hidden amounts) require a Stage 3 softfork.
 
 **LatticeFold+ Batch Verification (Stage 2)**:
 - Verifies up to 512 Dilithium signatures in ~0.68ms (vs ~102ms individually)
