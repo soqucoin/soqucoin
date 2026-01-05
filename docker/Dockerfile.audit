@@ -46,8 +46,8 @@ RUN ./autogen.sh && \
     CFLAGS="-O2 -g" && \
     make -j$(nproc)
 
-# Run unit tests
-RUN make check || (cat src/test/test_bitcoin.log && exit 1)
+# Run unit tests (show log on failure)
+RUN make check || (cat src/test/test-suite.log && exit 1)
 
 # =============================================================================
 # Stage 2: Benchmark Runtime
