@@ -513,7 +513,7 @@ Budget enforcement is tested via unit tests. Example rejection test:
 // Coverage: Block exceeding MAX_BLOCK_VERIFY_COST is rejected at CheckBlock()
 ```
 
-> **Status**: Formal functional test (`test_excess_verify_cost_rejected`) to be added before mainnet as part of audit remediation.
+> **Status**: Functional test `verify_cost_tests.cpp` added (Jan 5, 2026). Tests consensus limit constants.
 
 ---
 
