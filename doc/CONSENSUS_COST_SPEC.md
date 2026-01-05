@@ -535,8 +535,8 @@ Budget enforcement is tested via unit tests. Example rejection test:
 | Platform | Specs | Notes |
 |----------|-------|-------|
 | **Apple M4 Mini** | 10-core, 16GB RAM, macOS 15 | Primary development platform |
-| **Testnet3 VPS** | DO-Premium-Intel 4-core, 8GB RAM, Ubuntu 24.04 | DigitalOcean 64.23.197.144 |
-| **Engineering VPS** | DO-Regular 2-core, 4GB RAM, Ubuntu 22.04 | DigitalOcean 64.23.245.81 |
+| **Testnet3 VPS** | DO-Premium-Intel 4-core, 8GB RAM, Ubuntu 24.04 | DigitalOcean droplet |
+| **Engineering VPS** | DO-Regular 2-core, 4GB RAM, Ubuntu 22.04 | DigitalOcean droplet |
 
 ### Build Configuration
 
