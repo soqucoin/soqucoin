@@ -560,19 +560,23 @@ make -j$(nproc)
 | Bulletproofs_GenRangeProof | 2.1 ms | 1,000 | 64-bit range |
 | Bulletproofs_VerifyRangeProof | 890 µs | 1,000 | 64-bit range |
 
-### Docker Reproducibility (Planned)
+### Docker Reproducibility ✅ Verified
 
-```dockerfile
-# Dockerfile for reproducible builds (to be published)
-FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y build-essential autoconf libtool ...
-COPY . /soqucoin
-WORKDIR /soqucoin
-RUN ./autogen.sh && ./configure --enable-bench && make -j$(nproc)
-CMD ["./src/bench/bench_bitcoin", "--output-csv=/out/results.csv"]
+```bash
+# Build and test (all 244 unit tests pass)
+docker build -f docker/Dockerfile.audit --target builder -t soqucoin-audit .
+
+# Run benchmarks
+docker build -f docker/Dockerfile.audit --target benchmark -t soqucoin-bench .
+docker run --rm -v $(pwd):/out soqucoin-bench
 ```
 
-> **Status**: Docker harness to be published to GitHub before mainnet.
+| Test Suite | Result |
+|------------|--------|
+| `test_soqucoin` (244 cases) | ✅ ALL PASSED |
+| Univalue tests | ✅ 3/3 PASSED |
+
+> **Status**: Docker harness verified on Ubuntu 22.04 VPS (Jan 5, 2026). See [`docker/DOCKER_BUILD_GUIDE.md`](../docker/DOCKER_BUILD_GUIDE.md) for full instructions.
 
 ---
 
