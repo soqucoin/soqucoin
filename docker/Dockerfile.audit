@@ -1,0 +1,113 @@
+# Soqucoin Audit Build Dockerfile
+# Purpose: Reproducible build for security auditors with tests and benchmarks
+# Version: 1.0 | January 2026
+
+# =============================================================================
+# Stage 1: Build (Full verification suite)
+# =============================================================================
+FROM ubuntu:22.04 AS builder
+
+LABEL maintainer="dev@soqu.org"
+LABEL description="Soqucoin reproducible audit build"
+LABEL version="1.0"
+
+# Install build dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libtool \
+    autotools-dev \
+    automake \
+    pkg-config \
+    bsdmainutils \
+    python3 \
+    python3-pip \
+    libssl-dev \
+    libevent-dev \
+    libboost-all-dev \
+    libzmq3-dev \
+    libdb5.3-dev \
+    libdb5.3++-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy source code
+COPY . /soqucoin
+WORKDIR /soqucoin
+
+# Build with tests and benchmarks enabled
+RUN ./autogen.sh && \
+    ./configure \
+    --without-gui \
+    --with-incompatible-bdb \
+    --enable-tests \
+    --enable-bench \
+    CXXFLAGS="-O2 -g" \
+    CFLAGS="-O2 -g" && \
+    make -j$(nproc)
+
+# Run unit tests
+RUN make check || (cat src/test/test_bitcoin.log && exit 1)
+
+# =============================================================================
+# Stage 2: Benchmark Runtime
+# =============================================================================
+FROM ubuntu:22.04 AS benchmark
+
+# Install runtime dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    libevent-dev \
+    libboost-all-dev \
+    libzmq3-dev \
+    libdb5.3-dev \
+    libdb5.3++-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binaries from builder
+COPY --from=builder /soqucoin/src/soqucoind /usr/local/bin/
+COPY --from=builder /soqucoin/src/soqucoin-cli /usr/local/bin/
+COPY --from=builder /soqucoin/src/test/test_bitcoin /usr/local/bin/
+COPY --from=builder /soqucoin/src/bench/bench_bitcoin /usr/local/bin/
+
+# Create output directory
+RUN mkdir -p /out
+
+# Default: run benchmarks and output CSV
+CMD ["sh", "-c", "bench_bitcoin --output-csv=/out/benchmark_results.csv && cat /out/benchmark_results.csv"]
+
+# =============================================================================
+# Stage 3: Minimal Runtime (Production)
+# =============================================================================
+FROM ubuntu:22.04 AS runtime
+
+# Install runtime dependencies only
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    libevent-dev \
+    libboost-all-dev \
+    libzmq3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create user for security
+RUN useradd -m soqucoin
+USER soqucoin
+WORKDIR /home/soqucoin
+
+# Copy only essential binaries
+COPY --from=builder /soqucoin/src/soqucoind /usr/local/bin/
+COPY --from=builder /soqucoin/src/soqucoin-cli /usr/local/bin/
+
+# Create data directory
+RUN mkdir -p /home/soqucoin/.soqucoin
+
+# Expose ports (Testnet P2P, Testnet RPC)
+EXPOSE 18333 18332
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s \
+    CMD soqucoin-cli getnetworkinfo || exit 1
+
+CMD ["soqucoind", "-printtoconsole"]
