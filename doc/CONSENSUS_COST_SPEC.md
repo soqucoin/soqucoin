@@ -97,7 +97,7 @@ These parameters don't exist in Dogecoin (no PQ cryptography):
 | `PAT_VERIFY_COST = 20` | Merkle verification, moderate complexity |
 | `LATTICEFOLD_VERIFY_COST = 200` | Recursive SNARK requires intensive computation |
 
-Cost ratios derived from **Apple M4 Max benchmarks**. May require rebalancing based on:
+Cost ratios derived from **Testnet3 VPS benchmarks** (DO-Premium-Intel). May require rebalancing based on:
 - Mainnet hardware diversity telemetry
 - Future algorithm optimizations
 - Actual block composition patterns
@@ -526,17 +526,17 @@ Budget enforcement is tested via unit tests. Example rejection test:
 
 | Benchmark | Source | Run Command |
 |-----------|--------|-------------|
-| Dilithium Sign/Verify | [`src/bench/dilithium.cpp`](https://github.com/soqucoin/soqucoin/blob/main/src/bench/dilithium.cpp) | `./bench_bitcoin --filter='Dilithium*'` |
-| Bulletproofs++ Gen/Verify | [`src/bench/bench_bulletproofs.cpp`](https://github.com/soqucoin/soqucoin/blob/main/src/bench/bench_bulletproofs.cpp) | `./bench_bitcoin --filter='Bulletproofs*'` |
+| Dilithium Sign/Verify | [`src/bench/dilithium.cpp`](https://github.com/soqucoin/soqucoin/blob/main/src/bench/dilithium.cpp) | `./bench_soqucoin --filter='Dilithium*'` |
+| Bulletproofs++ Gen/Verify | [`src/bench/bench_bulletproofs.cpp`](https://github.com/soqucoin/soqucoin/blob/main/src/bench/bench_bulletproofs.cpp) | `./bench_soqucoin --filter='Bulletproofs*'` |
 | LatticeFold+ Verify | [`src/crypto/latticefold/verifier.cpp`](https://github.com/soqucoin/soqucoin/blob/main/src/crypto/latticefold/verifier.cpp) | Inline benchmark (see header comment) |
 
-### Hardware Reference Platforms
+### Hardware Reference Platforms ✅ Verified
 
 | Platform | Specs | Notes |
 |----------|-------|-------|
-| **Apple M4** | 10-core, 16GB RAM, macOS 15 | Primary development platform |
-| **AMD Ryzen 7950X** | 16-core, 64GB RAM, Linux 6.5 | Cross-platform validation |
-| **Intel Xeon E5-2690** | 8-core, 32GB RAM, Linux 5.15 | Legacy baseline |
+| **Apple M4 Mini** | 10-core, 16GB RAM, macOS 15 | Primary development platform |
+| **Testnet3 VPS** | DO-Premium-Intel 4-core, 8GB RAM, Ubuntu 24.04 | DigitalOcean 64.23.197.144 |
+| **Engineering VPS** | DO-Regular 2-core, 4GB RAM, Ubuntu 22.04 | DigitalOcean 64.23.245.81 |
 
 ### Build Configuration
 
@@ -548,17 +548,21 @@ Budget enforcement is tested via unit tests. Example rejection test:
 make -j$(nproc)
 
 # Run benchmarks
-./src/bench/bench_bitcoin --output-csv=results.csv
+./src/bench/bench_soqucoin --output-csv=results.csv
 ```
 
-### Reference Benchmark Results (Apple M4, 2026-01-01)
+### Reference Benchmark Results ✅ Verified (Testnet3 VPS, 2026-01-05)
 
-| Operation | Time (median) | Iterations | Notes |
-|-----------|---------------|------------|-------|
-| DilithiumSign | 142 µs | 10,000 | ML-DSA-44 |
-| DilithiumVerify | 198 µs | 10,000 | ML-DSA-44 |
-| Bulletproofs_GenRangeProof | 2.1 ms | 1,000 | 64-bit range |
-| Bulletproofs_VerifyRangeProof | 890 µs | 1,000 | 64-bit range |
+| Operation | Average Time | Min Time | Iterations | Notes |
+|-----------|--------------|----------|------------|-------|
+| DilithiumSign | 594 µs | 485 µs | 1,792 | ML-DSA-44 |
+| DilithiumVerify | 187 µs | 130 µs | 5,632 | ML-DSA-44 |
+| Bulletproofs_GenRangeProof | 5.49 ms | 5.00 ms | 192 | 64-bit range |
+| Bulletproofs_VerifyRangeProof | 4.07 ms | 3.54 ms | 256 | 64-bit range |
+
+> **Platform**: DO-Premium-Intel 4-core, 8GB RAM, Ubuntu 24.04 (Docker container)
+> **Date**: January 5, 2026
+> **Build**: `./configure --enable-bench --with-incompatible-bdb`
 
 ### Docker Reproducibility ✅ Verified
 

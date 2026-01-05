@@ -135,7 +135,7 @@ BITCOIN_TESTS =\
   test/txrequest_tests.cpp \
   test/uint256_tests.cpp \
   test/univalue_tests.cpp \
-  test/util_tests.cpp
+  test/util_tests.cpp \\\n  test/verify_cost_tests.cpp
 # Legacy ECDSA tests disabled for Post-Quantum Transition
 #  test/audit_tests.cpp
 #  test/latticefold_tests.cpp
