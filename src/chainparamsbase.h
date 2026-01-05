@@ -15,9 +15,10 @@
 class CBaseChainParams
 {
 public:
-    /** BIP70 chain name strings (main, test or regtest) */
+    /** BIP70 chain name strings (main, test, stagenet or regtest) */
     static const std::string MAIN;
     static const std::string TESTNET;
+    static const std::string STAGENET;
     static const std::string REGTEST;
 
     const std::string& DataDir() const { return strDataDir; }
@@ -34,7 +35,7 @@ protected:
  * Append the help messages for the chainparams options to the
  * parameter string.
  */
-void AppendParamsHelpMessages(std::string& strUsage, bool debugHelp=true);
+void AppendParamsHelpMessages(std::string& strUsage, bool debugHelp = true);
 
 /**
  * Return the currently selected parameters. This won't change after app

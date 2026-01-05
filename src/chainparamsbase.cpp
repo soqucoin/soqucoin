@@ -12,15 +12,17 @@
 
 const std::string CBaseChainParams::MAIN = "main";
 const std::string CBaseChainParams::TESTNET = "test";
+const std::string CBaseChainParams::STAGENET = "stagenet";
 const std::string CBaseChainParams::REGTEST = "regtest";
 
 void AppendParamsHelpMessages(std::string& strUsage, bool debugHelp)
 {
     strUsage += HelpMessageGroup(_("Chain selection options:"));
     strUsage += HelpMessageOpt("-testnet", _("Use the test chain"));
+    strUsage += HelpMessageOpt("-stagenet", _("Use the stagenet chain (mainnet rehearsal)"));
     if (debugHelp) {
         strUsage += HelpMessageOpt("-regtest", "Enter regression test mode, which uses a special chain in which blocks can be solved instantly. "
-                                   "This is intended for regression testing tools and app development.");
+                                               "This is intended for regression testing tools and app development.");
     }
 }
 
@@ -65,6 +67,20 @@ public:
 };
 static CBaseRegTestParams regTestParams;
 
+/**
+ * Stagenet - Mainnet rehearsal network
+ */
+class CBaseStageNetParams : public CBaseChainParams
+{
+public:
+    CBaseStageNetParams()
+    {
+        nRPCPort = 28332;
+        strDataDir = "stagenet";
+    }
+};
+static CBaseStageNetParams stageNetParams;
+
 static CBaseChainParams* pCurrentBaseParams = 0;
 
 const CBaseChainParams& BaseParams()
@@ -79,6 +95,8 @@ CBaseChainParams& BaseParams(const std::string& chain)
         return mainParams;
     else if (chain == CBaseChainParams::TESTNET)
         return testNetParams;
+    else if (chain == CBaseChainParams::STAGENET)
+        return stageNetParams;
     else if (chain == CBaseChainParams::REGTEST)
         return regTestParams;
     else
@@ -94,13 +112,17 @@ std::string ChainNameFromCommandLine()
 {
     bool fRegTest = GetBoolArg("-regtest", false);
     bool fTestNet = GetBoolArg("-testnet", false);
+    bool fStageNet = GetBoolArg("-stagenet", false);
 
-    if (fTestNet && fRegTest)
-        throw std::runtime_error("Invalid combination of -regtest and -testnet.");
+    int netCount = (fRegTest ? 1 : 0) + (fTestNet ? 1 : 0) + (fStageNet ? 1 : 0);
+    if (netCount > 1)
+        throw std::runtime_error("Invalid combination of -regtest, -testnet, and -stagenet.");
     if (fRegTest)
         return CBaseChainParams::REGTEST;
     if (fTestNet)
         return CBaseChainParams::TESTNET;
+    if (fStageNet)
+        return CBaseChainParams::STAGENET;
     return CBaseChainParams::MAIN;
 }
 

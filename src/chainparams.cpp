@@ -523,6 +523,143 @@ public:
 };
 static CRegTestParams regTestParams;
 
+/**
+ * Stagenet - Mainnet rehearsal network
+ * Mirrors mainnet staged activation schedule:
+ * - BP++ activates at height 50,000
+ * - LatticeFold+ activates at height 100,000
+ */
+class CStageNetParams : public CChainParams
+{
+private:
+    Consensus::Params digishieldConsensus;
+    Consensus::Params auxpowConsensus;
+
+public:
+    CStageNetParams()
+    {
+        strNetworkID = "stagenet";
+        bech32HRP = "ssq"; // stagenet soqucoin
+
+        consensus.nSubsidyHalvingInterval = 100000;
+        consensus.nMajorityEnforceBlockUpgrade = 1500;
+        consensus.nMajorityRejectBlockOutdated = 1900;
+        consensus.nMajorityWindow = 2000;
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256();
+        consensus.BIP65Height = 0;
+        consensus.BIP66Height = 0;
+        consensus.powLimit = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        consensus.nPowTargetTimespan = 4 * 60 * 60; // 4 hours
+        consensus.nPowTargetSpacing = 60;           // 1 minute
+        consensus.fDigishieldDifficultyCalculation = true;
+        consensus.fPowAllowMinDifficultyBlocks = true;
+        consensus.fPowAllowDigishieldMinDifficultyBlocks = true;
+        consensus.fPowNoRetargeting = false;
+        consensus.nRuleChangeActivationThreshold = 1512;
+        consensus.nMinerConfirmationWindow = 2016;
+        consensus.fSimplifiedRewards = true;
+        consensus.nCoinbaseMaturity = 30;
+
+        // Dilithium only from genesis
+        consensus.dilithiumOnlyHeight = 0;
+
+        // Mainnet-mirrored staged activation\n        // BP++ activation is via BIP9 softfork\n        consensus.nLatticeFoldActivationHeight = 100000; // LatticeFold+ at height 100k (same as mainnet)
+
+        // BIP9 deployments - all active from genesis (Dilithium)
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].bit = 3;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // LatticeFold deployment - height based, not BIP9
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.nMinimumChainWork = uint256S("0x00");
+        consensus.defaultAssumeValid = uint256S("0x00");
+
+        // AuxPoW parameters - same as mainnet
+        consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin
+        consensus.fStrictChainId = false;
+        consensus.nHeightEffective = 0;
+        consensus.fAllowLegacyBlocks = true;
+
+        // Digishield from block 1
+        digishieldConsensus = consensus;
+        digishieldConsensus.nHeightEffective = 1;
+        digishieldConsensus.fDigishieldDifficultyCalculation = true;
+        digishieldConsensus.nPowTargetTimespan = 60;
+
+        // AuxPoW from block 100
+        auxpowConsensus = digishieldConsensus;
+        auxpowConsensus.nHeightEffective = 100;
+        auxpowConsensus.fAllowLegacyBlocks = true;
+
+        pConsensusRoot = &digishieldConsensus;
+        digishieldConsensus.pLeft = &consensus;
+        digishieldConsensus.pRight = &auxpowConsensus;
+
+        // Message start - unique for stagenet
+        pchMessageStart[0] = 0x53; // 'S'
+        pchMessageStart[1] = 0x54; // 'T'
+        pchMessageStart[2] = 0x47; // 'G'
+        pchMessageStart[3] = 0x4e; // 'N'
+        nDefaultPort = 28333;
+        nPruneAfterHeight = 1000;
+
+        // Stagenet Genesis Block - January 2026
+        // Unique genesis isolates Stagenet from all other networks
+        // Genesis nonce will be mined on first run
+        genesis = CreateGenesisBlockTestnet3(1736107200, 2583191, 0x1e0ffff0, 1, 500000 * COIN);
+
+        consensus.hashGenesisBlock = genesis.GetHash();
+        digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
+        auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
+
+        vSeeds.clear();
+        // vSeeds.push_back(CDNSSeedData("soqu.org", "stagenet.soqu.org"));
+
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 125); // s prefix
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 100); // g prefix
+        base58Prefixes[SECRET_KEY] = std::vector<unsigned char>(1, 253);
+        base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x04)(0x35)(0x87)(0xcf).convert_to_container<std::vector<unsigned char> >();
+        base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x04)(0x35)(0x83)(0x94).convert_to_container<std::vector<unsigned char> >();
+
+        vFixedSeeds.clear();
+
+        fMiningRequiresPeers = false;
+        fDefaultConsistencyChecks = false;
+        fRequireStandard = false;
+        fMineBlocksOnDemand = false;
+
+        checkpointData = (CCheckpointData){
+            boost::assign::map_list_of(0, consensus.hashGenesisBlock)};
+
+        chainTxData = ChainTxData{
+            0,
+            0,
+            0};
+    }
+};
+static CStageNetParams stageNetParams;
+
 static CChainParams* pCurrentParams = 0;
 
 const CChainParams& Params()
@@ -552,6 +689,8 @@ CChainParams& Params(const std::string& chain)
         return mainParams;
     else if (chain == CBaseChainParams::TESTNET)
         return testNetParams;
+    else if (chain == CBaseChainParams::STAGENET)
+        return stageNetParams;
     else if (chain == CBaseChainParams::REGTEST)
         return regTestParams;
     else
