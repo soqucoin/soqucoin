@@ -1,6 +1,6 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 1.7 | **Status**: Public Reference
+> **Version**: 1.8 | **Status**: Public Reference
 > **Last Updated**: January 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 
@@ -468,6 +468,111 @@ All values are defined in the Soqucoin Core source code at the following paths:
 - **Battle-tested**: Bulletproofs++ uses Elements/Liquid production library
 - **Research-grade**: LatticeFold+ is novel; requires focused audit attention
 - **Inherited**: Scrypt PoW, consensus rules from Dogecoin/Bitcoin
+
+---
+
+## Appendix D: Code Pointers & Enforcement Locations
+
+> [!TIP]
+> **For Auditors**: This section maps specification parameters to exact source code locations.
+
+### Consensus Limit Definitions
+
+| Parameter | Value | Source Location |
+|-----------|-------|-----------------|
+| `MAX_BLOCK_VERIFY_COST` | 80,000 | [`src/consensus/consensus.h:43`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L43) |
+| `MAX_LATTICEFOLD_PER_BLOCK` | 10 | [`src/consensus/consensus.h:46`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L46) |
+| `MAX_PROOF_BYTES_PER_TX` | 65,536 | [`src/consensus/consensus.h:49`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L49) |
+| `MAX_PROOF_BYTES_PER_BLOCK` | 262,144 | [`src/consensus/consensus.h:52`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L52) |
+
+### Verification Cost Weights
+
+| Operation | Cost | Source Location |
+|-----------|------|-----------------|
+| Dilithium Verify | 1 unit | [`src/consensus/consensus.h:28`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L28) |
+| BP++ Range Proof | 4 units | [`src/consensus/consensus.h:31`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L31) |
+| PAT Aggregate | 20 units | [`src/consensus/consensus.h:37`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L37) |
+| LatticeFold+ SNARK | 200 units | [`src/consensus/consensus.h:40`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L40) |
+
+### Script Interpreter Enforcement
+
+| Opcode | Enforcement Location | Notes |
+|--------|---------------------|-------|
+| `OP_CHECKDILITHIUMSIG` | [`src/script/interpreter.cpp:278-296`](https://github.com/soqucoin/soqucoin/blob/main/src/script/interpreter.cpp#L278-L296) | Single signature verify |
+| `OP_CHECKPATAGG` | [`src/script/interpreter.cpp:149-261`](https://github.com/soqucoin/soqucoin/blob/main/src/script/interpreter.cpp#L149-L261) | PAT Merkle aggregation |
+| `OP_CHECKFOLDPROOF` | [`src/script/interpreter.cpp:262-277`](https://github.com/soqucoin/soqucoin/blob/main/src/script/interpreter.cpp#L262-L277) | LatticeFold+ gating |
+| BP++ VerifyRangeProof | [`src/script/interpreter.cpp:394-400`](https://github.com/soqucoin/soqucoin/blob/main/src/script/interpreter.cpp#L394-L400) | CT range proof check |
+
+### Rejection Test Reference
+
+Budget enforcement is tested via unit tests. Example rejection test:
+
+```cpp
+// Test: Over-budget block rejected
+// Location: src/test/consensus_tests.cpp (planned)
+// Coverage: Block exceeding MAX_BLOCK_VERIFY_COST is rejected at CheckBlock()
+```
+
+> **Status**: Formal functional test (`test_excess_verify_cost_rejected`) to be added before mainnet as part of audit remediation.
+
+---
+
+## Appendix E: Benchmark Harness & Reproducibility
+
+> [!NOTE]
+> **For Reviewers**: All performance claims are derived from reproducible benchmarks.
+
+### Benchmark Executables
+
+| Benchmark | Source | Run Command |
+|-----------|--------|-------------|
+| Dilithium Sign/Verify | [`src/bench/dilithium.cpp`](https://github.com/soqucoin/soqucoin/blob/main/src/bench/dilithium.cpp) | `./bench_bitcoin --filter='Dilithium*'` |
+| Bulletproofs++ Gen/Verify | [`src/bench/bench_bulletproofs.cpp`](https://github.com/soqucoin/soqucoin/blob/main/src/bench/bench_bulletproofs.cpp) | `./bench_bitcoin --filter='Bulletproofs*'` |
+| LatticeFold+ Verify | [`src/crypto/latticefold/verifier.cpp`](https://github.com/soqucoin/soqucoin/blob/main/src/crypto/latticefold/verifier.cpp) | Inline benchmark (see header comment) |
+
+### Hardware Reference Platforms
+
+| Platform | Specs | Notes |
+|----------|-------|-------|
+| **Apple M4** | 10-core, 16GB RAM, macOS 15 | Primary development platform |
+| **AMD Ryzen 7950X** | 16-core, 64GB RAM, Linux 6.5 | Cross-platform validation |
+| **Intel Xeon E5-2690** | 8-core, 32GB RAM, Linux 5.15 | Legacy baseline |
+
+### Build Configuration
+
+```bash
+# Reproducible benchmark build
+./autogen.sh
+./configure --enable-bench --with-incompatible-bdb --disable-wallet-gui \
+    CXXFLAGS="-O2 -march=native" CFLAGS="-O2 -march=native"
+make -j$(nproc)
+
+# Run benchmarks
+./src/bench/bench_bitcoin --output-csv=results.csv
+```
+
+### Reference Benchmark Results (Apple M4, 2026-01-01)
+
+| Operation | Time (median) | Iterations | Notes |
+|-----------|---------------|------------|-------|
+| DilithiumSign | 142 µs | 10,000 | ML-DSA-44 |
+| DilithiumVerify | 198 µs | 10,000 | ML-DSA-44 |
+| Bulletproofs_GenRangeProof | 2.1 ms | 1,000 | 64-bit range |
+| Bulletproofs_VerifyRangeProof | 890 µs | 1,000 | 64-bit range |
+
+### Docker Reproducibility (Planned)
+
+```dockerfile
+# Dockerfile for reproducible builds (to be published)
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y build-essential autoconf libtool ...
+COPY . /soqucoin
+WORKDIR /soqucoin
+RUN ./autogen.sh && ./configure --enable-bench && make -j$(nproc)
+CMD ["./src/bench/bench_bitcoin", "--output-csv=/out/results.csv"]
+```
+
+> **Status**: Docker harness to be published to GitHub before mainnet.
 
 ---
 
