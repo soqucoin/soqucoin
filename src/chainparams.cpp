@@ -68,6 +68,17 @@ static CBlock CreateGenesisBlockTestnet3(uint32_t nTime, uint32_t nNonce, uint32
 }
 
 /**
+ * Soqucoin Stagenet Genesis Block - Jan 2026
+ * Mainnet rehearsal network with identical staged activation
+ */
+static CBlock CreateGenesisBlockStagenet(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
+{
+    const char* pszTimestamp = "Soqucoin Stagenet - Mainnet rehearsal network Jan 2026";
+    const CScript genesisOutputScript = CScript() << ParseHex("040184710fa689ad5023690c80f3a49c8f13f8d45b8c857fbcbc8bc4a8e4d3eb4b10f4d4604fa08dce601aaf0f470216fe1b51850b4acf21b179c45070ac7b03a9") << OP_CHECKSIG;
+    return CreateGenesisBlock(pszTimestamp, genesisOutputScript, nTime, nNonce, nBits, nVersion, genesisReward);
+}
+
+/**
  * Main network
  */
 /**
@@ -624,14 +635,17 @@ public:
         nDefaultPort = 28333;
         nPruneAfterHeight = 1000;
 
-        // Stagenet Genesis Block - January 2026
+        // Stagenet Genesis Block - January 5, 2026
         // Unique genesis isolates Stagenet from all other networks
-        // Genesis nonce will be mined on first run
-        genesis = CreateGenesisBlockTestnet3(1736107200, 2583191, 0x1e0ffff0, 1, 500000 * COIN);
+        // Timestamp: 1736107200 = 2026-01-05 12:00:00 UTC
+        // Mined on stagenet VPS (DO-Premium-Intel)
+        genesis = CreateGenesisBlockStagenet(1736107200, 1943057, 0x1e0ffff0, 1, 500000 * COIN);
 
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
+        assert(consensus.hashGenesisBlock == uint256S("0x2364abb58ae7396154228f673e68f55506806a23b510a05f284e4130535cf149"));
+        assert(genesis.hashMerkleRoot == uint256S("0x051af6d5a97f2a00271ee911ac68af8080cf000dfde85e01fa92a5fa46e5b368"));
 
         vSeeds.clear();
         // vSeeds.push_back(CDNSSeedData("soqu.org", "stagenet.soqu.org"));
