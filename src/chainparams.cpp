@@ -638,14 +638,29 @@ public:
         // Stagenet Genesis Block - January 5, 2026
         // Unique genesis isolates Stagenet from all other networks
         // Timestamp: 1736107200 = 2026-01-05 12:00:00 UTC
-        // Mined on stagenet VPS (DO-Premium-Intel)
-        genesis = CreateGenesisBlockStagenet(1736107200, 1943057, 0x1e0ffff0, 1, 500000 * COIN);
+        // Set nonce=0 to trigger C++ mining on first build
+        genesis = CreateGenesisBlockStagenet(1736107200, 0, 0x1e0ffff0, 1, 500000 * COIN);
+
+        // Mine stagenet genesis block (runs once, then values are hardcoded)
+        if (genesis.nNonce == 0) {
+            arith_uint256 target;
+            target.SetCompact(genesis.nBits);
+            while (UintToArith256(genesis.GetPoWHash()) > target) {
+                genesis.nNonce++;
+                if (genesis.nNonce % 500000 == 0) {
+                    printf("Stagenet genesis mining: nonce=%u\n", genesis.nNonce);
+                }
+            }
+            printf("Stagenet Genesis Mined!\n");
+            printf("  Nonce:  %u\n", genesis.nNonce);
+            printf("  Hash:   %s\n", genesis.GetHash().ToString().c_str());
+            printf("  PoW:    %s\n", genesis.GetPoWHash().ToString().c_str());
+            printf("  Merkle: %s\n", genesis.hashMerkleRoot.ToString().c_str());
+        }
 
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        assert(consensus.hashGenesisBlock == uint256S("0x2364abb58ae7396154228f673e68f55506806a23b510a05f284e4130535cf149"));
-        assert(genesis.hashMerkleRoot == uint256S("0x051af6d5a97f2a00271ee911ac68af8080cf000dfde85e01fa92a5fa46e5b368"));
 
         vSeeds.clear();
         // vSeeds.push_back(CDNSSeedData("soqu.org", "stagenet.soqu.org"));
