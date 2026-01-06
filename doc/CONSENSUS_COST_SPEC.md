@@ -352,8 +352,11 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 | Network | Genesis | Chain ID | BP++ Activation | LatticeFold Activation |
 |---------|---------|----------|-----------------|------------------------|
 | Mainnet | Q1 2026 | 0x5351 | Height 50,000 | Height 100,000 |
+| **Stagenet** | Jan 5, 2026 | 0x5351 | BIP9 | Height 100,000 |
 | Testnet3 | Dec 2025 | 0x5351 | Genesis (all features) | Genesis (all features) |
-| Mainnet-candidate | Pre-launch | 0x5351 | Height 50,000 | Height 100,000 |
+
+**Stagenet Genesis**: `59009fbfe94b607d9722bdd5da35e1a4e33ce8d9dfd1dd03ec66b17711977282`
+**Stagenet Purpose**: Mainnet rehearsal network with identical staged activation schedule.
 
 ---
 
