@@ -1,8 +1,9 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 1.9 | **Status**: Public Reference
-> **Last Updated**: January 5, 2026
+> **Version**: 2.0 | **Status**: Audit-Ready
+> **Last Updated**: January 6, 2026
 > **Specification Tag**: Mainnet Candidate v1.0
+> **Prepared For**: Halborn Security Audit
 
 ---
 
@@ -749,7 +750,45 @@ docker run --rm -v $(pwd):/out soqucoin-bench
 
 ---
 
-*Soqucoin Protocol Parameters Specification*
-*Prepared for community and investor reference*
-*Soqucoin Core Development Team — January 2026*
+## Appendix E: Wallet SDK Reference
+
+The PQ Wallet SDK (`libsoqucoin-wallet`) implements per-proof cost optimization for wallet developers.
+
+### SDK Component Overview
+
+| File | Purpose | LOC |
+|------|---------|-----|
+| `pqwallet.h/cpp` | Main wallet interface | 550 |
+| `pqkeys.h` | Dilithium key management | 145 |
+| `pqaddress.h` | Bech32m address encoding | 115 |
+| `pqcrypto.h/cpp` | Wallet file encryption | 454 |
+| `pqaggregation.h` | PAT/BP++ batching utilities | 130 |
+| `pqcost.h` | Per-proof cost estimation | 105 |
+
+**Location**: `src/wallet/pqwallet/`
+
+### Key Security Features
+
+| Feature | Implementation | Status |
+|---------|----------------|--------|
+| Secure Memory | `SecureBytes` (mlock, explicit zeroing) | ✅ Complete |
+| File Encryption | AES-256-CBC + HMAC-SHA256 | ✅ Complete |
+| Key Derivation | PBKDF2-SHA256 (100k iterations) | ✅ Complete |
+| Side-Channel | Constant-time Dilithium reference impl | ✅ In Use |
+| Address Format | Bech32m (sq1/tsq1/ssq1) | ✅ Complete |
+
+### Related Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [WALLET_API_SPEC.md](WALLET_API_SPEC.md) | Full API specification |
+| [ADDRESS_FORMAT_SPEC.md](ADDRESS_FORMAT_SPEC.md) | Address encoding details |
+| [WALLET_TEST_VECTORS.md](WALLET_TEST_VECTORS.md) | Deterministic test vectors |
+| [WALLET_RESEARCH_COMPARISON.md](WALLET_RESEARCH_COMPARISON.md) | Monero/Zcash audit lessons |
+
+---
+
+*Soqucoin Protocol Parameters Specification v2.0*
+*Prepared for Halborn Security Audit — January 2026*
+*Soqucoin Core Development Team*
 
