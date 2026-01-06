@@ -21,6 +21,7 @@
  * @see doc/WALLET_TEST_VECTORS.md for implementation test vectors
  */
 
+#include "pqaddress.h"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -66,9 +67,11 @@ public:
     /**
      * @brief Create new wallet from 64-byte seed
      * @param seed BIP-39 derived seed
+     * @param network Target network (default: Testnet)
      * @return Wallet instance or nullptr on error
      */
-    static std::unique_ptr<PQWallet> FromSeed(const std::vector<uint8_t>& seed);
+    static std::unique_ptr<PQWallet> FromSeed(const std::vector<uint8_t>& seed,
+        Network network = Network::Testnet);
 
     /**
      * @brief Load wallet from encrypted file
@@ -120,9 +123,10 @@ public:
 
     virtual ~PQWallet();
 
-protected:
+    // Constructor is public to enable make_unique
     PQWallet();
 
+private:
 private:
     class Impl;
     std::unique_ptr<Impl> m_impl;

@@ -92,6 +92,12 @@ class PQKeyPair
 {
 public:
     /**
+     * @brief Generate new keypair using system entropy
+     * @return Keypair or nullptr on error
+     */
+    static std::unique_ptr<PQKeyPair> Generate();
+
+    /**
      * @brief Generate new keypair from entropy
      * @param entropy 32+ bytes of random data
      * @return Keypair or nullptr on error
@@ -147,8 +153,10 @@ public:
 
     ~PQKeyPair();
 
-private:
+    // Constructor is public to enable make_unique
     PQKeyPair();
+
+private:
     SecureBytes m_secretKey;
     std::array<uint8_t, DILITHIUM_PUBKEY_SIZE> m_publicKey;
 };
