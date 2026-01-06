@@ -271,7 +271,58 @@ Each post-quantum proof type has an assigned verification cost. The **total veri
 | **MAX_PROOF_BYTES_PER_TX** | 65,536 (64 KB) | Prevents single TX from dominating block |
 | **MAX_PROOF_BYTES_PER_BLOCK** | 262,144 (256 KB) | Limits total proof bandwidth |
 
----
+### Cost Accounting Rationale
+
+**Q: Is verification cost counted per output, per proof, or per transaction?**
+
+**A: Per proof.** Each cryptographic proof submitted incurs its assigned cost regardless of what it covers.
+
+| Proof Type | Cost Basis | Rationale |
+|------------|------------|-----------|
+| **Dilithium** | Per signature | Each signature requires one verification |
+| **BP++** | Per range proof | One proof may cover multiple outputs (aggregation) |
+| **PAT** | Per merkle proof | One proof aggregates multiple signatures |
+| **LatticeFold+** | Per recursive proof | One proof may represent an entire TX or batch |
+
+#### Why Per-Proof Pricing?
+
+1. **Accurate Resource Accounting**: Verification work is proportional to proof count, not output count. A proof takes X ms to verify regardless of what it proves.
+
+2. **Aggregation Incentive**: Per-proof pricing naturally rewards efficient proof construction:
+
+   | Scenario | Per-Output Model | Per-Proof Model |
+   |----------|-----------------|-----------------|
+   | 10 outputs, 10 separate proofs | 500 units | 500 units |
+   | 10 outputs, 1 aggregated proof | 500 units | **50 units** |
+
+3. **DoS Resistance**: Attackers cannot craft cheap transactions with expensive verification. Cost scales with actual verification work.
+
+4. **Industry Alignment**: Matches Bitcoin (per-sigop), Monero (per-range-proof), and Zcash (per-shielded-output) accounting models.
+
+#### Aggregation Economics
+
+PAT (Proof Aggregation Tree) demonstrates the economic benefit:
+
+| Signatures | Without PAT | With PAT | Savings |
+|------------|-------------|----------|---------|
+| 10 | 10 × 1 = 10 units | 1 × 20 = 20 units | -10 (small batches: slight overhead) |
+| 100 | 100 × 1 = 100 units | 1 × 20 = 20 units | **80%** |
+| 512 | 512 × 1 = 512 units | 1 × 20 = 20 units | **96%** |
+
+**Insight**: PAT aggregation becomes cost-effective at ~20+ signatures, incentivizing batch verification.
+
+#### Trade-offs Acknowledged
+
+| Consideration | Assessment |
+|---------------|------------|
+| Wallet complexity | Wallets must implement aggregation for optimal pricing |
+| Sublinear batch verify | Batched proofs are faster than linear; users may slightly overpay |
+| Privacy | Output count visible; mitigated in Stage 3 Lattice-BP Hybrid |
+| Parameter rigidity | Cost ratios adjustable via softfork; rebalancing supported |
+
+> [!NOTE]
+> Cost ratios (50:20:1:200) are derived from Testnet3 benchmarks and may be adjusted pre-mainnet
+> based on hardware diversity telemetry and algorithm optimizations.
 
 ## 5. Transaction Limits
 
