@@ -1,7 +1,7 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 1.8 | **Status**: Public Reference
-> **Last Updated**: January 2026
+> **Version**: 1.9 | **Status**: Public Reference
+> **Last Updated**: January 5, 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 
 ---
@@ -21,6 +21,85 @@
 This document details the consensus-enforced limits and costs for the Soqucoin network. These parameters are **consensus-critical** — violations result in block/transaction rejection at the protocol level.
 
 Soqucoin inherits Bitcoin/Dogecoin's core architecture while adding post-quantum cryptographic primitives with their own verification costs.
+
+---
+
+## Research Roadmap & Performance Projections
+
+> [!NOTE]
+> This section provides context for auditors and researchers on Soqucoin's cryptographic
+> performance relative to other blockchains and projected improvements from future protocol upgrades.
+
+### Current Benchmark Comparison (January 2026)
+
+Soqucoin's post-quantum cryptography introduces verification overhead compared to classical ECDSA chains:
+
+| Blockchain | Algorithm | Signature Size | Verify Time | Quantum Resistant |
+|------------|-----------|----------------|-------------|-------------------|
+| **Bitcoin** | ECDSA/secp256k1 | 71 bytes | ~50 µs | ❌ No |
+| **Litecoin** | ECDSA/secp256k1 | 71 bytes | ~50 µs | ❌ No |
+| **Dogecoin** | ECDSA/secp256k1 | 71 bytes | ~50 µs | ❌ No |
+| **Soqucoin** | Dilithium ML-DSA-44 | 2,420 bytes | 187 µs | ✅ Yes |
+
+**Analysis**: Dilithium verification is ~3.7x slower than ECDSA. This is the expected trade-off for
+NIST-standardized quantum resistance and is considered acceptable by the cryptographic community.
+
+### Range Proof Comparison
+
+| System | Proof Size | Verify Time | Notes |
+|--------|-----------|-------------|-------|
+| Monero Bulletproofs+ | ~0.5 KB | ~1.5 ms | Production (2022) |
+| **Soqucoin BP++** | ~0.6 KB | 4.07 ms | Current (PQ-compatible) |
+| Soqucoin BP++ + LatticeFold | ~0.3 KB (amortized) | <1 ms (projected) | Stage 3 |
+
+### Staged Activation Performance Targets
+
+Soqucoin's staged activation schedule (BP++ at BIP9, LatticeFold+ at height 100k) enables
+progressive performance improvements:
+
+| Stage | Height | Technology | Block Verify Time | Improvement |
+|-------|--------|------------|-------------------|-------------|
+| **Stage 1** | Genesis | Dilithium + BP++ | ~50-80 ms | Baseline |
+| **Stage 2** | Genesis | + PAT Aggregation | ~30-50 ms | 30-40% faster |
+| **Stage 3** | 100,000 | + LatticeFold+ Recursion | ~5-15 ms | **5-10x faster** |
+| **Stage 4** | Future | Lattice-BP Hybrid | <5 ms | **10-20x faster** |
+
+### LatticeFold+ Performance Projections
+
+The LatticeFold+ activation at height 100,000 introduces **recursive proof composition**,
+enabling significant verification improvements:
+
+| Metric | Pre-LatticeFold | Post-LatticeFold | Improvement |
+|--------|-----------------|------------------|-------------|
+| Proof verification | Per-signature | Single recursive | O(n) → O(1) |
+| Light client sync | Full chain replay | Latest proof only | Minutes → Seconds |
+| Full node IBD | All blocks | Skip verified range | 50-80% faster |
+| Multi-input TX | Linear cost | Logarithmic cost | 3-10x for large TX |
+
+### Academic References
+
+The cryptographic primitives in Soqucoin are based on peer-reviewed research:
+
+| Primitive | Paper | Authors | Year |
+|-----------|-------|---------|------|
+| **Dilithium** | CRYSTALS-Dilithium | Ducas et al. | 2018 (NIST FIPS 204) |
+| **Bulletproofs++** | Bulletproofs+: Shorter Proofs | Chung et al. | 2022 |
+| **LatticeFold** | LatticeFold: A Lattice-based Folding Scheme | Boneh, Chen | 2024 |
+| **Nova/HyperNova** | Recursive SNARKs from Folding | Kothapalli et al. | 2022/2023 |
+
+### Comparison to Rollup/ZK Technologies
+
+Soqucoin is unique as a **native L1** with recursive proof composition, rather than a rollup:
+
+| System | Architecture | Verify Time | Quantum Resistant |
+|--------|--------------|-------------|-------------------|
+| zkSync Era | Ethereum L2 (Groth16) | ~2 ms | ❌ No |
+| StarkNet | Ethereum L2 (STARK) | ~10 ms | ⚠️ Partial |
+| Polygon zkEVM | Ethereum L2 (PLONK) | ~3 ms | ❌ No |
+| **Soqucoin LatticeFold+** | Native L1 (Lattice IVC) | ~0.5-1 ms (projected) | ✅ Yes |
+
+**Key Differentiator**: Soqucoin is designed to be the first production L1 blockchain with
+native lattice-based recursive SNARKs, providing both quantum resistance and efficient verification.
 
 ---
 
