@@ -1,6 +1,6 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 2.1 | **Status**: Audit-Ready
+> **Version**: 2.2 | **Status**: Audit-Ready
 > **Last Updated**: January 6, 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 > **Prepared For**: Halborn Security Audit
@@ -99,6 +99,8 @@ subsequent **Stages** introduce progressive upgrades. **Privacy features are opt
 > **Genesis is the foundation, not a "stage."** Stages are upgrades that build upon the genesis layer.
 > Height-based activation (vs BIP9 signaling) ensures deterministic deployment for auditor verification.
 > **Opt-in gating** uses transaction flags or MWEB-like extension blocks to preserve main chain transparency.
+>
+> *Inspired by Litecoin's MWEB (L1 soft fork with extension blocks), but adaptable to tx flags for simplicity.*
 
 ### LatticeFold+ Performance Projections
 
@@ -805,7 +807,7 @@ To align with 2026 global regulations (EU MiCA, FATF Travel Rule, SEC/FinCEN gui
 |---------|---------------|--------------|---------------------|
 | Base transactions | Transparent | N/A | ✅ Compliant |
 | BP++ range proofs | **Disabled** | Opt-in via tx flag | ✅ Selective disclosure |
-| Lattice-BP (Stage 3) | **Disabled** | Opt-in via ext. block | ✅ MWEB-inspired |
+| Lattice-BP (Stage 3) | **Disabled** | Opt-in (MWEB-inspired ext. block or tx flags) | ✅ L1 soft fork |
 
 ### View Keys for Selective Disclosure
 
