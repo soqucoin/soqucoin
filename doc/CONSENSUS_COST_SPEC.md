@@ -54,41 +54,41 @@ NIST-standardized quantum resistance and is considered acceptable by the cryptog
 
 ### Privacy-Enabled Blockchain Comparison
 
-Soqucoin's current BP++ implementation prioritizes **lattice compatibility** over raw speed. The Stage 3
-Lattice-BP Hybrid softfork is projected to surpass all current privacy implementations:
+Soqucoin's current BP++ implementation prioritizes **lattice compatibility** over raw speed. Future softforks
+are projected to progressively improve performance:
 
 | Blockchain | Privacy Tech | Proof Size | Verify (1 TX) | Verify (64 TX batch) | Quantum Safe |
 |------------|-------------|------------|---------------|----------------------|--------------|
 | **Monero** | Bulletproofs+ | ~0.5 KB | 1.5 ms | ~96 ms | ❌ No |
 | **Zcash** | Groth16 zk-SNARK | ~0.2 KB | ~2 ms | ~128 ms | ❌ No |
 | **Grin/Beam** | Mimblewimble + BP | ~0.7 KB | ~2 ms | ~128 ms | ❌ No |
-| **Soqucoin v1.0** | BP++ (Stage 1) | ~0.6 KB | 4.07 ms | ~260 ms | ⚠️ Partial* |
-| **Soqucoin Stage 3** | Lattice-BP Hybrid | ~0.3 KB | ~1-2 ms (proj.) | ~15-25 ms (proj.) | ✅ Yes |
-| **Soqucoin Stage 4** | Full Lattice CT | ~0.4 KB | ~0.5-1 ms (proj.) | ~8-12 ms (proj.) | ✅ Yes |
+| **Soqucoin v1.0** | BP++ (current) | ~0.6 KB | 4.07 ms | ~260 ms | ⚠️ Partial* |
+| **Soqucoin + LF** | BP++ + LatticeFold (Stage 2) | ~0.6 KB | 4.07 ms | ~40-60 ms (proj.) | ⚠️ Partial* |
+| **Soqucoin Hybrid** | Lattice-BP (Stage 3, v0.22) | ~0.3 KB | ~1-2 ms (proj.) | ~8-15 ms (proj.) | ✅ Yes |
 
-*Stage 1 BP++ uses secp256k1 (classical), but signature layer (Dilithium) is PQ-secure.
+*Current BP++ uses secp256k1 (classical) for range proofs; signature layer (Dilithium) is PQ-secure.
+Full quantum resistance for privacy requires the Stage 3 Lattice-BP Hybrid softfork (v0.22).
 
 **Why Soqucoin BP++ is Currently Slower**:
-- Larger field arithmetic for lattice compatibility
+- Larger field arithmetic for future lattice compatibility
 - Conservative security parameters (pre-audit)
 - Priority on correctness over optimization
 
-**Projected Stage 3-4 Improvements**:
-- **Lattice IPA**: Replaces elliptic curve multi-exponentiations with faster lattice operations
-- **Folding/Recursion**: O(n) verification → O(1) via LatticeFold composition
-- **Shared Setup**: Single lattice CRS for Dilithium + BP++ + PAT reduces redundancy
+**Projected Improvements by Stage**:
+- **Stage 2 (LatticeFold+)**: Batch verification via proof folding — ~4-6x faster for blocks with many TXs
+- **Stage 3 (Lattice-BP Hybrid)**: Replaces secp256k1 with lattice operations — 5-10x faster + full PQ privacy
 
 ### Staged Activation Performance Targets
 
-Soqucoin's staged activation schedule (BP++ at BIP9, LatticeFold+ at height 100k) enables
-progressive performance improvements:
+Soqucoin's staged activation schedule enables progressive cryptographic and performance improvements:
 
-| Stage | Height | Technology | Block Verify Time | Improvement |
-|-------|--------|------------|-------------------|-------------|
+| Stage | Activation | Technology | Block Verify Time | Improvement |
+|-------|------------|------------|-------------------|-------------|
 | **Stage 1** | Genesis | Dilithium + BP++ | ~50-80 ms | Baseline |
-| **Stage 2** | Genesis | + PAT Aggregation | ~30-50 ms | 30-40% faster |
-| **Stage 3** | 100,000 | + LatticeFold+ Recursion | ~5-15 ms | **5-10x faster** |
-| **Stage 4** | Future | Lattice-BP Hybrid | <5 ms | **10-20x faster** |
+| **Stage 1b** | Height 50,000 | BP++ Range Proofs (BIP9) | ~50-80 ms | Privacy primitive |
+| **Stage 2** | Height 100,000 | + LatticeFold+ Recursion | ~5-15 ms | **5-10x faster** |
+| **Stage 3** | v0.22 Softfork | Lattice-BP Hybrid (full CT) | <5 ms | **10-20x faster** + full PQ |
+| **Stage 4** | Q4 2026 | Solana Bridge (pSOQ) | — | Cross-chain |
 
 ### LatticeFold+ Performance Projections
 
