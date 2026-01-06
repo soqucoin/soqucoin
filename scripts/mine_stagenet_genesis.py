@@ -2,11 +2,19 @@
 """
 Soqucoin Stagenet Genesis Block Miner
 
-This script mines a valid genesis block for stagenet by finding a nonce
-that produces a Scrypt hash meeting the target difficulty.
+⚠️ WARNING: DO NOT USE THIS SCRIPT TO MINE FINAL GENESIS BLOCKS!
 
-Run: python3 mine_stagenet_genesis.py
-"""
+This Python implementation produces different coinbase transaction serialization
+than the C++ code in soqucoind. The resulting genesis hash will NOT match what
+the node expects.
+
+Instead, use the built-in C++ mining loop:
+1. Set genesis nonce to 0 in chainparams.cpp
+2. Build and run soqucoind
+3. It will print the mined nonce and hashes
+4. Hardcode those values in chainparams.cpp
+
+This script is kept for reference/educational purposes only.
 
 import hashlib
 import struct
