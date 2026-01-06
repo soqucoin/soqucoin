@@ -78,17 +78,22 @@ Full quantum resistance for privacy requires the Stage 3 Lattice-BP Hybrid softf
 - **Stage 2 (LatticeFold+)**: Batch verification via proof folding — ~4-6x faster for blocks with many TXs
 - **Stage 3 (Lattice-BP Hybrid)**: Replaces secp256k1 with lattice operations — 5-10x faster + full PQ privacy
 
-### Staged Activation Performance Targets
+### Staged Activation Schedule
 
-Soqucoin's staged activation schedule enables progressive cryptographic and performance improvements:
+Soqucoin uses a staged deployment model where **Genesis** establishes the foundation and
+subsequent **Stages** introduce progressive upgrades:
 
-| Stage | Activation | Technology | Block Verify Time | Improvement |
-|-------|------------|------------|-------------------|-------------|
-| **Stage 1** | Genesis | Dilithium + BP++ | ~50-80 ms | Baseline |
-| **Stage 1b** | Height 50,000 | BP++ Range Proofs (BIP9) | ~50-80 ms | Privacy primitive |
-| **Stage 2** | Height 100,000 | + LatticeFold+ Recursion | ~5-15 ms | **5-10x faster** |
-| **Stage 3** | v0.22 Softfork | Lattice-BP Hybrid (full CT) | <5 ms | **10-20x faster** + full PQ |
-| **Stage 4** | Q4 2026 | Solana Bridge (pSOQ) | — | Cross-chain |
+| Phase | Activation | Features | Description |
+|-------|------------|----------|-------------|
+| **Genesis** | Block 0 | Dilithium, PAT, AuxPoW | Post-quantum foundation |
+| **Stage 1** | Height 50,000 | Bulletproofs++ | Privacy range proofs |
+| **Stage 2** | Height 100,000 | LatticeFold+ | Batch verification (5-10x faster) |
+| **Stage 3** | v0.22 Softfork | Lattice-BP Hybrid | Full PQ privacy + CT |
+| **Stage 4** | Q4 2026 | Solana Bridge | Cross-chain (pSOQ) |
+
+> [!NOTE]
+> **Genesis is the foundation, not a "stage."** Stages are upgrades that build upon the genesis layer.
+> Height-based activation (vs BIP9 signaling) ensures deterministic deployment for auditor verification.
 
 ### LatticeFold+ Performance Projections
 
