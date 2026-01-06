@@ -427,9 +427,10 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 
 | Stage | Height | ~Calendar | Features | Rationale |
 |-------|--------|-----------|----------|-----------|
-| **Genesis** | 0 | Q1 2026 | Dilithium signatures, PAT aggregation, AuxPoW | Core PQ identity |
-| **Stage 1** | 50,000 | +~35 days | Bulletproofs++ range proofs | Privacy primitive (secp256k1-zkp) |
+| **Genesis** | 0 | Q1 2026 | Dilithium signatures, PAT aggregation, AuxPoW | Core PQ identity (transparent) |
+| **Stage 1 (Opt-In)** | 50,000 | +~35 days | Bulletproofs++ range proofs | Optional privacy primitive |
 | **Stage 2** | 100,000 | +~69 days | LatticeFold+ batch verification | Scaling optimization |
+| **Stage 3 (Opt-In)** | v0.22 | TBD | Lattice-BP Hybrid | Full PQ privacy + CT |
 
 ### Testnet Activation Schedule
 
