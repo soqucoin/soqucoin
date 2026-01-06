@@ -1,7 +1,7 @@
 # Soqucoin Wallet Library API Specification
 
-> **Version**: 1.0-draft | **Updated**: 2026-01-06
-> **Status**: Pre-Implementation Design
+> **Version**: 1.1 | **Updated**: 2026-01-06
+> **Status**: Implementation Phase
 > **Audience**: Core Developers, Wallet Integrators, Auditors
 
 ---
@@ -318,15 +318,27 @@ auto tx = builder.Build().Unwrap();
 
 ## Security Considerations
 
-### Auditor Checklist
+### Auditor Checklist (Per Research Findings)
 
-| Area | Requirement | Implementation |
-|------|-------------|----------------|
-| Key Storage | Encrypted at rest | AES-256-GCM |
-| Memory Safety | Keys zeroed on free | SecureBytes class |
-| Side Channels | Constant-time operations | Dilithium reference impl |
-| Randomness | CSPRNG only | OS entropy source |
-| Input Validation | All inputs validated | Bounds checking throughout |
+Based on Monero/Zcash audit precedents and PQ blockchain research:
+
+| Area | Requirement | Implementation | Priority |
+|------|-------------|----------------|----------|
+| Key Storage | Encrypted at rest | AES-256-GCM + Argon2id | 🔴 Critical |
+| Memory Safety | Keys zeroed on free | SecureBytes class (mlock/wipe) | 🔴 Critical |
+| Side Channels | Constant-time Dilithium signing | Use reference impl | 🟠 High |
+| Randomness | CSPRNG only | OS entropy source | 🔴 Critical |
+| Input Validation | All inputs validated | Bounds checking throughout | 🟠 High |
+| File Security | Wallet file encryption | `pqcrypto.h` WalletCrypto class | 🔴 Critical |
+
+### Wallet File Encryption
+
+Wallet files are encrypted using:
+- **Algorithm**: AES-256-GCM (authenticated encryption)
+- **Key Derivation**: Argon2id (memory-hard, GPU-resistant)
+- **Parameters**: 64MB memory, 3 iterations (OWASP recommendations)
+
+See: `pqcrypto.h` for implementation details.
 
 ### Hardware Wallet Compatibility
 
@@ -334,6 +346,7 @@ The API is designed for hardware wallet integration:
 - Signing happens in `KeyPair::Sign()` which can be proxied to hardware
 - Public keys and addresses can be derived/displayed on hardware
 - Transaction preview before signing
+- Note: Dilithium support in Ledger/Trezor pending research
 
 ---
 

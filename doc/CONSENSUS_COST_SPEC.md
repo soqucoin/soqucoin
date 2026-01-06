@@ -85,7 +85,7 @@ subsequent **Stages** introduce progressive upgrades:
 
 | Phase | Activation | Features | Description |
 |-------|------------|----------|-------------|
-| **Genesis** | Block 0 | Dilithium, PAT, AuxPoW | Post-quantum foundation |
+| **Genesis** | Block 0 | Dilithium, PAT, AuxPoW, **PQ Wallet** | Post-quantum foundation + wallet |
 | **Stage 1** | Height 50,000 | Bulletproofs++ | Privacy range proofs |
 | **Stage 2** | Height 100,000 | LatticeFold+ | Batch verification (5-10x faster) |
 | **Stage 3** | v0.22 Softfork | Lattice-BP Hybrid | Full PQ privacy + CT |
