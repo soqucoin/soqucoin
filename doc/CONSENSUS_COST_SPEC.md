@@ -1,6 +1,6 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 2.0 | **Status**: Audit-Ready
+> **Version**: 2.1 | **Status**: Audit-Ready
 > **Last Updated**: January 6, 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 > **Prepared For**: Halborn Security Audit
@@ -12,6 +12,10 @@
 > - **Policy parameters** (fees, dust limits) may be adjusted based on market conditions
 > - **Benchmark-derived weights** (PQ verification costs) may be rebalanced based on hardware telemetry
 > - **Consensus parameters** are frozen and will not change without a coordinated network upgrade
+>
+> **Privacy Model**: Privacy features (Bulletproofs++, Lattice-BP Hybrid) are **opt-in via special transaction types**
+> (inspired by Litecoin MWEB). This ensures default traceability for regulatory compliance (AML/CFT) while
+> providing user-optional PQ-secure confidentiality. View keys enable selective disclosure for auditors.
 >
 > This document reflects the current mainnet candidate specification.
 
@@ -56,19 +60,18 @@ NIST-standardized quantum resistance and is considered acceptable by the cryptog
 ### Privacy-Enabled Blockchain Comparison
 
 Soqucoin's current BP++ implementation prioritizes **lattice compatibility** over raw speed. Future softforks
-are projected to progressively improve performance:
+are projected to progressively improve performance. **Privacy is opt-in** to ensure regulatory compliance:
 
-| Blockchain | Privacy Tech | Proof Size | Verify (1 TX) | Verify (64 TX batch) | Quantum Safe |
-|------------|-------------|------------|---------------|----------------------|--------------|
-| **Monero** | Bulletproofs+ | ~0.5 KB | 1.5 ms | ~96 ms | ❌ No |
-| **Zcash** | Groth16 zk-SNARK | ~0.2 KB | ~2 ms | ~128 ms | ❌ No |
-| **Grin/Beam** | Mimblewimble + BP | ~0.7 KB | ~2 ms | ~128 ms | ❌ No |
-| **Soqucoin v1.0** | BP++ (current) | ~0.6 KB | 4.07 ms | ~260 ms | ⚠️ Partial* |
-| **Soqucoin + LF** | BP++ + LatticeFold (Stage 2) | ~0.6 KB | 4.07 ms | ~40-60 ms (proj.) | ⚠️ Partial* |
-| **Soqucoin Hybrid** | Lattice-BP (Stage 3, v0.22) | ~0.3 KB | ~1-2 ms (proj.) | ~8-15 ms (proj.) | ✅ Yes |
+| Blockchain | Privacy Tech | Proof Size | Verify (1 TX) | Opt-In Model | Quantum Safe | Regulatory Risk |
+|------------|-------------|------------|---------------|--------------|--------------|----------------|
+| **Monero** | Bulletproofs+ | ~0.5 KB | 1.5 ms | ❌ Mandatory | ❌ No | 🔴 High (delistings) |
+| **Zcash** | Groth16 zk-SNARK | ~0.2 KB | ~2 ms | ✅ Optional | ❌ No | 🟡 Medium |
+| **Litecoin** | MWEB | ~1.5 KB | ~3 ms | ✅ Optional (ext. block) | ❌ No | 🟢 Low (~90% adoption) |
+| **Soqucoin v1.0** | BP++ (current) | ~0.6 KB | 4.07 ms | ✅ **Opt-In** | ⚠️ Partial* | 🟢 Low |
+| **Soqucoin Hybrid** | Lattice-BP (Stage 3) | ~0.3 KB | ~1-2 ms | ✅ **Opt-In** | ✅ Yes | 🟢 Low |
 
 *Current BP++ uses secp256k1 (classical) for range proofs; signature layer (Dilithium) is PQ-secure.
-Full quantum resistance for privacy requires the Stage 3 Lattice-BP Hybrid softfork (v0.22).
+Full quantum resistance for privacy requires the Stage 3 Lattice-BP Hybrid softfork (v0.22), **implemented as opt-in to mitigate regulatory concerns**.
 
 **Why Soqucoin BP++ is Currently Slower**:
 - Larger field arithmetic for future lattice compatibility
@@ -82,19 +85,20 @@ Full quantum resistance for privacy requires the Stage 3 Lattice-BP Hybrid softf
 ### Staged Activation Schedule
 
 Soqucoin uses a staged deployment model where **Genesis** establishes the foundation and
-subsequent **Stages** introduce progressive upgrades:
+subsequent **Stages** introduce progressive upgrades. **Privacy features are opt-in**:
 
 | Phase | Activation | Features | Description |
 |-------|------------|----------|-------------|
-| **Genesis** | Block 0 | Dilithium, PAT, AuxPoW, **PQ Wallet** | Post-quantum foundation + wallet |
-| **Stage 1** | Height 50,000 | Bulletproofs++ | Privacy range proofs |
-| **Stage 2** | Height 100,000 | LatticeFold+ | Batch verification (5-10x faster) |
-| **Stage 3** | v0.22 Softfork | Lattice-BP Hybrid | Full PQ privacy + CT |
+| **Genesis** | Block 0 | Dilithium, PAT, AuxPoW, **PQ Wallet** | Post-quantum foundation + wallet (transparent by default) |
+| **Stage 1** | Height 50,000 **(Opt-In)** | Bulletproofs++ | Optional privacy range proofs (classical) |
+| **Stage 2** | Height 100,000 | LatticeFold+ | Batch verification (5-10x faster; supports opt-in proofs) |
+| **Stage 3** | v0.22 Softfork **(Opt-In)** | Lattice-BP Hybrid | Full PQ privacy + CT (user-optional via flags/extension blocks) |
 | **Stage 4** | Q4 2026 | Solana Bridge | Cross-chain (pSOQ) |
 
 > [!NOTE]
 > **Genesis is the foundation, not a "stage."** Stages are upgrades that build upon the genesis layer.
 > Height-based activation (vs BIP9 signaling) ensures deterministic deployment for auditor verification.
+> **Opt-in gating** uses transaction flags or MWEB-like extension blocks to preserve main chain transparency.
 
 ### LatticeFold+ Performance Projections
 
@@ -788,7 +792,47 @@ The PQ Wallet SDK (`libsoqucoin-wallet`) implements per-proof cost optimization 
 
 ---
 
-*Soqucoin Protocol Parameters Specification v2.0*
+## Appendix F: Compliance and Optional Privacy
+
+> [!IMPORTANT]
+> This section addresses regulatory alignment for auditors and exchanges.
+
+### Opt-In Privacy Design
+
+To align with 2026 global regulations (EU MiCA, FATF Travel Rule, SEC/FinCEN guidance), Soqucoin privacy features are **user-optional**:
+
+| Feature | Default State | Privacy Mode | Regulatory Alignment |
+|---------|---------------|--------------|---------------------|
+| Base transactions | Transparent | N/A | ✅ Compliant |
+| BP++ range proofs | **Disabled** | Opt-in via tx flag | ✅ Selective disclosure |
+| Lattice-BP (Stage 3) | **Disabled** | Opt-in via ext. block | ✅ MWEB-inspired |
+
+### View Keys for Selective Disclosure
+
+Soqucoin implements view key functionality (Stage 3+) enabling:
+- **User disclosure**: Share view keys with auditors/exchanges on demand
+- **Regulatory compliance**: Exchanges can verify source of funds without requiring privacy disabled
+- **Auditability**: View keys provide read-only access to transaction history
+
+### Regulatory Context (2025-2026)
+
+| Regulation | Privacy Coin Impact | Soqucoin Alignment |
+|------------|---------------------|--------------------|
+| **FATF Travel Rule** | Mandatory privacy = high risk | ✅ Opt-in, view keys |
+| **EU MiCA (2027)** | May restrict mandatory privacy coins | ✅ Opt-in preserves listing |
+| **Exchange trends** | 73 delistings in 2025 (Monero affected) | ✅ Zcash-style opt-in model |
+
+### Audit Focus
+
+For Halborn Phase 1 review, verify:
+1. **No mandatory privacy enforcement** in consensus (`src/validation.cpp`)
+2. **Opt-in flag gating** for BP++ (`src/script/interpreter.cpp`)
+3. **View key derivation** correctness (Stage 3, post-mainnet)
+4. **Default transparency** maintained for base transactions
+
+---
+
+*Soqucoin Protocol Parameters Specification v2.1*
 *Prepared for Halborn Security Audit — January 2026*
 *Soqucoin Core Development Team*
 
