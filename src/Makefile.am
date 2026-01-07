@@ -181,6 +181,14 @@ BITCOIN_CORE_H = \
   wallet/rpcwallet.h \
   wallet/wallet.h \
   wallet/walletdb.h \
+  wallet/pqwallet/pqaddress.h \
+  wallet/pqwallet/pqaggregation.h \
+  wallet/pqwallet/pqcost.h \
+  wallet/pqwallet/pqcrypto.h \
+  wallet/pqwallet/pqkeys.h \
+  wallet/pqwallet/pqtransaction.h \
+  wallet/pqwallet/pqwallet.h \
+  wallet/pqwallet/rpc_pqwallet.h \
   warnings.h \
   zmq/zmqabstractnotifier.h \
   zmq/zmqconfig.h\
@@ -274,6 +282,8 @@ libsoqucoin_wallet_a_SOURCES = \
   wallet/rpcwallet.cpp \
   wallet/wallet.cpp \
   wallet/walletdb.cpp \
+  wallet/pqwallet/pqwallet.cpp \
+  wallet/pqwallet/pqcrypto.cpp \
   policy/rbf.cpp \
   $(BITCOIN_CORE_H)
 
