@@ -4,11 +4,14 @@
 
 #include "wallet/pqwallet/pqwallet.h"
 #include "bech32.h"
-#include "crypto/dilithium/api.h"
 #include "crypto/sha256.h"
 #include "support/cleanse.h"
 #include "wallet/pqwallet/pqaddress.h"
 #include "wallet/pqwallet/pqkeys.h"
+
+extern "C" {
+#include "pat/dilithium-ref/api.h"
+}
 
 #include <algorithm>
 #include <string.h>
