@@ -105,6 +105,9 @@ The audit Dockerfile uses the following configure flags:
 | `--enable-bench` | Compile benchmarks |
 | `-O2 -g` | Optimization + debug symbols |
 
+> **Note**: As of January 2026, Soqucoin requires **C++17** (set in `src/Makefile.am`)
+> for the PQ wallet library's use of `std::optional` and other modern features.
+
 ---
 
 ## Docker Compose (Optional)
