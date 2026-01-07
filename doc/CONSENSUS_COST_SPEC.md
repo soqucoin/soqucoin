@@ -104,17 +104,35 @@ subsequent **Stages** introduce progressive upgrades. **Privacy features are opt
 >
 > *Inspired by Litecoin's MWEB (L1 soft fork with extension blocks), but adaptable to tx flags for simplicity.*
 
-### LatticeFold+ Performance Projections
+### LatticeFold+ Performance (Stage 2 - Height 100,000)
 
-The LatticeFold+ activation at height 100,000 introduces **recursive proof composition**,
-enabling significant verification improvements:
+> [!NOTE]
+> **Implementation Status**: LatticeFold+ verifier is implemented (`src/crypto/latticefold/verifier.cpp`)
+> based on ePrint 2025/247 (October revision). The following are **measured values** from code comments,
+> not projections. Full production benchmarks pending.
 
-| Metric | Pre-LatticeFold | Post-LatticeFold | Improvement |
-|--------|-----------------|------------------|-------------|
-| Proof verification | Per-signature | Single recursive | O(n) → O(1) |
-| Light client sync | Full chain replay | Latest proof only | Minutes → Seconds |
-| Full node IBD | All blocks | Skip verified range | 50-80% faster |
-| Multi-input TX | Linear cost | Logarithmic cost | 3-10x for large TX |
+The LatticeFold+ activation at height 100,000 introduces **recursive proof composition**
+for Dilithium batch verification:
+
+**Measured Performance** (from verifier.cpp:36):
+| Platform | 512-sig Batch Verify | Effective TPS | Notes |
+|----------|---------------------|---------------|-------|
+| Apple M4 | **0.68 ms** | ~753,000 sigs/sec | regtest measured |
+| Ryzen 7950X | **1.2 ms** | ~427,000 sigs/sec | estimated |
+| VPS (4-core) | **TBD** | TBD | benchmark pending |
+
+> [!IMPORTANT]
+> Unlike PAT (which verifies commitments only), LatticeFold+ performs **actual cryptographic
+> verification** of Dilithium signatures through recursive proof folding.
+
+**Capability Comparison**:
+| Feature | PAT (Genesis) | LatticeFold+ (Stage 2) |
+|---------|--------------|------------------------|
+| Batch size | Up to 256 | Up to 512 |
+| What it verifies | Commitments (Merkle) | Actual Dilithium sigs |
+| Dilithium verify still needed? | **Yes** | **No** (replaced by proof) |
+| Light client benefit | Trust full nodes | Verify independently |
+| Consensus-critical? | Yes | Yes |
 
 ### Academic References
 
@@ -136,10 +154,10 @@ Soqucoin is unique as a **native L1** with recursive proof composition, rather t
 | zkSync Era | Ethereum L2 (Groth16) | ~2 ms | ❌ No |
 | StarkNet | Ethereum L2 (STARK) | ~10 ms | ⚠️ Partial |
 | Polygon zkEVM | Ethereum L2 (PLONK) | ~3 ms | ❌ No |
-| **Soqucoin LatticeFold+** | Native L1 (Lattice IVC) | ~0.5-1 ms (projected) | ✅ Yes |
+| **Soqucoin LatticeFold+** | Native L1 (Lattice IVC) | **0.68-1.2 ms** (measured) | ✅ Yes |
 
-**Key Differentiator**: Soqucoin is designed to be the first production L1 blockchain with
-native lattice-based recursive SNARKs, providing both quantum resistance and efficient verification.
+**Key Differentiator**: Soqucoin's LatticeFold+ implementation is based on ePrint 2025/247
+and provides the first production L1 with native lattice-based recursive SNARKs.
 
 ---
 
