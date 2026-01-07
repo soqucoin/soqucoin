@@ -27,7 +27,8 @@ bench_bench_soqucoin_SOURCES = \
   bench/scrypt.cpp \
   bench/dilithium.cpp \
   bench/bench_bulletproofs.cpp \
-  bench/bench_soqucoin_blocks.cpp
+  bench/bench_soqucoin_blocks.cpp \
+  bench/bench_pat.cpp
 
 # bench_bench_soqucoin_SOURCES_DISABLED = \
 #   bench/checkblock.cpp \        # disabled because this checks a specific bitcoin block
