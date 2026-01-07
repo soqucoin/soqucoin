@@ -21,7 +21,6 @@
 #include "rpc/server.h"
 #include "wallet/pqwallet/pqaddress.h"
 #include "wallet/pqwallet/pqcost.h"
-#include "wallet/pqwallet/pqcrypto.h"
 #include "wallet/pqwallet/pqkeys.h"
 #include "wallet/pqwallet/pqwallet.h"
 
@@ -35,8 +34,9 @@ namespace
 // Error codes for PQ wallet operations
 constexpr int RPC_PQ_WALLET_ERROR = -4001;
 constexpr int RPC_PQ_ADDRESS_ERROR = -4002;
-constexpr int RPC_PQ_SIGN_ERROR = -4003;
-constexpr int RPC_PQ_VERIFY_ERROR = -4004;
+// Reserved for future pqsignmessage/pqverifymessage commands:
+// constexpr int RPC_PQ_SIGN_ERROR = -4003;
+// constexpr int RPC_PQ_VERIFY_ERROR = -4004;
 
 /**
  * @brief pqgetnewaddress - Generate new post-quantum address
@@ -202,17 +202,20 @@ UniValue pqestimatefeerate(const JSONRPCRequest& request)
         numOutputs = request.params[1].get_int();
     }
 
-    // Use cost estimator
-    PQCostEstimator estimator;
-    auto estimate = estimator.EstimateTransaction(numInputs, numOutputs, false, false);
+    // Calculate verification cost using per-input cost formula
+    // Each input requires one Dilithium signature verification
+    uint32_t signatureCost = numInputs * VerifyCost::DILITHIUM;
+    uint32_t scriptCost = (numInputs + numOutputs) * 2; // Script ops
+    uint32_t hashCost = numInputs * 2;                  // Hash operations
+    uint32_t totalCost = signatureCost + scriptCost + hashCost;
 
     UniValue result(UniValue::VOBJ);
-    result.pushKV("verify_cost", static_cast<int64_t>(estimate.totalCost));
+    result.pushKV("verify_cost", static_cast<int64_t>(totalCost));
 
     UniValue breakdown(UniValue::VOBJ);
-    breakdown.pushKV("signature_cost", static_cast<int64_t>(estimate.signatureCost));
-    breakdown.pushKV("script_cost", static_cast<int64_t>(estimate.scriptCost));
-    breakdown.pushKV("hash_cost", static_cast<int64_t>(estimate.hashCost));
+    breakdown.pushKV("signature_cost", static_cast<int64_t>(signatureCost));
+    breakdown.pushKV("script_cost", static_cast<int64_t>(scriptCost));
+    breakdown.pushKV("hash_cost", static_cast<int64_t>(hashCost));
     result.pushKV("breakdown", breakdown);
 
     // Recommendation based on input count
