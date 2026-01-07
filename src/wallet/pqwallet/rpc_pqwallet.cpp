@@ -195,11 +195,19 @@ UniValue pqestimatefeerate(const JSONRPCRequest& request)
     uint32_t numInputs = 1;
     uint32_t numOutputs = 2;
 
-    if (request.params.size() > 0) {
-        numInputs = request.params[0].get_int();
+    if (request.params.size() > 0 && !request.params[0].isNull()) {
+        if (request.params[0].isNum()) {
+            numInputs = request.params[0].get_int();
+        } else {
+            numInputs = std::stoi(request.params[0].get_str());
+        }
     }
-    if (request.params.size() > 1) {
-        numOutputs = request.params[1].get_int();
+    if (request.params.size() > 1 && !request.params[1].isNull()) {
+        if (request.params[1].isNum()) {
+            numOutputs = request.params[1].get_int();
+        } else {
+            numOutputs = std::stoi(request.params[1].get_str());
+        }
     }
 
     // Calculate verification cost using per-input cost formula
