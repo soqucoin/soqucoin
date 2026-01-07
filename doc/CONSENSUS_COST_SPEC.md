@@ -125,14 +125,19 @@ for Dilithium batch verification:
 > Unlike PAT (which verifies commitments only), LatticeFold+ performs **actual cryptographic
 > verification** of Dilithium signatures through recursive proof folding.
 
-**Capability Comparison**:
+**Node Verification Overhead Comparison**:
+
+> **Note**: Users always sign transactions with Dilithium - that never changes.
+> This table compares what **nodes** must do to verify a batch of transactions.
+
 | Feature | PAT (Genesis) | LatticeFold+ (Stage 2) |
 |---------|--------------|------------------------|
+| User creates Dilithium signature? | ✅ Yes (always) | ✅ Yes (always) |
+| **Node verifies each Dilithium individually?** | **Yes** (175µs each) | **No** (replaced by proof) |
+| Node verifies batch proof? | Yes (PAT Merkle) | Yes (recursive SNARK) |
 | Batch size | Up to 256 | Up to 512 |
-| What it verifies | Commitments (Merkle) | Actual Dilithium sigs |
-| Dilithium verify still needed? | **Yes** | **No** (replaced by proof) |
-| Light client benefit | Trust full nodes | Verify independently |
-| Consensus-critical? | Yes | Yes |
+| **Total node verification time (256 tx)** | ~50 ms | ~1 ms |
+| Light client can independently verify? | No (trusts full nodes) | Yes (verifies proof) |
 
 ### Academic References
 
