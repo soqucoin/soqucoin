@@ -284,6 +284,7 @@ libsoqucoin_wallet_a_SOURCES = \
   wallet/walletdb.cpp \
   wallet/pqwallet/pqwallet.cpp \
   wallet/pqwallet/pqcrypto.cpp \
+  wallet/pqwallet/rpc_pqwallet.cpp \
   policy/rbf.cpp \
   $(BITCOIN_CORE_H)
 
