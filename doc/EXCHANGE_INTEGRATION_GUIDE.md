@@ -79,7 +79,7 @@ sudo make install
 
 ### 2.2 Configuration File
 
-Create `/home/soqucoin/.soqucoin/soqucoin.conf`:
+Create `~/.soqucoin/soqucoin.conf`:
 
 ```ini
 # Basic Configuration
@@ -90,7 +90,8 @@ txindex=1
 # RPC Configuration (IMPORTANT)
 rpcuser=your_secure_rpc_username
 rpcpassword=your_very_long_secure_password_at_least_32_chars
-rpcport=44554
+# Mainnet RPC port: 33389 | Testnet RPC port: 44555 | Stagenet RPC port: 28332
+rpcport=33389
 rpcbind=127.0.0.1
 rpcallowip=127.0.0.1
 
@@ -109,6 +110,15 @@ disablewallet=0
 walletnotify=/path/to/your/notify_script.sh %s
 blocknotify=/path/to/your/block_script.sh %s
 ```
+
+**Network Port Reference**:
+
+| Network | P2P Port | RPC Port |
+|---------|----------|----------|
+| **Mainnet** | 33388 | 33389 |
+| **Testnet3** | 44556 | 44555 |
+| **Stagenet** | 28333 | 28332 |
+| **Regtest** | 18444 | 18332 |
 
 > **Security Warning**: Never expose RPC to the public internet. Use SSH tunnels or VPN for remote access.
 
@@ -420,7 +430,7 @@ soqucoind -reindex-chainstate
 
 | Resource | Link |
 |----------|------|
-| **Documentation** | https://soqu.org/documentation.html |
+| **Protocol Spec** | https://soqu.org/protocol.html |
 | **GitHub** | https://github.com/soqucoin/soqucoin |
 | **Email Support** | dev@soqu.org |
 | **Whitepaper** | https://soqu.org/whitepaper.html |
@@ -442,7 +452,7 @@ soqucoin-cli -testnet getblockchaininfo
 tsq1...
 ```
 
-**Public Testnet3 Node**: `64.23.197.144:44556`
+**Public Testnet3 Node**: `64.23.197.144:44556` (P2P) / `64.23.197.144:44555` (RPC)
 
 ---
 
