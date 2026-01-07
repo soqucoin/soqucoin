@@ -25,6 +25,7 @@
 
 #include "bench.h"
 #include "chainparams.h"
+#include "consensus/merkle.h"
 #include "consensus/validation.h"
 #include "streams.h"
 #include "utilstrencodings.h"
