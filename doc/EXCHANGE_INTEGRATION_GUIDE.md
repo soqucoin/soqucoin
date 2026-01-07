@@ -452,7 +452,7 @@ soqucoin-cli -testnet getblockchaininfo
 tsq1...
 ```
 
-**Public Testnet3 Node**: `64.23.197.144:44556` (P2P) / `64.23.197.144:44555` (RPC)
+> **Note**: Contact dev@soqu.org for testnet node access during development.
 
 ---
 
