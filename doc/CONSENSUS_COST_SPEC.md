@@ -44,17 +44,19 @@ Soqucoin's post-quantum cryptography introduces verification overhead compared t
 | **Bitcoin** | ECDSA/secp256k1 | 71 bytes | ~50 µs | ❌ No |
 | **Litecoin** | ECDSA/secp256k1 | 71 bytes | ~50 µs | ❌ No |
 | **Dogecoin** | ECDSA/secp256k1 | 71 bytes | ~50 µs | ❌ No |
-| **Soqucoin** | Dilithium ML-DSA-44 | 2,420 bytes | 187 µs | ✅ Yes |
+| **Soqucoin** | Dilithium ML-DSA-44 | 2,420 bytes | **175 µs** (measured) | ✅ Yes |
 
-**Analysis**: Dilithium verification is ~3.7x slower than ECDSA. This is the expected trade-off for
+**Analysis**: Dilithium verification is ~3.5x slower than ECDSA. This is the expected trade-off for
 NIST-standardized quantum resistance and is considered acceptable by the cryptographic community.
+
+> **Benchmark Source**: VPS Testnet3 (4-core, 8GB), 327,680 iterations, 2026-01-07
 
 ### Range Proof Comparison
 
 | System | Proof Size | Verify Time | Notes |
 |--------|-----------|-------------|-------|
 | Monero Bulletproofs+ | ~0.5 KB | ~1.5 ms | Production (2022) |
-| **Soqucoin BP++** | ~0.6 KB | 4.07 ms | Current (PQ-compatible) |
+| **Soqucoin BP++** | ~0.6 KB | **4.6 ms** (measured) | Current (PQ-compatible) |
 | Soqucoin BP++ + LatticeFold | ~0.3 KB (amortized) | <1 ms (projected) | Stage 3 |
 
 ### Privacy-Enabled Blockchain Comparison
