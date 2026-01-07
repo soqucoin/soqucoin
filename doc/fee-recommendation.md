@@ -1,67 +1,56 @@
-Soqucoin Fee Recommendation
-----------------------------
+# Soqucoin Fee Recommendation
 
-_last updated for 1.14.6_
+_Last updated for v1.0 (January 2026)_
 
-The Soqucoin chain has a relatively low block interval, 1 megabyte blockspace
-and aims to provide a cheap means for people to transact. Therefore, the biggest
-threat to the Soqucoin chain as a whole is spam and in 2014, a transaction fee
-and dust disincentive were introduced, to combat on-chain spam.
+The Soqucoin chain has a 1-minute block interval with ~1 megabyte blockspace and aims to provide an affordable means for post-quantum secure transactions.
 
-Soqucoin Core implements a number of defaults into the software that reflect the
-developers' recommendations towards fees and dust limits, that at the moment of
-release represent the developers best estimate of how these limits should be
-parametrized. The recommended defaults, as implemented in the Soqucoin Core
-wallet, are:
+## Recommended Defaults
 
-- **0.01 DOGE per kilobyte** transaction fee
-- **0.01 DOGE** dust limit (discard threshold)
-- **0.001 DOGE** replace-by-fee increments
+Soqucoin Core implements the following fee defaults:
 
-The wallet rejects transactions that have outputs under the dust limit, and
-discards change to fee if it falls under this limit.
+- **0.01 SOQ per kilobyte** transaction fee
+- **0.01 SOQ** dust limit (discard threshold)
+- **0.001 SOQ** replace-by-fee increments
 
-Note: In the past, Soqucoin has enforced a rounding function in the fee
-      mechanism. Since version 1.14.5, this is no longer the case, and fees are
-      calculated over the exact size of a transaction. For example, a 192 byte
-      transaction only has to pay `0.01 / 1000 * 192 = 0.00192` DOGE fee.
+The wallet rejects transactions with outputs under the dust limit and discards change to fee if it falls under this limit.
 
-## Miner default inclusion policies
+**Note**: Fees are calculated over the exact transaction size. For example, a 192-byte transaction pays `0.01 / 1000 * 192 = 0.00192` SOQ fee.
 
-The default values for miners to include a transaction in a block has been set
-to exactly the recommended fee of **0.01 DOGE/kB.** Dust limits are defined by
-the miner's mempool policy, see below.
+## Post-Quantum Considerations
 
-## Relay and mempool policies
+Soqucoin uses Dilithium signatures (~2,420 bytes) which are larger than ECDSA (~71 bytes). This affects transaction size:
 
-The relay and mempool acceptance policies are lower than the recommendations
-by default, to allow for a margin to change recommendations in the future (or
-user preference) without the need for an adopted software release in advance.
-This greatly simplifies future policy recommendations. As historically, most
-relay nodes do not change these default settings, these often represent an
-absolute minimum
+| Transaction Type | Approx. Size | Approx. Fee |
+|------------------|--------------|-------------|
+| Simple send (1 input, 2 outputs) | ~2.6 KB | ~0.026 SOQ |
+| Multi-input (5 inputs, 2 outputs) | ~12 KB | ~0.12 SOQ |
+| PAT-aggregated batch | Varies | Reduced via aggregation |
 
-### Transaction fee
+## Miner Default Inclusion Policies
 
-The default minimum transaction fee for relay is set at **0.001 DOGE/kB**,
-exactly one-tenth of the recommended fee. This gives miners and relay operators
-a 10x downward margin to operate within from a spam management perspective.
+The default minimum fee for block inclusion is **0.01 SOQ/kB**, matching the recommended fee.
 
-### Dust limits
+## Relay and Mempool Policies
 
-The mempool logic implements 2 dust limits, a hard dust limit under which a
-transactions is considered non-standard and rejected, and a soft dust limit
-that requires the limit itself to be added to the transaction fee, making the
-output economically unviable.
+Relay policies are set lower than recommendations to allow future adjustments:
 
-- The hard dust limit is set at **0.001 DOGE** - outputs under this value are
-  invalid and rejected.
-- The soft dust limit is set at **0.01 DOGE** - sending a transaction with outputs
-  under this value, are required to add 0.01 DOGE for each such output, or else
-  will be considered to have too low fee and be rejected.
+### Transaction Fee
 
-### Replace-by-fee and mempool limiting increments
+- **Minimum relay fee**: 0.001 SOQ/kB (one-tenth of recommended)
 
-The increments used for replace-by-fee and limiting the mempool once it has
-reached its locally defined maximum size, is by default set at one-tenth of
-the relay fee, or **0.0001 DOGE**.
+### Dust Limits
+
+- **Hard dust limit**: 0.001 SOQ — outputs under this are rejected
+- **Soft dust limit**: 0.01 SOQ — outputs under this require additional fee
+
+### Replace-by-Fee Increments
+
+The RBF increment is set at one-tenth of the relay fee: **0.0001 SOQ**.
+
+## Verification Cost Considerations
+
+For transactions with advanced proof systems, verification costs are tracked separately from byte-based fees. See `pqestimatefeerate` RPC command for cost estimation.
+
+---
+
+*See [CONSENSUS_COST_SPEC.md](CONSENSUS_COST_SPEC.md) for detailed verification cost model.*

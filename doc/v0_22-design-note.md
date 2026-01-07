@@ -175,6 +175,11 @@ For blocks that advertise a PAT-aggregated batch:
 
 ### 4.1 Phased Rollout
 
+> **Mainnet Staged Activation Schedule** (from CONSENSUS_COST_SPEC.md):
+> - **Stage 1 (BP++ Opt-In)**: Height 50,000 (~35 days post-launch)
+> - **Stage 2 (LatticeFold+ Active)**: Height 100,000 (~70 days post-launch)
+> - **Stage 3 (Lattice-BP Hybrid)**: Height 200,000+ (future upgrade)
+
 1. **v1.x (current)**
    - Dilithium-only signatures enforced.
    - PAT and LatticeFold+ wired and tested on regtest/testnet.
@@ -182,12 +187,13 @@ For blocks that advertise a PAT-aggregated batch:
 
 2. **v0.22 (target)**
    - Activate:
-     - Full confidential-amount semantics at `H_CT`.
-     - LatticeFold+ verification at `H_LF`.
+     - Full confidential-amount semantics at `H_CT = 50,000` (Stage 1).
+     - LatticeFold+ verification at `H_LF = 100,000` (Stage 2).
    - Retain backwards compatibility with historical blocks.
 
 3. **Post-v0.22**
    - Introduce distributed LatticeFold+ provers (removing trust in centralized pools).
+   - Lattice-BP Hybrid range proofs at Stage 3 (Height 200,000+).
    - Incrementally migrate more validation logic off-chain while keeping on-chain checks succinct.
 
 ### 4.2 Testing Requirements

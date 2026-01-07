@@ -1,54 +1,62 @@
-## Very Much Frequently Asked Questions ❓
+# Soqucoin Frequently Asked Questions
 
-### How much doge can exist? – So many puppies! 🐕
-Early 2015 (approximately a year and a half after release) there were
-approximately 100,000,000,000 coins.
-Each subsequent block will grant 10,000 coins to encourage miners to continue to
-secure the network and make up for lost wallets on hard drives/phones/lost
-encryption passwords/etc.
+## How much SOQ can exist?
 
+Soqucoin uses a **perpetual emission model** (similar to Dogecoin) to ensure long-term miner incentives for network security:
 
-### Such mining information ⛏
+- **Initial block reward**: 500,000 SOQ
+- **Halvings**: Every 100,000 blocks (~70 days)
+- **Terminal emission**: 10,000 SOQ perpetual after block 600,000
 
-Soqucoin uses a simplified variant of the scrypt key derivation function as its
-proof of work with a target time of one minute per block and difficulty
-readjustment after every block. The block rewards are fixed and halve every
-100,000 blocks. Starting with the 600,000th block, a permanent reward of
-10,000 Soqucoin per block will be issued.
+This inflationary model ensures miners always have incentive to secure the post-quantum network.
 
-Originally, a different payout scheme was envisioned with block rewards being
-determined by taking the maximum reward as per the block schedule and applying
-the result of a Mersenne Twister pseudo-random number generator to arrive at a
-number between 0 and the maximum reward.
+## What makes Soqucoin different?
 
-This was changed starting with block 145,000, to prevent large pools from gaming
-the system and mining only high reward blocks. At the same time, the difficulty
-retargeting was also changed from four hours to once per block (every minute),
-implementing an algorithm courtesy of the DigiByte Coin development team, to
-lessen the impact of sudden increases and decreases of network hashing rate.
+Soqucoin is **post-quantum resistant from day one**. It uses:
 
-**The current block reward schedule:**
+- **Dilithium (ML-DSA-44)**: NIST FIPS 204 standardized signatures replacing ECDSA
+- **Bulletproofs++**: Optional confidential transaction amounts
+- **PAT**: Practical Aggregation Technique for efficient batch verification
+- **LatticeFold+**: Lattice-based recursive SNARKs (activates at height 100,000)
 
-| Block                | Reward in Soqucoin |
-| :------------------- | -----------------: |
-| 1–99,999             |        0–1,000,000 |
-| 100,000–144,999      |          0–500,000 |
-| 145,000–199,999      |            250,000 |
-| 200,000–299,999      |            125,000 |
-| 300,000–399,999      |             62,500 |
-| 400,000–499,999      |             31,250 |
-| 500,000–599,999      |             15,625 |
-| 600,000+             |             10,000 |
+## Mining Information ⛏
 
-**The original block reward schedule, with one-minute block targets and
-four-hour difficulty readjustment:**
+Soqucoin uses the **Scrypt** proof-of-work algorithm with:
 
-| Block                | Reward in Soqucoin |
-| :------------------- | -----------------: |
-| 1–99,999             |        0–1,000,000 |
-| 100,000–199,999      |          0–500,000 |
-| 200,000–299,999      |          0–250,000 |
-| 300,000–399,999      |          0–125,000 |
-| 400,000–499,999      |           0–62,500 |
-| 500,000–599,999      |           0–31,250 |
-| 600,000+             |             10,000 |
+- **Block time**: 1 minute (60 seconds)
+- **Difficulty adjustment**: DigiShield (per-block retargeting)
+- **Merged mining**: Compatible with Litecoin/Dogecoin (AuxPoW)
+- **Chain ID**: 0x5351 ("SQ")
+
+### Block Reward Schedule
+
+| Block Range | Reward (SOQ) |
+|-------------|-------------:|
+| 0 – 99,999 | 500,000 |
+| 100,000 – 199,999 | 250,000 |
+| 200,000 – 299,999 | 125,000 |
+| 300,000 – 399,999 | 62,500 |
+| 400,000 – 499,999 | 31,250 |
+| 500,000 – 599,999 | 15,625 |
+| 600,000+ | 10,000 (perpetual) |
+
+## Address Formats
+
+Soqucoin uses **Bech32m** addresses with network-specific prefixes:
+
+| Network | Prefix | Example |
+|---------|--------|---------|
+| Mainnet | `sq1` | `sq1qxyz...` |
+| Testnet | `tsq1` | `tsq1qxyz...` |
+| Stagenet | `ssq1` | `ssq1qxyz...` |
+
+## Is Soqucoin quantum-safe?
+
+Yes. Soqucoin replaces ECDSA (vulnerable to Shor's algorithm) with **Dilithium ML-DSA-44**, a NIST-standardized post-quantum signature scheme. All transaction signing uses Dilithium exclusively.
+
+## More Information
+
+- **Website**: https://soqu.org
+- **Whitepaper**: https://soqu.org/whitepaper.html
+- **GitHub**: https://github.com/soqucoin/soqucoin
+- **Support**: dev@soqu.org
