@@ -60,14 +60,10 @@ static void SoqucoinBlockDeserialize(benchmark::State& state)
 {
     std::vector<unsigned char> vchBlock = ParseHex(soqucoin_block_bench::block100_hex);
 
-    CDataStream stream(vchBlock, SER_NETWORK, PROTOCOL_VERSION);
-    char a = 0;
-    stream.write(&a, 1); // Prevent compaction
-
     while (state.KeepRunning()) {
+        CDataStream stream(vchBlock, SER_NETWORK, PROTOCOL_VERSION);
         CBlock block;
         stream >> block;
-        assert(stream.Rewind(vchBlock.size() + 1));
     }
 }
 
@@ -90,14 +86,10 @@ static void SoqucoinBlockCheckBlock(benchmark::State& state)
 
     std::vector<unsigned char> vchBlock = ParseHex(soqucoin_block_bench::block100_hex);
 
-    CDataStream stream(vchBlock, SER_NETWORK, PROTOCOL_VERSION);
-    char a = 0;
-    stream.write(&a, 1);
-
     while (state.KeepRunning()) {
+        CDataStream stream(vchBlock, SER_NETWORK, PROTOCOL_VERSION);
         CBlock block;
         stream >> block;
-        assert(stream.Rewind(vchBlock.size() + 1));
 
         CValidationState validationState;
         bool result = CheckBlock(block, validationState);
