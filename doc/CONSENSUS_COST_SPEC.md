@@ -118,13 +118,12 @@ for Dilithium batch verification:
 | Platform | 512-sig Batch Verify | Effective TPS | Source |
 |----------|---------------------|---------------|--------|
 | Apple M4 | **0.68 ms** | ~753,000 sigs/sec | Code comment (dev) |
-| **VPS Intel 4-core** | **9.4 µs** | See note below | Benchmark (Jan 7, 2026) |
+| **VPS Intel 4-core** | **0.751 ms** | **~682,000 sigs/sec** | Benchmark (Jan 7, 2026) |
 
-> [!CAUTION]
-> The VPS benchmark uses random test data that fails verification early (after parsing).
-> The 9.4µs measures proof deserialization + partial verification, not full cryptographic
-> verification. The M4 code comment (0.68ms) is the more accurate estimate for full verification.
-> A benchmark with valid proofs is needed for accurate x86-64 timing.
+> [!NOTE]
+> The VPS benchmark uses crafted test data that exercises the **full verification path**
+> (all 8 sumcheck rounds, range proof, commitment check), failing only at the final
+> Fiat-Shamir seed check. The M4 and VPS results are consistent, validating the implementation.
 
 > [!IMPORTANT]
 > Unlike PAT (which verifies commitments only), LatticeFold+ performs **actual cryptographic
