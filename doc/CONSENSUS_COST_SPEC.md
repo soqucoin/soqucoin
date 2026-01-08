@@ -114,12 +114,11 @@ subsequent **Stages** introduce progressive upgrades. **Privacy features are opt
 The LatticeFold+ activation at height 100,000 introduces **recursive proof composition**
 for Dilithium batch verification:
 
-**Measured Performance** (from verifier.cpp:36):
-| Platform | 512-sig Batch Verify | Effective TPS | Notes |
-|----------|---------------------|---------------|-------|
-| Apple M4 | **0.68 ms** | ~753,000 sigs/sec | regtest measured |
-| Ryzen 7950X | **1.2 ms** | ~427,000 sigs/sec | estimated |
-| VPS (4-core) | **TBD** | TBD | benchmark pending |
+**Measured Performance** (from verifier.cpp:36, pending production benchmark):
+| Platform | 512-sig Batch Verify | Effective TPS | Source |
+|----------|---------------------|---------------|--------|
+| Apple M4 | **0.68 ms** | ~753,000 sigs/sec | Code comment (dev) |
+| VPS 4-core (x86-64) | **TBD** | TBD | Benchmark pending |
 
 > [!IMPORTANT]
 > Unlike PAT (which verifies commitments only), LatticeFold+ performs **actual cryptographic
