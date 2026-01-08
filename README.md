@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://images.squarespace-cdn.com/content/v1/65810ad187838d631a72b98f/f1281546-f262-4ec1-bfa4-f346daab1ae9/soqucoin.png?format=750w" alt="Soqucoin" width="200"/>
+  <img src="https://soqu.org/soq-logo-clean-quantum-v1.png" alt="Soqucoin" width="200"/>
 </p>
 
 <h1 align="center">Soqucoin™ Core</h1>
