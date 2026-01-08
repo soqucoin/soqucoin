@@ -1,7 +1,7 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 2.2 | **Status**: Audit-Ready
-> **Last Updated**: January 6, 2026
+> **Version**: 2.3 | **Status**: Audit-Ready
+> **Last Updated**: January 7, 2026
 > **Specification Tag**: Mainnet Candidate v1.0
 > **Prepared For**: Halborn Security Audit
 
@@ -69,7 +69,7 @@ are projected to progressively improve performance. **Privacy is opt-in** to ens
 | **Monero** | Bulletproofs+ | ~0.5 KB | 1.5 ms | ❌ Mandatory | ❌ No | 🔴 High (delistings) |
 | **Zcash** | Groth16 zk-SNARK | ~0.2 KB | ~2 ms | ✅ Optional | ❌ No | 🟡 Medium |
 | **Litecoin** | MWEB | ~1.5 KB | ~3 ms | ✅ Optional (ext. block) | ❌ No | 🟢 Low (~90% adoption) |
-| **Soqucoin v1.0** | BP++ (current) | ~0.6 KB | 4.07 ms | ✅ **Opt-In** | ⚠️ Partial* | 🟢 Low |
+| **Soqucoin v1.0** | BP++ (current) | ~0.6 KB | **4.6 ms** (measured) | ✅ **Opt-In** | ⚠️ Partial* | 🟢 Low |
 | **Soqucoin Hybrid** | Lattice-BP (Stage 3) | ~0.3 KB | ~1-2 ms | ✅ **Opt-In** | ✅ Yes | 🟢 Low |
 
 *Current BP++ uses secp256k1 (classical) for range proofs; signature layer (Dilithium) is PQ-secure.
@@ -163,7 +163,7 @@ Soqucoin is unique as a **native L1** with recursive proof composition, rather t
 | zkSync Era | Ethereum L2 (Groth16) | ~2 ms | ❌ No |
 | StarkNet | Ethereum L2 (STARK) | ~10 ms | ⚠️ Partial |
 | Polygon zkEVM | Ethereum L2 (PLONK) | ~3 ms | ❌ No |
-| **Soqucoin LatticeFold+** | Native L1 (Lattice IVC) | **0.68-1.2 ms** (measured) | ✅ Yes |
+| **Soqucoin LatticeFold+** | Native L1 (Lattice IVC) | **0.68-0.75 ms** (measured) | ✅ Yes |
 
 **Key Differentiator**: Soqucoin's LatticeFold+ implementation is based on ePrint 2025/247
 and provides the first production L1 with native lattice-based recursive SNARKs.
@@ -290,12 +290,12 @@ Each post-quantum proof type has an assigned verification cost. The **total veri
 
 | Proof Type | Cost | Benchmark¹ | Theoretical Max² |
 |------------|------|------------|------------------|
-| **Dilithium Signature** | 1 | ~0.2ms | 80,000 |
-| **PAT Merkle Proof** | 20 | ~4ms | 4,000 |
-| **Bulletproofs++ Range Proof** | 50 | ~10ms | 1,600 |
-| **LatticeFold+ Recursive SNARK** | 200 | ~40ms | 400 |
+| **Dilithium Signature** | 1 | ~0.175ms | 80,000 |
+| **PAT Merkle Proof** | 20 | ~5ms | 4,000 |
+| **Bulletproofs++ Range Proof** | 50 | ~4.6ms | 1,600 |
+| **LatticeFold+ Recursive SNARK** | 200 | ~0.75ms (512-sig batch) | 400 |
 
-> ¹ Benchmarks from M4 Max (Apple Silicon) single-threaded verification. Reference hardware for timing estimates. Actual verification times vary by CPU.
+> ¹ Benchmarks from VPS Intel 4-core (Testnet3) single-threaded verification, January 7, 2026.
 >
 > ² Theoretical maximum if block contains ONLY that proof type. In practice, blocks contain mixed proofs sharing the 80,000 budget.
 
@@ -500,12 +500,12 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 
 | Metric | Before Stage 2 | After Stage 2 |
 |--------|----------------|---------------|
-| **Single signature verification** | ~0.2ms | ~0.2ms (unchanged) |
-| **512-signature block verification** | ~102ms | ~0.68ms |
+| **Single signature verification** | ~0.175ms | ~0.175ms (unchanged) |
+| **512-signature block verification** | ~90ms | ~0.75ms |
 | **Speedup for high-tx blocks** | 1x | ~150x |
 | **Throughput ceiling** | Adequate for early adoption | Scales to high volume |
 
-*Benchmarks: Apple M4 Max (single-threaded). x86 server ~1.2ms for batch; low-end VPS ~3-5ms.*
+*Benchmarks: VPS Intel 4-core = 0.751ms for 512-sig batch (verified Jan 7, 2026). Apple M4 ~0.68ms.*
 
 ### Activation Ordering Rationale
 
@@ -695,7 +695,7 @@ All values are defined in the Soqucoin Core source code at the following paths:
 | Operation | Cost | Source Location |
 |-----------|------|-----------------|
 | Dilithium Verify | 1 unit | [`src/consensus/consensus.h:28`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L28) |
-| BP++ Range Proof | 4 units | [`src/consensus/consensus.h:31`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L31) |
+| BP++ Range Proof | 50 units | [`src/consensus/consensus.h:31`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L31) |
 | PAT Aggregate | 20 units | [`src/consensus/consensus.h:37`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L37) |
 | LatticeFold+ SNARK | 200 units | [`src/consensus/consensus.h:40`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L40) |
 
