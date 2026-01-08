@@ -20,53 +20,59 @@
 namespace latticefold_bench
 {
 
-// Generate a test batch instance with random data
+// Generate test data that exercises the FULL verification path
+// Crafted to pass intermediate checks, fails only at final Fiat-Shamir seed check
 static void GenerateTestBatch(LatticeFoldVerifier::BatchInstance& instance,
     LatticeFoldVerifier::Proof& proof)
 {
-    // Generate random batch_hash (simulating Merkle root of 512 sigs)
+    // Generate random batch_hash
     GetRandBytes(instance.batch_hash.data(), 32);
 
-    // Generate random t_coeffs (folded t vector)
+    // Generate random t_coeffs (these will match folded_commitment)
     for (int i = 0; i < 8; ++i) {
         uint64_t lo = GetRand(UINT64_MAX);
         uint64_t hi = GetRand(UINT64_MAX);
         instance.t_coeffs[i] = LatticeFoldVerifier::Fp(lo, hi);
     }
 
-    // Generate random challenge c
+    // Generate challenge c
     uint64_t c_lo = GetRand(UINT64_MAX);
     uint64_t c_hi = GetRand(UINT64_MAX);
     instance.c = LatticeFoldVerifier::Fp(c_lo, c_hi);
 
-    // Generate sumcheck proof (8 rounds * 64 elements = 512 elements)
-    proof.sumcheck_proof.resize(512);
-    for (size_t i = 0; i < 512; ++i) {
-        uint64_t lo = GetRand(UINT64_MAX);
-        uint64_t hi = GetRand(UINT64_MAX);
-        proof.sumcheck_proof[i] = LatticeFoldVerifier::Fp(lo, hi);
-    }
+    // ---- CRAFTED DATA TO PASS INTERMEDIATE CHECKS ----
 
-    // Generate range openings (16 elements)
+    // 1. Range openings: all zeros → sum = 0 → passes VerifyRangeAlgebraic
     for (int i = 0; i < 16; ++i) {
-        uint64_t lo = GetRand(UINT64_MAX);
-        uint64_t hi = GetRand(UINT64_MAX);
-        proof.range_openings[i] = LatticeFoldVerifier::Fp(lo, hi);
+        proof.range_openings[i] = LatticeFoldVerifier::Fp::zero();
     }
 
-    // Generate folded commitment (8 elements) - must match t_coeffs for valid proof
+    // 2. Double openings: set [0]=[2] and [1]=[3] → lhs==rhs → passes VerifyDoubleCommitmentOpening
+    uint64_t d_lo = GetRand(UINT64_MAX);
+    uint64_t d_hi = GetRand(UINT64_MAX);
+    proof.double_openings[0] = LatticeFoldVerifier::Fp(d_lo, d_hi);
+    proof.double_openings[1] = LatticeFoldVerifier::Fp(d_lo ^ 0x1234, d_hi ^ 0x5678);
+    proof.double_openings[2] = proof.double_openings[0];
+    proof.double_openings[3] = proof.double_openings[1];
+
+    // 3. Sumcheck: set first element = claim, rest = 0 → sum==claim → passes VerifySumcheckRound
+    proof.sumcheck_proof.resize(512);
+    LatticeFoldVerifier::Fp claim = instance.c;
+    for (int round = 0; round < 8; ++round) {
+        size_t offset = round * 64;
+        proof.sumcheck_proof[offset] = claim;
+        for (int i = 1; i < 64; ++i) {
+            proof.sumcheck_proof[offset + i] = LatticeFoldVerifier::Fp::zero();
+        }
+        claim = proof.sumcheck_proof[offset]; // next claim = first element
+    }
+
+    // 4. Folded commitment: must match t_coeffs → passes commitment check
     for (int i = 0; i < 8; ++i) {
         proof.folded_commitment[i] = instance.t_coeffs[i];
     }
 
-    // Generate double openings (4 elements)
-    for (int i = 0; i < 4; ++i) {
-        uint64_t lo = GetRand(UINT64_MAX);
-        uint64_t hi = GetRand(UINT64_MAX);
-        proof.double_openings[i] = LatticeFoldVerifier::Fp(lo, hi);
-    }
-
-    // Generate Fiat-Shamir seed
+    // 5. Fiat-Shamir seed: random → fails only at final check (all crypto computed)
     GetRandBytes(proof.fiat_shamir_seed.begin(), 32);
 }
 
