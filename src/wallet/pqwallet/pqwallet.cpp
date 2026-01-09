@@ -4,7 +4,7 @@
 
 #include "wallet/pqwallet/pqwallet.h"
 #include "bech32.h"
-#include "crypto/sha256.h"
+#include "crypto/blake2b.h"
 #include "support/cleanse.h"
 #include "wallet/pqwallet/pqaddress.h"
 #include "wallet/pqwallet/pqkeys.h"
@@ -169,15 +169,19 @@ bool PQKeyPair::Verify(const std::vector<uint8_t>& message,
 // PQAddress implementation
 //=============================================================================
 
-std::array<uint8_t, 32> PQAddress::HashPublicKey(
+std::array<uint8_t, 20> PQAddress::HashPublicKey(
     const std::array<uint8_t, DILITHIUM_PUBKEY_SIZE>& pubkey)
 {
-    std::array<uint8_t, 32> hash;
+    std::array<uint8_t, 20> hash;
 
-    // Use SHA256 for public key hashing (SHA3-256 can be added later)
-    CSHA256 sha;
-    sha.Write(pubkey.data(), pubkey.size());
-    sha.Finalize(hash.data());
+    // Use BLAKE2b-160 for public key hashing
+    // Why BLAKE2b-160:
+    // - 3-5x faster than SHA-256 for large Dilithium keys (1,312 bytes)
+    // - 160 bits provides 80-bit collision resistance (sufficient for addresses)
+    // - Matches whitepaper specification for L2 compatibility
+    CBLAKE2b blake(20);
+    blake.Write(pubkey.data(), pubkey.size());
+    blake.Finalize(hash.data());
 
     return hash;
 }
@@ -235,7 +239,7 @@ std::string PQAddress::Encode(
 }
 
 std::string PQAddress::EncodeFromHash(
-    const std::array<uint8_t, 32>& pubkeyHash,
+    const std::array<uint8_t, 20>& pubkeyHash,
     Network network,
     AddressType type)
 {
@@ -243,7 +247,7 @@ std::string PQAddress::EncodeFromHash(
 
     // Version byte (0x00 for v1 P2PQ)
     std::vector<uint8_t> data;
-    data.reserve(33);     // version + 32-byte hash
+    data.reserve(21);     // version + 20-byte hash
     data.push_back(0x00); // Version
     data.insert(data.end(), pubkeyHash.begin(), pubkeyHash.end());
 
@@ -299,9 +303,9 @@ bool PQAddress::IsValid(const std::string& address)
         return false;
     }
 
-    // Check data length (version + 32-byte hash in 5-bit groups)
-    // 33 bytes = 264 bits = ~53 5-bit groups
-    if (decoded.data.size() < 50 || decoded.data.size() > 60) {
+    // Check data length (version + 20-byte hash in 5-bit groups)
+    // 21 bytes = 168 bits = ~34 5-bit groups
+    if (decoded.data.size() < 30 || decoded.data.size() > 40) {
         return false;
     }
 
@@ -346,13 +350,13 @@ AddressInfo PQAddress::Decode(const std::string& address)
         }
     }
 
-    if (data.size() < 33) {
+    if (data.size() < 21) {
         info.error = "Invalid data length";
         return info;
     }
 
-    // Skip version byte, extract hash
-    std::copy(data.begin() + 1, data.begin() + 33, info.hash.begin());
+    // Skip version byte, extract 20-byte hash
+    std::copy(data.begin() + 1, data.begin() + 21, info.hash.begin());
 
     info.valid = true;
     return info;

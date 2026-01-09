@@ -315,6 +315,8 @@ crypto_libsoqucoin_crypto_a_SOURCES = \
   crypto/sha512.h \
   crypto/sha3.cpp \
   crypto/sha3.h \
+  crypto/blake2b.cpp \
+  crypto/blake2b.h \
   crypto/dilithium/sign.c \
   crypto/dilithium/packing.c \
   crypto/dilithium/polyvec.c \

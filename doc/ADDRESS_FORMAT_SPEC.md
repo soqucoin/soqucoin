@@ -32,22 +32,38 @@ Format: <prefix><version><pubkey_hash><checksum>
 Components:
 - Prefix:       "sq1" (mainnet), "tsq1" (testnet), "ssq1" (stagenet)
 - Version:      1 byte (0x00 for v1)
-- PubkeyHash:   32 bytes (SHA3-256 of Dilithium public key)
-- Checksum:     4 bytes (first 4 bytes of SHA3-256(prefix + version + hash))
+- PubkeyHash:   20 bytes (BLAKE2b-160 of Dilithium public key)
+- Checksum:     4 bytes (first 4 bytes of BLAKE2b(prefix + version + hash))
 
 Encoding:     Bech32m
-Total Length: 62 characters (mainnet)
+Total Length: ~52 characters (mainnet)
 ```
+
+### Why BLAKE2b-160?
+
+| Property | BLAKE2b-160 | SHA-256 | Rationale |
+|----------|-------------|---------|----------|
+| **Speed** | ~3-5x faster | Baseline | Dilithium pubkeys are 1,312 bytes; speed matters |
+| **Output size** | 160 bits (20 bytes) | 256 bits (32 bytes) | 12 bytes saved per address |
+| **Collision resistance** | 80 bits | 128 bits | Sufficient for address uniqueness (birthday bound) |
+| **Preimage resistance** | 160 bits | 256 bits | Address recovery still infeasible |
+| **Quantum security** | ~80 bits (Grover) | ~128 bits | Acceptable for address hashing (not signing) |
+| **L2 compatibility** | HKDF-BLAKE2b | — | Consistent with channel key derivation |
 
 ### Derivation
 
 ```
-1. Generate Dilithium-ML-DSA-44 keypair
-2. pubkey_hash = SHA3-256(pubkey)  // 32 bytes
+1. Generate Dilithium-ML-DSA-44 keypair (1,312-byte public key)
+2. pubkey_hash = BLAKE2b(pubkey, output_len=20)  // 160 bits
 3. version = 0x00
-4. checksum = SHA3-256("sq1" || version || pubkey_hash)[0:4]
+4. checksum = BLAKE2b("sq1" || version || pubkey_hash, output_len=4)[0:4]
 5. address = Bech32m_Encode("sq1", version || pubkey_hash || checksum)
 ```
+
+> **Security Note**: 160-bit hashes provide 80-bit collision resistance via birthday bound.
+> For address generation, this is acceptable as finding two Dilithium keypairs that
+> hash to the same address requires ~2^80 operations, far exceeding practical attack
+> budgets. The signing keys themselves retain full ML-DSA-44 security (NIST Level 2).
 
 ---
 
@@ -232,7 +248,7 @@ Change path:   m/44'/21329'/0'/1/0
 For wallet developers:
 
 - [ ] Implement Bech32m encoding/decoding
-- [ ] Implement SHA3-256 hashing
+- [ ] Implement BLAKE2b-160 hashing (RFC 7693)
 - [ ] Implement network prefix detection
 - [ ] Implement checksum calculation
 - [ ] Add all test vectors

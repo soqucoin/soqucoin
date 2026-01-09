@@ -54,7 +54,7 @@ UniValue pqgetnewaddress(const JSONRPCRequest& request)
             "\nResult:\n"
             "{\n"
             "  \"address\": \"sq1...\",        (string) The new Bech32m address\n"
-            "  \"pubkey_hash\": \"...\",       (string) SHA3-256 hash of public key\n"
+            "  \"pubkey_hash\": \"...\",       (string) BLAKE2b-160 hash of public key\n"
             "  \"network\": \"testnet\",       (string) Network identifier\n"
             "  \"type\": \"P2PQ\"              (string) Address type (P2PQ = Pay-to-Post-Quantum)\n"
             "}\n"

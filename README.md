@@ -51,6 +51,7 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 | Component | Implementation | Security Level |
 |-----------|---------------|----------------|
 | **Signatures** | ML-DSA-44 (Dilithium) | NIST Level 2 (128-bit quantum) |
+| **Address Hashing** | BLAKE2b-160 | 80-bit collision (sufficient for addresses) |
 | **Batch Verification** | LatticeFold+ / PAT | Constant-size proofs |
 | **Proof-of-Work** | Scrypt (N=1024, r=1, p=1) | Grover-resistant |
 
@@ -222,6 +223,8 @@ make install  # optional
 | **PAT Verifier** | `src/crypto/pat/logarithmic.cpp` | ✅ In-tree |
 | **LatticeFold+ Prover** | Off-chain (trusted pools) | ✅ Operational |
 | **LatticeFold+ Verifier** | `src/crypto/latticefold/verifier.cpp` | ✅ In-tree |
+| **PQ Wallet Library** | `src/wallet/pqwallet/` | ✅ In-tree |
+| **BLAKE2b-160** | `src/crypto/blake2b.cpp` | ✅ In-tree |
 | **Distributed Provers** | — | 🔄 Future work |
 
 Note: LatticeFold+ verification is enabled on regtest/testnet and activates at **Height 100,000** on mainnet via staged consensus activation.
