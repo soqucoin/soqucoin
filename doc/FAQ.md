@@ -10,6 +10,35 @@ Soqucoin uses a **perpetual emission model** (similar to Dogecoin) to ensure lon
 
 This inflationary model ensures miners always have incentive to secure the post-quantum network.
 
+## What is the emission schedule?
+
+| Block Range | Block Reward | Timeline (~1 min blocks) |
+|-------------|-------------|--------------------------|
+| 0 – 99,999 | 500,000 SOQ | First ~70 days |
+| 100,000 – 199,999 | 250,000 SOQ | ~70 days |
+| 200,000 – 299,999 | 125,000 SOQ | ~70 days |
+| 300,000 – 399,999 | 62,500 SOQ | ~70 days |
+| 400,000 – 499,999 | 31,250 SOQ | ~70 days |
+| 500,000 – 599,999 | 15,625 SOQ | ~70 days |
+| **600,000+** | **10,000 SOQ (perpetual)** | **Forever** |
+
+**Key characteristics:**
+- **No hard cap** – perpetual emission after block 600,000
+- **100,000 block halving interval** (~70 days at 1-min blocks)
+- **~11.4 months** to reach terminal emission
+- **Terminal emission**: 10,000 SOQ/block = ~5.25B SOQ/year
+
+## Where is the emission schedule defined?
+
+The emission schedule is defined in:
+
+1. **Code** (authoritative source):
+   - `src/soqucoin.cpp` – `GetSoqucoinBlockSubsidy()` function
+   - `src/chainparams.cpp` – consensus parameters
+   
+2. **Documentation**:
+   - This FAQ and the [Protocol page](https://soqu.org/protocol.html)
+
 ## What makes Soqucoin different?
 
 Soqucoin is **post-quantum resistant from day one**. It uses:
@@ -40,6 +69,23 @@ Soqucoin uses the **Scrypt** proof-of-work algorithm with:
 | 500,000 – 599,999 | 15,625 |
 | 600,000+ | 10,000 (perpetual) |
 
+## Is there a mining pool?
+
+**Current status (pre-mainnet):**
+
+- **Engineering Testnet**: Stratum bridge available for testing with any Scrypt miner
+- **Testnet**: Running Braiins pool software internally
+- **Public pools**: No third-party pools yet (launching with mainnet)
+
+**How to mine on Engineering Testnet:**
+
+Visit https://soqu.org/testnet.html for current connection details and miner setup instructions.
+
+**Mainnet plans:**
+- Open-source pool software available at launch
+- Community can run independent pools
+- AuxPoW (merged mining with LTC/DOGE) supported from genesis
+
 ## Address Formats
 
 Soqucoin uses **Bech32m** addresses with network-specific prefixes:
@@ -60,3 +106,4 @@ Yes. Soqucoin replaces ECDSA (vulnerable to Shor's algorithm) with **Dilithium M
 - **Whitepaper**: https://soqu.org/whitepaper.html
 - **GitHub**: https://github.com/soqucoin/soqucoin
 - **Support**: dev@soqu.org
+
