@@ -105,14 +105,14 @@ jobs:
       
       - name: Install dependencies
         run: |
-          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq sqlite
+          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq
       
       - name: Build
         run: |
           ./autogen.sh
-          ./configure --without-gui --disable-tests --disable-bench --with-sqlite=yes --without-bdb \
-            LDFLAGS="-L$(brew --prefix openssl@3)/lib -L$(brew --prefix sqlite)/lib" \
-            CPPFLAGS="-I$(brew --prefix openssl@3)/include -I$(brew --prefix sqlite)/include"
+          ./configure --without-gui --disable-tests --disable-bench --disable-wallet \
+            LDFLAGS="-L$(brew --prefix openssl@3)/lib" \
+            CPPFLAGS="-I$(brew --prefix openssl@3)/include"
           make $MAKEFLAGS
       
       - name: Package
@@ -138,14 +138,14 @@ jobs:
       
       - name: Install dependencies
         run: |
-          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq sqlite
+          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq
       
       - name: Build
         run: |
           ./autogen.sh
-          ./configure --without-gui --disable-tests --disable-bench --with-sqlite=yes --without-bdb \
-            LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/sqlite/lib" \
-            CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include -I/opt/homebrew/opt/sqlite/include"
+          ./configure --without-gui --disable-tests --disable-bench --disable-wallet \
+            LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib" \
+            CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
           make $MAKEFLAGS
       
       - name: Package
