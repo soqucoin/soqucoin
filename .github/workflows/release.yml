@@ -98,21 +98,21 @@ jobs:
   # macOS Intel Build
   # ============================================
   build-macos-x64:
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       
       - name: Install dependencies
         run: |
-          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq berkeley-db@4
+          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq sqlite
       
       - name: Build
         run: |
           ./autogen.sh
-          ./configure --without-gui --disable-tests --disable-bench \
-            LDFLAGS="-L/usr/local/opt/openssl@3/lib -L/usr/local/opt/berkeley-db@4/lib" \
-            CPPFLAGS="-I/usr/local/opt/openssl@3/include -I/usr/local/opt/berkeley-db@4/include"
+          ./configure --without-gui --disable-tests --disable-bench --with-sqlite=yes --without-bdb \
+            LDFLAGS="-L$(brew --prefix openssl@3)/lib -L$(brew --prefix sqlite)/lib" \
+            CPPFLAGS="-I$(brew --prefix openssl@3)/include -I$(brew --prefix sqlite)/include"
           make $MAKEFLAGS
       
       - name: Package
@@ -138,14 +138,14 @@ jobs:
       
       - name: Install dependencies
         run: |
-          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq berkeley-db@4
+          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq sqlite
       
       - name: Build
         run: |
           ./autogen.sh
-          ./configure --without-gui --disable-tests --disable-bench \
-            LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/berkeley-db@4/lib" \
-            CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include -I/opt/homebrew/opt/berkeley-db@4/include"
+          ./configure --without-gui --disable-tests --disable-bench --with-sqlite=yes --without-bdb \
+            LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/sqlite/lib" \
+            CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include -I/opt/homebrew/opt/sqlite/include"
           make $MAKEFLAGS
       
       - name: Package
