@@ -378,8 +378,10 @@ public:
 
         // Clear all Dogecoin seeds - Soqucoin testnet is isolated
         vSeeds.clear();
-        // Soqucoin-only seed nodes (add more as deployed)
-        // vSeeds.push_back(CDNSSeedData("soqu.org", "seed.soqu.org"));
+        // Soqucoin DNS seed nodes - January 2026
+        vSeeds.push_back(CDNSSeedData("soqu.org", "seed1.soqu.org")); // Testnet3 VPS
+        vSeeds.push_back(CDNSSeedData("soqu.org", "seed2.soqu.org")); // Stagenet VPS
+        vSeeds.push_back(CDNSSeedData("soqu.org", "seed3.soqu.org")); // Pinode (home node)
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 113); // 0x71
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 196); // 0xc4
