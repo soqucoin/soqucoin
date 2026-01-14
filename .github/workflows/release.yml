@@ -108,11 +108,14 @@ jobs:
           brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq
       
       - name: Build
+        env:
+          BOOST_ROOT: /opt/homebrew
         run: |
           ./autogen.sh
           ./configure --without-gui --disable-tests --disable-bench --disable-wallet \
-            LDFLAGS="-L$(brew --prefix openssl@3)/lib" \
-            CPPFLAGS="-I$(brew --prefix openssl@3)/include"
+            --with-boost=/opt/homebrew \
+            LDFLAGS="-L/opt/homebrew/lib -L$(brew --prefix openssl@3)/lib -L$(brew --prefix libevent)/lib" \
+            CPPFLAGS="-I/opt/homebrew/include -I$(brew --prefix openssl@3)/include -I$(brew --prefix libevent)/include"
           make $MAKEFLAGS
       
       - name: Package
@@ -141,11 +144,14 @@ jobs:
           brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq
       
       - name: Build
+        env:
+          BOOST_ROOT: /opt/homebrew
         run: |
           ./autogen.sh
           ./configure --without-gui --disable-tests --disable-bench --disable-wallet \
-            LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib" \
-            CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
+            --with-boost=/opt/homebrew \
+            LDFLAGS="-L/opt/homebrew/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/libevent/lib" \
+            CPPFLAGS="-I/opt/homebrew/include -I/opt/homebrew/opt/openssl@3/include -I/opt/homebrew/opt/libevent/include"
           make $MAKEFLAGS
       
       - name: Package
