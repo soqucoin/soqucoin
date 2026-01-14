@@ -80,7 +80,7 @@ jobs:
               libzmq3-dev libsqlite3-dev libdb++-dev
             ./autogen.sh
             ./configure --without-gui --disable-tests --disable-bench
-            make -j4
+            make -j2
       
       - name: Package
         run: |
