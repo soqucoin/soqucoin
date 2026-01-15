@@ -126,13 +126,124 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 
 ---
 
-## 8. Open Design Questions
+## 8. pSOQ Launch Models (Community Analysis)
+
+> [!NOTE]
+> **Community Feedback Integration**: This section incorporates feedback from community members
+> analyzed by blockchain security and tokenomics experts. The final model will be selected based
+> on security, compliance, and decentralization priorities.
+
+### The Core Challenge
+
+At **mainnet genesis, there is 0 SOQ in circulation** until miners produce blocks. This creates
+a chicken-and-egg problem for pSOQ:
+
+| Challenge | Impact |
+|-----------|--------|
+| No SOQ to lock | Cannot mint backed pSOQ |
+| No pSOQ liquidity | No Solana DeFi integration |
+| Miners need incentive | Early adoption requires rewards |
+
+### Model A: Pre-Mine Pool (Treasury-Backed)
+
+```
+Foundation pre-mines pSOQ supply → available at Solana launch
+SOQ backing comes from early mining treasury
+```
+
+| Aspect | Assessment |
+|--------|------------|
+| **Liquidity** | ✅ Immediate — pSOQ available day 1 |
+| **Complexity** | ✅ Simple — no oracle dependency |
+| **Trust** | ❌ Centralized — users trust foundation backing |
+| **Alignment** | ❌ Conflicts with "0% premine" philosophy |
+
+> [!WARNING]
+> **Expert Assessment**: This model contradicts Soqucoin's fair-launch principles.
+> While operationally simple, it introduces counter-party risk and undermines
+> the project's core value proposition. **Not recommended.**
+
+### Model B: Mining-Backed (Pure Lock/Mint)
+
+```
+pSOQ exists ONLY when SOQ is locked in bridge contract
+No pSOQ until mainnet miners produce SOQ
+```
+
+| Aspect | Assessment |
+|--------|------------|
+| **Liquidity** | ❌ Delayed — wait for mining circulation |
+| **Trust** | ✅ Fully trustless — 1:1 provable backing |
+| **Alignment** | ✅ Perfect — no premine, no treasury |
+| **DeFi Timeline** | ❌ Weeks/months delay for Solana integration |
+
+> [!TIP]
+> **Expert Assessment**: This is the most philosophically pure model and aligns
+> with Soqucoin's values. The liquidity delay is acceptable if properly communicated.
+> **Recommended for long-term.**
+
+### Model C: Hybrid (Forward-Commit Mining)
+
+```
+Phase 1: Foundation provides temporary liquidity guarantee
+Phase 2: Mining-backed pSOQ replaces temporary supply
+Phase 3: Foundation guarantee expires, fully decentralized
+```
+
+| Aspect | Assessment |
+|--------|------------|
+| **Liquidity** | ✅ Early access with transition plan |
+| **Trust** | 🟡 Temporary centralization, planned sunset |
+| **Alignment** | 🟡 Compromise — transparent about tradeoffs |
+| **Complexity** | ❌ Higher — requires migration mechanics |
+
+> [!IMPORTANT]
+> **Expert Assessment**: This model balances pragmatism with principles IF:
+> - Foundation liquidity is time-bounded (e.g., 90 days)
+> - Transition to mining-backed is automatic and verifiable
+> - Community is fully informed of the hybrid phase
+>
+> **Acceptable if properly executed.**
+
+### Recommended Approach
+
+Based on expert analysis, the recommended path is:
+
+| Phase | Timeline | Model | Notes |
+|-------|----------|-------|-------|
+| **Genesis** | Q1 2026 | No pSOQ | Focus on SOQ mining, network stability |
+| **Early Bridge** | Q2 2026 | Model B | Mining-backed only, limited liquidity |
+| **Mature Bridge** | Q3+ 2026 | Model B | Full liquidity from mining circulation |
+
+**Key Principle**: Wait for natural mining circulation rather than compromising
+on the "0% premine" commitment. Early Solana integration is not worth
+sacrificing long-term credibility.
+
+### Forward-Commit Mining (Rejected Alternative)
+
+Community suggested: *"Miners claim pSOQ immediately; SOQ unlocks as mined"*
+
+| Concern | Expert Response |
+|---------|-----------------|
+| Creates unbacked pSOQ | Violates 1:1 backing principle |
+| Complexity | Adds oracle dependencies |
+| Regulatory risk | Unbacked claims may be securities |
+
+> [!CAUTION]
+> **Rejected**: Forward-commit mining creates unbacked tokens which contradicts
+> the bridge's security model and may attract regulatory scrutiny.
+
+---
+
+## 9. Open Design Questions
 
 1. **Validator economics**: How are validators compensated for bridge operations?
 2. **Fee structure**: Should bridge transfers incur fees beyond network gas?
 3. **Rate limiting**: Should there be per-transaction or per-day limits initially?
 4. **Emergency procedures**: How to handle bridge pause/freeze in case of exploit?
 5. **Governance**: Who controls bridge upgrades long-term?
+6. **pSOQ Launch Timing**: When does sufficient SOQ liquidity exist for bridge launch?
+7. **Proof of Reserves**: On-chain attestation frequency and audit requirements?
 
 ---
 
