@@ -242,6 +242,187 @@ void benchmark_commitment()
 }
 
 // ============================================================================
+// Ring Signature Tests
+// ============================================================================
+
+#include "ring_signature.h"
+
+void test_key_image_generation()
+{
+    std::cout << "Testing KeyImage generation... ";
+
+    // Create a mock public key
+    LatticePublicKey pk;
+    for (size_t i = 0; i < LatticeParams::K; i++) {
+        pk.key[i] = RingElement::sampleUniform();
+    }
+
+    // Create a private key (small coefficients)
+    RingElement sk = RingElement::sampleGaussian();
+
+    // Generate key image
+    KeyImage ki1 = KeyImage::generate(sk, pk);
+    KeyImage ki2 = KeyImage::generate(sk, pk);
+
+    // Same key should produce same image
+    assert(ki1 == ki2 && "Same key should produce same key image");
+
+    // Different key should produce different image
+    RingElement sk2 = RingElement::sampleGaussian();
+    KeyImage ki3 = KeyImage::generate(sk2, pk);
+
+    bool different = !(ki1 == ki3);
+    assert(different && "Different keys should produce different images");
+
+    std::cout << "PASSED" << std::endl;
+}
+
+void test_ring_signature_basic()
+{
+    std::cout << "Testing ring signature (size=3)... ";
+
+    const size_t ring_size = 3;
+
+    // Generate ring of public keys
+    std::vector<LatticePublicKey> ring(ring_size);
+    for (size_t i = 0; i < ring_size; i++) {
+        for (size_t j = 0; j < LatticeParams::K; j++) {
+            ring[i].key[j] = RingElement::sampleUniform();
+        }
+    }
+
+    // Real signer is at index 1
+    size_t real_index = 1;
+    RingElement private_key = RingElement::sampleGaussian();
+
+    // Update public key to match private key (P = x * G, simplified)
+    for (size_t j = 0; j < LatticeParams::K; j++) {
+        ring[real_index].key[j] = private_key;
+    }
+
+    // Create message to sign
+    std::array<uint8_t, 32> message = {};
+    for (int i = 0; i < 32; i++)
+        message[i] = i;
+
+    // Sign
+    LatticeRingSignature sig = LatticeRingSignature::sign(
+        message, ring, real_index, private_key);
+
+    // Check signature has correct structure
+    assert(sig.responses.size() == ring_size && "Should have response per ring member");
+
+    std::cout << "PASSED (sig_size=" << sig.size() << " bytes)" << std::endl;
+}
+
+void test_ring_signature_large()
+{
+    std::cout << "Testing ring signature (size=11)... ";
+
+    const size_t ring_size = 11; // Monero-style ring size
+
+    // Generate ring of public keys
+    std::vector<LatticePublicKey> ring(ring_size);
+    for (size_t i = 0; i < ring_size; i++) {
+        for (size_t j = 0; j < LatticeParams::K; j++) {
+            ring[i].key[j] = RingElement::sampleUniform();
+        }
+    }
+
+    // Real signer is at random index
+    size_t real_index = 7;
+    RingElement private_key = RingElement::sampleGaussian();
+
+    // Update public key to match private key
+    for (size_t j = 0; j < LatticeParams::K; j++) {
+        ring[real_index].key[j] = private_key;
+    }
+
+    // Create message to sign
+    std::array<uint8_t, 32> message = {};
+    for (int i = 0; i < 32; i++)
+        message[i] = 0x42;
+
+    // Sign
+    LatticeRingSignature sig = LatticeRingSignature::sign(
+        message, ring, real_index, private_key);
+
+    assert(sig.responses.size() == ring_size && "Should have 11 responses");
+
+    std::cout << "PASSED (sig_size=" << sig.size() / 1024 << " KB)" << std::endl;
+}
+
+void test_ring_signature_serialization()
+{
+    std::cout << "Testing ring signature serialization... ";
+
+    const size_t ring_size = 3;
+
+    // Generate ring and signature
+    std::vector<LatticePublicKey> ring(ring_size);
+    for (size_t i = 0; i < ring_size; i++) {
+        for (size_t j = 0; j < LatticeParams::K; j++) {
+            ring[i].key[j] = RingElement::sampleUniform();
+        }
+    }
+
+    RingElement private_key = RingElement::sampleGaussian();
+    for (size_t j = 0; j < LatticeParams::K; j++) {
+        ring[0].key[j] = private_key;
+    }
+
+    std::array<uint8_t, 32> message = {};
+    LatticeRingSignature sig = LatticeRingSignature::sign(message, ring, 0, private_key);
+
+    // Serialize and deserialize
+    auto serialized = sig.serialize();
+    LatticeRingSignature sig2 = LatticeRingSignature::deserialize(serialized);
+
+    // Check key images match
+    assert(sig.key_image == sig2.key_image && "Key images should match");
+    assert(sig.responses.size() == sig2.responses.size() && "Response counts should match");
+
+    std::cout << "PASSED" << std::endl;
+}
+
+void benchmark_ring_signature()
+{
+    std::cout << "Benchmarking ring signature (size=11)... ";
+
+    const size_t ring_size = 11;
+
+    // Setup
+    std::vector<LatticePublicKey> ring(ring_size);
+    for (size_t i = 0; i < ring_size; i++) {
+        for (size_t j = 0; j < LatticeParams::K; j++) {
+            ring[i].key[j] = RingElement::sampleUniform();
+        }
+    }
+
+    RingElement private_key = RingElement::sampleGaussian();
+    for (size_t j = 0; j < LatticeParams::K; j++) {
+        ring[5].key[j] = private_key;
+    }
+
+    std::array<uint8_t, 32> message = {};
+
+    const int iterations = 10;
+    auto start = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < iterations; i++) {
+        LatticeRingSignature sig = LatticeRingSignature::sign(
+            message, ring, 5, private_key);
+        (void)sig;
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    double per_op = (double)duration.count() / iterations;
+    std::cout << per_op << " ms per signature" << std::endl;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -257,8 +438,8 @@ int main()
     std::cout << "  Module rank (k):    " << LatticeParams::K << "\n";
     std::cout << "  Gaussian σ:         " << LatticeParams::SIGMA << "\n\n";
 
-    // Unit tests
-    std::cout << "Running unit tests:\n";
+    // Unit tests - Commitments
+    std::cout << "Running commitment tests:\n";
     test_ring_element_addition();
     test_ring_element_subtraction();
     test_ring_element_multiplication();
@@ -267,10 +448,18 @@ int main()
     test_commitment_homomorphism();
     test_serialization();
 
+    // Unit tests - Ring Signatures
+    std::cout << "\nRunning ring signature tests:\n";
+    test_key_image_generation();
+    test_ring_signature_basic();
+    test_ring_signature_large();
+    test_ring_signature_serialization();
+
     // Benchmarks
     std::cout << "\nRunning benchmarks:\n";
     benchmark_ntt_multiplication();
     benchmark_commitment();
+    benchmark_ring_signature();
 
     std::cout << "\n===========================================\n";
     std::cout << "  All tests PASSED                          \n";
