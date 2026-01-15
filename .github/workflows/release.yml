@@ -55,49 +55,42 @@ jobs:
           path: soqucoin-*-linux-x64.tar.gz
 
   # ============================================
-  # Linux ARM64 Build (Cross-Compiled for Raspberry Pi)
+  # Linux ARM64 Build (QEMU for Raspberry Pi)
   # ============================================
   build-linux-arm64:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Install cross-compiler and dependencies
+      - name: Free disk space and add swap
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            g++-aarch64-linux-gnu \
-            libtool autotools-dev automake pkg-config bsdmainutils python3
-          
-      - name: Install ARM64 libraries
-        run: |
-          # Add ARM64 architecture
-          sudo dpkg --add-architecture arm64
-          
-          # Restrict existing sources to amd64 only
-          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
-          
-          # Add ARM64 package sources from ports
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
-          
-          sudo apt-get update
-          sudo apt-get install -y \
-            libssl-dev:arm64 \
-            libevent-dev:arm64 \
-            libboost-all-dev:arm64 \
-            libdb++-dev:arm64
+          # Free up disk space
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          # Add swap for QEMU memory needs
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
       
-      - name: Build with cross-compiler
-        run: |
-          ./autogen.sh
-          ./configure --host=aarch64-linux-gnu \
-            CC=aarch64-linux-gnu-gcc \
-            CXX=aarch64-linux-gnu-g++ \
-            --without-gui --disable-tests --disable-bench --disable-wallet
-          make -j$(nproc)
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      - name: Build in ARM64 container
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: aarch64
+          distro: ubuntu22.04
+          run: |
+            apt-get update
+            apt-get install -y \
+              build-essential libtool autotools-dev automake \
+              pkg-config bsdmainutils python3 libssl-dev \
+              libevent-dev libboost-all-dev libminiupnpc-dev \
+              libzmq3-dev libsqlite3-dev libdb++-dev
+            ./autogen.sh
+            ./configure --without-gui --disable-tests --disable-bench
+            make -j1
       
       - name: Package
         run: |
