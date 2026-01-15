@@ -122,61 +122,29 @@ RingElement RingElement::operator-(const RingElement& other) const
     return result;
 }
 
-// NTT-based polynomial multiplication
-// Complexity: O(n log n) instead of O(n^2)
+// Naive polynomial multiplication in Z_q[X]/(X^N + 1)
+// Complexity: O(n^2) - will optimize to O(n log n) NTT later
+// Correctness first, performance second
 RingElement RingElement::operator*(const RingElement& other) const
 {
-    RingElement result = *this;
-    RingElement b = other;
-
-    // Forward NTT on both operands
+    RingElement result;
     const size_t n = LatticeParams::N;
 
-    // NTT(a)
-    for (size_t len = n / 2; len >= 1; len /= 2) {
-        for (size_t start = 0; start < n; start += 2 * len) {
-            int64_t zeta = zetas[start / (2 * len)];
-            for (size_t j = start; j < start + len; j++) {
-                int64_t t = montgomery_reduce(zeta * result.coeffs[j + len]);
-                result.coeffs[j + len] = result.coeffs[j] - t;
-                result.coeffs[j] = result.coeffs[j] + t;
-            }
-        }
-    }
-
-    // NTT(b)
-    for (size_t len = n / 2; len >= 1; len /= 2) {
-        for (size_t start = 0; start < n; start += 2 * len) {
-            int64_t zeta = zetas[start / (2 * len)];
-            for (size_t j = start; j < start + len; j++) {
-                int64_t t = montgomery_reduce(zeta * b.coeffs[j + len]);
-                b.coeffs[j + len] = b.coeffs[j] - t;
-                b.coeffs[j] = b.coeffs[j] + t;
-            }
-        }
-    }
-
-    // Point-wise multiplication in NTT domain
+    // Schoolbook multiplication with reduction by X^N + 1
+    // X^N = -1 in this ring, so coefficients wrap with negation
     for (size_t i = 0; i < n; i++) {
-        result.coeffs[i] = montgomery_reduce(result.coeffs[i] * b.coeffs[i]);
-    }
+        for (size_t j = 0; j < n; j++) {
+            size_t k = i + j;
+            int64_t prod = (__int128)coeffs[i] * other.coeffs[j] % LatticeParams::Q;
 
-    // Inverse NTT
-    for (size_t len = 1; len <= n / 2; len *= 2) {
-        for (size_t start = 0; start < n; start += 2 * len) {
-            int64_t zeta = zetas_inv[start / (2 * len)];
-            for (size_t j = start; j < start + len; j++) {
-                int64_t t = result.coeffs[j];
-                result.coeffs[j] = barrett_reduce(t + result.coeffs[j + len]);
-                result.coeffs[j + len] = montgomery_reduce(zeta * (result.coeffs[j + len] - t + LatticeParams::Q));
+            if (k < n) {
+                // Normal term
+                result.coeffs[k] = barrett_reduce(result.coeffs[k] + prod);
+            } else {
+                // k >= n: X^k = X^(k-n) * X^n = -X^(k-n)
+                result.coeffs[k - n] = barrett_reduce(result.coeffs[k - n] - prod + LatticeParams::Q);
             }
         }
-    }
-
-    // Scale by n^-1 mod q
-    const int64_t n_inv = 8380385; // 256^-1 mod q
-    for (size_t i = 0; i < n; i++) {
-        result.coeffs[i] = montgomery_reduce(result.coeffs[i] * n_inv);
     }
 
     return result;
