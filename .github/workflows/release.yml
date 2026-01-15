@@ -55,7 +55,7 @@ jobs:
           path: soqucoin-*-linux-x64.tar.gz
 
   # ============================================
-  # Linux ARM64 Build (for Raspberry Pi)
+  # Linux ARM64 Build (Cross-Compiled for Raspberry Pi)
   # ============================================
   build-linux-arm64:
     runs-on: ubuntu-22.04
@@ -63,24 +63,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Install cross-compiler and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            g++-aarch64-linux-gnu \
+            libtool autotools-dev automake pkg-config bsdmainutils python3
+          
+      - name: Install ARM64 libraries
+        run: |
+          # Add ARM64 architecture
+          sudo dpkg --add-architecture arm64
+          
+          # Add ARM64 package sources
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev:arm64 \
+            libevent-dev:arm64 \
+            libboost-all-dev:arm64 \
+            libdb++-dev:arm64
       
-      - name: Build in ARM64 container
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: aarch64
-          distro: ubuntu22.04
-          run: |
-            apt-get update
-            apt-get install -y \
-              build-essential libtool autotools-dev automake \
-              pkg-config bsdmainutils python3 libssl-dev \
-              libevent-dev libboost-all-dev libminiupnpc-dev \
-              libzmq3-dev libsqlite3-dev libdb++-dev
-            ./autogen.sh
-            ./configure --without-gui --disable-tests --disable-bench
-            make -j1
+      - name: Build with cross-compiler
+        run: |
+          ./autogen.sh
+          ./configure --host=aarch64-linux-gnu \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            --without-gui --disable-tests --disable-bench --disable-wallet
+          make -j$(nproc)
       
       - name: Package
         run: |
