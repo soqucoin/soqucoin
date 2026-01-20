@@ -148,9 +148,9 @@ BOOST_AUTO_TEST_CASE(blake2b_160_testvectors)
     // Single zero byte
     TestBLAKE2b_160("00", "082ad992fb76871c33a1b9993a082952feaca5e6");
 
-    // "Soqucoin" (536f717563696e - note: no 'o' at end in original)
-    // Actually "Soqucoin" = 536f717563696f696e
-    TestBLAKE2b_160("536f717563696f696e", "ee9feab5b386b89406a46a8a5a261a78feda180f");
+    // "Soqucoin" = 536f7175636f696e (8 bytes: S=53, o=6f, q=71, u=75, c=63, o=6f, i=69, n=6e)
+    // Verified: hashlib.blake2b(b'Soqucoin', digest_size=20).hexdigest()
+    TestBLAKE2b_160("536f7175636f696e", "ee9feab5b386b89406a46a8a5a261a78feda180f");
 }
 
 /**
