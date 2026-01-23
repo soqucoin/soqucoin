@@ -1,7 +1,7 @@
 # Design Log: GAP-010 Blinding Factor Deterministic Derivation
 
 > **Log ID**: DL-2026-01-23-GAP010-BLINDING
-> **Author**: Casey (Founder) with AI analysis
+> **Author**: Casey (Founder)
 > **Date**: January 23, 2026
 > **Status**: PROPOSED (Awaiting Review)
 > **Priority**: MEDIUM (Privacy features activate Stage 2, block 100,000)
