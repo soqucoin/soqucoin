@@ -322,7 +322,7 @@ bool WalletCrypto::DecryptFile(const std::string& path, const std::string& passp
     }
 
     // Decrypt
-    auto plaintext = Decrypt(*encrypted, passphrase);
+    auto plaintext = WalletCrypto::Decrypt(*encrypted, passphrase);
     if (!plaintext) {
         return false;
     }
