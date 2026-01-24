@@ -74,6 +74,25 @@ public:
         Network network = Network::Testnet);
 
     /**
+     * @brief Create watch-only wallet from extended public key
+     * @param masterPubKey Master public key (1312 bytes Dilithium)
+     * @param network Target network
+     * @return Watch-only wallet instance
+     * @note Watch-only wallets cannot sign transactions
+     */
+    static std::unique_ptr<PQWallet> FromPublicKey(
+        const std::vector<uint8_t>& masterPubKey,
+        Network network = Network::Testnet);
+
+    /**
+     * @brief Create watch-only wallet from list of addresses
+     * @param addresses Addresses to watch (sq1.../tsq1...)
+     * @return Watch-only wallet instance
+     */
+    static std::unique_ptr<PQWallet> WatchOnly(
+        const std::vector<std::string>& addresses);
+
+    /**
      * @brief Load wallet from encrypted file
      * @param path Path to wallet file
      * @param passphrase Decryption passphrase
@@ -90,6 +109,44 @@ public:
      */
     bool Save(const std::string& path, const std::string& passphrase) const;
 
+    //=========================================================================
+    // Watch-Only Mode
+    //=========================================================================
+
+    /**
+     * @brief Check if wallet is in watch-only mode
+     * @return true if no secret keys are available
+     */
+    bool IsWatchOnly() const;
+
+    /**
+     * @brief Import address for watch-only tracking
+     * @param address Bech32m address to watch
+     * @param label Optional descriptive label
+     * @return true on success
+     */
+    bool ImportWatchOnlyAddress(const std::string& address,
+        const std::string& label = "");
+
+    /**
+     * @brief Import extended public key for watch-only HD derivation
+     * @param extPubKey Extended public key (xpub equivalent for Dilithium)
+     * @param label Optional descriptive label
+     * @return true on success
+     */
+    bool ImportExtendedPublicKey(const std::vector<uint8_t>& extPubKey,
+        const std::string& label = "");
+
+    /**
+     * @brief Get list of watched addresses
+     * @return Vector of (address, label) pairs
+     */
+    std::vector<std::pair<std::string, std::string> > GetWatchedAddresses() const;
+
+    //=========================================================================
+    // Address Generation
+    //=========================================================================
+
     /**
      * @brief Generate new receiving address
      * @return Bech32m address (sq1... mainnet, tsq1... testnet)
@@ -105,9 +162,14 @@ public:
      */
     std::string GetAddress(uint32_t account, uint32_t change, uint32_t index);
 
+    //=========================================================================
+    // Transaction Building
+    //=========================================================================
+
     /**
      * @brief Create transaction builder for this wallet
      * @return Builder with current aggregation config
+     * @throws runtime_error if wallet is watch-only
      */
     std::unique_ptr<PQTransactionBuilder> CreateTransaction();
 

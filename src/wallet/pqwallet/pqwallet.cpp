@@ -474,6 +474,11 @@ public:
     Network m_network;
     uint32_t m_nextIndex = 0;
     std::vector<std::unique_ptr<PQKeyPair> > m_keys;
+
+    // Watch-only support
+    bool m_isWatchOnly = false;
+    std::vector<std::pair<std::string, std::string> > m_watchedAddresses;        // (address, label)
+    std::vector<std::pair<std::vector<uint8_t>, std::string> > m_watchedPubKeys; // (pubkey, label)
 };
 
 PQWallet::PQWallet() : m_impl(std::make_unique<Impl>()) {}
@@ -489,12 +494,94 @@ std::unique_ptr<PQWallet> PQWallet::FromSeed(const std::vector<uint8_t>& seed, N
     auto wallet = std::make_unique<PQWallet>();
     wallet->m_impl->m_seed = SecureBytes(seed.data(), seed.size());
     wallet->m_impl->m_network = network;
+    wallet->m_impl->m_isWatchOnly = false;
 
     return wallet;
 }
 
+std::unique_ptr<PQWallet> PQWallet::FromPublicKey(
+    const std::vector<uint8_t>& masterPubKey,
+    Network network)
+{
+    if (masterPubKey.size() != DILITHIUM_PUBKEY_SIZE) {
+        return nullptr;
+    }
+
+    auto wallet = std::make_unique<PQWallet>();
+    wallet->m_impl->m_network = network;
+    wallet->m_impl->m_isWatchOnly = true;
+    wallet->m_impl->m_watchedPubKeys.emplace_back(masterPubKey, "master");
+
+    return wallet;
+}
+
+std::unique_ptr<PQWallet> PQWallet::WatchOnly(const std::vector<std::string>& addresses)
+{
+    auto wallet = std::make_unique<PQWallet>();
+    wallet->m_impl->m_isWatchOnly = true;
+    wallet->m_impl->m_network = Network::Mainnet; // Will be detected from first address
+
+    for (const auto& addr : addresses) {
+        // Detect network from address prefix
+        if (addr.substr(0, 4) == "tsq1") {
+            wallet->m_impl->m_network = Network::Testnet;
+        } else if (addr.substr(0, 4) == "ssq1") {
+            wallet->m_impl->m_network = Network::Stagenet;
+        }
+        wallet->m_impl->m_watchedAddresses.emplace_back(addr, "");
+    }
+
+    return wallet;
+}
+
+bool PQWallet::IsWatchOnly() const
+{
+    return m_impl->m_isWatchOnly;
+}
+
+bool PQWallet::ImportWatchOnlyAddress(const std::string& address, const std::string& label)
+{
+    // Basic address format validation (prefix check)
+    bool validPrefix = (address.substr(0, 3) == "sq1" ||
+                        address.substr(0, 4) == "tsq1" ||
+                        address.substr(0, 4) == "ssq1");
+    if (!validPrefix || address.size() < 40) {
+        return false;
+    }
+
+    // Check for duplicates
+    for (size_t i = 0; i < m_impl->m_watchedAddresses.size(); ++i) {
+        if (m_impl->m_watchedAddresses[i].first == address) {
+            return false; // Already watching
+        }
+    }
+
+    m_impl->m_watchedAddresses.emplace_back(address, label);
+    return true;
+}
+
+bool PQWallet::ImportExtendedPublicKey(const std::vector<uint8_t>& extPubKey, const std::string& label)
+{
+    if (extPubKey.size() != DILITHIUM_PUBKEY_SIZE) {
+        return false;
+    }
+
+    m_impl->m_watchedPubKeys.emplace_back(extPubKey, label);
+    return true;
+}
+
+std::vector<std::pair<std::string, std::string> > PQWallet::GetWatchedAddresses() const
+{
+    return m_impl->m_watchedAddresses;
+}
+
 std::string PQWallet::GetNewAddress()
 {
+    if (m_impl->m_isWatchOnly) {
+        // Watch-only wallets cannot generate new addresses without extended pubkey
+        return "";
+    }
+
     auto keypair = PQKeyPair::Generate();
     if (!keypair) {
         return "";
