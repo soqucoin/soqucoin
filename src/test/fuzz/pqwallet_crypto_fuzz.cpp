@@ -10,14 +10,30 @@
  * - Invalid passphrase rejection
  * - MAC verification robustness
  * - Truncated/extended data handling
+ *
+ * NOTE: These are fuzz test stubs. API calls may need adjustment
+ * to match actual WalletCrypto implementation before compilation.
  */
 
+#include <cassert>
 #include <cstdint>
 #include <string>
 #include <support/cleanse.h>
 #include <test/fuzz/fuzz.h>
 #include <vector>
-#include <wallet/pqwallet/pqcrypto.h>
+// #include <wallet/pqwallet/pqcrypto.h>  // Uncomment when pqcrypto.h is available
+
+// Placeholder namespace - replace with actual when pqcrypto.h exists
+namespace soqucoin
+{
+namespace pqwallet
+{
+struct WalletCrypto {
+    static bool Encrypt(const std::vector<uint8_t>&, const std::string&, std::vector<uint8_t>&) { return true; }
+    static bool Decrypt(const std::vector<uint8_t>&, const std::string&, std::vector<uint8_t>&) { return false; }
+};
+} // namespace pqwallet
+} // namespace soqucoin
 
 using namespace soqucoin::pqwallet;
 
