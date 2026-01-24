@@ -29,10 +29,10 @@ namespace soqucoin
 namespace pqwallet
 {
 
-/// AES-256-GCM parameters
+/// AES-256-CBC parameters (using CBC with HMAC until GCM available)
 constexpr size_t AES_KEY_SIZE = 32; // 256 bits
-constexpr size_t AES_IV_SIZE = 12;  // 96 bits (GCM standard)
-constexpr size_t AES_TAG_SIZE = 16; // 128 bits
+constexpr size_t AES_IV_SIZE = 16;  // 128 bits (AES block size for CBC)
+constexpr size_t AES_TAG_SIZE = 16; // 128 bits (HMAC truncated)
 
 /// Argon2id parameters (OWASP recommendations for passwords)
 constexpr uint32_t ARGON2_TIME_COST = 3;       // Iterations
