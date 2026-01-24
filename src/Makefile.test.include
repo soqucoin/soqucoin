@@ -250,6 +250,36 @@ endif
 	} > "$@.new" && mv -f "$@.new" "$@"
 	@echo "Generated $@"
 
+# PQWallet unit test binary
+noinst_PROGRAMS += wallet/pqwallet/pqwallet-test
+wallet_pqwallet_pqwallet_test_SOURCES = wallet/pqwallet/pqwallet_test.cpp
+wallet_pqwallet_pqwallet_test_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+wallet_pqwallet_pqwallet_test_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+wallet_pqwallet_pqwallet_test_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+wallet_pqwallet_pqwallet_test_LDADD = \
+  $(LIBSOQUCOIN_WALLET) \
+  $(LIBSOQUCOIN_COMMON) \
+  $(LIBSOQUCOIN_UTIL) \
+  $(LIBSOQUCOIN_CRYPTO) \
+  $(BOOST_LIBS) \
+  $(CRYPTO_LIBS) \
+  $(BDB_LIBS) \
+  $(LIBSECP256K1)
+
+# HD Derivation test binary (isolated)
+noinst_PROGRAMS += test/pqderive-test
+test_pqderive_test_SOURCES = test/pqderive_test.cpp
+test_pqderive_test_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
+test_pqderive_test_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+test_pqderive_test_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
+test_pqderive_test_LDADD = \
+  $(LIBSOQUCOIN_WALLET) \
+  $(LIBSOQUCOIN_UTIL) \
+  $(LIBSOQUCOIN_CRYPTO) \
+  $(BOOST_LIBS) \
+  $(CRYPTO_LIBS) \
+  $(LIBSECP256K1)
+
 # Fuzz binary
 noinst_PROGRAMS += test/fuzz/fuzz
 test_fuzz_fuzz_SOURCES = \
@@ -258,7 +288,8 @@ test_fuzz_fuzz_SOURCES = \
   test/fuzz/dilithium_verify.cpp \
   test/fuzz/binius_commit.cpp \
   test/fuzz/pat_aggregate.cpp \
-  test/fuzz/pqwallet_fuzz.cpp
+  test/fuzz/pqwallet_fuzz.cpp \
+  test/fuzz/pqwallet_crypto_fuzz.cpp
 test_fuzz_fuzz_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 test_fuzz_fuzz_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_fuzz_fuzz_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
@@ -266,9 +297,11 @@ test_fuzz_fuzz_LDADD = \
   $(LIBUNIVALUE) \
   $(LIBSOQUCOIN_SERVER) \
   $(LIBSOQUCOIN_COMMON) \
+  $(LIBSOQUCOIN_WALLET) \
   $(LIBSOQUCOIN_UTIL) \
   $(LIBSOQUCOIN_CONSENSUS) \
   $(LIBSOQUCOIN_CRYPTO) \
   $(BOOST_LIBS) \
   $(CRYPTO_LIBS) \
+  $(BDB_LIBS) \
   $(LIBSECP256K1)
