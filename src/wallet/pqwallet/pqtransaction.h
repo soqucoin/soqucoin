@@ -17,7 +17,12 @@
 #include "pqaddress.h"
 #include "pqcost.h"
 #include "pqkeys.h"
+#include <array>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace soqucoin
@@ -81,6 +86,16 @@ class PQTransactionBuilder
 public:
     PQTransactionBuilder();
     ~PQTransactionBuilder();
+
+    /**
+     * @brief Set wallet seed for HKDF-derived blinding factors (GAP-010)
+     * @param seed 64-byte wallet master seed
+     * @param outputStartIndex Starting output index for blinding derivation
+     * @return Reference for chaining
+     * @note Required for privacy transaction recovery from seed backup
+     */
+    PQTransactionBuilder& SetWalletSeed(const std::vector<uint8_t>& seed,
+        uint64_t outputStartIndex = 0);
 
     /**
      * @brief Add input UTXO to spend
@@ -148,9 +163,9 @@ public:
 
     /**
      * @brief Build and sign the transaction
-     * @return Result with transaction or error
+     * @return Result status and transaction (nullptr on failure)
      */
-    std::pair<BuildResult, std::optional<PQTransaction> > Build();
+    std::pair<BuildResult, std::unique_ptr<PQTransaction> > Build();
 
 private:
     class Impl;
