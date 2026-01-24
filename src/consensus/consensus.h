@@ -33,7 +33,7 @@ static const int64_t DILITHIUM_VERIFY_COST = 1;
 /** Bulletproofs++ range proof verification cost (~10ms) */
 static const int64_t BPPP_VERIFY_COST = 50;
 
-/** PAT Merkle aggregate verification cost (~4ms) */
+/** PAT (Practical Aggregation Technique) signature aggregation (~4ms) */
 static const int64_t PAT_VERIFY_COST = 20;
 
 /** LatticeFold+ recursive SNARK verification cost (~40ms) */

@@ -1,31 +1,137 @@
-Soqucoin repository structure (condensed)
-.
-├── autogen.sh
-├── configure.ac / Makefile.am / Makefile.in
-├── contrib/
-│   ├── devtools/
-│   ├── linearize/
-│   └── verifybinaries/
-├── doc/
-│   ├── README.md
-│   ├── man/            # generated manpages
-│   └── release-notes/
-├── qa/
-│   ├── assets/
-│   ├── pull-tester/
-│   └── rpcs-tests/
-├── share/
-│   ├── qt/
-│   └── setup.nsi
-├── src/
-│   ├── pat/            # Dilithium key management + ref impl
-│   ├── rpc/            # RPC server + PAT commands
-│   ├── script/         # Script / signing logic
-│   ├── qt/             # GUI (disabled in current build)
-│   ├── test/           # Unit + fuzz tests
-│   ├── zmq/            # ZeroMQ notifications
-│   └── (core files: init.cpp, validation.cpp, etc.)
-├── test/               # Functional + integration tests
-├── depends/            # Optional dependency build system
-├── build-aux/          # Autotools helpers
-└── project-structure.txt (this file)
+# Soqucoin Repository Structure
+
+```
+soqucoin/
+├── README.md                    # Main project README
+├── CONTRIBUTING.md              # Contribution guidelines
+├── COPYING                      # MIT license
+├── INSTALL.md                   # Installation quick-start
+├── SECURITY.md                  # Security policy and disclosure
+├── Dockerfile                   # Container build
+│
+├── build-aux/                   # Autotools helpers
+├── configure.ac                 # Autotools configuration
+├── Makefile.am                  # Main build definition
+├── autogen.sh                   # Autoconf bootstrap
+│
+├── src/                         # Source code
+│   ├── init.cpp                 # Node initialization
+│   ├── validation.cpp           # Block/TX validation
+│   ├── net.cpp                  # P2P networking
+│   │
+│   ├── pat/                     # Post-Quantum Aggregate Transactions
+│   │   ├── keys.cpp             # Dilithium key management
+│   │   └── dilithium-ref/       # ML-DSA-44 reference implementation
+│   │
+│   ├── wallet/                  # Wallet subsystem
+│   │   ├── wallet.cpp           # Core wallet logic
+│   │   └── pqwallet/            # PQ Wallet module
+│   │       ├── pqwallet.cpp     # PQ wallet implementation
+│   │       ├── pqkeys.h         # Key management
+│   │       ├── pqderive.cpp     # HD derivation (HKDF)
+│   │       ├── pqcrypto.cpp     # Wallet encryption
+│   │       ├── pqaddress.h      # Address encoding
+│   │       └── rpc_pqwallet.cpp # RPC commands
+│   │
+│   ├── rpc/                     # RPC server
+│   ├── script/                  # Script interpreter
+│   ├── crypto/                  # Cryptographic primitives
+│   │   ├── sha256.cpp           # SHA-256
+│   │   ├── dilithium/           # Dilithium crypto
+│   │   ├── binius/              # Binius proofs
+│   │   └── latticefold/         # LatticeFold verifier
+│   │
+│   ├── zk/                      # Zero-knowledge proofs
+│   │   └── bulletproofs.cpp     # BP++ range proofs
+│   │
+│   ├── test/                    # Unit tests
+│   │   ├── pqderive_test.cpp    # HD derivation tests
+│   │   └── fuzz/                # Fuzz testing harness
+│   │
+│   └── qt/                      # Qt GUI (optional)
+│
+├── doc/                         # Documentation
+│   ├── README.md                # Documentation index
+│   │
+│   ├── wallet/                  # Wallet documentation
+│   │   ├── WALLET_API_SPEC.md
+│   │   ├── WALLET_CRYPTOGRAPHIC_SPEC.md
+│   │   ├── WALLET_THREAT_MODEL.md
+│   │   ├── WALLET_TEST_VECTORS.md
+│   │   ├── WALLET_INTEGRATION_GUIDE.md
+│   │   ├── WALLET_RESEARCH_COMPARISON.md
+│   │   └── WALLET_ROADMAP.md
+│   │
+│   ├── specifications/          # Protocol specifications
+│   │   ├── ADDRESS_FORMAT_SPEC.md
+│   │   ├── CONSENSUS_COST_SPEC.md
+│   │   ├── PAT-Architecture.md
+│   │   ├── pat-specification.md
+│   │   ├── STAGE_3_LATTICE_BP_ARCHITECTURE.md
+│   │   └── STAGE_5_L2_SPECIFICATION.md
+│   │
+│   ├── guides/                  # User & operator guides
+│   │   ├── getting-started.md
+│   │   ├── mining-guide.md
+│   │   ├── node-operator-guide.md
+│   │   ├── EXCHANGE_INTEGRATION_GUIDE.md
+│   │   └── FAQ.md
+│   │
+│   ├── build/                   # Build documentation
+│   │   ├── build-unix.md
+│   │   ├── build-macos.md
+│   │   ├── build-windows.md
+│   │   └── gitian-building/     # Reproducible builds
+│   │
+│   ├── bridge/                  # Cross-chain bridge docs
+│   │   ├── BRIDGE_ARCHITECTURE.md
+│   │   └── SOLANA_BRIDGE_ARCHITECTURE.md
+│   │
+│   ├── design-log/              # Engineering design decisions
+│   │   └── 051-hd-key-derivation.md
+│   │
+│   ├── release-notes/           # Version release notes
+│   └── man/                     # Man pages
+│
+├── contrib/                     # Contributed tooling
+│   ├── devtools/                # Development utilities
+│   ├── linearize/               # Block linearization
+│   └── verifybinaries/          # Binary verification
+│
+├── depends/                     # Cross-compilation dependencies
+│   └── pqcrystals/              # Dilithium library
+│
+├── qa/                          # Quality assurance
+│   ├── rpc-tests/               # RPC integration tests
+│   └── pull-tester/             # PR testing framework
+│
+├── scripts/                     # Operational scripts
+│   ├── verify-build.sh          # Build verification
+│   └── wallet_integration_test.sh
+│
+├── share/                       # Shared resources
+│   ├── qt/                      # Qt resources
+│   └── setup.nsi                # Windows installer
+│
+└── docker/                      # Docker configurations
+```
+
+## Key Directories
+
+| Directory | Purpose |
+|-----------|---------|
+| `src/pat/` | Post-Quantum Aggregate Transactions (Dilithium) |
+| `src/wallet/pqwallet/` | Quantum-resistant wallet module |
+| `src/crypto/` | Cryptographic primitives |
+| `doc/wallet/` | Wallet documentation for auditors |
+| `doc/specifications/` | Protocol specifications |
+| `design-log/` | Engineering design decisions |
+
+## Build Quick-Start
+
+```bash
+./autogen.sh
+./configure --with-boost=/opt/homebrew/opt/boost
+make -j$(nproc)
+./src/soqucoind -testnet
+```

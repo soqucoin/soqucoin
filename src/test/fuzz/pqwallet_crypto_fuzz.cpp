@@ -3,16 +3,13 @@
 
 /**
  * @file pqwallet_crypto_fuzz.cpp
- * @brief Fuzz tests for wallet encryption/decryption
+ * @brief Fuzz tests for wallet encryption/decryption using REAL pqcrypto.h API
  *
  * SECURITY: Tests encryption for:
  * - Corrupted ciphertext handling
  * - Invalid passphrase rejection
  * - MAC verification robustness
  * - Truncated/extended data handling
- *
- * NOTE: These are fuzz test stubs. API calls may need adjustment
- * to match actual WalletCrypto implementation before compilation.
  */
 
 #include <cassert>
@@ -21,19 +18,7 @@
 #include <support/cleanse.h>
 #include <test/fuzz/fuzz.h>
 #include <vector>
-// #include <wallet/pqwallet/pqcrypto.h>  // Uncomment when pqcrypto.h is available
-
-// Placeholder namespace - replace with actual when pqcrypto.h exists
-namespace soqucoin
-{
-namespace pqwallet
-{
-struct WalletCrypto {
-    static bool Encrypt(const std::vector<uint8_t>&, const std::string&, std::vector<uint8_t>&) { return true; }
-    static bool Decrypt(const std::vector<uint8_t>&, const std::string&, std::vector<uint8_t>&) { return false; }
-};
-} // namespace pqwallet
-} // namespace soqucoin
+#include <wallet/pqwallet/pqcrypto.h>
 
 using namespace soqucoin::pqwallet;
 
@@ -49,19 +34,22 @@ void wallet_decrypt_fuzz(fuzzer::FuzzBuffer& buffer) noexcept
     // Use first 16 bytes as "passphrase"
     std::string passphrase(reinterpret_cast<const char*>(buffer.data()), 16);
 
-    // Remaining bytes are "encrypted data"
-    std::vector<uint8_t> encrypted(buffer.data() + 16, buffer.data() + buffer.size());
+    // Remaining bytes are "encrypted data" - try to deserialize
+    std::vector<uint8_t> serialized(buffer.data() + 16, buffer.data() + buffer.size());
 
-    // Attempt decryption - should handle any input gracefully
-    std::vector<uint8_t> plaintext;
-    bool result = WalletCrypto::Decrypt(encrypted, passphrase, plaintext);
+    // Try to deserialize as encrypted data
+    auto encrypted = EncryptedData::Deserialize(serialized);
 
-    // If decryption "succeeds" on random data, that's suspicious but not a crash
-    // The important thing is no crashes or undefined behavior
-    (void)result;
+    if (encrypted) {
+        // Attempt decryption - should handle any input gracefully
+        auto plaintext = WalletCrypto::Decrypt(*encrypted, passphrase);
 
-    // Zeroize sensitive data
-    memory_cleanse(plaintext.data(), plaintext.size());
+        // If decryption "succeeds" on random data, that's suspicious but not a crash
+        // The important thing is no crashes or undefined behavior
+        if (plaintext) {
+            memory_cleanse(plaintext->data(), plaintext->size());
+        }
+    }
 }
 
 /**
@@ -80,74 +68,58 @@ void wallet_encrypt_corrupt_roundtrip(fuzzer::FuzzBuffer& buffer) noexcept
     // Last two bytes determine corruption offset
     size_t corruption_offset = (buffer.data()[buffer.size() - 2] << 8) | buffer.data()[buffer.size() - 1];
 
-    // Encrypt legitimate data
-    std::vector<uint8_t> encrypted;
-    WalletCrypto::Encrypt(plaintext, passphrase, encrypted);
+    // Encrypt legitimate data using REAL API
+    EncryptedData encrypted = WalletCrypto::Encrypt(plaintext, passphrase);
 
-    if (encrypted.size() < 2) return;
+    // Serialize for corruption
+    std::vector<uint8_t> serialized = encrypted.Serialize();
+
+    if (serialized.size() < 2) return;
 
     // Apply corruption at offset (modulo size)
-    size_t offset = corruption_offset % encrypted.size();
-    encrypted[offset] ^= 0xFF; // Flip all bits at this position
+    size_t offset = corruption_offset % serialized.size();
+    serialized[offset] ^= 0xFF; // Flip all bits at this position
 
-    // Attempt to decrypt corrupted data - MUST fail
-    std::vector<uint8_t> recovered;
-    bool result = WalletCrypto::Decrypt(encrypted, passphrase, recovered);
+    // Try to deserialize corrupted data
+    auto corruptedData = EncryptedData::Deserialize(serialized);
 
-    // Corrupted data should not decrypt successfully
-    // Note: This is a probabilistic check - false positives extremely rare
-    (void)result;
-
-    memory_cleanse(recovered.data(), recovered.size());
+    if (corruptedData) {
+        // Attempt to decrypt corrupted data - MUST fail
+        auto recovered = WalletCrypto::Decrypt(*corruptedData, passphrase);
+        // Corrupted data should not decrypt successfully
+        // (though this is probabilistic - corruption might hit non-critical bytes)
+        if (recovered) {
+            memory_cleanse(recovered->data(), recovered->size());
+        }
+    }
 }
 
 /**
- * Fuzz target: MAC verification timing
+ * Fuzz target: MAC verification robustness
  * Tests that invalid MACs are rejected consistently
  */
 void wallet_mac_validation(fuzzer::FuzzBuffer& buffer) noexcept
 {
-    if (buffer.size() < 64) return;
+    if (buffer.size() < 32) return;
 
-    // Create minimal "encrypted" structure
-    std::vector<uint8_t> fake_encrypted;
-
-    // Magic bytes
-    fake_encrypted.push_back('S');
-    fake_encrypted.push_back('Q');
-    fake_encrypted.push_back('W');
-    fake_encrypted.push_back('1');
-
-    // Version
-    fake_encrypted.push_back(0x01);
-    fake_encrypted.push_back(0x00);
-
-    // Salt (16 bytes from input)
-    for (int i = 0; i < 16; ++i) {
-        fake_encrypted.push_back(buffer.data()[i]);
-    }
-
-    // IV (16 bytes)
-    for (int i = 16; i < 32; ++i) {
-        fake_encrypted.push_back(buffer.data()[i]);
-    }
-
-    // Fake ciphertext (arbitrary)
-    for (int i = 32; i < 48 && i < (int)buffer.size(); ++i) {
-        fake_encrypted.push_back(buffer.data()[i]);
-    }
-
-    // Fake MAC (16 bytes from input - almost certainly wrong)
-    for (int i = 48; i < 64 && i < (int)buffer.size(); ++i) {
-        fake_encrypted.push_back(buffer.data()[i]);
-    }
-
+    // Create valid encrypted data first
     std::string passphrase = "test_passphrase";
-    std::vector<uint8_t> plaintext;
+    std::vector<uint8_t> testData = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+
+    EncryptedData encrypted = WalletCrypto::Encrypt(testData, passphrase);
+
+    // Corrupt the tag with fuzz data
+    for (size_t i = 0; i < std::min(buffer.size(), encrypted.tag.size()); ++i) {
+        encrypted.tag[i] = buffer.data()[i];
+    }
 
     // This should fail MAC verification
-    bool result = WalletCrypto::Decrypt(fake_encrypted, passphrase, plaintext);
-    (void)result;
+    auto result = WalletCrypto::Decrypt(encrypted, passphrase);
+
+    // Result should almost always be nullopt (tag corrupted)
+    if (result) {
+        memory_cleanse(result->data(), result->size());
+    }
 }
 
 /**
@@ -156,34 +128,27 @@ void wallet_mac_validation(fuzzer::FuzzBuffer& buffer) noexcept
  */
 void wallet_passphrase_edge_cases(fuzzer::FuzzBuffer& buffer) noexcept
 {
-    if (buffer.size() < 16) return;
+    if (buffer.size() < 1) return;
 
-    // Create passphrase with potential edge cases
+    // Create passphrase with potential edge cases (any length)
     std::string passphrase(reinterpret_cast<const char*>(buffer.data()),
-        std::min(buffer.size(), size_t(128)));
+        std::min(buffer.size(), size_t(256)));
 
     // Test data
     std::vector<uint8_t> plaintext = {0x01, 0x02, 0x03, 0x04, 0x05};
 
     // Encrypt with fuzzed passphrase
-    std::vector<uint8_t> encrypted;
-    WalletCrypto::Encrypt(plaintext, passphrase, encrypted);
+    EncryptedData encrypted = WalletCrypto::Encrypt(plaintext, passphrase);
 
-    // Decrypt with same passphrase
-    std::vector<uint8_t> recovered;
-    bool result = WalletCrypto::Decrypt(encrypted, passphrase, recovered);
+    // Decrypt with same passphrase - should always succeed
+    auto recovered = WalletCrypto::Decrypt(encrypted, passphrase);
 
     // Should always succeed with correct passphrase
-    if (result) {
-        assert(recovered == plaintext);
+    if (recovered) {
+        assert(*recovered == plaintext);
+        memory_cleanse(recovered->data(), recovered->size());
     }
-
-    memory_cleanse(recovered.data(), recovered.size());
 }
 
-// libFuzzer entry point
-// extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-//     fuzzer::FuzzBuffer buffer(data, size);
-//     wallet_decrypt_fuzz(buffer);
-//     return 0;
-// }
+// Note: These functions are registered in Fuzz.cpp
+// Run with: FUZZ=wallet_decrypt_fuzz ./src/test/fuzz/fuzz

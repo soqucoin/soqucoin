@@ -13,12 +13,13 @@
  */
 
 #include <bech32.h>
+#include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <test/fuzz/fuzz.h>
 #include <vector>
 #include <wallet/pqwallet/pqaddress.h>
-#include <wallet/pqwallet/pqwallet.h>
 
 using namespace soqucoin::pqwallet;
 
@@ -112,9 +113,6 @@ void pqaddress_hash(fuzzer::FuzzBuffer& buffer) noexcept
 
     // Hash should be exactly 20 bytes
     assert(hash.size() == 20);
-
-    // Different inputs should (usually) produce different hashes
-    // (Not strictly enforced, just exercising the code)
 }
 
 /**
@@ -134,6 +132,4 @@ void pqaddress_network_detect(fuzzer::FuzzBuffer& buffer) noexcept
     (void)net; // Enum validation implicit
 }
 
-// Registration with fuzz framework would go here
-// For libFuzzer:
-// extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) { ... }
+// Note: These functions are registered in Fuzz.cpp
