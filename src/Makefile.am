@@ -185,6 +185,7 @@ BITCOIN_CORE_H = \
   wallet/pqwallet/pqaggregation.h \
   wallet/pqwallet/pqcost.h \
   wallet/pqwallet/pqcrypto.h \
+  wallet/pqwallet/pqderive.h \
   wallet/pqwallet/pqkeys.h \
   wallet/pqwallet/pqtransaction.h \
   wallet/pqwallet/pqwallet.h \
@@ -284,6 +285,7 @@ libsoqucoin_wallet_a_SOURCES = \
   wallet/walletdb.cpp \
   wallet/pqwallet/pqwallet.cpp \
   wallet/pqwallet/pqcrypto.cpp \
+  wallet/pqwallet/pqderive.cpp \
   wallet/pqwallet/rpc_pqwallet.cpp \
   policy/rbf.cpp \
   $(BITCOIN_CORE_H)
