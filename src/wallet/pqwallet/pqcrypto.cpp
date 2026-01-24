@@ -21,42 +21,109 @@ static const uint8_t WALLET_MAGIC[4] = {'S', 'Q', 'W', '1'}; // SoquWallet v1
 static const uint32_t WALLET_VERSION = 1;
 
 //=============================================================================
-// Key derivation using PBKDF2-SHA256 (Argon2 can be added later)
-// This provides reasonable security until we add libargon2
+// Key derivation using Argon2id (OpenSSL 3.x EVP_KDF)
+// OWASP recommended: memory-hard, resistant to GPU/ASIC attacks
+// Fallback to scrypt if Argon2 not available, then PBKDF2 as last resort
 //=============================================================================
 
-static constexpr uint32_t PBKDF2_ITERATIONS = 100000; // OWASP minimum
+#include <openssl/core_names.h>
+#include <openssl/evp.h>
+#include <openssl/kdf.h>
+#include <openssl/params.h>
+
+// Version marker for KDF algorithm used (stored in wallet file)
+// 1 = SHA256 placeholder (legacy)
+// 2 = Argon2id (current)
+// 3 = Reserved for future (e.g., Balloon hashing)
+static constexpr uint32_t KDF_VERSION = 2;
 
 std::array<uint8_t, AES_KEY_SIZE> WalletCrypto::DeriveKey(
     const std::string& passphrase,
     const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
 {
-    std::array<uint8_t, AES_KEY_SIZE> derivedKey;
+    std::array<uint8_t, AES_KEY_SIZE> derivedKey{};
 
-    // Use PBKDF2-HMAC-SHA256 for key derivation
-    // Note: This is a placeholder - full implementation would use EVP_KDF
-    // For now, use a simple hash-based approach (to be replaced)
-    CSHA256 sha;
+    // Try Argon2id first (OpenSSL 3.x)
+    EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "ARGON2ID", nullptr);
+    if (kdf) {
+        EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(kdf);
+        if (ctx) {
+            // Set Argon2id parameters per OWASP recommendations
+            uint32_t t_cost = ARGON2_TIME_COST;   // 3 iterations
+            uint32_t m_cost = ARGON2_MEMORY_COST; // 64 MB
+            uint32_t p_cost = ARGON2_PARALLELISM; // 4 threads
 
-    // Hash: passphrase || salt || iterations
-    sha.Write(reinterpret_cast<const uint8_t*>(passphrase.data()), passphrase.size());
-    sha.Write(salt.data(), salt.size());
+            OSSL_PARAM params[] = {
+                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
+                    const_cast<char*>(passphrase.c_str()), passphrase.size()),
+                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
+                    const_cast<uint8_t*>(salt.data()), salt.size()),
+                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &t_cost),
+                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &m_cost),
+                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &p_cost),
+                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &p_cost),
+                OSSL_PARAM_END};
 
-    uint8_t iterBytes[4];
-    iterBytes[0] = (PBKDF2_ITERATIONS >> 24) & 0xff;
-    iterBytes[1] = (PBKDF2_ITERATIONS >> 16) & 0xff;
-    iterBytes[2] = (PBKDF2_ITERATIONS >> 8) & 0xff;
-    iterBytes[3] = PBKDF2_ITERATIONS & 0xff;
-    sha.Write(iterBytes, 4);
+            if (EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0) {
+                EVP_KDF_CTX_free(ctx);
+                EVP_KDF_free(kdf);
+                return derivedKey;
+            }
+            EVP_KDF_CTX_free(ctx);
+        }
+        EVP_KDF_free(kdf);
+    }
 
-    sha.Finalize(derivedKey.data());
+    // Fallback: scrypt (also memory-hard, widely available)
+    EVP_KDF* scrypt = EVP_KDF_fetch(nullptr, "SCRYPT", nullptr);
+    if (scrypt) {
+        EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(scrypt);
+        if (ctx) {
+            uint64_t n = 1 << 15; // N = 32768 (CPU/memory cost)
+            uint32_t r = 8;       // Block size
+            uint32_t p = 1;       // Parallelization
 
-    // Additional iterations for hardening
-    for (uint32_t i = 1; i < std::min(PBKDF2_ITERATIONS, 10000u); ++i) {
-        CSHA256 sha2;
-        sha2.Write(derivedKey.data(), derivedKey.size());
-        sha2.Write(salt.data(), salt.size());
-        sha2.Finalize(derivedKey.data());
+            OSSL_PARAM params[] = {
+                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
+                    const_cast<char*>(passphrase.c_str()), passphrase.size()),
+                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
+                    const_cast<uint8_t*>(salt.data()), salt.size()),
+                OSSL_PARAM_construct_uint64(OSSL_KDF_PARAM_SCRYPT_N, &n),
+                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_SCRYPT_R, &r),
+                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_SCRYPT_P, &p),
+                OSSL_PARAM_END};
+
+            if (EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0) {
+                EVP_KDF_CTX_free(ctx);
+                EVP_KDF_free(scrypt);
+                return derivedKey;
+            }
+            EVP_KDF_CTX_free(ctx);
+        }
+        EVP_KDF_free(scrypt);
+    }
+
+    // Last resort: PBKDF2 (not memory-hard but better than nothing)
+    EVP_KDF* pbkdf2 = EVP_KDF_fetch(nullptr, "PBKDF2", nullptr);
+    if (pbkdf2) {
+        EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(pbkdf2);
+        if (ctx) {
+            uint32_t iterations = 600000; // OWASP 2023 for SHA256
+
+            OSSL_PARAM params[] = {
+                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
+                    const_cast<char*>(passphrase.c_str()), passphrase.size()),
+                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
+                    const_cast<uint8_t*>(salt.data()), salt.size()),
+                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &iterations),
+                OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST,
+                    const_cast<char*>("SHA256"), 0),
+                OSSL_PARAM_END};
+
+            EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params);
+            EVP_KDF_CTX_free(ctx);
+        }
+        EVP_KDF_free(pbkdf2);
     }
 
     return derivedKey;
