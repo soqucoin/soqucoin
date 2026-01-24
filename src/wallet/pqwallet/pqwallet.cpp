@@ -2,6 +2,38 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+/**
+ * @file pqwallet.cpp
+ * @brief Post-Quantum Wallet Core Implementation
+ *
+ * SECURITY OVERVIEW:
+ * This file implements the core post-quantum wallet functionality using
+ * Dilithium (ML-DSA-44) as specified in NIST FIPS 204.
+ *
+ * THREAT MODEL COVERAGE:
+ * - I1 (Key disclosure via memory): SecureBytes with mlock() + Wipe()
+ * - I6 (Side-channel attacks): Uses NIST reference impl (assumed constant-time)
+ * - T3 (Memory tampering): SecureBytes prevents swap exposure
+ * - S3 (Signature forgery): Dilithium signature verification
+ *
+ * AUDIT NOTES:
+ * 1. SecureBytes::Wipe() uses memory_cleanse() from support/cleanse.h
+ *    which is designed to prevent compiler optimization. VERIFY at assembly level.
+ * 2. mlock() may silently fail if RLIMIT_MEMLOCK is exceeded. This is logged
+ *    but does not abort - consider hardening for high-security deployments.
+ * 3. Dilithium reference implementation is assumed constant-time per NIST
+ *    guidelines. Side-channel analysis recommended during audit.
+ *
+ * ENTROPY SOURCES:
+ * - Key generation uses randombytes() from Dilithium reference implementation
+ * - randombytes() calls GetStrongRandBytes() which uses OS CSPRNG:
+ *   - Linux: getrandom(2) or /dev/urandom
+ *   - macOS: SecRandomCopyBytes()
+ *   - Windows: BCryptGenRandom()
+ *
+ * See also: doc/WALLET_THREAT_MODEL.md, doc/WALLET_CRYPTOGRAPHIC_SPEC.md
+ */
+
 #include "wallet/pqwallet/pqwallet.h"
 #include "bech32.h"
 #include "crypto/blake2b.h"
@@ -26,6 +58,16 @@ namespace pqwallet
 
 //=============================================================================
 // SecureBytes implementation
+//-----------------------------------------------------------------------------
+// SECURITY: Memory-locked, auto-wiping container for sensitive data.
+//
+// THREAT: I1 - Private key disclosure via memory dump/swap
+// MITIGATION: mlock() prevents swapping, Wipe() zeros on destruction
+//
+// VERIFICATION REQUIRED:
+// 1. Confirm memory_cleanse() is not optimized out (assembly inspection)
+// 2. Verify mlock() succeeds or is appropriately logged on failure
+// 3. Confirm no copies are made during vector operations
 //=============================================================================
 
 SecureBytes::SecureBytes() {}
@@ -90,6 +132,26 @@ void SecureBytes::Wipe()
 
 //=============================================================================
 // PQKeyPair implementation
+//-----------------------------------------------------------------------------
+// SECURITY: Dilithium ML-DSA-44 keypair management (NIST FIPS 204)
+//
+// KEY SIZES:
+// - Public key:  1,312 bytes (can be shared freely)
+// - Secret key:  2,560 bytes (MUST remain in SecureBytes)
+// - Signature:   2,420 bytes
+//
+// THREAT: S3 - Signature forgery
+// MITIGATION: Uses NIST-standardized Dilithium with 128-bit security
+//
+// THREAT: I6 - Side-channel key extraction during signing
+// MITIGATION: NIST reference implementation is designed constant-time
+// VERIFICATION: Run timing analysis (dudect) on Sign() function
+//
+// THREAT: Nonce reuse leads to key recovery
+// MITIGATION: Dilithium uses deterministic nonce derivation (ρ' = H(K||μ))
+//             Nonce is derived from secret key and message - cannot reuse
+//
+// ENTROPY: Key generation uses randombytes() → GetStrongRandBytes()
 //=============================================================================
 
 PQKeyPair::PQKeyPair() : m_secretKey(DILITHIUM_SECKEY_SIZE) {}
@@ -167,6 +229,25 @@ bool PQKeyPair::Verify(const std::vector<uint8_t>& message,
 
 //=============================================================================
 // PQAddress implementation
+//-----------------------------------------------------------------------------
+// SECURITY: Bech32m address encoding with BLAKE2b-160 public key hashing
+//
+// ADDRESS FORMAT: [HRP]1[version][pubkey_hash][checksum]
+// - Mainnet:  sq1..., sqp1..., sqsh1...
+// - Testnet:  tsq1..., tsqp1..., tsqsh1...
+// - Stagenet: ssq1..., ssqp1..., ssqsh1...
+//
+// THREAT: S1 - Address substitution attack
+// MITIGATION: Bech32m 6-character checksum detects random errors
+//             Error detection: 1 in 10^9 for up to 4 character errors
+//
+// THREAT: Collision attack on address hashing
+// MITIGATION: BLAKE2b-160 provides 80-bit collision resistance
+//             Preimage resistance is 160-bit (quantum: 80-bit with Grover's)
+//             Sufficient for address purposes per Bitcoin Core precedent
+//
+// PUBLIC KEY HASH: BLAKE2b-160(Dilithium_pubkey)
+// RATIONALE: BLAKE2b is 3-5x faster than SHA-256 on 1,312-byte Dilithium keys
 //=============================================================================
 
 std::array<uint8_t, 20> PQAddress::HashPublicKey(
@@ -364,6 +445,25 @@ AddressInfo PQAddress::Decode(const std::string& address)
 
 //=============================================================================
 // PQWallet implementation
+//-----------------------------------------------------------------------------
+// SECURITY: High-level wallet management with HD key derivation
+//
+// SEED SECURITY:
+// - Master seed stored in SecureBytes (mlock'd, auto-wiped)
+// - 64 bytes from BIP-39 mnemonic derivation
+// - All keys derived deterministically from seed
+//
+// THREAT: Complete fund loss if seed is compromised
+// MITIGATION: User education, wallet encryption at rest (pqcrypto.cpp)
+//
+// TODO (GAP-010): Blinding factor derivation currently uses random bytes.
+//                 Must implement HKDF derivation for privacy output recovery.
+//                 See: WALLET_RECOVERY_SPEC.md section 4
+//
+// KEY DERIVATION:
+// - Currently generates random keys (not HD)
+// - TODO: Implement full BIP-44 style HKDF derivation
+// - Path: m/44'/21329'/account'/change/index
 //=============================================================================
 
 class PQWallet::Impl
