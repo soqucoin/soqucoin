@@ -1,5 +1,6 @@
 // Copyright (c) 2026 The Soqucoin Core developers
-// Minimal HD derivation test
+// HD derivation test + test vector generator
+// Usage: pqderive-test [--json-vectors]
 
 #include "wallet/pqwallet/pqderive.h"
 #include "wallet/pqwallet/pqkeys.h"
@@ -7,11 +8,123 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 
 using namespace soqucoin::pqwallet;
 
-int main()
+// Hex encoding helper
+static std::string ToHex(const uint8_t* data, size_t len)
 {
+    std::ostringstream ss;
+    for (size_t i = 0; i < len; ++i) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << (int)data[i];
+    }
+    return ss.str();
+}
+
+// Generate JSON test vectors (for auditors)
+static void OutputJsonVectors()
+{
+    // Standard BIP-39 test mnemonic: "abandon abandon ... about"
+    const uint8_t bip39_seed[64] = {
+        0x5e, 0xb0, 0x0b, 0xbd, 0xdc, 0xf0, 0x69, 0x08,
+        0x48, 0x89, 0xa8, 0xab, 0x91, 0x55, 0x56, 0x81,
+        0x65, 0xf5, 0xc4, 0x53, 0xcc, 0xb8, 0x5e, 0x70,
+        0x81, 0x1a, 0xae, 0xd6, 0xf6, 0xda, 0x5f, 0xc1,
+        0x9a, 0x5a, 0xc4, 0x0b, 0x38, 0x9c, 0xd3, 0x70,
+        0xd0, 0x86, 0x20, 0x6d, 0xec, 0x8a, 0xa6, 0xc4,
+        0x3d, 0xae, 0xa6, 0x69, 0x0f, 0x20, 0xad, 0x3d,
+        0x8d, 0x48, 0xb2, 0xd2, 0xce, 0x9e, 0x38, 0xe4};
+    SecureBytes seed(bip39_seed, 64);
+
+    std::cout << "{\n";
+    std::cout << "  \"test_suite\": \"soqucoin_key_derivation_vectors\",\n";
+    std::cout << "  \"version\": \"1.0.0\",\n";
+    std::cout << "  \"generated_by\": \"pqderive-test --json-vectors\",\n";
+    std::cout << "  \"algorithm\": \"HKDF-SHA256 (RFC 5869, NIST SP 800-56C)\",\n";
+    std::cout << "\n";
+
+    std::cout << "  \"seed\": {\n";
+    std::cout << "    \"mnemonic\": \"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\",\n";
+    std::cout << "    \"passphrase\": \"\",\n";
+    std::cout << "    \"seed_hex\": \"" << ToHex(bip39_seed, 64) << "\"\n";
+    std::cout << "  },\n\n";
+
+    // Signing key vectors
+    std::cout << "  \"signing_key_vectors\": [\n";
+    for (uint32_t i = 0; i < 3; ++i) {
+        DerivationPath path;
+        path.purpose = 44;
+        path.coinType = 21329;
+        path.account = 0;
+        path.change = 0;
+        path.index = i;
+
+        auto key = DeriveKeyMaterial(seed, path, DOMAIN_WALLET);
+        auto pathBytes = PathToBytes(path);
+
+        std::cout << "    {\n";
+        std::cout << "      \"path\": \"m/44'/21329'/0'/0/" << i << "\",\n";
+        std::cout << "      \"path_bytes_hex\": \"" << ToHex(pathBytes.data(), 20) << "\",\n";
+        std::cout << "      \"key_material_hex\": \"" << ToHex(key.data(), 32) << "\"\n";
+        std::cout << "    }" << (i < 2 ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n\n";
+
+    // Blinding factor vectors (GAP-010)
+    std::cout << "  \"blinding_factor_vectors\": [\n";
+    for (uint32_t i = 0; i < 3; ++i) {
+        auto blind = DeriveBlindingFactor(seed, i);
+        std::cout << "    {\n";
+        std::cout << "      \"output_index\": " << i << ",\n";
+        std::cout << "      \"blinding_factor_hex\": \"" << ToHex(blind.data(), 32) << "\"\n";
+        std::cout << "    }" << (i < 2 ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n\n";
+
+    // L2 channel key vectors
+    std::string channelId = "test-channel-001";
+    std::cout << "  \"l2_channel_key_vectors\": {\n";
+    std::cout << "    \"channel_id\": \"" << channelId << "\",\n";
+    std::cout << "    \"keys\": [\n";
+
+    auto funding = DeriveChannelKey(seed, channelId, "funding", 0);
+    auto revoke = DeriveChannelKey(seed, channelId, "revoke", 0);
+    auto htlc = DeriveChannelKey(seed, channelId, "htlc", 0);
+
+    std::cout << "      {\"key_type\": \"funding\", \"key_hex\": \"" << ToHex(funding.data(), 32) << "\"},\n";
+    std::cout << "      {\"key_type\": \"revoke\", \"index\": 0, \"key_hex\": \"" << ToHex(revoke.data(), 32) << "\"},\n";
+    std::cout << "      {\"key_type\": \"htlc\", \"index\": 0, \"key_hex\": \"" << ToHex(htlc.data(), 32) << "\"}\n";
+    std::cout << "    ]\n";
+    std::cout << "  },\n\n";
+
+    // Domain separation proof
+    DerivationPath p0;
+    p0.purpose = 44;
+    p0.coinType = 21329;
+    p0.account = 0;
+    p0.change = 0;
+    p0.index = 0;
+    auto walletKey = DeriveKeyMaterial(seed, p0, DOMAIN_WALLET);
+    auto blindKey = DeriveKeyMaterial(seed, p0, DOMAIN_BLINDING);
+
+    std::cout << "  \"domain_separation_proof\": {\n";
+    std::cout << "    \"path\": \"m/44'/21329'/0'/0/0\",\n";
+    std::cout << "    \"wallet_domain_key\": \"" << ToHex(walletKey.data(), 32) << "\",\n";
+    std::cout << "    \"blinding_domain_key\": \"" << ToHex(blindKey.data(), 32) << "\",\n";
+    std::cout << "    \"must_differ\": true\n";
+    std::cout << "  }\n";
+    std::cout << "}\n";
+}
+
+int main(int argc, char* argv[])
+{
+    // Check for --json-vectors flag (for auditors)
+    if (argc > 1 && std::string(argv[1]) == "--json-vectors") {
+        OutputJsonVectors();
+        return 0;
+    }
+
     std::cout << "=== HD Key Derivation Tests ===" << std::endl;
     std::cout << std::endl;
 
