@@ -4,11 +4,26 @@
 #include <map>
 #include <test/fuzz/fuzz.h>
 
-// Forward declarations
+// Forward declarations for existing fuzz targets
 void latticefold_verifier(fuzzer::FuzzBuffer& buffer) noexcept;
+void dilithium_verify(fuzzer::FuzzBuffer& buffer) noexcept;
+
+// Forward declarations for wallet fuzz targets
+void pqaddress_validate(fuzzer::FuzzBuffer& buffer) noexcept;
+void pqaddress_decode(fuzzer::FuzzBuffer& buffer) noexcept;
+void bech32m_roundtrip(fuzzer::FuzzBuffer& buffer) noexcept;
+void pqaddress_hash(fuzzer::FuzzBuffer& buffer) noexcept;
+void pqaddress_network_detect(fuzzer::FuzzBuffer& buffer) noexcept;
 
 static const std::map<std::string, FuzzTarget> g_fuzz_targets = {
     {"latticefold_verifier", latticefold_verifier},
+    {"dilithium_verify", dilithium_verify},
+    // Wallet fuzz targets
+    {"pqaddress_validate", pqaddress_validate},
+    {"pqaddress_decode", pqaddress_decode},
+    {"bech32m_roundtrip", bech32m_roundtrip},
+    {"pqaddress_hash", pqaddress_hash},
+    {"pqaddress_network_detect", pqaddress_network_detect},
 };
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)

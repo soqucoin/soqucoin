@@ -138,6 +138,7 @@ BITCOIN_TESTS =\
   test/univalue_tests.cpp \
   test/util_tests.cpp \
   test/verify_cost_tests.cpp \
+  test/consensus_validation_tests.cpp \
   test/latticefold_tests.cpp
 # Legacy ECDSA tests disabled for Post-Quantum Transition
 #  test/audit_tests.cpp
@@ -256,7 +257,8 @@ test_fuzz_fuzz_SOURCES = \
   test/fuzz/latticefold_verifier.cpp \
   test/fuzz/dilithium_verify.cpp \
   test/fuzz/binius_commit.cpp \
-  test/fuzz/pat_aggregate.cpp
+  test/fuzz/pat_aggregate.cpp \
+  test/fuzz/pqwallet_fuzz.cpp
 test_fuzz_fuzz_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 test_fuzz_fuzz_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_fuzz_fuzz_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
