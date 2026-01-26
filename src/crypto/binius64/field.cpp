@@ -85,23 +85,10 @@ Binius64& Binius64::operator*=(const Binius64& rhs) noexcept
     // x^192 = x^128 * x^64 = (x^7 + 1) * x^64 = x^71 + x^64
     // Generally x^(128+k) -> x^(k+7) + x^k
 
-    // Let's just use a simple loop for reduction of the high 128 bits
-    for (int i = 127; i >= 0; --i) {
-        if ((res[3] >> i) & 1) {
-            // Bit at 192+i
-            // 192+i = 128 + (64+i)
-            // Reduces to (64+i)+7 and (64+i)
-            int k = 64 + i;
-            // Add bit at k+7 and k
-            // Since k >= 64, these are in res[1] and res[2] (but we are clearing res[2]/res[3])
-            // Actually, we should reduce from top down.
-
-            // Easier approach:
-            // x^128 = x^7 + 1
-            // We can XOR res[2] and res[3] into res[0] and res[1] using the pattern.
-            // But it's recursive.
-        }
-    }
+    // Note: The bit-serial reduction loop was removed as it contained undefined behavior
+    // (shifting uint64_t by >= 64 bits). The correct word-wise reduction is below.
+    // The polynomial is x^128 + x^7 + 1, so x^128 = x^7 + 1
+    // For reduction: T = H * x^128 = H * (x^7 + 1) = H*x^7 + H
 
     // Correct reduction for x^128 + x^7 + 1:
     // T = H * x^128 = H * (x^7 + 1) = H * x^7 + H
