@@ -9,8 +9,8 @@
 #include <script/interpreter.h>
 
 
+#include "hash.h"
 #include "primitives/transaction.h"
-#include "utilstrencodings.h"
 #include "zk/bulletproofs.h"
 #include <crypto/latticefold/verifier.h>
 #include <crypto/pat/logarithmic.h>
@@ -106,7 +106,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     set_success(serror);
 
     try {
-        while (pc < script.end()) {
+        while (pc < pend) {
             bool fExec = true;
 
             if (!script.GetOp(pc, opcode, vchPushValue))
@@ -329,21 +329,185 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
 
 PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& tx)
 {
+    // Precompute hashPrevouts (BIP143 step 2)
+    // Double SHA256 of the serialization of all input outpoints
+    {
+        CHashWriter ss(SER_GETHASH, 0);
+        for (const auto& txin : tx.vin) {
+            ss << txin.prevout;
+        }
+        hashPrevouts = ss.GetHash();
+    }
+
+    // Precompute hashSequence (BIP143 step 3)
+    // Double SHA256 of the serialization of all input sequence values
+    {
+        CHashWriter ss(SER_GETHASH, 0);
+        for (const auto& txin : tx.vin) {
+            ss << txin.nSequence;
+        }
+        hashSequence = ss.GetHash();
+    }
+
+    // Precompute hashOutputs (BIP143 step 8)
+    // Double SHA256 of the serialization of all outputs
+    {
+        CHashWriter ss(SER_GETHASH, 0);
+        for (const auto& txout : tx.vout) {
+            ss << txout;
+        }
+        hashOutputs = ss.GetHash();
+    }
 }
 
-// Proper SignatureHash — identical to Bitcoin Core SIGHASH_ALL | SIGHASH_FORKID semantics
+// BIP143 Signature Hash Implementation
+// Implements the witness program signature hash algorithm as specified in BIP143
+// This ensures signatures commit to: version, prevouts, sequences, outpoint, scriptCode,
+// amount, sequence, outputs, locktime, and hashtype
 uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache)
 {
+    // Validate input index
+    if (nIn >= txTo.vin.size()) {
+        // Return a hash that will never match any signature
+        return uint256::ONE;
+    }
+
     if (sigversion == SIGVERSION_WITNESS_V0) {
+        // BIP143 signature hash algorithm for witness v0
         uint256 hashPrevouts;
         uint256 hashSequence;
         uint256 hashOutputs;
-        // TODO: exact Bitcoin Core v28 implementation — copy from upstream src/script/interpreter.cpp
-        // For now, return transaction hash as placeholder
-        return txTo.GetHash();
+
+        // Step 2: hashPrevouts
+        // If ANYONECANPAY is not set, use precomputed or compute fresh
+        if (!(nHashType & SIGHASH_ANYONECANPAY)) {
+            if (cache) {
+                hashPrevouts = cache->hashPrevouts;
+            } else {
+                CHashWriter ss(SER_GETHASH, 0);
+                for (const auto& txin : txTo.vin) {
+                    ss << txin.prevout;
+                }
+                hashPrevouts = ss.GetHash();
+            }
+        }
+        // else hashPrevouts remains zero (uint256 default)
+
+        // Step 3: hashSequence
+        // If ANYONECANPAY, SINGLE, or NONE are not set, use precomputed or compute fresh
+        if (!(nHashType & SIGHASH_ANYONECANPAY) &&
+            (nHashType & 0x1f) != SIGHASH_SINGLE &&
+            (nHashType & 0x1f) != SIGHASH_NONE) {
+            if (cache) {
+                hashSequence = cache->hashSequence;
+            } else {
+                CHashWriter ss(SER_GETHASH, 0);
+                for (const auto& txin : txTo.vin) {
+                    ss << txin.nSequence;
+                }
+                hashSequence = ss.GetHash();
+            }
+        }
+        // else hashSequence remains zero
+
+        // Step 8: hashOutputs
+        if ((nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
+            // SIGHASH_ALL: hash all outputs
+            if (cache) {
+                hashOutputs = cache->hashOutputs;
+            } else {
+                CHashWriter ss(SER_GETHASH, 0);
+                for (const auto& txout : txTo.vout) {
+                    ss << txout;
+                }
+                hashOutputs = ss.GetHash();
+            }
+        } else if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn < txTo.vout.size()) {
+            // SIGHASH_SINGLE: hash only the output at the same index
+            CHashWriter ss(SER_GETHASH, 0);
+            ss << txTo.vout[nIn];
+            hashOutputs = ss.GetHash();
+        }
+        // else (SIGHASH_NONE or SINGLE with no corresponding output) hashOutputs remains zero
+
+        // Compute the sighash preimage per BIP143:
+        // 1. nVersion (4 bytes)
+        // 2. hashPrevouts (32 bytes)
+        // 3. hashSequence (32 bytes)
+        // 4. outpoint being spent (32+4 bytes)
+        // 5. scriptCode (serialized as scripts are)
+        // 6. amount (8 bytes)
+        // 7. nSequence of the input (4 bytes)
+        // 8. hashOutputs (32 bytes)
+        // 9. nLockTime (4 bytes)
+        // 10. sighash type (4 bytes, little-endian)
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << txTo.nVersion;
+        ss << hashPrevouts;
+        ss << hashSequence;
+        ss << txTo.vin[nIn].prevout;
+        ss << *(CScriptBase*)(&scriptCode);
+        ss << amount;
+        ss << txTo.vin[nIn].nSequence;
+        ss << hashOutputs;
+        ss << txTo.nLockTime;
+        ss << nHashType;
+
+        return ss.GetHash();
     }
-    // For base version, use simplified hash
-    return txTo.GetHash();
+
+    // SIGVERSION_BASE: Legacy sighash (pre-SegWit)
+    // We still support this for compatibility, but Soqucoin primarily uses witness v0
+    // Create a copy of the transaction for modification
+    CMutableTransaction txTmp(txTo);
+
+    // Blank out other inputs' signatures
+    for (auto& in : txTmp.vin) {
+        in.scriptSig.clear();
+    }
+    // Set the scriptCode for the input being signed
+    txTmp.vin[nIn].scriptSig = scriptCode;
+
+    // Handle SIGHASH types
+    if ((nHashType & 0x1f) == SIGHASH_NONE) {
+        // Signing input but not outputs
+        txTmp.vout.clear();
+        // Let other inputs update their sequence
+        for (unsigned int i = 0; i < txTmp.vin.size(); i++) {
+            if (i != nIn) {
+                txTmp.vin[i].nSequence = 0;
+            }
+        }
+    } else if ((nHashType & 0x1f) == SIGHASH_SINGLE) {
+        // Sign only the output at the same index
+        if (nIn >= txTmp.vout.size()) {
+            // SIGHASH_SINGLE bug: return 1 as hash
+            return uint256::ONE;
+        }
+        txTmp.vout.resize(nIn + 1);
+        for (unsigned int i = 0; i < nIn; i++) {
+            txTmp.vout[i].SetNull();
+        }
+        // Let other inputs update their sequence
+        for (unsigned int i = 0; i < txTmp.vin.size(); i++) {
+            if (i != nIn) {
+                txTmp.vin[i].nSequence = 0;
+            }
+        }
+    }
+
+    // SIGHASH_ANYONECANPAY: only sign this input
+    if (nHashType & SIGHASH_ANYONECANPAY) {
+        txTmp.vin.resize(1);
+        txTmp.vin[0] = txTo.vin[nIn];
+        txTmp.vin[0].scriptSig = scriptCode;
+    }
+
+    // Serialize and hash
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << txTmp;
+    ss << nHashType;
+    return ss.GetHash();
 }
 
 // Strict post-quantum script verification — ECDSA paths completely removed
