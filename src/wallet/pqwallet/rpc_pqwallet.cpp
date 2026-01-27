@@ -201,14 +201,22 @@ UniValue pqestimatefeerate(const JSONRPCRequest& request)
         if (request.params[0].isNum()) {
             numInputs = request.params[0].get_int();
         } else {
-            numInputs = std::stoi(request.params[0].get_str());
+            try {
+                numInputs = std::stoi(request.params[0].get_str());
+            } catch (const std::exception& e) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid num_inputs: must be a number");
+            }
         }
     }
     if (request.params.size() > 1 && !request.params[1].isNull()) {
         if (request.params[1].isNum()) {
             numOutputs = request.params[1].get_int();
         } else {
-            numOutputs = std::stoi(request.params[1].get_str());
+            try {
+                numOutputs = std::stoi(request.params[1].get_str());
+            } catch (const std::exception& e) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid num_outputs: must be a number");
+            }
         }
     }
 
@@ -318,7 +326,11 @@ UniValue pqestimatefee(const JSONRPCRequest& request)
         if (request.params[0].isNum()) {
             confTarget = request.params[0].get_int();
         } else {
-            confTarget = std::stoi(request.params[0].get_str());
+            try {
+                confTarget = std::stoi(request.params[0].get_str());
+            } catch (const std::exception& e) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid conf_target: must be a number");
+            }
         }
     }
     if (request.params.size() > 1 && !request.params[1].isNull()) {
@@ -390,7 +402,11 @@ UniValue pqchannelreserve(const JSONRPCRequest& request)
     if (request.params[0].isNum()) {
         capacity = request.params[0].get_int64();
     } else {
-        capacity = std::stoll(request.params[0].get_str());
+        try {
+            capacity = std::stoll(request.params[0].get_str());
+        } catch (const std::exception& e) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid capacity: must be a number");
+        }
     }
 
     bool isInitiator = true;
@@ -453,7 +469,11 @@ UniValue pqselectcoins(const JSONRPCRequest& request)
     if (request.params[0].isNum()) {
         amount = request.params[0].get_int64();
     } else {
-        amount = std::stoll(request.params[0].get_str());
+        try {
+            amount = std::stoll(request.params[0].get_str());
+        } catch (const std::exception& e) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid amount: must be a number");
+        }
     }
 
     std::string modeStr = "normal";
@@ -466,7 +486,11 @@ UniValue pqselectcoins(const JSONRPCRequest& request)
         if (request.params[2].isNum()) {
             feeRate = request.params[2].get_int64();
         } else {
-            feeRate = std::stoll(request.params[2].get_str());
+            try {
+                feeRate = std::stoll(request.params[2].get_str());
+            } catch (const std::exception& e) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid feerate: must be a number");
+            }
         }
     }
 
