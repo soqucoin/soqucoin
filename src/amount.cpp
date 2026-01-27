@@ -16,12 +16,24 @@ CFeeRate::CFeeRate(const CAmount& nFeePaid, size_t nBytes_)
     int64_t nSize = int64_t(nBytes_);
 
     if (nSize > 0) {
-        // Avoid overflow: divide first, then multiply to get per-KB rate
-        // nSatoshisPerK = (nFeePaid / nSize) * 1000 + (nFeePaid % nSize) * 1000 / nSize
-        // This is mathematically equivalent but avoids overflow on nFeePaid * 1000
-        CAmount quotient = nFeePaid / nSize;
-        CAmount remainder = nFeePaid % nSize;
-        nSatoshisPerK = quotient * 1000 + (remainder * 1000) / nSize;
+        // Safe fee rate calculation avoiding integer overflow
+        // Check if nFeePaid * 1000 would overflow int64_t
+        const int64_t kMaxSafeForMul1000 = std::numeric_limits<int64_t>::max() / 1000;
+        
+        if (nFeePaid > kMaxSafeForMul1000 || nFeePaid < -kMaxSafeForMul1000) {
+            // Fee is extremely large - compute per-KB rate with clamping
+            CAmount perByte = nFeePaid / nSize;
+            if (perByte > kMaxSafeForMul1000) {
+                nSatoshisPerK = std::numeric_limits<int64_t>::max();
+            } else if (perByte < -kMaxSafeForMul1000) {
+                nSatoshisPerK = std::numeric_limits<int64_t>::min();
+            } else {
+                nSatoshisPerK = perByte * 1000;
+            }
+        } else {
+            // Normal case - safe to multiply
+            nSatoshisPerK = nFeePaid * 1000 / nSize;
+        }
     } else {
         nSatoshisPerK = 0;
     }
