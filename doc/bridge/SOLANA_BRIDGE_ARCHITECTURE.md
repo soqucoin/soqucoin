@@ -137,11 +137,129 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 | **Symbol** | pSOQ |
 | **Decimals** | 8 (matches SOQ) |
 | **Network** | Solana Mainnet |
-| **Mint Address** | TBD (will be published at launch) |
+| **Total Supply** | 1,000,000,000 (1 billion) |
+| **Mint Address** | `6NX2MWBuJM2Fn63K4hUgMPivLXHV8pwsU1yTdmjKpump` |
 
 ---
 
-## 8. pSOQ Launch Models (Community Analysis)
+## 8. pSOQ Backing Economics (Tentative)
+
+> [!IMPORTANT]
+> This section documents the economic model for pSOQ backing under the Mining-Backed (Model B) approach.
+> These are tentative recommendations pending board approval.
+
+### The Core Economics
+
+pSOQ was launched on Pump.fun **before** Soqucoin mainnet exists. This creates a timing mismatch:
+
+| Asset | Supply | Current Backing |
+|-------|--------|-----------------|
+| **pSOQ (Solana)** | 1 billion | ❌ Not backed (pre-bridge) |
+| **SOQ (at block 100k)** | ~5 billion | N/A (native L1 token) |
+
+**"1:1" refers to the exchange rate, not supply parity:**
+- 1 SOQ locked in vault = 1 pSOQ mintable/redeemable
+- Bridge operates at 1:1 unit rate
+- Total pSOQ backing depends on SOQ locked in vault
+
+### pSOQ Distribution
+
+| Holder | Amount | Percentage | Status |
+|--------|--------|------------|--------|
+| **LP (Foundation)** | ~120M pSOQ | 12% | Locked until June 2026 |
+| **Team Wallets** | ~60M pSOQ | 6% | Liquid |
+| **Foundation Total** | **~180M pSOQ** | **18%** | See subordination below |
+| **Public Float** | ~820M pSOQ | 82% | Trading on Solana DEXs |
+
+### Backing Model: Foundation Commitment + Market Arbitrage
+
+#### Phase 1: Bridge Launch (Q3 2026)
+
+```
+Foundation commits: Lock 180M mined SOQ
+Vault balance: 180M SOQ
+pSOQ circulation: 1B
+Foundation pSOQ (subordinated): 180M
+Public pSOQ (senior): 820M
+
+Effective public backing: 180M / 820M = 22%
+```
+
+#### Phase 2: Market Arbitrage (Ongoing)
+
+```
+Arbitrageurs lock additional SOQ to mint pSOQ
+Sell pSOQ on Solana DEXs for profit
+Vault fills progressively
+
+Month 1: ~380M SOQ in vault (46% public backing)
+Month 3: ~580M SOQ in vault (70% public backing)
+Month 6+: Approaching full backing
+```
+
+### Foundation Subordination Structure (Tentative)
+
+> [!NOTE]
+> The foundation's 180M pSOQ is **subordinated** to public holdings.
+> This means the team's pSOQ is worth nothing until public pSOQ is fully backed.
+
+| Priority | Holder | Redemption Rights |
+|----------|--------|-------------------|
+| **Senior (1st)** | Public (820M pSOQ) | Can redeem immediately from vault |
+| **Junior (2nd)** | Foundation (180M pSOQ) | Can only redeem after vault ≥ 1B SOQ |
+
+**Subordination Terms:**
+1. Foundation locks 180M mined SOQ at bridge launch
+2. Foundation pSOQ redeems LAST — after all public pSOQ is 100% backed
+3. Foundation cannot front-run public redemptions
+4. Subordination is enforced by smart contract or governance commitment
+
+### Expected Price Convergence
+
+| Timeframe Post-Bridge | Est. Vault Balance | Public Backing | Expected pSOQ/SOQ |
+|-----------------------|-------------------|----------------|-------------------|
+| Bridge launch | 180M SOQ | 22% | 0.20 - 0.40 |
+| Month 1 | ~380M SOQ | 46% | 0.40 - 0.60 |
+| Month 3 | ~580M SOQ | 70% | 0.65 - 0.85 |
+| Month 6+ | ~800M+ SOQ | 97%+ | 0.90 - 1.00 |
+
+*Actual convergence depends on SOQ liquidity and arbitrageur participation.*
+
+### Why This Model Works
+
+| Stakeholder | Benefit |
+|-------------|---------|
+| **Public pSOQ holders** | 22% day-1 backing (vs 0% pure market model) |
+| **Foundation** | Demonstrates alignment — "we eat last" |
+| **Community** | Founders can't dump before bridge is stable |
+| **Regulators** | Clear subordination = transparent risk hierarchy |
+
+### Required Disclosures
+
+**Pre-Bridge (Now):**
+> pSOQ is a speculation vehicle representing aspirational access to Soqucoin. 
+> It is NOT currently backed. Bridge activation is planned for Q3 2026.
+
+**At Bridge Launch:**
+> pSOQ Bridge Economics:
+> - Total pSOQ: 1 billion
+> - Foundation holdings: 180M (18%) — **subordinated**
+> - Public float: 820M (82%) — **senior**
+> - Current vault balance: [LIVE DASHBOARD]
+>
+> Foundation pSOQ cannot be redeemed until public pSOQ is 100% backed.
+
+### LP Lock Consideration
+
+| Event | Date | Notes |
+|-------|------|-------|
+| Current LP unlock | June 2026 | Before bridge launch |
+| Bridge activation | Q3 2026 | After LP unlock |
+
+**Board Decision Required:** Consider extending LP lock to Q4 2026 or converting to subordinated bridge position for optics and alignment demonstration.
+
+
+## 9. pSOQ Launch Models (Community Analysis)
 
 > [!NOTE]
 > **Community Feedback Integration**: This section incorporates feedback from community members
@@ -250,7 +368,7 @@ Community suggested: *"Miners claim pSOQ immediately; SOQ unlocks as mined"*
 
 ---
 
-## 9. Tentative Board Decisions (Pending Approval)
+## 10. Tentative Board Decisions (Pending Approval)
 
 > [!IMPORTANT]
 > The following decisions are **tentative recommendations** based on expert blockchain development analysis.
@@ -387,7 +505,7 @@ Monthly volume $100M → Validators earn ~$11,400/month each
 
 ---
 
-## 10. Remaining Open Questions
+## 11. Remaining Open Questions
 
 1. **Wormhole commercial terms**: Negotiate integration agreement
 2. **Initial validator candidates**: Identify 7 entities meeting criteria
@@ -396,7 +514,7 @@ Monthly volume $100M → Validators earn ~$11,400/month each
 
 ---
 
-## 11. Related Documents
+## 12. Related Documents
 
 - [Consensus Cost Specification](CONSENSUS_COST_SPEC.md) — Mainnet protocol parameters
 - [Mining Guide](mining-guide.md) — SOQ acquisition
