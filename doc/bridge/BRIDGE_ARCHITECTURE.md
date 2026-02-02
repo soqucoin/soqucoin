@@ -1,7 +1,8 @@
 # pSOQ ↔ SOQ Bridge Architecture
 
-> **Status:** Pre-Implementation Design  
-> **Target Activation:** Post-Mainnet (Q2 2026 or later)  
+> **Status:** Tentative Decisions — Pending Board Approval  
+> **Target Activation:** Q3 2026 (after block 100,000 / 5B SOQ mined)  
+> **Last Updated:** February 2, 2026  
 > **Audit Requirement:** Third-party audit mandatory before activation
 
 ---
@@ -120,15 +121,18 @@ We'll communicate this clearly. No one should be caught off-guard by liquidity c
 
 ---
 
-## Implementation Timeline
+## Implementation Timeline (Updated)
 
 | Phase | Target | Deliverable |
 |-------|--------|-------------|
-| Design | Q1 2026 | This document, threat model |
-| Development | Q2 2026 | Vault script, Solana program, oracle integration |
-| Audit | Q2-Q3 2026 | Third-party security audit (mandatory) |
-| Testnet | Q3 2026 | Public bridge testnet with test tokens |
-| Mainnet | Q3-Q4 2026 | Production activation (if audit passes) |
+| Design | Q1 2026 ✅ | This document, threat model |
+| Development | Q2 2026 | Wormhole integration, vault contract |
+| Audit | Q2-Q3 2026 | Third-party bridge audit (Halborn Phase 2) |
+| Testnet | Q2-Q3 2026 | Integration testing (after block 100,000) |
+| Mainnet | **Q3 2026** | Production activation (when 5B SOQ mined) |
+
+> [!NOTE]
+> **Timeline Updated (Feb 2026)**: Previously Q4 2026. Using Wormhole (vs custom oracle) accelerates timeline by ~3 months. Activation gated by 5B SOQ circulation threshold.
 
 **No activation without audit.** This is non-negotiable. We've seen too many bridges exploited due to rushed deployments.
 

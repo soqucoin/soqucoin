@@ -1,13 +1,13 @@
 # Soqucoin-Solana Bridge Architecture
 
-> **Version**: 0.1 (Draft) | **Status**: Engineering Design Phase
-> **Last Updated**: January 2026
+> **Version**: 0.2 | **Status**: Tentative Decisions Pending Board Approval
+> **Last Updated**: February 2, 2026
 > **Network**: Soqucoin ↔ Solana
 
 ---
 
-> [!WARNING]
-> **Working Document**: This architecture is under active development. Design decisions are subject to change based on security review and implementation findings. This document is provided for transparency and feedback purposes.
+> [!NOTE]
+> **Tentative Decisions**: This document now includes tentative architecture decisions based on expert analysis. These decisions are pending final board approval post-mainnet. Design may evolve based on security audit findings.
 
 ---
 
@@ -45,21 +45,33 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 
 ## 3. Security Model
 
-### Validator Set
+### Validator Set (Tentative Decision)
 
-| Parameter | Proposed Value | Notes |
-|-----------|----------------|-------|
-| **Validator count** | 7-11 | Decentralization vs coordination |
-| **Threshold** | 5-of-7 or 7-of-11 | Byzantine fault tolerance |
-| **Validator selection** | TBD | May include trusted partners + geographic distribution |
+| Parameter | **Tentative Decision** | Justification |
+|-----------|------------------------|---------------|
+| **Validator count** | **7** | Balance between decentralization and coordination |
+| **Threshold** | **5-of-7 (71%)** | Byzantine fault tolerant (survives 2 malicious) |
+| **Geographic distribution** | **Minimum 4 continents** | Jurisdiction diversity, latency distribution |
+| **Technical requirements** | HSM, 99.5% uptime, 24/7 on-call | Professional operations standard |
+
+### Validator Selection Criteria
+
+| Slot | Type | Region | Selection Criteria |
+|------|------|--------|-------------------|
+| 1 | Foundation-operated | North America | Fiduciary responsibility |
+| 2 | Mining pool partner | Europe | Hashrate stake alignment |
+| 3 | Exchange partner | Asia | Liquidity stake alignment |
+| 4 | Security firm | Variable | Audit relationship (e.g., Halborn) |
+| 5 | Infrastructure provider | Variable | Professional operations |
+| 6 | Community-elected | Variable | Decentralization signal |
+| 7 | Rotating seat | Variable | 6-month rotation |
 
 ### Collateralization
 
 | Model | Description | Status |
 |-------|-------------|--------|
-| **1:1 Custody** | SOQ locked = pSOQ minted | Baseline |
-| **Over-collateralization** | Extra reserves for failure modes | Under consideration |
-| **Proof of Reserves** | On-chain attestation of custody balance | Planned |
+| **1:1 Custody** | SOQ locked = pSOQ minted | ✅ Confirmed |
+| **Proof of Reserves** | 6-hour automated + quarterly audit | ✅ Planned |
 
 ---
 
@@ -102,15 +114,18 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 
 ---
 
-## 6. Deployment Timeline
+## 6. Deployment Timeline (Updated)
 
 | Phase | Target | Description |
 |-------|--------|-------------|
-| **Design** | Q1 2026 | Architecture finalization |
-| **Development** | Q2 2026 | Smart contract implementation |
-| **Audit** | Q2-Q3 2026 | Security review |
-| **Testnet** | Q3 2026 | Integration testing |
-| **Mainnet** | Q4 2026 | Production deployment |
+| **Design** | Q1 2026 | Architecture finalization ✅ |
+| **Development** | Q2 2026 | Wormhole integration, vault contract |
+| **Audit** | Q2 2026 | Third-party security review |
+| **Testnet** | Q2-Q3 2026 | Integration testing (after block 100,000) |
+| **Mainnet** | **Q3 2026** | Production deployment (when 5B SOQ mined) |
+
+> [!NOTE]
+> **Timeline Updated**: Previously Q4 2026. Using Wormhole (vs custom oracle) accelerates timeline by ~3 months.
 
 ---
 
@@ -235,25 +250,161 @@ Community suggested: *"Miners claim pSOQ immediately; SOQ unlocks as mined"*
 
 ---
 
-## 9. Open Design Questions
+## 9. Tentative Board Decisions (Pending Approval)
 
-1. **Validator economics**: How are validators compensated for bridge operations?
-2. **Fee structure**: Should bridge transfers incur fees beyond network gas?
-3. **Rate limiting**: Should there be per-transaction or per-day limits initially?
-4. **Emergency procedures**: How to handle bridge pause/freeze in case of exploit?
-5. **Governance**: Who controls bridge upgrades long-term?
-6. **pSOQ Launch Timing**: When does sufficient SOQ liquidity exist for bridge launch?
-7. **Proof of Reserves**: On-chain attestation frequency and audit requirements?
+> [!IMPORTANT]
+> The following decisions are **tentative recommendations** based on expert blockchain development analysis.
+> Final approval pending board review post-mainnet launch.
+
+### Decision 1: Oracle Provider — Wormhole for v1
+
+| Option | Recommendation |
+|--------|----------------|
+| **Wormhole Guardians** | ✅ **Selected** |
+| Custom validator set | v2 consideration |
+| LayerZero | Alternative if terms unfavorable |
+
+**Justification:**
+- 19 validators, $35B+ processed volume, battle-tested
+- 2-3 month integration vs 6-12 months custom development
+- Already audited, reduces our audit burden
+- Industry standard (Jupiter, Pyth, 20+ major protocols)
+
+**Risks:**
+- External dependency on Wormhole operations
+- Not quantum-safe (Ed25519 attestations)
+- Mitigation: Emergency fallback to multisig-only mode
 
 ---
 
-## 9. Related Documents
+### Decision 2: Activation Threshold — 5B SOQ Mined
+
+| Threshold | Blocks | Timeline | Status |
+|-----------|--------|----------|--------|
+| 1B SOQ | ~20,000 | ~14 days | ❌ Too early |
+| **5B SOQ** | ~100,000 | **~69 days** | ✅ **Selected** |
+| 10B SOQ | ~200,000 | ~139 days | ❌ Unnecessary delay |
+
+**Justification:**
+- Sufficient on-chain liquidity for arbitrage peg maintenance
+- Aligns with Stage 2 (LatticeFold+) activation, signaling maturity
+- Exchange listings likely by this point
+- Conservative threshold — better stable than broken
+
+**Risks:**
+- pSOQ holders wait ~70 days post-mainnet
+- Mitigation: Clear communication, published countdown
+
+---
+
+### Decision 3: Fee Structure — 0.1% Bridge Fee
+
+| Component | Tentative Decision |
+|-----------|-------------------|
+| **Bridge fee** | 0.1% of transfer value |
+| **Minimum fee** | 100 SOQ (prevents dust attacks) |
+| **Maximum fee** | 10,000 SOQ cap |
+| **Distribution** | 80% validators, 20% treasury |
+| **Payment** | Monthly settlement in SOQ |
+
+**Justification:**
+- Industry standard (Wormhole, Multichain, Axelar: ~0.1%)
+- Sustainable for professional validator operations
+- Lower discourages validators; higher discourages users
+
+**Economic Model (at maturity):**
+```
+Monthly volume $10M → Validators earn ~$1,140/month each
+Monthly volume $100M → Validators earn ~$11,400/month each
+```
+
+---
+
+### Decision 4: Emergency Procedures — Tiered Response
+
+| Level | Trigger | Action | Authority |
+|-------|---------|--------|-----------|
+| **1: Anomaly** | Unusual volume | Monitoring alert | Ops team |
+| **2: Concern** | Failed attestation | Rate limiting | 2 validators |
+| **3: Incident** | Exploit suspected | Bridge pause | 3 validators |
+| **4: Critical** | Active exploit | Full freeze | 4 validators |
+
+**Automatic Circuit Breakers:**
+- Hourly volume >200% of 7-day average → Rate limit to 50%
+- Single transaction >5% of vault → Manual review required
+- 3+ consecutive attestation failures → Pause new mints
+- Proof of Reserves mismatch → Full freeze
+
+**Justification:**
+- Based on Compound/Aave incident response frameworks
+- Graduated response prevents false positives and slow reactions
+- Automatic triggers eliminate human error/delay
+
+---
+
+### Decision 5: Governance — Progressive Decentralization
+
+| Phase | Timeline | Model |
+|-------|----------|-------|
+| **Phase 1** | Months 0-6 | Foundation multisig (3-of-5) |
+| **Phase 2** | Months 6-12 | Validator committee (5-of-7) |
+| **Phase 3** | Months 12-18 | Committee + token holder veto |
+| **Phase 4** | Months 18-24 | Full token governance |
+
+**Upgrade Timelocks:**
+| Type | Timelock |
+|------|----------|
+| Parameter adjustment | 24 hours |
+| Bug fix | 48 hours |
+| Feature addition | 7 days |
+| Critical change | 14+ days |
+
+**Justification:**
+- Day-1 DAO is dangerous (see: Beanstalk hack)
+- Compound/Uniswap progressive decentralization model
+- Credible exit path to full decentralization
+
+---
+
+### Decision 6: Sunset Planning — 24-Month Support Window
+
+| Phase | Timeline | Status |
+|-------|----------|--------|
+| **Full support** | Months 0-18 | Normal operations, LPincentives |
+| **Notice period** | Month 18 | Announce 6-month sunset |
+| **Reduced support** | Months 18-24 | No new incentives, full function |
+| **Sunset** | Month 24+ | Bridge open, no guaranteed support |
+
+**Post-Sunset:**
+- pSOQ remains redeemable indefinitely (vault stays)
+- Minimum 3 validators maintain operations
+- Monthly community updates in final 6 months
+
+**Justification:**
+- pSOQ purpose: Pre-mainnet liquidity access
+- Post-mainnet: Native SOQ on CEX/DEX is superior (PQ-safe)
+- Publishing sunset plan signals maturity, prevents rug accusations
+
+---
+
+## 10. Remaining Open Questions
+
+1. **Wormhole commercial terms**: Negotiate integration agreement
+2. **Initial validator candidates**: Identify 7 entities meeting criteria
+3. **Bridge audit timeline**: Coordinate with Halborn for Phase 2
+4. **Regulatory review**: Confirm bridge structure with legal counsel
+
+---
+
+## 11. Related Documents
 
 - [Consensus Cost Specification](CONSENSUS_COST_SPEC.md) — Mainnet protocol parameters
 - [Mining Guide](mining-guide.md) — SOQ acquisition
 - [Node Operator Guide](node-operator-guide.md) — Running Soqucoin infrastructure
+- [BRIDGE_ARCHITECTURE.md](BRIDGE_ARCHITECTURE.md) — Detailed technical architecture
 
 ---
 
-*Working document — Soqucoin Core Development Team*
-*Feedback welcome via GitHub issues*
+*Last Updated: February 2, 2026*
+*Tentative decisions pending board approval post-mainnet*
+*Soqucoin Core Development Team*
