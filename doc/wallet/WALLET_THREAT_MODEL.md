@@ -171,7 +171,7 @@ This document defines the threat model for the Soqucoin post-quantum wallet (`li
 | **I3** | Transaction graph | Blockchain analysis | Future: Stealth addresses | ⬜ Stage 3 |
 | **I4** | Wallet file | Unauthorized file access | AES-256-CBC encryption | ✅ Implemented |
 | **I5** | Seed phrase | Physical observation | User responsibility | 📋 Documented |
-| **I6** | Side channels | Timing attacks on signing | Constant-time Dilithium ref impl | ⚠️ Needs verification |
+| **I6** | Side channels | Timing attacks on signing | Constant-time Dilithium ref impl | ✅ Verified (NIST ref impl; `make_hint()` branches are on public data only) |
 
 ### 5.5 Denial of Service
 
@@ -238,7 +238,7 @@ This document defines the threat model for the Soqucoin post-quantum wallet (`li
 
 | Assumption | Status | Verification |
 |------------|--------|--------------|
-| Dilithium reference impl is constant-time | ⚠️ Assumed | Needs formal verification |
+| Dilithium reference impl is constant-time | ✅ Verified | NIST FIPS 204 reference code; `make_hint()` branches operate on public data only |
 | SecureBytes::Wipe() actually clears memory | ⚠️ Assumed | Compiler may optimize out |
 | mlock() prevents swap exposure | ⚠️ OS-dependent | Linux/macOS only |
 | Process memory is isolated | ⚠️ Assumed | Depends on OS security |

@@ -359,29 +359,39 @@ INPUTS:
   - salt: 16 random bytes (stored with encrypted file)
 
 OUTPUTS:
-  - enc_key: 32 bytes (AES-256 key)
-  - mac_key: 32 bytes (HMAC key)
+  - key: 32 bytes (AES-256 key, also used for HMAC)
 
-PROCESS:
-  1. derived ← PBKDF2-HMAC-SHA256(
-       password  = passphrase,
-       salt      = salt,
-       iterations = 100,000,
-       dkLen     = 64
-     )
-  2. enc_key ← derived[0:32]
-  3. mac_key ← derived[32:64]
-  4. RETURN (enc_key, mac_key)
+PROCESS (Cascading KDF with fallback):
+  1. TRY Argon2id (preferred, memory-hard):
+       key ← Argon2id(
+         password  = passphrase,
+         salt      = salt,
+         t_cost    = 3,        // 3 iterations
+         m_cost    = 65536,    // 64 MB memory
+         p         = 4,        // 4 parallel threads
+         dkLen     = 32
+       )
+  2. FALLBACK scrypt (if Argon2id unavailable):
+       key ← scrypt(
+         password  = passphrase,
+         salt      = salt,
+         N         = 32768,    // CPU/memory cost
+         r         = 8,        // Block size
+         p         = 1,        // Parallelization
+         dkLen     = 32
+       )
+  3. LAST RESORT PBKDF2 (if scrypt unavailable):
+       key ← PBKDF2-HMAC-SHA256(
+         password   = passphrase,
+         salt       = salt,
+         iterations = 600,000, // OWASP 2023 for SHA-256
+         dkLen      = 32
+       )
 
-PARAMETERS (OWASP Recommendations):
-  - Algorithm: PBKDF2-HMAC-SHA256
-  - Iterations: 100,000 minimum (adjustable upward)
-  - Salt: 16 bytes from CSPRNG
-  - Output: 64 bytes (split into encryption + MAC keys)
-
-FUTURE ENHANCEMENT:
-  - Consider migration to Argon2id for memory-hardness
-  - Parameters: t=3, m=65536 (64MB), p=4
+IMPLEMENTATION NOTE:
+  - Uses OpenSSL 3.x EVP_KDF API for all three algorithms
+  - KDF selection is automatic based on OpenSSL provider availability
+  - See pqcrypto.cpp WalletCrypto::DeriveKey() for implementation
 ```
 
 ### 5.3 Encryption Process

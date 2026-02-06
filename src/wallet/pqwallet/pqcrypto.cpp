@@ -256,6 +256,10 @@ EncryptedData WalletCrypto::Encrypt(const std::vector<uint8_t>& plaintext,
 
     std::array<uint8_t, 32> hmacResult;
     hmac.Finalize(hmacResult.data());
+    // SECURITY NOTE: HMAC-SHA256 output (32 bytes) is truncated to AES_TAG_SIZE
+    // (16 bytes), providing 128-bit MAC security. This is acceptable per NIST
+    // SP 800-107 Rev. 1 §5.3.4 guidelines for HMAC output truncation, and
+    // matches the security level of AES-256-CBC used for encryption.
     std::copy(hmacResult.begin(), hmacResult.begin() + AES_TAG_SIZE, result.tag.begin());
 
     // Wipe key

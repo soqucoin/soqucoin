@@ -162,7 +162,14 @@ int CAuxPow::getExpectedIndex(uint32_t nNonce, int nChainId, unsigned h)
     // same chain while reducing the chance that two chains clash
     // for the same slot.
 
-    /* This computation can overflow the uint32 used.  This is not an issue,
+    /* SECURITY NOTE: The POSIX LCG constants (1103515245, 12345) below are used
+       intentionally for deterministic slot selection in merged mining. This is
+       NOT cryptographic randomness — nonce and chain ID are public values. The
+       only requirement is uniform distribution across merkle tree slots, not
+       unpredictability. This algorithm is inherited from Namecoin/Dogecoin
+       upstream and is consensus-critical (changing it would be a hard fork).
+
+       This computation can overflow the uint32 used.  This is not an issue,
        though, since we take the mod against a power-of-two in the end anyway.
        This also ensures that the computation is, actually, consistent
        even if done in 64 bits as it was in the past on some systems.

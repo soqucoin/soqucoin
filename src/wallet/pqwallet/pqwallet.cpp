@@ -46,6 +46,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cerrno>
 #include <string.h>
 #ifndef WIN32
 #include <sys/mman.h>
@@ -109,7 +110,14 @@ void SecureBytes::Lock()
 {
 #ifndef WIN32
     if (!m_data.empty()) {
-        mlock(m_data.data(), m_data.size());
+        // SECURITY NOTE: mlock() prevents sensitive key material from being
+        // swapped to disk. If it fails (e.g., RLIMIT_MEMLOCK exceeded),
+        // log a warning so operators can adjust system limits.
+        if (mlock(m_data.data(), m_data.size()) != 0) {
+            fprintf(stderr, "WARNING: mlock() failed for %zu bytes of sensitive data: %s. "
+                            "Key material may be swapped to disk.\n",
+                m_data.size(), strerror(errno));
+        }
     }
 #endif
 }

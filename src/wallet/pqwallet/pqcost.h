@@ -13,6 +13,7 @@
  * Costs are charged per proof, not per output or per TX.
  */
 
+#include <cstddef>
 #include <cstdint>
 
 namespace soqucoin
