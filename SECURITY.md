@@ -46,7 +46,7 @@ The following operations are implemented with constant-time guarantees to preven
 | Operation | File | Method |
 |-----------|------|--------|
 | Dilithium signing | `crypto/dilithium/sign.c` | NIST reference implementation (no data-dependent branches on secret data) |
-| HMAC tag comparison | `wallet/pqwallet/pqcrypto.cpp` | Byte-by-byte comparison with accumulator (`tagValid &=`) |
+| HMAC tag comparison | `wallet/pqwallet/pqcrypto.cpp` | XOR-accumulate comparison (`diff |= a ^ b`), prevents timing side-channel |
 | Secret key operations | `wallet/pqwallet/pqwallet.cpp` | SecureBytes class with `memory_cleanse()` |
 
 **Non-constant-time by design**: `make_hint()` in `crypto/dilithium/rounding.c` uses data-dependent branches, but operates only on public hint bits (not secret key material), matching NIST FIPS 204 reference exactly.

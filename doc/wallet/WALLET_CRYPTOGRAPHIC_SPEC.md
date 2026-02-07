@@ -359,7 +359,7 @@ INPUTS:
   - salt: 16 random bytes (stored with encrypted file)
 
 OUTPUTS:
-  - key: 32 bytes (AES-256 key, also used for HMAC)
+  - key: 32 bytes (AES-256 key, also used as HMAC-SHA256 key per RFC 2104)
 
 PROCESS (Cascading KDF with fallback):
   1. TRY Argon2id (preferred, memory-hard):
@@ -408,14 +408,14 @@ OUTPUTS:
 
 PROCESS:
   1. salt ← GetRandomBytes(16)
-  2. (enc_key, mac_key) ← DeriveEncryptionKey(passphrase, salt)
+  2. key ← DeriveEncryptionKey(passphrase, salt)
   3. iv ← GetRandomBytes(16)
   4. padded ← PKCS7Pad(plaintext, 16)
-  5. ciphertext ← AES-256-CBC-Encrypt(enc_key, iv, padded)
+  5. ciphertext ← AES-256-CBC-Encrypt(key, iv, padded)
   6. ct_with_iv ← iv || ciphertext
-  7. mac ← HMAC-SHA256(mac_key, ct_with_iv)
+  7. mac ← HMAC-SHA256(key, ct_with_iv)     // RFC 2104, truncated to 16 bytes
   8. file_content ← magic || version || salt || ct_with_iv || mac
-  9. Wipe(enc_key, mac_key, padded)   // Secure erase
+  9. Wipe(key, padded)                       // memory_cleanse()
   10. RETURN file_content
 
 SECURITY NOTES:
@@ -445,20 +445,22 @@ PROCESS:
        stored_mac ← file[len-32:len]
   2. IF magic ≠ "SOQW" THEN RETURN ERROR("Invalid wallet file")
   3. IF version ≠ 0x0001 THEN RETURN ERROR("Unsupported version")
-  4. (enc_key, mac_key) ← DeriveEncryptionKey(passphrase, salt)
-  5. computed_mac ← HMAC-SHA256(mac_key, ct_with_iv)
-  6. IF NOT ConstantTimeCompare(stored_mac, computed_mac) THEN
-       Wipe(enc_key, mac_key)
-       RETURN ERROR("Invalid passphrase or corrupted file")
+  4. key ← DeriveEncryptionKey(passphrase, salt)
+  5. computed_mac ← HMAC-SHA256(key, ct_with_iv)  // RFC 2104
+  6. // Constant-time XOR-accumulate comparison (prevents timing side-channel)
+     diff ← 0; FOR i IN 0..15: diff |= stored_mac[i] XOR computed_mac[i]
+     IF diff ≠ 0 THEN
+        Wipe(key)
+        RETURN ERROR("Invalid passphrase or corrupted file")
   7. iv ← ct_with_iv[0:16]
   8. ciphertext ← ct_with_iv[16:]
-  9. padded ← AES-256-CBC-Decrypt(enc_key, iv, ciphertext)
+  9. padded ← AES-256-CBC-Decrypt(key, iv, ciphertext)
   10. plaintext ← PKCS7Unpad(padded)
-  11. Wipe(enc_key, mac_key, padded)
+  11. Wipe(key, padded)                       // memory_cleanse()
   12. RETURN plaintext
 
 SECURITY NOTES:
-  - MAC verification MUST be constant-time (prevent timing attacks)
+  - MAC comparison MUST use XOR-accumulate (constant-time, no short-circuit)
   - MAC is verified BEFORE decryption (Encrypt-then-MAC property)
   - Passphrase errors and corruption return same error (no oracle)
 ```

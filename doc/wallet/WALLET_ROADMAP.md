@@ -68,7 +68,7 @@ Soqucoin's post-quantum wallet is built on Dilithium (ML-DSA-44) signatures with
 The wallet undergoes security review as part of the Halborn audit engagement. Key security features include:
 
 - **SecureBytes class**: Memory-locked, zeroed-on-free key storage
-- **Encrypted wallet files**: AES-256-CBC with PBKDF2 key derivation
+- **Encrypted wallet files**: AES-256-CBC + HMAC-SHA256 with Argon2id key derivation
 - **Dilithium signing**: Constant-time reference implementation
 
 For security concerns, contact: security@soqucoin.com
