@@ -4,7 +4,7 @@
 
 #include "wallet/pqwallet/pqcrypto.h"
 #include "crypto/aes.h"
-#include "crypto/sha256.h"
+#include "crypto/hmac_sha256.h"
 #include "random.h"
 #include "support/cleanse.h"
 
@@ -248,13 +248,14 @@ EncryptedData WalletCrypto::Encrypt(const std::vector<uint8_t>& plaintext,
     result.ciphertext.resize(padded.size());
     encryptor.Encrypt(padded.data(), padded.size(), result.ciphertext.data());
 
-    // Compute authentication tag (HMAC-SHA256 of ciphertext)
-    CSHA256 hmac;
-    hmac.Write(key.data(), key.size());
+    // Compute authentication tag: HMAC-SHA256(key, ciphertext || IV)
+    // Uses RFC 2104 HMAC construction via CHMAC_SHA256, which provides
+    // resistance to length-extension attacks unlike raw SHA256(key || msg).
+    CHMAC_SHA256 hmac(key.data(), key.size());
     hmac.Write(result.ciphertext.data(), result.ciphertext.size());
     hmac.Write(result.iv.data(), result.iv.size());
 
-    std::array<uint8_t, 32> hmacResult;
+    std::array<uint8_t, CHMAC_SHA256::OUTPUT_SIZE> hmacResult;
     hmac.Finalize(hmacResult.data());
     // SECURITY NOTE: HMAC-SHA256 output (32 bytes) is truncated to AES_TAG_SIZE
     // (16 bytes), providing 128-bit MAC security. This is acceptable per NIST
@@ -276,22 +277,22 @@ std::optional<std::vector<uint8_t> > WalletCrypto::Decrypt(
     // Derive key
     auto key = DeriveKey(passphrase, encrypted.salt);
 
-    // Verify authentication tag first
-    CSHA256 hmac;
-    hmac.Write(key.data(), key.size());
+    // Verify authentication tag first (Encrypt-then-MAC: verify before decrypt)
+    CHMAC_SHA256 hmac(key.data(), key.size());
     hmac.Write(encrypted.ciphertext.data(), encrypted.ciphertext.size());
     hmac.Write(encrypted.iv.data(), encrypted.iv.size());
 
-    std::array<uint8_t, 32> expectedTag;
+    std::array<uint8_t, CHMAC_SHA256::OUTPUT_SIZE> expectedTag;
     hmac.Finalize(expectedTag.data());
 
-    // Constant-time comparison for first 16 bytes
-    bool tagValid = true;
+    // Constant-time tag comparison using XOR-accumulate pattern.
+    // Prevents timing side-channels that could leak byte positions.
+    uint8_t diff = 0;
     for (size_t i = 0; i < AES_TAG_SIZE; ++i) {
-        tagValid &= (encrypted.tag[i] == expectedTag[i]);
+        diff |= encrypted.tag[i] ^ expectedTag[i];
     }
 
-    if (!tagValid) {
+    if (diff != 0) {
         memory_cleanse(key.data(), key.size());
         return std::nullopt; // Authentication failed
     }

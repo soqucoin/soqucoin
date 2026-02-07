@@ -1,9 +1,9 @@
 # Soqucoin Wallet Threat Model
 
-> **Version**: 1.0 | **Date**: January 23, 2026
-> **Classification**: Security-Sensitive (Auditor Distribution Only)
+> **Version**: 1.1 | **Date**: February 6, 2026
+> **Classification**: Public — Open Source Transparency
 > **Methodology**: STRIDE + OWASP + Custom PQ Extensions
-> **Review Status**: Draft - Pending Halborn Review
+> **Review Status**: Pre-Audit Final — Halborn Review Feb 10, 2026
 
 ---
 
@@ -134,6 +134,42 @@ This document defines the threat model for the Soqucoin post-quantum wallet (`li
 | **Transaction Signing** | Application | Malicious TX construction |
 | **Address Display** | Application | Address substitution attack |
 
+
+### 4.3 Key Derivation Lifecycle
+
+The wallet encryption follows Encrypt-then-MAC with cascading KDF:
+
+```
+  User Passphrase + Random Salt
+         │
+         ▼
+  ┌────────────────────────────────┐
+  │  KDF Cascade:                  │
+  │  1. Argon2id (t=3, m=64MB)    │
+  │  2. scrypt   (N=32768)        │
+  │  3. PBKDF2   (600K iter)      │
+  └──────────┬─────────────────────┘
+             ▼
+       AES-256 Key (32 bytes)
+         │
+    ┌────┴────┐
+    ▼         ▼
+  Encrypt   HMAC-SHA256(key, ciphertext ‖ IV)
+  AES-CBC     │
+  + PKCS7     ▼
+            16-byte tag (truncated)
+
+  Stored: [salt ‖ IV ‖ ciphertext ‖ tag]
+```
+
+**Decrypt order**: Derive key → recompute HMAC → constant-time tag compare → **only then** AES-CBC decrypt → PKCS7 unpad → `memory_cleanse()` key.
+
+**Security properties**:
+- **KDF cascade**: Prefers memory-hard Argon2id; falls back if OpenSSL lacks support
+- **Encrypt-then-MAC**: Ciphertext authenticated before decryption (prevents padding oracles)
+- **HMAC (RFC 2104)**: `CHMAC_SHA256` with inner/outer key schedule, resistant to length-extension
+- **Constant-time verification**: XOR-accumulate tag comparison prevents timing side-channels
+
 ---
 
 ## 5. STRIDE Threat Analysis
@@ -150,10 +186,11 @@ This document defines the threat model for the Soqucoin post-quantum wallet (`li
 
 | Threat | Target | Attack | Mitigation | Status |
 |--------|--------|--------|------------|--------|
-| **T1** | Wallet file | Modify encrypted wallet data | HMAC-SHA256 integrity check | ✅ Implemented |
+| **T1** | Wallet file | Modify encrypted wallet data | HMAC-SHA256 integrity check (Encrypt-then-MAC) | ✅ Implemented |
 | **T2** | Transaction | Modify TX before signing | Sign full TX, verify before broadcast | ✅ Implemented |
 | **T3** | Memory | Modify keys in memory | SecureBytes + process isolation | ⚠️ OS-dependent |
 | **T4** | Binary | Trojanized wallet binary | Code signing (planned) | ⬜ TODO |
+| **T5** | Padding oracle | Decrypt ciphertext via padding errors | Encrypt-then-MAC: tag verified before decryption | ✅ Implemented |
 
 ### 5.3 Repudiation
 
@@ -169,9 +206,10 @@ This document defines the threat model for the Soqucoin post-quantum wallet (`li
 | **I1** | Private keys | Memory dump, core dump | SecureBytes::Wipe(), disable core dumps | ⚠️ Partial |
 | **I2** | Wallet passphrase | Keylogger, clipboard | Secure input (GUI), no clipboard | ⬜ GUI TODO |
 | **I3** | Transaction graph | Blockchain analysis | Future: Stealth addresses | ⬜ Stage 3 |
-| **I4** | Wallet file | Unauthorized file access | AES-256-CBC encryption | ✅ Implemented |
+| **I4** | Wallet file | Unauthorized file access | AES-256-CBC + HMAC-SHA256 encryption | ✅ Implemented |
 | **I5** | Seed phrase | Physical observation | User responsibility | 📋 Documented |
 | **I6** | Side channels | Timing attacks on signing | Constant-time Dilithium ref impl | ✅ Verified (NIST ref impl; `make_hint()` branches are on public data only) |
+| **I7** | MAC tag | Timing leak on tag comparison | Constant-time XOR-accumulate comparison | ✅ Implemented |
 
 ### 5.5 Denial of Service
 
@@ -263,18 +301,21 @@ This document defines the threat model for the Soqucoin post-quantum wallet (`li
 | **Dilithium Signatures** | `PQKeyPair::Sign()` | S3, R1, R2, PQ2 |
 | **Bech32m Addresses** | `PQAddress::Encode()` | S1 |
 | **Wallet Encryption** | `WalletCrypto::Encrypt()` | I4, PQ1 |
-| **HMAC Integrity** | `WalletCrypto::Encrypt()` | T1 |
-| **SecureBytes** | `SecureBytes::Wipe()` | I1 |
+| **HMAC-SHA256 Integrity** | `CHMAC_SHA256` (RFC 2104) | T1, T5 |
+| **Constant-Time Tag Comparison** | XOR-accumulate in `Decrypt()` | I7 |
+| **SecureBytes** | `SecureBytes::Wipe()` via `memory_cleanse()` | I1 |
 | **Localhost RPC** | Default configuration | S2 |
 | **Input Validation** | Throughout codebase | D2, E1 |
+| **Encrypt-then-MAC** | Tag verified before decryption | T5 |
 
 ### 8.2 Controls Requiring Verification
 
 | Control | Concern | Verification Method |
 |---------|---------|---------------------|
-| Constant-time signing | Timing side channels | Timing analysis, dudect |
-| Memory wiping | Compiler optimization | Assembly inspection |
-| Entropy quality | Weak randomness | NIST SP 800-90B testing |
+| Constant-time signing | Timing side channels | NIST ref impl verified; `make_hint()` on public data |
+| Constant-time tag comparison | Compiler optimization | XOR-accumulate pattern (`diff |= a ^ b`) |
+| Memory wiping | Compiler optimization | `memory_cleanse()` uses `volatile`; assembly inspection recommended |
+| Entropy quality | Weak randomness | `GetStrongRandBytes()` → OS CSPRNG; NIST SP 800-90B testing |
 
 ### 8.3 Controls Not Yet Implemented
 
@@ -293,13 +334,15 @@ This document defines the threat model for the Soqucoin post-quantum wallet (`li
 | Risk ID | Threat | Likelihood | Impact | Risk Level | Mitigation Status |
 |---------|--------|------------|--------|------------|-------------------|
 | R-001 | Private key theft via memory dump | Medium | Critical | 🔴 HIGH | ⚠️ SecureBytes partial |
-| R-002 | Side-channel key extraction | Low | Critical | 🟠 MEDIUM | ⚠️ Needs verification |
-| R-003 | Wallet file brute force | Low | Critical | 🟡 LOW | ✅ AES-256 + PBKDF2 |
+| R-002 | Side-channel key extraction | Low | Critical | 🟡 LOW | ✅ Verified (NIST ref impl) |
+| R-003 | Wallet file brute force | Low | Critical | 🟡 LOW | ✅ Argon2id + AES-256 |
 | R-004 | Address substitution | Medium | High | 🟠 MEDIUM | ✅ Bech32m checksum |
 | R-005 | RPC credential theft | Low | High | 🟡 LOW | ✅ Localhost default |
 | R-006 | Quantum key recovery | Very Low (2026) | Critical | 🟡 LOW | ✅ Dilithium |
 | R-007 | Seed phrase compromise | Medium | Critical | 🔴 HIGH | 📋 User responsibility |
 | R-008 | Blinding factor loss (GAP-010) | High | High | 🔴 HIGH | ⬜ Fix in progress |
+| R-009 | Padding oracle attack | Very Low | High | 🟡 LOW | ✅ Encrypt-then-MAC |
+| R-010 | MAC tag timing leak | Low | Medium | 🟡 LOW | ✅ XOR-accumulate |
 
 ---
 
@@ -349,8 +392,9 @@ This document defines the threat model for the Soqucoin post-quantum wallet (`li
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-01-23 | Casey Wilson | Initial threat model |
+| 1.1 | 2026-02-06 | Pre-audit hardening | HMAC-SHA256 upgrade (RFC 2104), constant-time tag comparison, Encrypt-then-MAC analysis, risk register corrections, KDF cascade documentation |
 
 ---
 
-*Soqucoin Wallet Threat Model v1.0*
-*Prepared for Halborn Security Audit - January 2026*
+*Soqucoin Wallet Threat Model v1.1*
+*Prepared for Halborn Security Audit — February 2026*
