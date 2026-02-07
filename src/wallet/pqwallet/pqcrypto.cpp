@@ -231,9 +231,10 @@ EncryptedData WalletCrypto::Encrypt(const std::vector<uint8_t>& plaintext,
 {
     EncryptedData result;
 
-    // Generate random salt and IV
-    GetRandBytes(result.salt.data(), result.salt.size());
-    GetRandBytes(result.iv.data(), result.iv.size());
+    // SECURITY NOTE: Uses GetStrongRandBytes (ChaCha20 mixing over OS CSPRNG)
+    // for consistency with key generation entropy in pqwallet.cpp.
+    GetStrongRandBytes(result.salt.data(), result.salt.size());
+    GetStrongRandBytes(result.iv.data(), result.iv.size());
 
     // Derive encryption key
     auto key = DeriveKey(passphrase, result.salt);

@@ -7,13 +7,13 @@
 
 /**
  * @file pqcrypto.h
- * @brief Wallet file encryption using AES-256-GCM + Argon2 key derivation
+ * @brief Wallet file encryption using AES-256-CBC + HMAC-SHA256 (Encrypt-then-MAC) + Argon2id key derivation
  *
  * Implements secure wallet file encryption as recommended by
  * Monero/Zcash audit research findings.
  *
  * Security properties:
- * - AES-256-GCM: Authenticated encryption (confidentiality + integrity)
+ * - AES-256-CBC + HMAC-SHA256: Authenticated encryption via Encrypt-then-MAC (confidentiality + integrity)
  * - Argon2id: Memory-hard key derivation (resistant to GPU attacks)
  * - Random IV: Unique per encryption operation
  */

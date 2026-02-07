@@ -137,7 +137,7 @@ public:
 
     /**
      * @brief Serialize keypair for encrypted storage
-     * @param encryptionKey AES-256-GCM key
+     * @param encryptionKey AES-256-CBC encryption key
      * @return Encrypted serialization
      */
     SecureBytes Serialize(const SecureBytes& encryptionKey) const;
@@ -145,7 +145,7 @@ public:
     /**
      * @brief Deserialize keypair from encrypted storage
      * @param data Encrypted data
-     * @param encryptionKey AES-256-GCM key
+     * @param encryptionKey AES-256-CBC encryption key
      * @return Keypair or nullptr on error
      */
     static std::unique_ptr<PQKeyPair> Deserialize(const SecureBytes& data,

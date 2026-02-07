@@ -60,7 +60,7 @@ The Halborn engagement will focus on Soqucoin's Genesis-Critical components:
 | Source Code Quality | ✅ Ready |
 | Cryptographic Implementation | ✅ Ready |
 | Consensus Mechanism | ✅ Ready |
-| Network/P2P Layer | ✅ Ready |
+| Network/P2P Layer | ⬜ Out of Scope (inherited Dogecoin Core) |
 | Wallet Security | ✅ Ready |
 | Configuration Defaults | ✅ Ready |
 | Documentation | ✅ Ready |
