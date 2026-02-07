@@ -517,4 +517,17 @@ Same path with different domains **must** produce different keys:
 
 ---
 
-*Wallet Test Vectors v1.0 | January 2026*
+## 8. Related Test Coverage
+
+| Component | Test File | Vectors |
+|-----------|-----------|---------|
+| **BLAKE2b** | `src/test/blake2b_tests.cpp` | RFC 7693, BLAKE2b-160/256/512, Dilithium pubkey golden vector |
+| **PAT Aggregation** | `src/test/pat_tests.cpp`, `src/test/pat_script_tests.cpp` | Proof construction, verification, script integration |
+| **PAT Fuzz** | `src/test/fuzz/pat_aggregate.cpp` | Malformed proof fuzzing |
+| **PAT Benchmark** | `src/bench/bench_pat.cpp` | Performance profiling |
+
+See also: [BLAKE2b_TEST_VECTORS.md](../BLAKE2b_TEST_VECTORS.md) for auditor-facing vector documentation.
+
+---
+
+*Wallet Test Vectors v1.1 | February 2026*
