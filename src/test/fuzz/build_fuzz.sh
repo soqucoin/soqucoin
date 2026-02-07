@@ -7,10 +7,36 @@ set -e
 cd "$(dirname "$0")/../.."
 
 # Build options
-CXX="${CXX:-g++}"
+CXX="${CXX:-clang++}"
 CXXFLAGS="-std=c++17 -g -O2 -Wall -I. -I/usr/include"
-LDFLAGS=""
-LIBS="-lssl -lcrypto -lboost_filesystem -lboost_system -lboost_thread -lboost_program_options -lboost_chrono -lpthread -ldl -ldb_cxx"
+
+# Detect Homebrew OpenSSL paths (macOS)
+if [ -d "/opt/homebrew/opt/openssl@3" ]; then
+    CXXFLAGS="$CXXFLAGS -I/opt/homebrew/opt/openssl@3/include"
+    LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
+elif [ -d "/opt/homebrew/opt/openssl" ]; then
+    CXXFLAGS="$CXXFLAGS -I/opt/homebrew/opt/openssl/include"
+    LDFLAGS="-L/opt/homebrew/opt/openssl/lib"
+else
+    LDFLAGS=""
+fi
+
+# Detect Homebrew boost paths (macOS)
+if [ -d "/opt/homebrew/opt/boost/lib" ]; then
+    CXXFLAGS="$CXXFLAGS -I/opt/homebrew/opt/boost/include"
+    LDFLAGS="$LDFLAGS -L/opt/homebrew/opt/boost/lib"
+fi
+
+# Detect Homebrew BerkeleyDB paths (macOS)
+if [ -d "/opt/homebrew/opt/berkeley-db@4/lib" ]; then
+    CXXFLAGS="$CXXFLAGS -I/opt/homebrew/opt/berkeley-db@4/include"
+    LDFLAGS="$LDFLAGS -L/opt/homebrew/opt/berkeley-db@4/lib"
+elif [ -d "/opt/homebrew/opt/berkeley-db/lib" ]; then
+    CXXFLAGS="$CXXFLAGS -I/opt/homebrew/opt/berkeley-db/include"
+    LDFLAGS="$LDFLAGS -L/opt/homebrew/opt/berkeley-db/lib"
+fi
+
+LIBS="-lssl -lcrypto -lboost_filesystem -lboost_thread -lboost_program_options -lboost_chrono -lpthread -ldb_cxx"
 
 echo "Building pqwallet fuzz harness..."
 
