@@ -345,4 +345,70 @@ BOOST_AUTO_TEST_CASE(reject_invalid_field_sizes)
     BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, bad_msgs));
 }
 
+// ==============================
+// HALBORN FIND-001: BOUNDS VALIDATION TESTS
+// Verify that proof.count is rejected when 0 or > MAX_PAT_PROOF_COUNT.
+// These tests exercise the parser gate in ParseLogarithmicProof.
+// ==============================
+
+// Helper: build a 100-byte proof blob with a specific count value
+static CValType MakeProofWithCount(uint32_t count)
+{
+    CValType proof(100, 0);
+    // Set a non-null merkle_root (byte 0)
+    proof[0] = 0xAA;
+    // Set pk_xor (byte 32)
+    proof[32] = 0xBB;
+    // Set msg_root (byte 64)
+    proof[64] = 0xCC;
+    // Set count (bytes 96-99, little-endian)
+    uint32_t le_count = htole32(count);
+    memcpy(proof.data() + 96, &le_count, 4);
+    return proof;
+}
+
+BOOST_AUTO_TEST_CASE(find001_reject_count_zero)
+{
+    // FIND-001: count=0 caused UB via zero-length vector dereference.
+    // Parser must reject before any allocation.
+    CValType proof_data = MakeProofWithCount(0);
+    pat::LogarithmicProof proof;
+    BOOST_CHECK(!pat::ParseLogarithmicProof(proof_data, proof));
+}
+
+BOOST_AUTO_TEST_CASE(find001_accept_count_one)
+{
+    // Boundary: count=1 is the minimum valid batch size.
+    CValType proof_data = MakeProofWithCount(1);
+    pat::LogarithmicProof proof;
+    BOOST_CHECK(pat::ParseLogarithmicProof(proof_data, proof));
+    BOOST_CHECK_EQUAL(proof.count, 1u);
+}
+
+BOOST_AUTO_TEST_CASE(find001_accept_count_max)
+{
+    // Boundary: count=MAX_PAT_PROOF_COUNT (1<<20) is the last accepted value.
+    CValType proof_data = MakeProofWithCount(pat::MAX_PAT_PROOF_COUNT);
+    pat::LogarithmicProof proof;
+    BOOST_CHECK(pat::ParseLogarithmicProof(proof_data, proof));
+    BOOST_CHECK_EQUAL(proof.count, pat::MAX_PAT_PROOF_COUNT);
+}
+
+BOOST_AUTO_TEST_CASE(find001_reject_count_max_plus_one)
+{
+    // Boundary: count=MAX_PAT_PROOF_COUNT+1 is the first rejected value.
+    CValType proof_data = MakeProofWithCount(pat::MAX_PAT_PROOF_COUNT + 1);
+    pat::LogarithmicProof proof;
+    BOOST_CHECK(!pat::ParseLogarithmicProof(proof_data, proof));
+}
+
+BOOST_AUTO_TEST_CASE(find001_reject_count_uint32_max)
+{
+    // FIND-001: count=0xFFFFFFFF caused OOM via multi-GB vector allocation.
+    // Parser must reject without overflow or allocation attempt.
+    CValType proof_data = MakeProofWithCount(0xFFFFFFFF);
+    pat::LogarithmicProof proof;
+    BOOST_CHECK(!pat::ParseLogarithmicProof(proof_data, proof));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

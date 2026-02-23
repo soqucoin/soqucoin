@@ -134,6 +134,20 @@ struct LogarithmicProof {
     // 104 bytes total (32+32+32+4)
 };
 
+/**
+ * Maximum number of (sig, pk, msg) tuples in a single PAT proof.
+ *
+ * SECURITY: This constant is the consensus-level upper bound on batch size.
+ * It matches the limit enforced in CreateLogarithmicProof and prevents OOM
+ * from attacker-crafted proof.count values. The value 1,048,576 (2^20) is
+ * generous for forward compatibility while remaining safe for allocation:
+ *   - Memory: ~96 bytes/tuple × 1M = ~96 MB (safe for single-verification)
+ *   - Practical limit: MAX_PROOF_BYTES_PER_TX (64KB) / 96 ≈ 680 tuples
+ *
+ * Halborn FIND-001 Remediation: Bounds validation on proof.count.
+ */
+static const uint32_t MAX_PAT_PROOF_COUNT = 1 << 20; // 1,048,576
+
 bool ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proofOut);
 
 bool CreateLogarithmicProof(

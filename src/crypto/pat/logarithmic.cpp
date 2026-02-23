@@ -249,6 +249,15 @@ bool pat::ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proo
     memcpy(&le_n, vchProof.data() + 96, 4);
     proofOut.count = le32toh(le_n);
 
+    // SECURITY (Halborn FIND-001): Reject structurally invalid proof counts
+    // at the parser level — this is the single entry gate covering all callers.
+    // count == 0: empty proofs have no cryptographic meaning; prevents UB from
+    //   zero-length vector dereference at VerifyLogarithmicProof:362.
+    // count > MAX_PAT_PROOF_COUNT: prevents OOM from attacker-crafted values;
+    //   matches the limit enforced in CreateLogarithmicProof.
+    if (proofOut.count == 0 || proofOut.count > MAX_PAT_PROOF_COUNT)
+        return false;
+
     return true;
 }
 
@@ -288,6 +297,13 @@ bool pat::VerifyLogarithmicProof(
     }
 
     uint32_t n = proof.count;
+
+    // SECURITY (Halborn FIND-001): Belt-and-suspenders bounds check.
+    // ParseLogarithmicProof already rejects invalid counts, but we enforce
+    // the same invariant here as defense-in-depth per auditor recommendation.
+    if (n == 0 || n > MAX_PAT_PROOF_COUNT) {
+        return false;
+    }
 
     // Step 2: Validate input sizes match proof count
     if (vClaimedSigs.size() != n ||
@@ -404,6 +420,11 @@ bool pat::VerifyLogarithmicProof(
     // For v1, we enforce basic consistency checks:
     // 1. The claimed aggregate public key must match the XOR binding in the proof.
     //    (Assuming simple XOR aggregation for this prototype phase)
+
+    // SECURITY (Halborn FIND-001): Consistency check in simple verifier.
+    // Even though simple mode doesn't allocate based on count, rejecting
+    // invalid counts here ensures no caller path accepts structurally malformed proofs.
+    if (proof.count == 0 || proof.count > MAX_PAT_PROOF_COUNT) return false;
 
     if (agg_pk.size() != 32) return false;
 

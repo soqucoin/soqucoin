@@ -170,9 +170,19 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 
                         // 3. Check for Full Verification (Witness Data)
                         uint32_t n = proof.count;
+
+                        // SECURITY (Halborn FIND-001): Consensus-layer bounds check.
+                        // Prevents integer overflow in required_items calculation and
+                        // OOM from attacker-crafted count values. Defense-in-depth:
+                        // ParseLogarithmicProof already rejects, but the opcode handler
+                        // must not trust upstream gates for consensus-critical code.
+                        if (n == 0 || n > pat::MAX_PAT_PROOF_COUNT) {
+                            return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
+                        }
+
                         // Required items: 3 (base) + 1 (count) + 1 (sibling_path) + 3*n (witness triples)
                         // Note: We assume sibling_path is a single blob on the stack
-                        size_t required_items = 5 + 3 * n;
+                        size_t required_items = 5 + 3 * static_cast<size_t>(n);
 
                         if (stack.size() >= required_items) {
                             // Full Mode: Verify witness data
