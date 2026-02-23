@@ -2,7 +2,6 @@
 #include "test/test_bitcoin.h"
 
 #include <boost/test/unit_test.hpp>
-#include <iostream>
 #include <vector>
 
 using pat::CValType;
@@ -30,7 +29,7 @@ BOOST_AUTO_TEST_CASE(proof_parsing_roundtrip)
     BOOST_CHECK_EQUAL(proof.merkle_root.begin()[0], 0xaa);
     BOOST_CHECK_EQUAL(proof.pk_xor.begin()[0], 0xbb);
     BOOST_CHECK_EQUAL(proof.msg_root.begin()[0], 0xcc);
-    BOOST_CHECK_EQUAL(proof.count, 1);
+    BOOST_CHECK_EQUAL(proof.count, 1u);
 }
 
 BOOST_AUTO_TEST_CASE(proof_parsing_invalid_size)
@@ -79,6 +78,7 @@ BOOST_AUTO_TEST_CASE(verify_logic_check)
 
 // ==============================
 // COMPREHENSIVE VERIFICATION TESTS
+// (FIND-002: sibling path removed — verifier rebuilds full tree)
 // ==============================
 
 BOOST_AUTO_TEST_CASE(create_verify_roundtrip_single)
@@ -95,16 +95,12 @@ BOOST_AUTO_TEST_CASE(create_verify_roundtrip_single)
     pks.push_back(pk);
     msgs.push_back(msg);
 
-    // Create proof
+    // Create proof (FIND-002: no sibling path output)
     CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
-    // For n=1, depth=0, sibling_path should be empty
-    BOOST_CHECK_EQUAL(sibling_path.size(), 0);
-
-    // Verify proof
-    BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+    // Verify proof (FIND-002: no sibling path input)
+    BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
 }
 
 BOOST_AUTO_TEST_CASE(create_verify_roundtrip_multiple)
@@ -124,14 +120,10 @@ BOOST_AUTO_TEST_CASE(create_verify_roundtrip_multiple)
 
     // Create proof
     CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
-
-    // For n=4, tree_size=4, depth=2
-    BOOST_CHECK_EQUAL(sibling_path.size(), 2);
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
     // Verify proof
-    BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+    BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
 }
 
 BOOST_AUTO_TEST_CASE(reject_tampered_merkle_root)
@@ -145,14 +137,13 @@ BOOST_AUTO_TEST_CASE(reject_tampered_merkle_root)
     }
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
     // Tamper with merkle root
     proof[0] ^= 0xFF;
 
     // Verification should fail
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
 }
 
 BOOST_AUTO_TEST_CASE(reject_tampered_pk_xor)
@@ -166,14 +157,13 @@ BOOST_AUTO_TEST_CASE(reject_tampered_pk_xor)
     }
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
     // Tamper with pk_xor (byte 32)
     proof[32] ^= 0xFF;
 
     // Verification should fail (rogue-key attack detected)
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
 }
 
 BOOST_AUTO_TEST_CASE(reject_tampered_msg_root)
@@ -187,37 +177,13 @@ BOOST_AUTO_TEST_CASE(reject_tampered_msg_root)
     }
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
     // Tamper with msg_root (byte 64)
     proof[64] ^= 0xFF;
 
     // Verification should fail (message substitution detected)
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
-}
-
-BOOST_AUTO_TEST_CASE(reject_wrong_sibling_path)
-{
-    // Create valid proof
-    std::vector<CValType> sigs, pks, msgs;
-    for (int i = 0; i < 4; i++) {
-        sigs.push_back(CValType(32, 0x10 + i));
-        pks.push_back(CValType(32, 0x20 + i));
-        msgs.push_back(CValType(32, 0x30 + i));
-    }
-
-    CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
-
-    // Tamper with sibling path
-    if (sibling_path.size() > 0) {
-        sibling_path[0][0] ^= 0xFF;
-    }
-
-    // Verification should fail
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
 }
 
 BOOST_AUTO_TEST_CASE(reject_swapped_signatures)
@@ -231,14 +197,13 @@ BOOST_AUTO_TEST_CASE(reject_swapped_signatures)
     }
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
     // Swap two signatures
     std::swap(sigs[0], sigs[1]);
 
     // Verification should fail (leaf hash changes)
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
 }
 
 BOOST_AUTO_TEST_CASE(power_of_two_batches)
@@ -253,9 +218,8 @@ BOOST_AUTO_TEST_CASE(power_of_two_batches)
         }
 
         CValType proof;
-        std::vector<CValType> sibling_path;
-        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
-        BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
+        BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
     }
 }
 
@@ -271,9 +235,8 @@ BOOST_AUTO_TEST_CASE(non_power_of_two_batches)
         }
 
         CValType proof;
-        std::vector<CValType> sibling_path;
-        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
-        BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
+        BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
     }
 }
 
@@ -288,31 +251,11 @@ BOOST_AUTO_TEST_CASE(reject_mismatched_counts)
     }
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
     // Try to verify with only 3 signatures
     sigs.pop_back();
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
-}
-
-BOOST_AUTO_TEST_CASE(reject_wrong_sibling_path_length)
-{
-    // Create proof
-    std::vector<CValType> sigs, pks, msgs;
-    for (int i = 0; i < 4; i++) {
-        sigs.push_back(CValType(32, 0x10 + i));
-        pks.push_back(CValType(32, 0x20 + i));
-        msgs.push_back(CValType(32, 0x30 + i));
-    }
-
-    CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
-
-    // Add extra element to sibling path
-    sibling_path.push_back(CValType(32, 0xAA));
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs));
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
 }
 
 BOOST_AUTO_TEST_CASE(reject_invalid_field_sizes)
@@ -326,23 +269,22 @@ BOOST_AUTO_TEST_CASE(reject_invalid_field_sizes)
     }
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path));
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
     // Test invalid signature size
     std::vector<CValType> bad_sigs = sigs;
     bad_sigs[0] = CValType(31, 0x10); // Wrong size
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, bad_sigs, pks, msgs));
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, bad_sigs, pks, msgs));
 
     // Test invalid pk size
     std::vector<CValType> bad_pks = pks;
     bad_pks[0] = CValType(33, 0x20); // Wrong size
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, bad_pks, msgs));
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, bad_pks, msgs));
 
     // Test invalid msg size
     std::vector<CValType> bad_msgs = msgs;
     bad_msgs[0] = CValType(16, 0x30); // Wrong size
-    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, bad_msgs));
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, bad_msgs));
 }
 
 // ==============================
@@ -409,6 +351,110 @@ BOOST_AUTO_TEST_CASE(find001_reject_count_uint32_max)
     CValType proof_data = MakeProofWithCount(0xFFFFFFFF);
     pat::LogarithmicProof proof;
     BOOST_CHECK(!pat::ParseLogarithmicProof(proof_data, proof));
+}
+
+// ==============================
+// HALBORN FIND-002: MERKLE FORGERY TESTS
+// Verify that the verifier now checks ALL leaves, not just leaf 0.
+// The previous implementation accepted forged leaves at positions 1..n-1.
+// ==============================
+
+BOOST_AUTO_TEST_CASE(find002_reject_forged_leaf)
+{
+    // FIND-002 PoC: Create a valid proof with 4 genuine tuples,
+    // then replace leaf 2 with a forged tuple. The old verifier (single-leaf)
+    // would accept this; the new verifier (full tree rebuild) must reject.
+
+    std::vector<CValType> sigs, pks, msgs;
+    for (int i = 0; i < 4; i++) {
+        sigs.push_back(CValType(32, 0x10 + i));
+        pks.push_back(CValType(32, 0x20 + i));
+        msgs.push_back(CValType(32, 0x30 + i));
+    }
+
+    // Create valid proof from genuine tuples
+    CValType proof;
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
+
+    // Forge leaf 2: replace sig[2] with attacker-chosen value
+    sigs[2] = CValType(32, 0xFF); // forged signature
+
+    // MUST FAIL: The forged leaf produces a different Merkle root
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
+}
+
+BOOST_AUTO_TEST_CASE(find002_reject_forged_last_leaf)
+{
+    // Edge case: forge the LAST leaf (index n-1).
+    // This is the maximum distance from leaf 0 in the old single-leaf verifier.
+
+    std::vector<CValType> sigs, pks, msgs;
+    for (int i = 0; i < 8; i++) {
+        sigs.push_back(CValType(32, 0x10 + i));
+        pks.push_back(CValType(32, 0x20 + i));
+        msgs.push_back(CValType(32, 0x30 + i));
+    }
+
+    CValType proof;
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
+
+    // Forge last leaf: replace pk[7] with attacker key
+    pks[7] = CValType(32, 0xEE); // forged public key
+
+    // MUST FAIL
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
+}
+
+BOOST_AUTO_TEST_CASE(find002_reject_forged_message)
+{
+    // Forge a message (not sig/pk). The Merkle tree commits to all three
+    // components of each tuple via LeafHash, so ANY forgery must be detected.
+
+    std::vector<CValType> sigs, pks, msgs;
+    for (int i = 0; i < 4; i++) {
+        sigs.push_back(CValType(32, 0x10 + i));
+        pks.push_back(CValType(32, 0x20 + i));
+        msgs.push_back(CValType(32, 0x30 + i));
+    }
+
+    CValType proof;
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
+
+    // Forge message at position 1
+    msgs[1] = CValType(32, 0xDD); // forged message
+
+    // MUST FAIL: both msg_root and Merkle root will mismatch
+    BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
+}
+
+BOOST_AUTO_TEST_CASE(find002_all_leaves_verified_exhaustive)
+{
+    // Exhaustively verify that forging ANY single leaf in a batch is rejected.
+    // Tests all positions 0..n-1 for n=8.
+
+    const int n = 8;
+    std::vector<CValType> sigs, pks, msgs;
+    for (int i = 0; i < n; i++) {
+        sigs.push_back(CValType(32, 0x10 + i));
+        pks.push_back(CValType(32, 0x20 + i));
+        msgs.push_back(CValType(32, 0x30 + i));
+    }
+
+    CValType proof;
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
+
+    // Verify the genuine proof passes
+    BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
+
+    // Forge each leaf position individually
+    for (int forged_pos = 0; forged_pos < n; forged_pos++) {
+        std::vector<CValType> forged_sigs = sigs;
+        forged_sigs[forged_pos] = CValType(32, 0xFF); // forge this position
+
+        BOOST_CHECK_MESSAGE(
+            !pat::VerifyLogarithmicProof(proof, forged_sigs, pks, msgs),
+            "FIND-002 REGRESSION: Forged leaf at position " + std::to_string(forged_pos) + " was accepted!");
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

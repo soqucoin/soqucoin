@@ -45,8 +45,7 @@ BOOST_AUTO_TEST_CASE(pat_opcode_simple_mode)
 
     // 2. Create proof
     std::vector<unsigned char> proof_data;
-    std::vector<std::vector<unsigned char> > sibling_path;
-    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data, sibling_path));
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data));
 
     // 3. Parse proof to get expected roots
     pat::LogarithmicProof proof;
@@ -99,8 +98,7 @@ BOOST_AUTO_TEST_CASE(pat_opcode_simple_mode_comprehensive)
         msgs.push_back(GetRandHashVec());
 
         std::vector<unsigned char> proof_data;
-        std::vector<std::vector<unsigned char> > sibling_path;
-        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data, sibling_path));
+        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data));
 
         pat::LogarithmicProof proof;
         BOOST_CHECK(pat::ParseLogarithmicProof(proof_data, proof));
@@ -131,8 +129,7 @@ BOOST_AUTO_TEST_CASE(pat_opcode_simple_mode_comprehensive)
         }
 
         std::vector<unsigned char> proof_data;
-        std::vector<std::vector<unsigned char> > sibling_path;
-        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data, sibling_path));
+        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data));
 
         pat::LogarithmicProof proof;
         BOOST_CHECK(pat::ParseLogarithmicProof(proof_data, proof));
@@ -163,8 +160,7 @@ BOOST_AUTO_TEST_CASE(pat_opcode_simple_mode_comprehensive)
         }
 
         std::vector<unsigned char> proof_data;
-        std::vector<std::vector<unsigned char> > sibling_path;
-        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data, sibling_path));
+        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data));
 
         pat::LogarithmicProof proof;
         BOOST_CHECK(pat::ParseLogarithmicProof(proof_data, proof));
@@ -193,8 +189,7 @@ BOOST_AUTO_TEST_CASE(pat_opcode_simple_mode_comprehensive)
         msgs.push_back(GetRandHashVec());
 
         std::vector<unsigned char> proof_data;
-        std::vector<std::vector<unsigned char> > sibling_path;
-        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data, sibling_path));
+        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data));
 
         pat::LogarithmicProof proof;
         BOOST_CHECK(pat::ParseLogarithmicProof(proof_data, proof));
@@ -225,8 +220,7 @@ BOOST_AUTO_TEST_CASE(pat_opcode_simple_mode_comprehensive)
         msgs.push_back(GetRandHashVec());
 
         std::vector<unsigned char> proof_data;
-        std::vector<std::vector<unsigned char> > sibling_path;
-        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data, sibling_path));
+        BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data));
 
         pat::LogarithmicProof proof;
         BOOST_CHECK(pat::ParseLogarithmicProof(proof_data, proof));

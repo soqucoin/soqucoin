@@ -154,12 +154,12 @@ bool CreateLogarithmicProof(
     const std::vector<CValType>& vSignatures,
     const std::vector<CValType>& vPublicKeys,
     const std::vector<CValType>& vMessages,
-    CValType& vchProofOut,
-    std::vector<CValType>& vSiblingPathOut); // for witness
+    CValType& vchProofOut);
 
+// Full verification: rebuilds entire Merkle tree from claimed tuples (FIND-002 fix).
+// Verification is O(n) hashes — no sibling path needed.
 bool VerifyLogarithmicProof(
     const CValType& vchProof,
-    const std::vector<CValType>& vSiblingPath,
     const std::vector<CValType>& vClaimedSigs,
     const std::vector<CValType>& vClaimedPks,
     const std::vector<CValType>& vClaimedMsgs);

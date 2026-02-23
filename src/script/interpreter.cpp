@@ -148,7 +148,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         stack.push_back(valtype(1, 1)); // true
                     } else if (opcode == OP_CHECKPATAGG) {
                         // Stack layout (Simple): <proof> <agg_pk> <msg_root>
-                        // Stack layout (Full):   <sigs...> <pks...> <msgs...> <sibling_path> <count> <proof> <agg_pk> <msg_root>
+                        // Stack layout (Full):   <sigs...> <pks...> <msgs...> <count> <proof> <agg_pk> <msg_root>
+                        // NOTE (FIND-002): sibling_path removed from stack layout.
 
                         if (stack.size() < 3)
                             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
@@ -180,9 +181,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
                         }
 
-                        // Required items: 3 (base) + 1 (count) + 1 (sibling_path) + 3*n (witness triples)
-                        // Note: We assume sibling_path is a single blob on the stack
-                        size_t required_items = 5 + 3 * static_cast<size_t>(n);
+                        // Required items: 3 (base) + 1 (count) + 3*n (witness triples)
+                        // NOTE (FIND-002): sibling_path removed — verifier rebuilds full tree
+                        size_t required_items = 4 + 3 * static_cast<size_t>(n);
 
                         if (stack.size() >= required_items) {
                             // Full Mode: Verify witness data
@@ -198,27 +199,16 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                     }
                                 }
 
-                                // Extract sibling path
-                                valtype sibling_blob = stacktop(-5);
-                                if (sibling_blob.size() % 32 != 0) {
-                                    return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
-                                }
-                                std::vector<valtype> sibling_path;
-                                for (size_t i = 0; i < sibling_blob.size(); i += 32) {
-                                    sibling_path.emplace_back(sibling_blob.begin() + i, sibling_blob.begin() + i + 32);
-                                }
-
                                 // Extract witness triples
                                 // Stack layout from BOTTOM to TOP:
                                 // 0..n-1: sigs
                                 // n..2n-1: pks
                                 // 2n..3n-1: msgs
-                                // 3n: sibling_path
-                                // 3n+1: count
-                                // 3n+2: proof
-                                // 3n+3: agg_pk
-                                // 3n+4: msg_root
-                                // Total: 3n + 5 = 17 for n=4
+                                // 3n: count
+                                // 3n+1: proof
+                                // 3n+2: agg_pk
+                                // 3n+3: msg_root
+                                // Total: 3n + 4
 
                                 std::vector<valtype> msgs, pks, sigs;
                                 msgs.reserve(n);
@@ -226,31 +216,30 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                 sigs.reserve(n);
 
                                 // Indices from top:
-                                // -1 = msg_root (stack[16])
-                                // -2 = agg_pk (stack[15])
-                                // -3 = proof (stack[14])
-                                // -4 = count (stack[13])
-                                // -5 = sibling_path (stack[12])
-                                // -6..-9 = msgs[3]..msgs[0] (stack[11]..stack[8])
-                                // -10..-13 = pks[3]..pks[0] (stack[7]..stack[4])
-                                // -14..-17 = sigs[3]..sigs[0] (stack[3]..stack[0])
+                                // -1 = msg_root
+                                // -2 = agg_pk
+                                // -3 = proof
+                                // -4 = count
+                                // -5..-4-n = msgs[n-1]..msgs[0]
+                                // -(5+n)..-(4+2n) = pks[n-1]..pks[0]
+                                // -(5+2n)..-(4+3n) = sigs[n-1]..sigs[0]
 
-                                // Extract msgs (indices -6 to -(5+n))
+                                // Extract msgs (indices -5 to -(4+n))
                                 for (uint32_t i = 0; i < n; i++) {
-                                    msgs.push_back(stacktop(-(6 + i)));
+                                    msgs.push_back(stacktop(-(5 + i)));
                                 }
 
-                                // Extract pks (indices -(6+n) to -(5+2*n))
+                                // Extract pks (indices -(5+n) to -(4+2*n))
                                 for (uint32_t i = 0; i < n; i++) {
-                                    pks.push_back(stacktop(-(6 + n + i)));
+                                    pks.push_back(stacktop(-(5 + n + i)));
                                 }
 
-                                // Extract sigs (indices -(6+2*n) to -(5+3*n))
+                                // Extract sigs (indices -(5+2*n) to -(4+3*n))
                                 for (uint32_t i = 0; i < n; i++) {
-                                    sigs.push_back(stacktop(-(6 + 2 * n + i)));
+                                    sigs.push_back(stacktop(-(5 + 2 * n + i)));
                                 }
 
-                                if (!pat::VerifyLogarithmicProof(proof_data, sibling_path, sigs, pks, msgs)) {
+                                if (!pat::VerifyLogarithmicProof(proof_data, sigs, pks, msgs)) {
                                     return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
                                 }
 

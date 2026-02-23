@@ -67,8 +67,7 @@ static void PATCreateProof64(benchmark::State& state)
 
     while (state.KeepRunning()) {
         CValType proof;
-        std::vector<CValType> sibling_path;
-        pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path);
+        pat::CreateLogarithmicProof(sigs, pks, msgs, proof);
     }
 }
 
@@ -79,8 +78,7 @@ static void PATCreateProof128(benchmark::State& state)
 
     while (state.KeepRunning()) {
         CValType proof;
-        std::vector<CValType> sibling_path;
-        pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path);
+        pat::CreateLogarithmicProof(sigs, pks, msgs, proof);
     }
 }
 
@@ -91,8 +89,7 @@ static void PATCreateProof256(benchmark::State& state)
 
     while (state.KeepRunning()) {
         CValType proof;
-        std::vector<CValType> sibling_path;
-        pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path);
+        pat::CreateLogarithmicProof(sigs, pks, msgs, proof);
     }
 }
 
@@ -107,11 +104,10 @@ static void PATVerifyProof64(benchmark::State& state)
 
     // Pre-generate proof
     CValType proof;
-    std::vector<CValType> sibling_path;
-    pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path);
+    pat::CreateLogarithmicProof(sigs, pks, msgs, proof);
 
     while (state.KeepRunning()) {
-        bool valid = pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs);
+        bool valid = pat::VerifyLogarithmicProof(proof, sigs, pks, msgs);
         assert(valid);
     }
 }
@@ -122,11 +118,10 @@ static void PATVerifyProof128(benchmark::State& state)
     pat_bench::GenerateTestBatch(128, sigs, pks, msgs);
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path);
+    pat::CreateLogarithmicProof(sigs, pks, msgs, proof);
 
     while (state.KeepRunning()) {
-        bool valid = pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs);
+        bool valid = pat::VerifyLogarithmicProof(proof, sigs, pks, msgs);
         assert(valid);
     }
 }
@@ -137,11 +132,10 @@ static void PATVerifyProof256(benchmark::State& state)
     pat_bench::GenerateTestBatch(256, sigs, pks, msgs);
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path);
+    pat::CreateLogarithmicProof(sigs, pks, msgs, proof);
 
     while (state.KeepRunning()) {
-        bool valid = pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs);
+        bool valid = pat::VerifyLogarithmicProof(proof, sigs, pks, msgs);
         assert(valid);
     }
 }
@@ -164,13 +158,12 @@ static void PATEffectiveTPS256(benchmark::State& state)
     pat_bench::GenerateTestBatch(256, sigs, pks, msgs);
 
     CValType proof;
-    std::vector<CValType> sibling_path;
-    pat::CreateLogarithmicProof(sigs, pks, msgs, proof, sibling_path);
+    pat::CreateLogarithmicProof(sigs, pks, msgs, proof);
 
     size_t total_sigs_verified = 0;
 
     while (state.KeepRunning()) {
-        bool valid = pat::VerifyLogarithmicProof(proof, sibling_path, sigs, pks, msgs);
+        bool valid = pat::VerifyLogarithmicProof(proof, sigs, pks, msgs);
         assert(valid);
         total_sigs_verified += 256;
     }

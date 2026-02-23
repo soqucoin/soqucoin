@@ -29,16 +29,8 @@ static uint256 LeafHash(uint32_t idx, const CValType& sig, const CValType& pk, c
     return PatHash(buf);
 }
 
-// Helper: Count the number of bits needed to represent a value (portable, no __builtin_clz)
-static uint32_t PortableCountBits(uint32_t x)
-{
-    uint32_t count = 0;
-    while (x) {
-        x >>= 1;
-        ++count;
-    }
-    return count;
-}
+// NOTE: PortableCountBits was removed (FIND-002) — no longer needed after
+// sibling path depth calculation was replaced with full tree rebuild.
 
 // Helper for power of two (works on both 32-bit and 64-bit systems)
 static size_t NextPowerOfTwo(size_t n)
@@ -72,43 +64,10 @@ static uint256 NodeHash(const uint256& left, const uint256& right)
     return PatHash(buf);
 }
 
-/**
- * Helper: Reconstruct Merkle root by climbing from a leaf using sibling path
- * @param leaf_idx Index of the leaf in the tree (0-based)
- * @param leaf_hash Hash of the leaf node
- * @param sibling_path Array of sibling hashes from leaf to root
- * @return Computed Merkle root
- */
-static uint256 ReconstructMerkleRoot(
-    uint32_t leaf_idx,
-    const uint256& leaf_hash,
-    const std::vector<uint256>& sibling_path)
-{
-    uint256 current = leaf_hash;
-    uint32_t idx = leaf_idx;
-
-
-    for (size_t i = 0; i < sibling_path.size(); ++i) {
-        const uint256& sibling = sibling_path[i];
-
-
-        // Determine if current node is left (even index) or right (odd index)
-        if (idx % 2 == 0) {
-            // Current is left child
-
-            current = NodeHash(current, sibling);
-        } else {
-            // Current is right child
-
-            current = NodeHash(sibling, current);
-        }
-
-
-        idx = idx / 2; // Move up one level
-    }
-
-    return current;
-}
+// NOTE (Halborn FIND-002): ReconstructMerkleRoot() was removed.
+// The previous implementation verified only leaf 0 via a sibling path,
+// allowing an attacker to forge leaves 1..n-1. The verifier now rebuilds
+// the entire Merkle tree from all n tuples — no sibling path needed.
 
 /**
  * Helper: Compute XOR of all public key hashes
@@ -152,8 +111,7 @@ bool pat::CreateLogarithmicProof(
     const vector<CValType>& vSignatures,
     const vector<CValType>& vPublicKeys,
     const vector<CValType>& vMessages,
-    CValType& vchProofOut,
-    vector<CValType>& vSiblingPathOut)
+    CValType& vchProofOut)
 {
     size_t n = vSignatures.size();
     if (n == 0 || n > 1 << 20 || n != vPublicKeys.size() || n != vMessages.size()) return false;
@@ -189,7 +147,6 @@ bool pat::CreateLogarithmicProof(
     for (size_t i = tree_size + n; i < tree_size * 2; ++i)
         tree[i] = uint256();
 
-    vSiblingPathOut.clear();
     for (size_t layer = tree_size; layer > 1; layer >>= 1) {
         for (size_t i = layer; i < layer * 2; i += 2) {
             // Hash pair using NodeHash (includes domain separator 0x01)
@@ -197,20 +154,9 @@ bool pat::CreateLogarithmicProof(
         }
     }
 
-    // Build sibling path for each leaf (log n hashes per leaf, but we only need one path for the whole batch in witness)
-    // For simplicity, we provide the full path for the first leaf; in production we can optimize to multi-proof
-    // This is sufficient for genesis and matches your Python prototype
-    uint32_t idx = 0;
-    // uint256 current = leaves[0]; // Unused variable
-    for (size_t layer = tree_size; layer > 1; layer >>= 1) {
-        size_t sibling = idx ^ 1;
-        CValType hash(tree[layer + sibling].begin(), tree[layer + sibling].end());
-        vSiblingPathOut.push_back(hash);
-
-        // current = PatHash(...) // logic already done in tree build
-        idx >>= 1;
-    }
-
+    // FIND-002: Sibling path generation removed.
+    // The verifier now rebuilds the entire tree from claimed tuples,
+    // so no externally-supplied sibling path is needed.
 
     LogarithmicProof proof;
     proof.merkle_root = tree[1];
@@ -231,8 +177,6 @@ bool pat::CreateLogarithmicProof(
     uint32_t le_n = htole32(n);
     vchProofOut.insert(vchProofOut.end(), (uint8_t*)&le_n, (uint8_t*)&le_n + 4);
     // Total 32+32+32+4 = 100 bytes.
-    // Previous code padded to 72. We don't need padding if we define the size.
-    // vchProofOut.resize(72, 0x00); // Removed
 
     return true;
 }
@@ -277,7 +221,6 @@ bool pat::ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proo
  * - Message binding: Commits to all messages, prevents message substitution
  *
  * @param vchProof Serialized 100-byte proof (merkle_root || pk_xor || msg_root || count)
- * @param vSiblingPath Sibling hashes for Merkle path (length = depth = ceil(log2(count)))
  * @param vClaimedSigs Signature commitments (32 bytes each)
  * @param vClaimedPks Public key hashes (32 bytes each)
  * @param vClaimedMsgs Message digests (32 bytes each)
@@ -285,7 +228,6 @@ bool pat::ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proo
  */
 bool pat::VerifyLogarithmicProof(
     const CValType& vchProof,
-    const std::vector<CValType>& vSiblingPath,
     const std::vector<CValType>& vClaimedSigs,
     const std::vector<CValType>& vClaimedPks,
     const std::vector<CValType>& vClaimedMsgs)
@@ -329,18 +271,6 @@ bool pat::VerifyLogarithmicProof(
         sorted_msgs[i] = vClaimedMsgs[order[i]];
     }
 
-    // Step 4: Calculate expected tree depth and validate sibling path length
-    // Depth = ceil(log2(count)) for a complete binary tree
-    uint32_t tree_size = NextPowerOfTwo(n);
-    uint32_t depth = 0;
-    if (tree_size > 1) {
-        depth = PortableCountBits(tree_size - 1); // ceil(log2(tree_size))
-    }
-
-    if (vSiblingPath.size() != depth) {
-        return false;
-    }
-
     // Step 4: Validate all field sizes (all must be exactly 32 bytes)
     for (uint32_t i = 0; i < n; i++) {
         if (vClaimedSigs[i].size() != 32) {
@@ -350,12 +280,6 @@ bool pat::VerifyLogarithmicProof(
             return false;
         }
         if (vClaimedMsgs[i].size() != 32) {
-            return false;
-        }
-    }
-
-    for (uint32_t i = 0; i < depth; i++) {
-        if (vSiblingPath[i].size() != 32) {
             return false;
         }
     }
@@ -373,32 +297,34 @@ bool pat::VerifyLogarithmicProof(
         return false;
     }
 
-    // Step 7: Reconstruct and verify Merkle root (using sorted order)
-    // We verify the first leaf (index 0) in canonical ordering
-    uint32_t verify_idx = 0;
+    // Step 7 (Halborn FIND-002): REBUILD entire Merkle tree from ALL n tuples.
+    //
+    // SECURITY: Previously, only leaf 0 was verified via a sibling path,
+    // allowing an attacker to forge leaves 1..n-1. The verifier now
+    // independently rebuilds the complete tree and compares the root.
+    // No externally-supplied sibling path is needed or trusted.
+    //
+    // Domain separation: 0x00 prefix for leaves, 0x01 prefix for internal nodes
+    // (enforced by LeafHash and NodeHash helpers).
+    size_t tree_size = NextPowerOfTwo(n);
+    std::vector<uint256> tree(tree_size * 2);
 
-    uint256 leaf_hash = LeafHash(
-        verify_idx,
-        sorted_sigs[verify_idx],
-        sorted_pks[verify_idx],
-        sorted_msgs[verify_idx]);
-
-
-    // Convert sibling path from CValType to uint256
-    std::vector<uint256> sibling_hashes;
-    sibling_hashes.reserve(depth);
-    for (const auto& node : vSiblingPath) {
-        uint256 hash;
-        memcpy(hash.begin(), node.data(), 32);
-        sibling_hashes.push_back(hash);
+    // Compute ALL leaf hashes from claimed tuples
+    for (uint32_t i = 0; i < n; ++i) {
+        tree[tree_size + i] = LeafHash(i, sorted_sigs[i], sorted_pks[i], sorted_msgs[i]);
+    }
+    // Pad empty leaf slots with zero
+    for (size_t i = tree_size + n; i < tree_size * 2; ++i) {
+        tree[i] = uint256();
+    }
+    // Build tree bottom-up
+    for (size_t layer = tree_size; layer > 1; layer >>= 1) {
+        for (size_t i = layer; i < layer * 2; i += 2) {
+            tree[i / 2] = NodeHash(tree[i], tree[i + 1]);
+        }
     }
 
-
-    uint256 computed_root = ReconstructMerkleRoot(
-        verify_idx,
-        leaf_hash,
-        sibling_hashes);
-
+    uint256 computed_root = tree[1];
     if (computed_root != proof.merkle_root) {
         return false;
     }
