@@ -144,8 +144,12 @@ bool pat::CreateLogarithmicProof(
     vector<uint256> tree(tree_size * 2);
     copy(leaves.begin(), leaves.end(), tree.begin() + tree_size);
 
+    // SECURITY NOTE (Halborn FIND-005): Pad with last-leaf replication per spec
+    // (logarithmic.h L76). Zero-padding diverges from spec-compliant implementations
+    // and would cause chain splits for non-power-of-2 batch sizes.
+    const uint256& last_leaf = leaves.back();
     for (size_t i = tree_size + n; i < tree_size * 2; ++i)
-        tree[i] = uint256();
+        tree[i] = last_leaf;
 
     for (size_t layer = tree_size; layer > 1; layer >>= 1) {
         for (size_t i = layer; i < layer * 2; i += 2) {
@@ -313,9 +317,11 @@ bool pat::VerifyLogarithmicProof(
     for (uint32_t i = 0; i < n; ++i) {
         tree[tree_size + i] = LeafHash(i, sorted_sigs[i], sorted_pks[i], sorted_msgs[i]);
     }
-    // Pad empty leaf slots with zero
+    // SECURITY NOTE (Halborn FIND-005): Pad with last-leaf replication per spec.
+    // Must match CreateLogarithmicProof padding exactly.
+    const uint256& last_leaf = tree[tree_size + n - 1];
     for (size_t i = tree_size + n; i < tree_size * 2; ++i) {
-        tree[i] = uint256();
+        tree[i] = last_leaf;
     }
     // Build tree bottom-up
     for (size_t layer = tree_size; layer > 1; layer >>= 1) {
