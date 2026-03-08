@@ -147,8 +147,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         popstack(stack);
                         stack.push_back(valtype(1, 1)); // true
                     } else if (opcode == OP_CHECKPATAGG) {
-                        // Stack layout (Simple): <proof> <agg_pk> <msg_root>
-                        // Stack layout (Full):   <sigs...> <pks...> <msgs...> <count> <proof> <agg_pk> <msg_root>
+                        // SECURITY NOTE (Halborn FIND-006): Simple-mode verification removed.
+                        // Only full-mode (with witness data) is accepted in consensus.
+                        // Stack layout: <sigs...> <pks...> <msgs...> <count> <proof> <agg_pk> <msg_root>
                         // NOTE (FIND-002): sibling_path removed from stack layout.
 
                         if (stack.size() < 3)
@@ -164,10 +165,6 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
                         }
 
-                        // 2. Always perform Simple Verification (consistency check)
-                        if (!pat::VerifyLogarithmicProof(proof, agg_pk, msg_root)) {
-                            return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
-                        }
 
                         // 3. Check for Full Verification (Witness Data)
                         uint32_t n = proof.count;
@@ -185,76 +182,60 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // NOTE (FIND-002): sibling_path removed — verifier rebuilds full tree
                         size_t required_items = 4 + 3 * static_cast<size_t>(n);
 
-                        if (stack.size() >= required_items) {
-                            // Full Mode: Verify witness data
-                            try {
-                                // Extract count (sanity check)
-                                valtype count_blob = stacktop(-4);
-                                if (count_blob.size() == 4) {
-                                    uint32_t stack_n;
-                                    memcpy(&stack_n, count_blob.data(), 4);
-                                    stack_n = le32toh(stack_n);
-                                    if (stack_n != n) {
-                                        return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
-                                    }
-                                }
+                        if (stack.size() < required_items) {
+                            // SECURITY NOTE (Halborn FIND-006): Insufficient witness data.
+                            // Simple-mode (3-item stack) is no longer accepted in consensus.
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        }
 
-                                // Extract witness triples
-                                // Stack layout from BOTTOM to TOP:
-                                // 0..n-1: sigs
-                                // n..2n-1: pks
-                                // 2n..3n-1: msgs
-                                // 3n: count
-                                // 3n+1: proof
-                                // 3n+2: agg_pk
-                                // 3n+3: msg_root
-                                // Total: 3n + 4
-
-                                std::vector<valtype> msgs, pks, sigs;
-                                msgs.reserve(n);
-                                pks.reserve(n);
-                                sigs.reserve(n);
-
-                                // Indices from top:
-                                // -1 = msg_root
-                                // -2 = agg_pk
-                                // -3 = proof
-                                // -4 = count
-                                // -5..-4-n = msgs[n-1]..msgs[0]
-                                // -(5+n)..-(4+2n) = pks[n-1]..pks[0]
-                                // -(5+2n)..-(4+3n) = sigs[n-1]..sigs[0]
-
-                                // Extract msgs (indices -5 to -(4+n))
-                                for (uint32_t i = 0; i < n; i++) {
-                                    msgs.push_back(stacktop(-(5 + i)));
-                                }
-
-                                // Extract pks (indices -(5+n) to -(4+2*n))
-                                for (uint32_t i = 0; i < n; i++) {
-                                    pks.push_back(stacktop(-(5 + n + i)));
-                                }
-
-                                // Extract sigs (indices -(5+2*n) to -(4+3*n))
-                                for (uint32_t i = 0; i < n; i++) {
-                                    sigs.push_back(stacktop(-(5 + 2 * n + i)));
-                                }
-
-                                if (!pat::VerifyLogarithmicProof(proof_data, sigs, pks, msgs)) {
+                        // Full Mode: Verify witness data
+                        try {
+                            // Extract count (sanity check)
+                            valtype count_blob = stacktop(-4);
+                            if (count_blob.size() == 4) {
+                                uint32_t stack_n;
+                                memcpy(&stack_n, count_blob.data(), 4);
+                                stack_n = le32toh(stack_n);
+                                if (stack_n != n) {
                                     return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
                                 }
-
-                                // Pop all items
-                                for (size_t i = 0; i < required_items; i++) {
-                                    popstack(stack);
-                                }
-                            } catch (const std::exception& e) {
-                                return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
                             }
-                        } else {
-                            // Simple Mode: Just pop the 3 items
-                            popstack(stack);
-                            popstack(stack);
-                            popstack(stack);
+
+                            // Cast n to int to prevent unsigned arithmetic overflow
+                            // in stacktop() index calculations. Without this cast,
+                            // -(5 + n + i) wraps to ~4B for uint32_t n.
+                            const int sn = static_cast<int>(n);
+
+                            std::vector<valtype> w_sigs, w_pks, w_msgs;
+                            w_msgs.reserve(n);
+                            w_pks.reserve(n);
+                            w_sigs.reserve(n);
+
+                            // Extract msgs (indices -5 to -(4+n))
+                            for (int i = 0; i < sn; i++) {
+                                w_msgs.push_back(stacktop(-(5 + i)));
+                            }
+
+                            // Extract pks (indices -(5+n) to -(4+2*n))
+                            for (int i = 0; i < sn; i++) {
+                                w_pks.push_back(stacktop(-(5 + sn + i)));
+                            }
+
+                            // Extract sigs (indices -(5+2*n) to -(4+3*n))
+                            for (int i = 0; i < sn; i++) {
+                                w_sigs.push_back(stacktop(-(5 + 2 * sn + i)));
+                            }
+
+                            if (!pat::VerifyLogarithmicProof(proof_data, w_sigs, w_pks, w_msgs)) {
+                                return set_error(serror, SCRIPT_ERR_PAT_VERIFICATION_FAILED);
+                            }
+
+                            // Pop all items
+                            for (size_t i = 0; i < required_items; i++) {
+                                popstack(stack);
+                            }
+                        } catch (const std::exception& e) {
+                            return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
                         }
 
                         stack.push_back(valtype(1, 1)); // true
