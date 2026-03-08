@@ -268,7 +268,12 @@ int crypto_sign(uint8_t* sm,
     for (i = 0; i < mlen; ++i)
         sm[CRYPTO_BYTES + mlen - 1 - i] = m[mlen - 1 - i];
     ret = crypto_sign_signature(sm, smlen, sm + CRYPTO_BYTES, mlen, ctx, ctxlen, sk);
-    *smlen += mlen;
+    /* SECURITY NOTE (Halborn FIND-004): Only update smlen on success.
+     * On error (e.g. ctxlen > 255), smlen was left as garbage + mlen. */
+    if (ret == 0)
+        *smlen += mlen;
+    else
+        *smlen = 0;
     return ret;
 }
 
