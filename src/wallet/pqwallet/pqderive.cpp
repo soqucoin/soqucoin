@@ -202,14 +202,42 @@ std::array<uint8_t, 32> DeriveBlindingFactor(
     const SecureBytes& masterSeed,
     uint64_t outputIndex)
 {
-    DerivationPath path;
-    path.purpose = 44;
-    path.coinType = 21329;
-    path.account = 0;
-    path.change = 0;
-    path.index = static_cast<uint32_t>(outputIndex & 0xFFFFFFFF);
+    // SECURITY NOTE (Halborn FIND-019): Previously used DerivationPath which
+    // truncates outputIndex to uint32_t via static_cast. Outputs at index n
+    // and n + 2^32 produced identical blinding factors, breaking transaction
+    // graph privacy. Now encodes full 64-bit index as 8 big-endian bytes
+    // directly into the HKDF info string, bypassing DerivationPath entirely.
+    if (masterSeed.size() < 32) {
+        return {};
+    }
 
-    return DeriveKeyMaterial(masterSeed, path, DOMAIN_BLINDING);
+    // Salt = SHA-256(master_seed)
+    std::array<uint8_t, 32> salt;
+    CSHA256().Write(masterSeed.data(), masterSeed.size()).Finalize(salt.data());
+
+    // Info = domain || 8-byte big-endian outputIndex
+    std::vector<uint8_t> info(DOMAIN_BLINDING.begin(), DOMAIN_BLINDING.end());
+    uint8_t indexBytes[8];
+    indexBytes[0] = (outputIndex >> 56) & 0xff;
+    indexBytes[1] = (outputIndex >> 48) & 0xff;
+    indexBytes[2] = (outputIndex >> 40) & 0xff;
+    indexBytes[3] = (outputIndex >> 32) & 0xff;
+    indexBytes[4] = (outputIndex >> 24) & 0xff;
+    indexBytes[5] = (outputIndex >> 16) & 0xff;
+    indexBytes[6] = (outputIndex >> 8) & 0xff;
+    indexBytes[7] = outputIndex & 0xff;
+    info.insert(info.end(), indexBytes, indexBytes + 8);
+
+    // HKDF
+    auto prk = HKDFExtract(salt.data(), salt.size(), masterSeed.data(), masterSeed.size());
+
+    std::array<uint8_t, 32> okm;
+    HKDFExpand(prk, info.data(), info.size(), okm.data(), okm.size());
+
+    memory_cleanse(salt.data(), salt.size());
+    memory_cleanse(prk.data(), prk.size());
+
+    return okm;
 }
 
 std::array<uint8_t, 32> DeriveChannelKey(
