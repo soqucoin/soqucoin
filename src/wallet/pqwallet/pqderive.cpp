@@ -272,12 +272,20 @@ std::unique_ptr<PQKeyPair> PQKeyPair::DeriveFromSeed(
     memory_cleanse(keyMaterial.data(), keyMaterial.size());
 
     if (result != 0) {
+        memory_cleanse(pubkey.data(), pubkey.size());
         return nullptr;
     }
 
-    // Use the Initialize method which we need to add, or reconstruct differently
-    // For now, return the keypair - the actual key storage will be handled
-    // by Generate() internals being called appropriately
+    // SECURITY NOTE (Halborn FIND-011): Previously, the generated keypair was
+    // never copied into the PQKeyPair object — DeriveFromSeed returned a
+    // zeroed keypair. Now we directly initialize the internal fields.
+    // PQKeyPair::m_publicKey and m_secretKey are private but accessible
+    // from this static member function.
+    keypair->m_publicKey = pubkey;
+    keypair->m_secretKey = SecureBytes(seckey.data(), seckey.size());
+
+    // Wipe local copies
+    memory_cleanse(pubkey.data(), pubkey.size());
 
     return keypair;
 }

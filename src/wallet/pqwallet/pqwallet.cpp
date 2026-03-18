@@ -39,11 +39,15 @@
 #include "crypto/blake2b.h"
 #include "support/cleanse.h"
 #include "wallet/pqwallet/pqaddress.h"
+#include "wallet/pqwallet/pqderive.h"
 #include "wallet/pqwallet/pqkeys.h"
 
 extern "C" {
 #include "pat/dilithium-ref/api.h"
 }
+
+// Dilithium seed keypair function (for FIND-013 deterministic generation)
+extern "C" int pqcrystals_dilithium2_ref_seed_keypair(uint8_t* pk, uint8_t* sk, const uint8_t* seed);
 
 #include <algorithm>
 #include <cerrno>
@@ -188,9 +192,21 @@ std::unique_ptr<PQKeyPair> PQKeyPair::Generate(const SecureBytes& entropy)
         return nullptr;
     }
 
-    // For deterministic generation, we'd need to modify the Dilithium implementation
-    // For now, generate random and note this in documentation
-    return Generate();
+    // SECURITY NOTE (Halborn FIND-013): Previously this function IGNORED the
+    // provided entropy and fell back to random Generate(). Now we use the
+    // seed_keypair function for deterministic generation from the entropy.
+    auto keypair = std::make_unique<PQKeyPair>();
+
+    int result = pqcrystals_dilithium2_ref_seed_keypair(
+        keypair->m_publicKey.data(),
+        keypair->m_secretKey.data(),
+        entropy.data());
+
+    if (result != 0) {
+        return nullptr;
+    }
+
+    return keypair;
 }
 
 std::array<uint8_t, DILITHIUM_PUBKEY_SIZE> PQKeyPair::GetPublicKey() const
@@ -469,9 +485,10 @@ AddressInfo PQAddress::Decode(const std::string& address)
 //                 See: WALLET_RECOVERY_SPEC.md section 4
 //
 // KEY DERIVATION:
-// - Currently generates random keys (not HD)
-// - TODO: Implement full BIP-44 style HKDF derivation
+// - HD keys derived deterministically from seed via HKDF + DeriveFromSeed
+// - Legacy fallback to random Generate() for seedless wallets
 // - Path: m/44'/21329'/account'/change/index
+// - (Halborn FIND-010/011/013 remediation, March 2026)
 //=============================================================================
 
 class PQWallet::Impl
@@ -590,7 +607,26 @@ std::string PQWallet::GetNewAddress()
         return "";
     }
 
-    auto keypair = PQKeyPair::Generate();
+    // SECURITY NOTE (Halborn FIND-010): Previously used random PQKeyPair::Generate()
+    // which meant seed backup could NOT recover addresses. Now uses deterministic
+    // DeriveFromSeed() so all keys are recoverable from the master seed.
+    std::unique_ptr<PQKeyPair> keypair;
+
+    if (!m_impl->m_seed.empty()) {
+        // HD derivation from seed (correct path)
+        DerivationPath path;
+        path.purpose = 44;
+        path.coinType = 21329;
+        path.account = 0;
+        path.change = 0;
+        path.index = m_impl->m_nextIndex;
+
+        keypair = PQKeyPair::DeriveFromSeed(m_impl->m_seed, path);
+    } else {
+        // Fallback for legacy wallets without seed (defense-in-depth)
+        keypair = PQKeyPair::Generate();
+    }
+
     if (!keypair) {
         return "";
     }
