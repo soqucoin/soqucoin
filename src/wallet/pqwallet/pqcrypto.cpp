@@ -280,9 +280,14 @@ std::optional<EncryptedData> WalletCrypto::Encrypt(const std::vector<uint8_t>& p
     auto& [key, kdfId] = *keyResult;
     result.kdf_id = kdfId; // FIND-009: persist which KDF succeeded
 
-    // Pad plaintext to AES block size
+    // SECURITY NOTE (Halborn FIND-024): Pre-allocate padded vector to prevent
+    // reallocation leak. Without reserve(), `padded = plaintext` allocates
+    // capacity == size; the subsequent insert() always exceeds capacity,
+    // causing reallocation that frees the original buffer without zeroing.
     size_t padLen = AES_BLOCKSIZE - (plaintext.size() % AES_BLOCKSIZE);
-    std::vector<uint8_t> padded = plaintext;
+    std::vector<uint8_t> padded;
+    padded.reserve(plaintext.size() + AES_BLOCKSIZE); // worst case: 16 bytes padding
+    padded.assign(plaintext.begin(), plaintext.end());
     padded.insert(padded.end(), padLen, static_cast<uint8_t>(padLen)); // PKCS7 padding
 
     // Encrypt using AES-256-CBC
@@ -312,6 +317,10 @@ std::optional<EncryptedData> WalletCrypto::Encrypt(const std::vector<uint8_t>& p
     // (16 bytes), providing 128-bit MAC security. This is acceptable per NIST
     // SP 800-107 Rev. 1 §5.3.4 guidelines for HMAC output truncation.
     std::copy(hmacResult.begin(), hmacResult.begin() + AES_TAG_SIZE, result.tag.begin());
+
+    // SECURITY NOTE (Halborn FIND-017): Cleanse HMAC intermediate output.
+    // The full 32-byte HMAC result persists on stack after truncation to 16 bytes.
+    memory_cleanse(hmacResult.data(), hmacResult.size());
 
     // Wipe sensitive data
     memory_cleanse(key.data(), key.size());
@@ -355,12 +364,19 @@ std::optional<std::vector<uint8_t> > WalletCrypto::Decrypt(
         diff |= encrypted.tag[i] ^ expectedTag[i];
     }
 
+    // SECURITY NOTE (Halborn FIND-017): Cleanse HMAC intermediate output.
+    memory_cleanse(expectedTag.data(), expectedTag.size());
+
     if (diff != 0) {
         memory_cleanse(key.data(), key.size());
         return std::nullopt; // Authentication failed
     }
 
     // Decrypt
+    // SECURITY NOTE (Halborn FIND-023): Use sized allocation and cleanse on
+    // ALL exit paths. Previously, error paths (invalid padding, empty buffer)
+    // returned without wiping the decrypted buffer, leaving wallet private
+    // keys (Dilithium, 2560 bytes each) in freed heap memory.
     std::vector<uint8_t> decrypted(encrypted.ciphertext.size());
     AES256CBCDecrypt decryptor(key.data(), encrypted.iv.data(), false);
     decryptor.Decrypt(encrypted.ciphertext.data(), encrypted.ciphertext.size(), decrypted.data());
@@ -373,19 +389,31 @@ std::optional<std::vector<uint8_t> > WalletCrypto::Decrypt(
 
     uint8_t padLen = decrypted.back();
     if (padLen == 0 || padLen > AES_BLOCKSIZE || padLen > decrypted.size()) {
+        // SECURITY NOTE (Halborn FIND-023): Wipe decrypted buffer on error
+        memory_cleanse(decrypted.data(), decrypted.size());
         memory_cleanse(key.data(), key.size());
         return std::nullopt; // Invalid padding
     }
 
     // Verify all padding bytes
+    bool paddingValid = true;
     for (size_t i = decrypted.size() - padLen; i < decrypted.size(); ++i) {
         if (decrypted[i] != padLen) {
-            memory_cleanse(key.data(), key.size());
-            return std::nullopt; // Invalid padding
+            paddingValid = false;
+            break;
         }
     }
+    if (!paddingValid) {
+        // SECURITY NOTE (Halborn FIND-023): Wipe decrypted buffer on error
+        memory_cleanse(decrypted.data(), decrypted.size());
+        memory_cleanse(key.data(), key.size());
+        return std::nullopt; // Invalid padding
+    }
 
-    decrypted.resize(decrypted.size() - padLen);
+    // Wipe the tail bytes that will be lost to resize (padding area)
+    size_t newSize = decrypted.size() - padLen;
+    memory_cleanse(decrypted.data() + newSize, padLen);
+    decrypted.resize(newSize);
 
     memory_cleanse(key.data(), key.size());
     return decrypted;
@@ -422,8 +450,15 @@ bool WalletCrypto::EncryptFile(const std::string& path, const SecureString& pass
 
     // Encrypt (FIND-008: returns nullopt on KDF failure)
     auto encrypted = Encrypt(plaintext, passphrase);
+
+    // SECURITY NOTE (Halborn FIND-022): Wipe plaintext immediately after
+    // Encrypt() returns — it is no longer needed. Previously, plaintext was
+    // only wiped after outFile.write() on the success path. On output failure,
+    // the entire unencrypted wallet (including Dilithium secret keys, 2560
+    // bytes each) persisted in heap memory.
+    memory_cleanse(plaintext.data(), plaintext.size());
+
     if (!encrypted) {
-        memory_cleanse(plaintext.data(), plaintext.size());
         return false;
     }
     auto serialized = encrypted->Serialize();
@@ -431,14 +466,10 @@ bool WalletCrypto::EncryptFile(const std::string& path, const SecureString& pass
     // Write back
     std::ofstream outFile(path, std::ios::binary | std::ios::trunc);
     if (!outFile.is_open()) {
-        memory_cleanse(plaintext.data(), plaintext.size());
         return false;
     }
 
     outFile.write(reinterpret_cast<const char*>(serialized.data()), serialized.size());
-
-    // Wipe plaintext
-    memory_cleanse(plaintext.data(), plaintext.size());
 
     return outFile.good();
 }
@@ -470,10 +501,16 @@ bool WalletCrypto::DecryptFile(const std::string& path, const SecureString& pass
     // Write back
     std::ofstream outFile(path, std::ios::binary | std::ios::trunc);
     if (!outFile.is_open()) {
+        // SECURITY NOTE (Halborn FIND-012): Wipe decrypted plaintext even on
+        // output failure. Contains Dilithium secret keys (2560 bytes each).
+        memory_cleanse(plaintext->data(), plaintext->size());
         return false;
     }
 
     outFile.write(reinterpret_cast<const char*>(plaintext->data()), plaintext->size());
+
+    // SECURITY NOTE (Halborn FIND-012): Wipe decrypted plaintext after write.
+    memory_cleanse(plaintext->data(), plaintext->size());
 
     return outFile.good();
 }

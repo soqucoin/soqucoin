@@ -51,7 +51,10 @@ static std::array<uint8_t, 32> HKDFExtract(
     // Hash salt if > 64 bytes
     std::array<uint8_t, 32> hashedSalt;
     if (saltLen > 64) {
-        CSHA256().Write(salt, saltLen).Finalize(hashedSalt.data());
+        // SECURITY NOTE (Halborn FIND-018): Named SHA-256 object for cleanse
+        CSHA256 saltHasher;
+        saltHasher.Write(salt, saltLen).Finalize(hashedSalt.data());
+        memory_cleanse(&saltHasher, sizeof(saltHasher));
         salt = hashedSalt.data();
         saltLen = 32;
     }
@@ -62,18 +65,24 @@ static std::array<uint8_t, 32> HKDFExtract(
         opad[i] = k ^ 0x5c;
     }
 
+    // SECURITY NOTE (Halborn FIND-018): Named SHA-256 objects to ensure
+    // internal state (~104 bytes each) containing master seed fragments
+    // is cleansed after use. Previously used anonymous temporaries.
+
     // Inner hash
     std::array<uint8_t, 32> inner;
-    CSHA256()
-        .Write(ipad.data(), 64)
-        .Write(ikm, ikmLen)
-        .Finalize(inner.data());
+    CSHA256 innerHasher;
+    innerHasher.Write(ipad.data(), 64);
+    innerHasher.Write(ikm, ikmLen);
+    innerHasher.Finalize(inner.data());
+    memory_cleanse(&innerHasher, sizeof(innerHasher));
 
     // Outer hash
-    CSHA256()
-        .Write(opad.data(), 64)
-        .Write(inner.data(), 32)
-        .Finalize(prk.data());
+    CSHA256 outerHasher;
+    outerHasher.Write(opad.data(), 64);
+    outerHasher.Write(inner.data(), 32);
+    outerHasher.Finalize(prk.data());
+    memory_cleanse(&outerHasher, sizeof(outerHasher));
 
     memory_cleanse(inner.data(), inner.size());
     memory_cleanse(ipad.data(), ipad.size());
@@ -120,12 +129,16 @@ static void HKDFExpand(
 
         std::array<uint8_t, 32> innerHash;
         inner.Finalize(innerHash.data());
+        // SECURITY NOTE (Halborn FIND-018): Cleanse inner SHA-256 state
+        memory_cleanse(&inner, sizeof(inner));
 
         // Outer hash
-        CSHA256()
-            .Write(opad.data(), 64)
-            .Write(innerHash.data(), 32)
-            .Finalize(t.data());
+        // SECURITY NOTE (Halborn FIND-018): Named object for cleanse
+        CSHA256 outerHasher;
+        outerHasher.Write(opad.data(), 64);
+        outerHasher.Write(innerHash.data(), 32);
+        outerHasher.Finalize(t.data());
+        memory_cleanse(&outerHasher, sizeof(outerHasher));
 
         tLen = 32;
 
@@ -178,8 +191,11 @@ std::array<uint8_t, 32> DeriveKeyMaterial(
     }
 
     // Salt = SHA-256(master_seed)
+    // SECURITY NOTE (Halborn FIND-018): Named SHA-256 object for cleanse
     std::array<uint8_t, 32> salt;
-    CSHA256().Write(masterSeed.data(), masterSeed.size()).Finalize(salt.data());
+    CSHA256 saltHasher;
+    saltHasher.Write(masterSeed.data(), masterSeed.size()).Finalize(salt.data());
+    memory_cleanse(&saltHasher, sizeof(saltHasher));
 
     // Info = domain || path_bytes
     std::vector<uint8_t> info(domain.begin(), domain.end());
@@ -212,8 +228,11 @@ std::array<uint8_t, 32> DeriveBlindingFactor(
     }
 
     // Salt = SHA-256(master_seed)
+    // SECURITY NOTE (Halborn FIND-018): Named SHA-256 object for cleanse
     std::array<uint8_t, 32> salt;
-    CSHA256().Write(masterSeed.data(), masterSeed.size()).Finalize(salt.data());
+    CSHA256 saltHasher;
+    saltHasher.Write(masterSeed.data(), masterSeed.size()).Finalize(salt.data());
+    memory_cleanse(&saltHasher, sizeof(saltHasher));
 
     // Info = domain || 8-byte big-endian outputIndex
     std::vector<uint8_t> info(DOMAIN_BLINDING.begin(), DOMAIN_BLINDING.end());
@@ -259,8 +278,11 @@ std::array<uint8_t, 32> DeriveChannelKey(
     }
 
     // Salt = SHA-256(master_seed)
+    // SECURITY NOTE (Halborn FIND-018): Named SHA-256 object for cleanse
     std::array<uint8_t, 32> salt;
-    CSHA256().Write(masterSeed.data(), masterSeed.size()).Finalize(salt.data());
+    CSHA256 saltHasher;
+    saltHasher.Write(masterSeed.data(), masterSeed.size()).Finalize(salt.data());
+    memory_cleanse(&saltHasher, sizeof(saltHasher));
 
     std::vector<uint8_t> info(domain.begin(), domain.end());
 
