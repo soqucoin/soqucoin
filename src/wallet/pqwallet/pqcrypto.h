@@ -9,20 +9,25 @@
  * @file pqcrypto.h
  * @brief Wallet file encryption using AES-256-CBC + HMAC-SHA256 (Encrypt-then-MAC) + Argon2id key derivation
  *
- * Implements secure wallet file encryption as recommended by
- * Monero/Zcash audit research findings.
- *
- * Security properties:
- * - AES-256-CBC + HMAC-SHA256: Authenticated encryption via Encrypt-then-MAC (confidentiality + integrity)
+ * Wallet format v2 (Halborn FIND-008/009/016/025/026 remediation):
+ * - AES-256-CBC + HMAC-SHA256: Authenticated encryption via Encrypt-then-MAC
  * - Argon2id: Memory-hard key derivation (resistant to GPU attacks)
  * - Random IV: Unique per encryption operation
+ * - KDF ID persisted in file format (FIND-009)
+ * - HMAC covers version + kdf_id + salt + iv + ciphertext (FIND-016)
+ * - DeriveKey returns nullopt on total KDF failure (FIND-008)
+ * - All passphrases use SecureString for zero-on-free (FIND-025)
+ * - Derived key cleansed before every return (FIND-026)
  */
 
 #include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "support/allocators/secure.h" // FIND-025: SecureString (zero-on-free)
 
 namespace soqucoin
 {
@@ -40,22 +45,29 @@ constexpr uint32_t ARGON2_MEMORY_COST = 65536; // 64 MB
 constexpr uint32_t ARGON2_PARALLELISM = 4;
 constexpr size_t ARGON2_SALT_SIZE = 16;
 
+/// KDF algorithm identifiers (FIND-009: persisted in wallet format v2)
+static constexpr uint8_t KDF_ID_PBKDF2   = 1;
+static constexpr uint8_t KDF_ID_SCRYPT   = 2;
+static constexpr uint8_t KDF_ID_ARGON2ID = 3;
+
 /**
- * @brief Encrypted data container
+ * @brief Encrypted data container (wallet format v2)
  */
 struct EncryptedData {
-    std::array<uint8_t, ARGON2_SALT_SIZE> salt; ///< Argon2 salt
-    std::array<uint8_t, AES_IV_SIZE> iv;        ///< AES-GCM IV
-    std::array<uint8_t, AES_TAG_SIZE> tag;      ///< GCM auth tag
-    std::vector<uint8_t> ciphertext;            ///< Encrypted data
+    uint8_t kdf_id{0};                                  ///< KDF algorithm that produced the key (FIND-009)
+    std::array<uint8_t, ARGON2_SALT_SIZE> salt;          ///< KDF salt
+    std::array<uint8_t, AES_IV_SIZE> iv;                 ///< AES-CBC IV
+    std::array<uint8_t, AES_TAG_SIZE> tag;               ///< HMAC-SHA256 auth tag (truncated to 128 bits)
+    std::vector<uint8_t> ciphertext;                     ///< Encrypted data
 
     /**
-     * @brief Serialize to bytes for storage
+     * @brief Serialize to bytes for storage (v2 format)
+     * Layout: magic(4) + version(4) + kdf_id(1) + salt(16) + iv(16) + tag(16) + ctlen(4) + ciphertext
      */
     std::vector<uint8_t> Serialize() const;
 
     /**
-     * @brief Deserialize from stored bytes
+     * @brief Deserialize from stored bytes (v2 format)
      */
     static std::optional<EncryptedData> Deserialize(const std::vector<uint8_t>& data);
 };
@@ -69,30 +81,34 @@ public:
     /**
      * @brief Encrypt data with passphrase
      * @param plaintext Data to encrypt
-     * @param passphrase User passphrase
-     * @return Encrypted data container
+     * @param passphrase User passphrase (FIND-025: SecureString, zero-on-free)
+     * @return Encrypted data container, or nullopt on KDF failure
      */
-    static EncryptedData Encrypt(const std::vector<uint8_t>& plaintext,
-        const std::string& passphrase);
+    static std::optional<EncryptedData> Encrypt(const std::vector<uint8_t>& plaintext,
+        const SecureString& passphrase);
 
     /**
      * @brief Decrypt data with passphrase
      * @param encrypted Encrypted data container
-     * @param passphrase User passphrase
-     * @return Decrypted data or nullopt if auth fails
+     * @param passphrase User passphrase (FIND-025: SecureString, zero-on-free)
+     * @return Decrypted data or nullopt if auth fails or KDF fails
      */
     static std::optional<std::vector<uint8_t> > Decrypt(
         const EncryptedData& encrypted,
-        const std::string& passphrase);
+        const SecureString& passphrase);
 
     /**
-     * @brief Derive encryption key from passphrase using Argon2id
-     * @param passphrase User passphrase
+     * @brief Derive encryption key from passphrase using Argon2id/scrypt/PBKDF2 cascade
+     * @param passphrase User passphrase (FIND-025: SecureString)
      * @param salt Random salt
-     * @return 256-bit derived key
+     * @return {256-bit derived key, kdf_id} or nullopt on total failure (FIND-008)
+     *
+     * SECURITY NOTE (Halborn FIND-008): Returns nullopt instead of all-zero key
+     * when all 3 KDFs fail. Defense-in-depth: verifies derived key is non-zero.
+     * SECURITY NOTE (Halborn FIND-026): Cleanses derived key on stack before return.
      */
-    static std::array<uint8_t, AES_KEY_SIZE> DeriveKey(
-        const std::string& passphrase,
+    static std::optional<std::pair<std::array<uint8_t, AES_KEY_SIZE>, uint8_t>> DeriveKey(
+        const SecureString& passphrase,
         const std::array<uint8_t, ARGON2_SALT_SIZE>& salt);
 
     /**
@@ -101,15 +117,15 @@ public:
      * @param passphrase Encryption passphrase
      * @return true on success
      */
-    static bool EncryptFile(const std::string& path, const std::string& passphrase);
+    static bool EncryptFile(const std::string& path, const SecureString& passphrase);
 
     /**
      * @brief Decrypt wallet file in-place
      * @param path Path to encrypted wallet file
-     * @param passphrase Decryption passphrase
+     * @param passphrase Decryption passphrase (FIND-025: SecureString)
      * @return true on success
      */
-    static bool DecryptFile(const std::string& path, const std::string& passphrase);
+    static bool DecryptFile(const std::string& path, const SecureString& passphrase);
 
     /**
      * @brief Check if wallet file is encrypted

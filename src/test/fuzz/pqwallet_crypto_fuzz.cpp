@@ -15,6 +15,7 @@
 #include <cassert>
 #include <cstdint>
 #include <string>
+#include <support/allocators/secure.h> // SecureString (FIND-025)
 #include <support/cleanse.h>
 #include <test/fuzz/fuzz.h>
 #include <vector>
@@ -32,7 +33,7 @@ void wallet_decrypt_fuzz(fuzzer::FuzzBuffer& buffer) noexcept
     if (buffer.size() > 10000) return; // Reasonable max size
 
     // Use first 16 bytes as "passphrase"
-    std::string passphrase(reinterpret_cast<const char*>(buffer.data()), 16);
+    SecureString passphrase(reinterpret_cast<const char*>(buffer.data()), 16);
 
     // Remaining bytes are "encrypted data" - try to deserialize
     std::vector<uint8_t> serialized(buffer.data() + 16, buffer.data() + buffer.size());
@@ -62,14 +63,16 @@ void wallet_encrypt_corrupt_roundtrip(fuzzer::FuzzBuffer& buffer) noexcept
     if (buffer.size() > 1000) return;
 
     // Extract components
-    std::string passphrase(reinterpret_cast<const char*>(buffer.data()), 16);
+    SecureString passphrase(reinterpret_cast<const char*>(buffer.data()), 16);
     std::vector<uint8_t> plaintext(buffer.data() + 16, buffer.data() + buffer.size() - 2);
 
     // Last two bytes determine corruption offset
     size_t corruption_offset = (buffer.data()[buffer.size() - 2] << 8) | buffer.data()[buffer.size() - 1];
 
     // Encrypt legitimate data using REAL API
-    EncryptedData encrypted = WalletCrypto::Encrypt(plaintext, passphrase);
+    auto encryptedOpt = WalletCrypto::Encrypt(plaintext, passphrase);
+    if (!encryptedOpt) return; // KDF failure in fuzz is acceptable
+    EncryptedData encrypted = *encryptedOpt;
 
     // Serialize for corruption
     std::vector<uint8_t> serialized = encrypted.Serialize();
@@ -103,10 +106,12 @@ void wallet_mac_validation(fuzzer::FuzzBuffer& buffer) noexcept
     if (buffer.size() < 32) return;
 
     // Create valid encrypted data first
-    std::string passphrase = "test_passphrase";
+    SecureString passphrase("test_passphrase");
     std::vector<uint8_t> testData = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
 
-    EncryptedData encrypted = WalletCrypto::Encrypt(testData, passphrase);
+    auto encryptedOpt = WalletCrypto::Encrypt(testData, passphrase);
+    if (!encryptedOpt) return; // KDF failure in fuzz is acceptable
+    EncryptedData encrypted = *encryptedOpt;
 
     // Corrupt the tag with fuzz data
     for (size_t i = 0; i < std::min(buffer.size(), encrypted.tag.size()); ++i) {
@@ -131,14 +136,16 @@ void wallet_passphrase_edge_cases(fuzzer::FuzzBuffer& buffer) noexcept
     if (buffer.size() < 1) return;
 
     // Create passphrase with potential edge cases (any length)
-    std::string passphrase(reinterpret_cast<const char*>(buffer.data()),
+    SecureString passphrase(reinterpret_cast<const char*>(buffer.data()),
         std::min(buffer.size(), size_t(256)));
 
     // Test data
     std::vector<uint8_t> plaintext = {0x01, 0x02, 0x03, 0x04, 0x05};
 
     // Encrypt with fuzzed passphrase
-    EncryptedData encrypted = WalletCrypto::Encrypt(plaintext, passphrase);
+    auto encryptedOpt = WalletCrypto::Encrypt(plaintext, passphrase);
+    if (!encryptedOpt) return; // KDF failure in fuzz is acceptable
+    EncryptedData encrypted = *encryptedOpt;
 
     // Decrypt with same passphrase - should always succeed
     auto recovered = WalletCrypto::Decrypt(encrypted, passphrase);

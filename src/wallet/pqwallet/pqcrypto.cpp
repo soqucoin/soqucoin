@@ -17,8 +17,8 @@ namespace pqwallet
 {
 
 // File magic identifier for encrypted wallet files
-static const uint8_t WALLET_MAGIC[4] = {'S', 'Q', 'W', '1'}; // SoquWallet v1
-static const uint32_t WALLET_VERSION = 1;
+static const uint8_t WALLET_MAGIC[4] = {'S', 'Q', 'W', '2'}; // SoquWallet v2 (FIND-009)
+static const uint32_t WALLET_VERSION = 2;
 
 //=============================================================================
 // Key derivation using Argon2id (OpenSSL 3.x EVP_KDF)
@@ -31,14 +31,11 @@ static const uint32_t WALLET_VERSION = 1;
 #include <openssl/kdf.h>
 #include <openssl/params.h>
 
-// Version marker for KDF algorithm used (stored in wallet file)
-// 1 = SHA256 placeholder (legacy)
-// 2 = Argon2id (current)
-// 3 = Reserved for future (e.g., Balloon hashing)
+// KDF version marker (legacy — see KDF_ID_* constants in pqcrypto.h for v2 format)
 static constexpr uint32_t KDF_VERSION = 2;
 
-std::array<uint8_t, AES_KEY_SIZE> WalletCrypto::DeriveKey(
-    const std::string& passphrase,
+std::optional<std::pair<std::array<uint8_t, AES_KEY_SIZE>, uint8_t>> WalletCrypto::DeriveKey(
+    const SecureString& passphrase,
     const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
 {
     std::array<uint8_t, AES_KEY_SIZE> derivedKey{};
@@ -67,7 +64,10 @@ std::array<uint8_t, AES_KEY_SIZE> WalletCrypto::DeriveKey(
             if (EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0) {
                 EVP_KDF_CTX_free(ctx);
                 EVP_KDF_free(kdf);
-                return derivedKey;
+                // SECURITY NOTE (FIND-026): Caller receives copy; we cleanse our local
+                auto result = std::make_pair(derivedKey, KDF_ID_ARGON2ID);
+                memory_cleanse(derivedKey.data(), derivedKey.size());
+                return result;
             }
             EVP_KDF_CTX_free(ctx);
         }
@@ -96,7 +96,10 @@ std::array<uint8_t, AES_KEY_SIZE> WalletCrypto::DeriveKey(
             if (EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0) {
                 EVP_KDF_CTX_free(ctx);
                 EVP_KDF_free(scrypt);
-                return derivedKey;
+                // SECURITY NOTE (FIND-026): Cleanse local before return
+                auto result = std::make_pair(derivedKey, KDF_ID_SCRYPT);
+                memory_cleanse(derivedKey.data(), derivedKey.size());
+                return result;
             }
             EVP_KDF_CTX_free(ctx);
         }
@@ -120,13 +123,33 @@ std::array<uint8_t, AES_KEY_SIZE> WalletCrypto::DeriveKey(
                     const_cast<char*>("SHA256"), 0),
                 OSSL_PARAM_END};
 
-            EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params);
+            if (EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0) {
+                EVP_KDF_CTX_free(ctx);
+                EVP_KDF_free(pbkdf2);
+                // SECURITY NOTE (FIND-008): Defense-in-depth — verify key is non-zero
+                bool allZero = true;
+                for (size_t i = 0; i < derivedKey.size(); ++i) {
+                    if (derivedKey[i] != 0) { allZero = false; break; }
+                }
+                if (allZero) {
+                    memory_cleanse(derivedKey.data(), derivedKey.size());
+                    return std::nullopt;
+                }
+                // SECURITY NOTE (FIND-026): Cleanse local before return
+                auto result = std::make_pair(derivedKey, KDF_ID_PBKDF2);
+                memory_cleanse(derivedKey.data(), derivedKey.size());
+                return result;
+            }
             EVP_KDF_CTX_free(ctx);
         }
         EVP_KDF_free(pbkdf2);
     }
 
-    return derivedKey;
+    // SECURITY NOTE (Halborn FIND-008): All 3 KDFs failed.
+    // Return nullopt instead of zero key to prevent wallet encryption
+    // with trivially brutable key.
+    memory_cleanse(derivedKey.data(), derivedKey.size());
+    return std::nullopt;
 }
 
 //=============================================================================
@@ -135,8 +158,9 @@ std::array<uint8_t, AES_KEY_SIZE> WalletCrypto::DeriveKey(
 
 std::vector<uint8_t> EncryptedData::Serialize() const
 {
+    // v2 layout: magic(4) + version(4) + kdf_id(1) + salt(16) + iv(16) + tag(16) + ctlen(4) + ciphertext
     std::vector<uint8_t> result;
-    result.reserve(4 + 4 + ARGON2_SALT_SIZE + AES_IV_SIZE + AES_TAG_SIZE + ciphertext.size());
+    result.reserve(4 + 4 + 1 + ARGON2_SALT_SIZE + AES_IV_SIZE + AES_TAG_SIZE + 4 + ciphertext.size());
 
     // Magic header
     result.insert(result.end(), WALLET_MAGIC, WALLET_MAGIC + 4);
@@ -147,13 +171,16 @@ std::vector<uint8_t> EncryptedData::Serialize() const
     result.push_back((WALLET_VERSION >> 8) & 0xff);
     result.push_back(WALLET_VERSION & 0xff);
 
+    // KDF ID (FIND-009: persist which KDF produced the key)
+    result.push_back(kdf_id);
+
     // Salt
     result.insert(result.end(), salt.begin(), salt.end());
 
     // IV
     result.insert(result.end(), iv.begin(), iv.end());
 
-    // Tag (authentication - for CBC we use HMAC instead)
+    // Tag (HMAC-SHA256, truncated to 128 bits)
     result.insert(result.end(), tag.begin(), tag.end());
 
     // Ciphertext length (4 bytes big-endian)
@@ -171,8 +198,8 @@ std::vector<uint8_t> EncryptedData::Serialize() const
 
 std::optional<EncryptedData> EncryptedData::Deserialize(const std::vector<uint8_t>& data)
 {
-    // Minimum size: magic(4) + version(4) + salt(16) + iv(12) + tag(16) + ctlen(4)
-    const size_t headerSize = 4 + 4 + ARGON2_SALT_SIZE + AES_IV_SIZE + AES_TAG_SIZE + 4;
+    // v2 minimum: magic(4) + version(4) + kdf_id(1) + salt(16) + iv(16) + tag(16) + ctlen(4) = 61
+    const size_t headerSize = 4 + 4 + 1 + ARGON2_SALT_SIZE + AES_IV_SIZE + AES_TAG_SIZE + 4;
     if (data.size() < headerSize) {
         return std::nullopt;
     }
@@ -194,6 +221,15 @@ std::optional<EncryptedData> EncryptedData::Deserialize(const std::vector<uint8_
     pos += 4;
 
     EncryptedData result;
+
+    // KDF ID (FIND-009: read persisted KDF identifier)
+    result.kdf_id = data[pos];
+    pos += 1;
+
+    // Validate kdf_id is a known algorithm
+    if (result.kdf_id != KDF_ID_PBKDF2 && result.kdf_id != KDF_ID_SCRYPT && result.kdf_id != KDF_ID_ARGON2ID) {
+        return std::nullopt; // Unknown KDF
+    }
 
     // Salt
     std::copy(data.begin() + pos, data.begin() + pos + ARGON2_SALT_SIZE, result.salt.begin());
@@ -226,8 +262,8 @@ std::optional<EncryptedData> EncryptedData::Deserialize(const std::vector<uint8_
 // Encryption / Decryption
 //=============================================================================
 
-EncryptedData WalletCrypto::Encrypt(const std::vector<uint8_t>& plaintext,
-    const std::string& passphrase)
+std::optional<EncryptedData> WalletCrypto::Encrypt(const std::vector<uint8_t>& plaintext,
+    const SecureString& passphrase)
 {
     EncryptedData result;
 
@@ -236,8 +272,13 @@ EncryptedData WalletCrypto::Encrypt(const std::vector<uint8_t>& plaintext,
     GetStrongRandBytes(result.salt.data(), result.salt.size());
     GetStrongRandBytes(result.iv.data(), result.iv.size());
 
-    // Derive encryption key
-    auto key = DeriveKey(passphrase, result.salt);
+    // Derive encryption key (FIND-008: returns nullopt on total failure)
+    auto keyResult = DeriveKey(passphrase, result.salt);
+    if (!keyResult) {
+        return std::nullopt; // All KDFs failed — refuse to encrypt
+    }
+    auto& [key, kdfId] = *keyResult;
+    result.kdf_id = kdfId; // FIND-009: persist which KDF succeeded
 
     // Pad plaintext to AES block size
     size_t padLen = AES_BLOCKSIZE - (plaintext.size() % AES_BLOCKSIZE);
@@ -249,22 +290,30 @@ EncryptedData WalletCrypto::Encrypt(const std::vector<uint8_t>& plaintext,
     result.ciphertext.resize(padded.size());
     encryptor.Encrypt(padded.data(), padded.size(), result.ciphertext.data());
 
-    // Compute authentication tag: HMAC-SHA256(key, ciphertext || IV)
-    // Uses RFC 2104 HMAC construction via CHMAC_SHA256, which provides
-    // resistance to length-extension attacks unlike raw SHA256(key || msg).
+    // SECURITY NOTE (Halborn FIND-016): HMAC scope expanded to cover full header.
+    // Compute HMAC-SHA256(key, version || kdf_id || salt || iv || ciphertext)
+    // This prevents an attacker from swapping salt/kdf_id without detection.
     CHMAC_SHA256 hmac(key.data(), key.size());
-    hmac.Write(result.ciphertext.data(), result.ciphertext.size());
+    // Include version bytes in HMAC
+    uint8_t versionBytes[4];
+    versionBytes[0] = (WALLET_VERSION >> 24) & 0xff;
+    versionBytes[1] = (WALLET_VERSION >> 16) & 0xff;
+    versionBytes[2] = (WALLET_VERSION >> 8) & 0xff;
+    versionBytes[3] = WALLET_VERSION & 0xff;
+    hmac.Write(versionBytes, 4);
+    hmac.Write(&result.kdf_id, 1);
+    hmac.Write(result.salt.data(), result.salt.size());
     hmac.Write(result.iv.data(), result.iv.size());
+    hmac.Write(result.ciphertext.data(), result.ciphertext.size());
 
     std::array<uint8_t, CHMAC_SHA256::OUTPUT_SIZE> hmacResult;
     hmac.Finalize(hmacResult.data());
     // SECURITY NOTE: HMAC-SHA256 output (32 bytes) is truncated to AES_TAG_SIZE
     // (16 bytes), providing 128-bit MAC security. This is acceptable per NIST
-    // SP 800-107 Rev. 1 §5.3.4 guidelines for HMAC output truncation, and
-    // matches the security level of AES-256-CBC used for encryption.
+    // SP 800-107 Rev. 1 §5.3.4 guidelines for HMAC output truncation.
     std::copy(hmacResult.begin(), hmacResult.begin() + AES_TAG_SIZE, result.tag.begin());
 
-    // Wipe key
+    // Wipe sensitive data
     memory_cleanse(key.data(), key.size());
     memory_cleanse(padded.data(), padded.size());
 
@@ -273,15 +322,28 @@ EncryptedData WalletCrypto::Encrypt(const std::vector<uint8_t>& plaintext,
 
 std::optional<std::vector<uint8_t> > WalletCrypto::Decrypt(
     const EncryptedData& encrypted,
-    const std::string& passphrase)
+    const SecureString& passphrase)
 {
-    // Derive key
-    auto key = DeriveKey(passphrase, encrypted.salt);
+    // Derive key (FIND-008: returns nullopt on total failure)
+    auto keyResult = DeriveKey(passphrase, encrypted.salt);
+    if (!keyResult) {
+        return std::nullopt; // All KDFs failed
+    }
+    auto& [key, kdfId] = *keyResult;
 
-    // Verify authentication tag first (Encrypt-then-MAC: verify before decrypt)
+    // SECURITY NOTE (Halborn FIND-016): Verify HMAC over full header.
+    // HMAC-SHA256(key, version || kdf_id || salt || iv || ciphertext)
     CHMAC_SHA256 hmac(key.data(), key.size());
-    hmac.Write(encrypted.ciphertext.data(), encrypted.ciphertext.size());
+    uint8_t versionBytes[4];
+    versionBytes[0] = (WALLET_VERSION >> 24) & 0xff;
+    versionBytes[1] = (WALLET_VERSION >> 16) & 0xff;
+    versionBytes[2] = (WALLET_VERSION >> 8) & 0xff;
+    versionBytes[3] = WALLET_VERSION & 0xff;
+    hmac.Write(versionBytes, 4);
+    hmac.Write(&encrypted.kdf_id, 1);
+    hmac.Write(encrypted.salt.data(), encrypted.salt.size());
     hmac.Write(encrypted.iv.data(), encrypted.iv.size());
+    hmac.Write(encrypted.ciphertext.data(), encrypted.ciphertext.size());
 
     std::array<uint8_t, CHMAC_SHA256::OUTPUT_SIZE> expectedTag;
     hmac.Finalize(expectedTag.data());
@@ -346,7 +408,7 @@ bool WalletCrypto::IsEncrypted(const std::string& path)
     return file.good() && std::memcmp(magic, WALLET_MAGIC, 4) == 0;
 }
 
-bool WalletCrypto::EncryptFile(const std::string& path, const std::string& passphrase)
+bool WalletCrypto::EncryptFile(const std::string& path, const SecureString& passphrase)
 {
     // Read file
     std::ifstream inFile(path, std::ios::binary);
@@ -358,13 +420,18 @@ bool WalletCrypto::EncryptFile(const std::string& path, const std::string& passp
         std::istreambuf_iterator<char>());
     inFile.close();
 
-    // Encrypt
+    // Encrypt (FIND-008: returns nullopt on KDF failure)
     auto encrypted = Encrypt(plaintext, passphrase);
-    auto serialized = encrypted.Serialize();
+    if (!encrypted) {
+        memory_cleanse(plaintext.data(), plaintext.size());
+        return false;
+    }
+    auto serialized = encrypted->Serialize();
 
     // Write back
     std::ofstream outFile(path, std::ios::binary | std::ios::trunc);
     if (!outFile.is_open()) {
+        memory_cleanse(plaintext.data(), plaintext.size());
         return false;
     }
 
@@ -376,7 +443,7 @@ bool WalletCrypto::EncryptFile(const std::string& path, const std::string& passp
     return outFile.good();
 }
 
-bool WalletCrypto::DecryptFile(const std::string& path, const std::string& passphrase)
+bool WalletCrypto::DecryptFile(const std::string& path, const SecureString& passphrase)
 {
     // Read file
     std::ifstream inFile(path, std::ios::binary);

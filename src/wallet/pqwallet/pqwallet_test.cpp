@@ -20,6 +20,8 @@
 #include <iostream>
 #include <vector>
 
+#include "support/allocators/secure.h" // SecureString (FIND-025)
+
 using namespace soqucoin::pqwallet;
 
 void PrintHex(const uint8_t* data, size_t len, size_t maxLen = 32)
@@ -153,10 +155,15 @@ int main(int argc, char* argv[])
     {
         std::vector<uint8_t> plaintext = {'S', 'e', 'c', 'r', 'e', 't', ' ',
             'k', 'e', 'y', ' ', 'd', 'a', 't', 'a'};
-        std::string passphrase = "TestPassphrase123!@#";
+        SecureString passphrase("TestPassphrase123!@#");
 
         WalletCrypto crypto;
-        auto encrypted = crypto.Encrypt(plaintext, passphrase);
+        auto encryptedOpt = crypto.Encrypt(plaintext, passphrase);
+        if (!encryptedOpt) {
+            std::cerr << "   ERROR: Encryption failed (KDF failure)!" << std::endl;
+            return 1;
+        }
+        auto& encrypted = *encryptedOpt;
 
         std::cout << "   Plaintext size: " << plaintext.size() << " bytes" << std::endl;
         std::cout << "   Ciphertext size: " << encrypted.ciphertext.size() << " bytes" << std::endl;
@@ -179,11 +186,16 @@ int main(int argc, char* argv[])
     std::cout << "10. Testing wrong passphrase rejection..." << std::endl;
     {
         std::vector<uint8_t> plaintext = {'C', 'r', 'i', 't', 'i', 'c', 'a', 'l'};
-        std::string correctPass = "CorrectHorseBatteryStaple";
-        std::string wrongPass = "WrongPassword123";
+        SecureString correctPass("CorrectHorseBatteryStaple");
+        SecureString wrongPass("WrongPassword123");
 
         WalletCrypto crypto;
-        auto encrypted = crypto.Encrypt(plaintext, correctPass);
+        auto encryptedOpt = crypto.Encrypt(plaintext, correctPass);
+        if (!encryptedOpt) {
+            std::cerr << "   ERROR: Encryption failed!" << std::endl;
+            return 1;
+        }
+        auto& encrypted = *encryptedOpt;
 
         // Attempt decryption with wrong passphrase
         auto wrongDecrypt = crypto.Decrypt(encrypted, wrongPass);
@@ -210,12 +222,16 @@ int main(int argc, char* argv[])
     std::cout << "11. Testing empty passphrase handling..." << std::endl;
     {
         std::vector<uint8_t> plaintext = {'T', 'e', 's', 't'};
-        std::string emptyPass = "";
+        SecureString emptyPass("");
 
         WalletCrypto crypto;
         // Empty passphrase should still work (user choice) but encrypt
-        auto encrypted = crypto.Encrypt(plaintext, emptyPass);
-        auto decrypted = crypto.Decrypt(encrypted, emptyPass);
+        auto encryptedOpt = crypto.Encrypt(plaintext, emptyPass);
+        if (!encryptedOpt) {
+            std::cerr << "   ERROR: Encryption failed!" << std::endl;
+            return 1;
+        }
+        auto decrypted = crypto.Decrypt(*encryptedOpt, emptyPass);
 
         if (decrypted && *decrypted == plaintext) {
             std::cout << "   Empty passphrase round-trip: PASS ✓" << std::endl;
@@ -231,10 +247,15 @@ int main(int argc, char* argv[])
     std::cout << "12. Testing ciphertext tampering detection..." << std::endl;
     {
         std::vector<uint8_t> plaintext = {'I', 'n', 't', 'e', 'g', 'r', 'i', 't', 'y'};
-        std::string passphrase = "IntegrityTest";
+        SecureString passphrase("IntegrityTest");
 
         WalletCrypto crypto;
-        auto encrypted = crypto.Encrypt(plaintext, passphrase);
+        auto encryptedOpt = crypto.Encrypt(plaintext, passphrase);
+        if (!encryptedOpt) {
+            std::cerr << "   ERROR: Encryption failed!" << std::endl;
+            return 1;
+        }
+        auto& encrypted = *encryptedOpt;
 
         // Tamper with ciphertext (flip one bit)
         if (!encrypted.ciphertext.empty()) {
@@ -256,11 +277,17 @@ int main(int argc, char* argv[])
     std::cout << "13. Testing IV/Salt uniqueness..." << std::endl;
     {
         std::vector<uint8_t> plaintext = {'S', 'a', 'm', 'e', ' ', 'd', 'a', 't', 'a'};
-        std::string passphrase = "SamePassphrase";
+        SecureString passphrase("SamePassphrase");
 
         WalletCrypto crypto;
-        auto encrypted1 = crypto.Encrypt(plaintext, passphrase);
-        auto encrypted2 = crypto.Encrypt(plaintext, passphrase);
+        auto encrypted1Opt = crypto.Encrypt(plaintext, passphrase);
+        auto encrypted2Opt = crypto.Encrypt(plaintext, passphrase);
+        if (!encrypted1Opt || !encrypted2Opt) {
+            std::cerr << "   ERROR: Encryption failed!" << std::endl;
+            return 1;
+        }
+        auto& encrypted1 = *encrypted1Opt;
+        auto& encrypted2 = *encrypted2Opt;
 
         bool saltsDifferent = (encrypted1.salt != encrypted2.salt);
         bool ivsDifferent = (encrypted1.iv != encrypted2.iv);
@@ -284,10 +311,15 @@ int main(int argc, char* argv[])
     std::cout << "14. Testing serialization round-trip..." << std::endl;
     {
         std::vector<uint8_t> plaintext = {'F', 'i', 'l', 'e', ' ', 't', 'e', 's', 't'};
-        std::string passphrase = "SerializationTest";
+        SecureString passphrase("SerializationTest");
 
         WalletCrypto crypto;
-        auto encrypted = crypto.Encrypt(plaintext, passphrase);
+        auto encryptedOpt = crypto.Encrypt(plaintext, passphrase);
+        if (!encryptedOpt) {
+            std::cerr << "   ERROR: Encryption failed!" << std::endl;
+            return 1;
+        }
+        auto& encrypted = *encryptedOpt;
 
         // Serialize to bytes (as if writing to file)
         auto serialized = encrypted.Serialize();
@@ -317,10 +349,15 @@ int main(int argc, char* argv[])
     {
         // Simulate a wallet with 100 Dilithium keys (~250KB)
         std::vector<uint8_t> largeData(250000, 0x42); // 250KB of test data
-        std::string passphrase = "LargeWalletTest";
+        SecureString passphrase("LargeWalletTest");
 
         WalletCrypto crypto;
-        auto encrypted = crypto.Encrypt(largeData, passphrase);
+        auto encryptedOpt = crypto.Encrypt(largeData, passphrase);
+        if (!encryptedOpt) {
+            std::cerr << "   ERROR: Encryption failed!" << std::endl;
+            return 1;
+        }
+        auto& encrypted = *encryptedOpt;
 
         std::cout << "   Original size: " << largeData.size() << " bytes" << std::endl;
         std::cout << "   Encrypted size: " << encrypted.ciphertext.size() << " bytes" << std::endl;
