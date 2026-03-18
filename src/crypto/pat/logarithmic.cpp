@@ -70,26 +70,24 @@ static uint256 NodeHash(const uint256& left, const uint256& right)
 // the entire Merkle tree from all n tuples — no sibling path needed.
 
 /**
- * Helper: Compute XOR of all public key hashes
- * This binding prevents rogue-key attacks by ensuring all keys contribute to the proof
+ * Helper: Compute hash-based aggregation of all public keys
+ *
+ * SECURITY (Halborn FIND-007): Replaced XOR aggregation with SHA3-256 hash.
+ * XOR is linear — an attacker can compute pk_rogue = pk_honest ⊕ pk_target
+ * to cancel any honest key and substitute their own. SHA3-256 is collision-
+ * resistant and prevents rogue-key attacks.
+ *
+ * Aggregation: SHA3-256(pk_1 || pk_2 || ... || pk_n)
  */
-static uint256 ComputePkXor(const std::vector<CValType>& vPks)
+static uint256 ComputePkAgg(const std::vector<CValType>& vPks)
 {
-    uint256 xor_result = uint256(); // Initialize to all zeros
-
+    SHA3_256 hasher;
     for (const auto& pk : vPks) {
-        if (pk.size() < 32) continue; // Skip invalid keys
-
-        uint256 pk_hash;
-        memcpy(pk_hash.begin(), pk.data(), 32);
-
-        // XOR into result
-        for (int i = 0; i < 32; i++) {
-            xor_result.begin()[i] ^= pk_hash.begin()[i];
-        }
+        hasher.Write(pk.data(), pk.size());
     }
-
-    return xor_result;
+    uint256 result;
+    hasher.Finalize(result.begin());
+    return result;
 }
 
 /**
@@ -123,21 +121,17 @@ bool pat::CreateLogarithmicProof(
         return PatHash(vMessages[a]) < PatHash(vMessages[b]);
     });
 
-    // Build leaves and XOR binding
+    // Build leaves and collect sorted public keys for hash aggregation
     vector<uint256> leaves(n);
-    uint256 xor_binding = uint256();
+    std::vector<CValType> sorted_pks(n);
     for (uint32_t i = 0; i < n; ++i) {
         uint32_t pos = order[i];
         leaves[i] = LeafHash(i, vSignatures[pos], vPublicKeys[pos], vMessages[pos]);
-
-        uint256 rho;
-        if (vPublicKeys[pos].size() >= 32) {
-            memcpy(rho.begin(), vPublicKeys[pos].data(), 32);
-            for (int k = 0; k < 32; k++) {
-                xor_binding.begin()[k] ^= rho.begin()[k];
-            }
-        }
+        sorted_pks[i] = vPublicKeys[pos];
     }
+
+    // SECURITY (Halborn FIND-007): Hash-based pk aggregation replaces XOR
+    uint256 pk_agg_binding = ComputePkAgg(sorted_pks);
 
     // Standard Merkle tree with power-of-two padding
     size_t tree_size = NextPowerOfTwo(n);
@@ -164,7 +158,7 @@ bool pat::CreateLogarithmicProof(
 
     LogarithmicProof proof;
     proof.merkle_root = tree[1];
-    proof.pk_xor = xor_binding;
+    proof.pk_agg = pk_agg_binding;
 
     // Compute message root from sorted order (matches canonical ordering in Merkle tree)
     std::vector<CValType> sorted_msgs(n);
@@ -176,7 +170,7 @@ bool pat::CreateLogarithmicProof(
 
     vchProofOut.clear();
     vchProofOut.insert(vchProofOut.end(), proof.merkle_root.begin(), proof.merkle_root.end());
-    vchProofOut.insert(vchProofOut.end(), proof.pk_xor.begin(), proof.pk_xor.end());
+    vchProofOut.insert(vchProofOut.end(), proof.pk_agg.begin(), proof.pk_agg.end());
     vchProofOut.insert(vchProofOut.end(), proof.msg_root.begin(), proof.msg_root.end());
     uint32_t le_n = htole32(n);
     vchProofOut.insert(vchProofOut.end(), (uint8_t*)&le_n, (uint8_t*)&le_n + 4);
@@ -190,7 +184,7 @@ bool pat::ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proo
     if (vchProof.size() != 100) return false;
 
     memcpy(proofOut.merkle_root.begin(), vchProof.data(), 32);
-    memcpy(proofOut.pk_xor.begin(), vchProof.data() + 32, 32);
+    memcpy(proofOut.pk_agg.begin(), vchProof.data() + 32, 32);
     memcpy(proofOut.msg_root.begin(), vchProof.data() + 64, 32);
 
     uint32_t le_n;
@@ -221,10 +215,10 @@ bool pat::ParseLogarithmicProof(const CValType& vchProof, LogarithmicProof& proo
  *
  * Security Properties:
  * - Merkle root binding: Ensures all signatures are included and in correct order
- * - XOR binding: Prevents rogue-key attacks where attacker substitutes keys
+ * - Hash aggregation binding (FIND-007): Prevents rogue-key attacks via SHA3-256
  * - Message binding: Commits to all messages, prevents message substitution
  *
- * @param vchProof Serialized 100-byte proof (merkle_root || pk_xor || msg_root || count)
+ * @param vchProof Serialized 100-byte proof (merkle_root || pk_agg || msg_root || count)
  * @param vClaimedSigs Signature commitments (32 bytes each)
  * @param vClaimedPks Public key hashes (32 bytes each)
  * @param vClaimedMsgs Message digests (32 bytes each)
@@ -295,9 +289,9 @@ bool pat::VerifyLogarithmicProof(
         return false;
     }
 
-    // Step 6: Recompute and verify PK XOR binding (using sorted order)
-    uint256 computed_pk_xor = ComputePkXor(sorted_pks);
-    if (computed_pk_xor != proof.pk_xor) {
+    // Step 6 (Halborn FIND-007): Recompute and verify PK hash aggregation
+    uint256 computed_pk_agg = ComputePkAgg(sorted_pks);
+    if (computed_pk_agg != proof.pk_agg) {
         return false;
     }
 
@@ -350,8 +344,8 @@ bool pat::VerifyLogarithmicProof(
     // correct aggregation of keys in the Merkle tree with root 'proof.merkle_root'.
 
     // For v1, we enforce basic consistency checks:
-    // 1. The claimed aggregate public key must match the XOR binding in the proof.
-    //    (Assuming simple XOR aggregation for this prototype phase)
+    // 1. The claimed aggregate public key must match the hash binding in the proof.
+    //    (FIND-007: SHA3-256 hash aggregation replaces XOR)
 
     // SECURITY (Halborn FIND-001): Consistency check in simple verifier.
     // Even though simple mode doesn't allocate based on count, rejecting
@@ -360,9 +354,9 @@ bool pat::VerifyLogarithmicProof(
 
     if (agg_pk.size() != 32) return false;
 
-    // Check if agg_pk matches proof.pk_xor
-    // proof.pk_xor is uint256, agg_pk is CValType (vector)
-    if (memcmp(agg_pk.data(), proof.pk_xor.begin(), 32) != 0) {
+    // Check if agg_pk matches proof.pk_agg
+    // proof.pk_agg is uint256, agg_pk is CValType (vector)
+    if (memcmp(agg_pk.data(), proof.pk_agg.begin(), 32) != 0) {
         return false;
     }
 

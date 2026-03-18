@@ -297,7 +297,7 @@ BOOST_AUTO_TEST_CASE(timestamp_boundary_exactly_2hrs)
  *
  * The PAT tests in pat_tests.cpp already cover:
  * - reject_tampered_merkle_root
- * - reject_tampered_pk_xor
+ * - reject_tampered_pk_agg
  * - reject_tampered_msg_root
  * - reject_wrong_sibling_path
  *
@@ -312,7 +312,7 @@ BOOST_AUTO_TEST_CASE(pat_tests_verification)
     // 4. create_verify_roundtrip_single
     // 5. create_verify_roundtrip_multiple
     // 6. reject_tampered_merkle_root ← PAT commitment mismatch
-    // 7. reject_tampered_pk_xor ← PAT commitment mismatch
+    // 7. reject_tampered_pk_agg ← PAT commitment mismatch
     // 8. reject_tampered_msg_root ← PAT commitment mismatch
     // 9. reject_wrong_sibling_path ← PAT commitment mismatch
     // 10. reject_swapped_signatures

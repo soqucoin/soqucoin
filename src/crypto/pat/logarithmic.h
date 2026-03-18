@@ -14,7 +14,7 @@
  * PROOF FORMAT (100 bytes total)
  * ================================
  * merkle_root (32 bytes): Root of Merkle tree over (idx, sig, pk, msg) tuples
- * pk_xor      (32 bytes): XOR of all public key hashes (prevents key substitution)
+ * pk_agg      (32 bytes): SHA3-256 hash of all public keys (prevents key substitution)
  * msg_root    (32 bytes): Hash of concatenated messages (defense-in-depth)
  * count       (4 bytes):  Number of signatures in batch (little-endian uint32_t)
  *
@@ -38,9 +38,9 @@
  *    - Merkle tree binding ensures all signatures are committed
  *    - Leaf hashes include signature commitments (first 32 bytes)
  *
- * 2. Rogue-key resistance: pk_xor binding prevents key substitution attacks
- *    - Attacker cannot change a public key without breaking pk_xor commitment
- *    - Combined with Merkle root, provides double protection
+ * 2. Rogue-key resistance: pk_agg binding prevents key substitution attacks
+ *    - SHA3-256(pk_1||...||pk_n) is collision-resistant (FIND-007)
+ *    - Attacker cannot change a public key without breaking pk_agg commitment
  *
  * 3. Message binding: msg_root ensures all messages are immutably committed
  *    - Defense-in-depth: even if Merkle tree is compromised, msg_root fails
@@ -128,7 +128,7 @@ typedef std::vector<unsigned char> CValType;
 
 struct LogarithmicProof {
     uint256 merkle_root;
-    uint256 pk_xor;   // XOR of all 32-byte ρ prefixes
+    uint256 pk_agg;   // SHA3-256(pk_1 || pk_2 || ... || pk_n) — FIND-007
     uint256 msg_root; // Root of the message tree (or commitment)
     uint32_t count;   // number of signatures
     // 104 bytes total (32+32+32+4)

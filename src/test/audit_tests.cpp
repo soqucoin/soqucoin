@@ -68,20 +68,20 @@ BOOST_AUTO_TEST_CASE(op_checkpatagg_tests)
     // Test OP_CHECKPATAGG (0xfd)
     // Prototype status:
     // 1. Checks stack size >= 3
-    // 2. Calls VerifyLogarithmicProof (prototype checks XOR binding)
+    // 2. Calls VerifyLogarithmicProof (prototype checks hash aggregation binding)
 
     ScriptError serror;
     BaseSignatureChecker checker;
     unsigned int flags = SCRIPT_VERIFY_LATTICEFOLD;
 
     // Construct valid inputs for the prototype verifier
-    // proof_data: 32 bytes root || 32 bytes xor || 32 bytes msg_root || 4 bytes count
+    // proof_data: 32 bytes root || 32 bytes pk_agg || 32 bytes msg_root || 4 bytes count
     // Total 100 bytes
     std::vector<unsigned char> proof_data(100, 0);
     std::vector<unsigned char> agg_pk(32, 0x11);
     std::vector<unsigned char> msg_root(32, 0x22);
 
-    // Set proof.pk_xor (bytes 32-64) to match agg_pk
+    // Set proof.pk_agg (bytes 32-64) to match agg_pk
     std::copy(agg_pk.begin(), agg_pk.end(), proof_data.begin() + 32);
 
     // Set proof.msg_root (bytes 64-96) to match msg_root
@@ -106,7 +106,7 @@ BOOST_AUTO_TEST_CASE(op_checkpatagg_tests)
             BOOST_CHECK(stack.back()[0] == 1); // Returns true
     }
 
-    // Case 2: Failure (XOR binding mismatch)
+    // Case 2: Failure (hash aggregation binding mismatch)
     {
         std::vector<unsigned char> bad_agg_pk = agg_pk;
         bad_agg_pk[0] ^= 0xff; // Corrupt it

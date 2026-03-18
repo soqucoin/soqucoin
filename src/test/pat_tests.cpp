@@ -27,7 +27,7 @@ BOOST_AUTO_TEST_CASE(proof_parsing_roundtrip)
     BOOST_CHECK(pat::ParseLogarithmicProof(vchProof, proof));
 
     BOOST_CHECK_EQUAL(proof.merkle_root.begin()[0], 0xaa);
-    BOOST_CHECK_EQUAL(proof.pk_xor.begin()[0], 0xbb);
+    BOOST_CHECK_EQUAL(proof.pk_agg.begin()[0], 0xbb);
     BOOST_CHECK_EQUAL(proof.msg_root.begin()[0], 0xcc);
     BOOST_CHECK_EQUAL(proof.count, 1u);
 }
@@ -48,12 +48,12 @@ BOOST_AUTO_TEST_CASE(verify_logic_check)
     // Test VerifyLogarithmicProof (prototype logic)
     pat::LogarithmicProof proof;
     proof.merkle_root = uint256S("0xaa");
-    proof.pk_xor = uint256S("0xbb");
+    proof.pk_agg = uint256S("0xbb");
     proof.msg_root = uint256S("0xcc");
     proof.count = 1;
 
     std::vector<unsigned char> agg_pk(32, 0);
-    agg_pk[0] = 0xbb; // Matches pk_xor (0xbb...)
+    agg_pk[0] = 0xbb; // Matches pk_agg (0xbb...)
 
     std::vector<unsigned char> msg_root(32, 0);
     msg_root[0] = 0xcc; // Matches msg_root (0xcc...)
@@ -146,7 +146,7 @@ BOOST_AUTO_TEST_CASE(reject_tampered_merkle_root)
     BOOST_CHECK(!pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
 }
 
-BOOST_AUTO_TEST_CASE(reject_tampered_pk_xor)
+BOOST_AUTO_TEST_CASE(reject_tampered_pk_agg)
 {
     // Create valid proof
     std::vector<CValType> sigs, pks, msgs;
@@ -159,7 +159,7 @@ BOOST_AUTO_TEST_CASE(reject_tampered_pk_xor)
     CValType proof;
     BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
 
-    // Tamper with pk_xor (byte 32)
+    // Tamper with pk_agg (byte 32)
     proof[32] ^= 0xFF;
 
     // Verification should fail (rogue-key attack detected)
@@ -299,7 +299,7 @@ static CValType MakeProofWithCount(uint32_t count)
     CValType proof(100, 0);
     // Set a non-null merkle_root (byte 0)
     proof[0] = 0xAA;
-    // Set pk_xor (byte 32)
+    // Set pk_agg (byte 32)
     proof[32] = 0xBB;
     // Set msg_root (byte 64)
     proof[64] = 0xCC;
@@ -536,6 +536,72 @@ BOOST_AUTO_TEST_CASE(find005_last_leaf_affects_padding)
     BOOST_CHECK_MESSAGE(
         !pat::VerifyLogarithmicProof(proof_a, sigs_b, pks_b, msgs_b),
         "FIND-005 REGRESSION: proof_a verified with batch_b data");
+}
+
+
+// ==============================
+// HALBORN FIND-007: ROGUE-KEY RESISTANCE TESTS
+// Verify that SHA3-256 hash aggregation prevents rogue-key attacks.
+// With XOR aggregation, an attacker could compute pk_rogue = pk_honest ⊕ pk_target
+// to cancel any honest key. SHA3-256 is collision-resistant.
+// ==============================
+
+BOOST_AUTO_TEST_CASE(find007_rogue_key_rejection)
+{
+    // FIND-007 PoC: Demonstrate that replacing one public key
+    // invalidates the proof (hash aggregation detects key substitution).
+    //
+    // Under XOR: attacker computes pk_rogue = pk[0] ⊕ pk_desired,
+    // then replaces pk[0]. The XOR binding remains unchanged.
+    // Under SHA3-256: ANY key substitution changes the hash.
+
+    std::vector<CValType> sigs, pks, msgs;
+    for (int i = 0; i < 4; i++) {
+        sigs.push_back(CValType(32, 0x10 + i));
+        pks.push_back(CValType(32, 0x20 + i));
+        msgs.push_back(CValType(32, 0x30 + i));
+    }
+
+    CValType proof;
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
+
+    // Verify genuine proof passes
+    BOOST_CHECK(pat::VerifyLogarithmicProof(proof, sigs, pks, msgs));
+
+    // Simulate rogue-key attack: replace pk[0] with attacker's key
+    std::vector<CValType> rogue_pks = pks;
+    rogue_pks[0] = CValType(32, 0xEE); // attacker's chosen key
+
+    // MUST FAIL: SHA3-256(pk_1'||pk_2||pk_3||pk_4) ≠ SHA3-256(pk_1||pk_2||pk_3||pk_4)
+    BOOST_CHECK_MESSAGE(
+        !pat::VerifyLogarithmicProof(proof, sigs, rogue_pks, msgs),
+        "FIND-007 REGRESSION: Rogue key substitution was accepted!");
+}
+
+BOOST_AUTO_TEST_CASE(find007_key_reorder_rejection)
+{
+    // FIND-007: Hash aggregation is order-dependent.
+    // SHA3-256(pk_1||pk_2) ≠ SHA3-256(pk_2||pk_1)
+    // This prevents reorder attacks that XOR cannot detect.
+
+    std::vector<CValType> sigs, pks, msgs;
+    for (int i = 0; i < 4; i++) {
+        sigs.push_back(CValType(32, 0x10 + i));
+        pks.push_back(CValType(32, 0x20 + i));
+        msgs.push_back(CValType(32, 0x30 + i));
+    }
+
+    CValType proof;
+    BOOST_CHECK(pat::CreateLogarithmicProof(sigs, pks, msgs, proof));
+
+    // Swap pk[0] and pk[1] (keep sigs/msgs intact — only pks reordered)
+    std::vector<CValType> reordered_pks = pks;
+    std::swap(reordered_pks[0], reordered_pks[1]);
+
+    // MUST FAIL: hash aggregation is sensitive to key order
+    BOOST_CHECK_MESSAGE(
+        !pat::VerifyLogarithmicProof(proof, sigs, reordered_pks, msgs),
+        "FIND-007: Key reorder was not detected by hash aggregation!");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

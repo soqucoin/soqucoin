@@ -89,7 +89,7 @@ static ProofBundle CreateProofBundle(
     pat::LogarithmicProof proof;
     BOOST_REQUIRE(pat::ParseLogarithmicProof(bundle.proof_data, proof));
 
-    bundle.agg_pk.assign(proof.pk_xor.begin(), proof.pk_xor.end());
+    bundle.agg_pk.assign(proof.pk_agg.begin(), proof.pk_agg.end());
     bundle.msg_root.assign(proof.msg_root.begin(), proof.msg_root.end());
     return bundle;
 }

@@ -30,7 +30,7 @@ void pat_aggregate(fuzzer::FuzzBuffer& buffer) noexcept
     std::memcpy(proof.merkle_root.begin(), data + offset, 32);
     offset += 32;
 
-    std::memcpy(proof.pk_xor.begin(), data + offset, 32);
+    std::memcpy(proof.pk_agg.begin(), data + offset, 32);
     offset += 32;
 
     // Read count (4 bytes)
