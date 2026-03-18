@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <limits>
 
 namespace soqucoin
 {
@@ -248,7 +249,12 @@ std::optional<EncryptedData> EncryptedData::Deserialize(const std::vector<uint8_
                      (uint32_t(data[pos + 2]) << 8) | uint32_t(data[pos + 3]);
     pos += 4;
 
-    if (data.size() < pos + ctLen) {
+    // SECURITY NOTE (Halborn FIND-015): Subtraction-safe bounds check.
+    // Previously: `data.size() < pos + ctLen` — on 32-bit platforms, when
+    // pos=60 and ctLen=0xFFFFFFFF, pos+ctLen wraps to 59, bypassing the check.
+    // Since pos <= data.size() is guaranteed by the sequential parsing above,
+    // data.size() - pos is always non-negative.
+    if (ctLen > data.size() - pos) {
         return std::nullopt;
     }
 
@@ -289,6 +295,14 @@ std::optional<EncryptedData> WalletCrypto::Encrypt(const std::vector<uint8_t>& p
     padded.reserve(plaintext.size() + AES_BLOCKSIZE); // worst case: 16 bytes padding
     padded.assign(plaintext.begin(), plaintext.end());
     padded.insert(padded.end(), padLen, static_cast<uint8_t>(padLen)); // PKCS7 padding
+
+    // SECURITY NOTE (Halborn FIND-014): AES256CBCEncrypt::Encrypt takes int size.
+    // If padded.size() > INT_MAX, implicit conversion wraps to negative.
+    if (padded.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        memory_cleanse(key.data(), key.size());
+        memory_cleanse(padded.data(), padded.size());
+        return std::nullopt;
+    }
 
     // Encrypt using AES-256-CBC
     AES256CBCEncrypt encryptor(key.data(), result.iv.data(), false);
@@ -377,6 +391,14 @@ std::optional<std::vector<uint8_t> > WalletCrypto::Decrypt(
     // ALL exit paths. Previously, error paths (invalid padding, empty buffer)
     // returned without wiping the decrypted buffer, leaving wallet private
     // keys (Dilithium, 2560 bytes each) in freed heap memory.
+
+    // SECURITY NOTE (Halborn FIND-014): AES256CBCDecrypt::Decrypt takes int size.
+    // If ciphertext.size() > INT_MAX, implicit conversion wraps to negative.
+    if (encrypted.ciphertext.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        memory_cleanse(key.data(), key.size());
+        return std::nullopt;
+    }
+
     std::vector<uint8_t> decrypted(encrypted.ciphertext.size());
     AES256CBCDecrypt decryptor(key.data(), encrypted.iv.data(), false);
     decryptor.Decrypt(encrypted.ciphertext.data(), encrypted.ciphertext.size(), decrypted.data());
