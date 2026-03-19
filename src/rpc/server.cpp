@@ -497,16 +497,20 @@ UniValue CRPCTable::execute(const JSONRPCRequest& request) const
 
     try {
         // Execute, convert arguments to array if necessary
+        // SECURITY NOTE (Halborn FIND-030): Previously, both branches returned
+        // directly and the catch block threw, making PostCommand unreachable.
+        // Now captures result so PostCommand fires on the success path.
+        UniValue result;
         if (request.params.isObject()) {
-            return pcmd->actor(transformNamedArguments(request, pcmd->argNames));
+            result = pcmd->actor(transformNamedArguments(request, pcmd->argNames));
         } else {
-            return pcmd->actor(request);
+            result = pcmd->actor(request);
         }
+        g_rpcSignals.PostCommand(*pcmd);
+        return result;
     } catch (const std::exception& e) {
         throw JSONRPCError(RPC_MISC_ERROR, e.what());
     }
-
-    g_rpcSignals.PostCommand(*pcmd);
 }
 
 std::vector<std::string> CRPCTable::listCommands() const
