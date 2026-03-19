@@ -7,6 +7,16 @@
 #include "randombytes.h"
 #include "symmetric.h"
 #include <stdint.h>
+#include <string.h>
+
+/* SECURITY NOTE (Halborn FIND-028): Volatile pointer prevents compiler
+ * from optimizing away the memset as a dead store. Without this, secret
+ * key material (~16KB: seedbuf, s1, s2, t0, y) persists on the stack
+ * after keypair generation and signing operations. */
+static void soqucoin_memcleanse(void *ptr, size_t len) {
+    memset(ptr, 0, len);
+    __asm__ __volatile__("" : : "r"(ptr) : "memory");
+}
 
 /*************************************************
  * Name:        crypto_sign_keypair
@@ -63,6 +73,13 @@ int crypto_sign_keypair(uint8_t* pk, uint8_t* sk)
     /* Compute H(rho, t1) and write secret key */
     shake256(tr, TRBYTES, pk, CRYPTO_PUBLICKEYBYTES);
     pack_sk(sk, rho, tr, key, &t0, &s1, &s2);
+
+    /* Zeroize secret material before return */
+    soqucoin_memcleanse(seedbuf, sizeof(seedbuf));
+    soqucoin_memcleanse(&s1, sizeof(s1));
+    soqucoin_memcleanse(&s1hat, sizeof(s1hat));
+    soqucoin_memcleanse(&s2, sizeof(s2));
+    soqucoin_memcleanse(&t0, sizeof(t0));
 
     return 0;
 }
@@ -186,6 +203,14 @@ rej:
     /* Write signature */
     pack_sig(sig, sig, &z, &h);
     *siglen = CRYPTO_BYTES;
+
+    /* Zeroize secret material before return */
+    soqucoin_memcleanse(seedbuf, sizeof(seedbuf));
+    soqucoin_memcleanse(&s1, sizeof(s1));
+    soqucoin_memcleanse(&s2, sizeof(s2));
+    soqucoin_memcleanse(&t0, sizeof(t0));
+    soqucoin_memcleanse(&y, sizeof(y));
+
     return 0;
 }
 
