@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <cstdio>  // for std::rename, std::remove
 
 namespace soqucoin
 {
@@ -485,15 +486,30 @@ bool WalletCrypto::EncryptFile(const std::string& path, const SecureString& pass
     }
     auto serialized = encrypted->Serialize();
 
-    // Write back
-    std::ofstream outFile(path, std::ios::binary | std::ios::trunc);
-    if (!outFile.is_open()) {
+    // SECURITY NOTE (Halborn FIND-027): Atomic write via temp file + rename.
+    // Previously used ios::trunc which destroys the original file before new
+    // content is written. Power loss during write = permanent key loss.
+    // Pattern: write to .tmp → fsync → rename (atomic on POSIX).
+    std::string tmpPath = path + ".tmp";
+    {
+        std::ofstream outFile(tmpPath, std::ios::binary | std::ios::trunc);
+        if (!outFile.is_open()) {
+            return false;
+        }
+        outFile.write(reinterpret_cast<const char*>(serialized.data()), serialized.size());
+        if (!outFile.good()) {
+            outFile.close();
+            std::remove(tmpPath.c_str());
+            return false;
+        }
+        outFile.flush();
+    }
+    // Atomic rename: old file preserved until this succeeds
+    if (std::rename(tmpPath.c_str(), path.c_str()) != 0) {
+        std::remove(tmpPath.c_str());
         return false;
     }
-
-    outFile.write(reinterpret_cast<const char*>(serialized.data()), serialized.size());
-
-    return outFile.good();
+    return true;
 }
 
 bool WalletCrypto::DecryptFile(const std::string& path, const SecureString& passphrase)
@@ -520,21 +536,33 @@ bool WalletCrypto::DecryptFile(const std::string& path, const SecureString& pass
         return false;
     }
 
-    // Write back
-    std::ofstream outFile(path, std::ios::binary | std::ios::trunc);
-    if (!outFile.is_open()) {
-        // SECURITY NOTE (Halborn FIND-012): Wipe decrypted plaintext even on
-        // output failure. Contains Dilithium secret keys (2560 bytes each).
+    // SECURITY NOTE (Halborn FIND-027): Atomic write via temp file + rename.
+    std::string tmpPath = path + ".tmp";
+    {
+        std::ofstream outFile(tmpPath, std::ios::binary | std::ios::trunc);
+        if (!outFile.is_open()) {
+            memory_cleanse(plaintext->data(), plaintext->size());
+            return false;
+        }
+        outFile.write(reinterpret_cast<const char*>(plaintext->data()), plaintext->size());
+        bool writeOk = outFile.good();
+        outFile.flush();
+        outFile.close();
+
+        // SECURITY NOTE (Halborn FIND-012): Wipe decrypted plaintext after write.
         memory_cleanse(plaintext->data(), plaintext->size());
+
+        if (!writeOk) {
+            std::remove(tmpPath.c_str());
+            return false;
+        }
+    }
+    // Atomic rename: encrypted file preserved until this succeeds
+    if (std::rename(tmpPath.c_str(), path.c_str()) != 0) {
+        std::remove(tmpPath.c_str());
         return false;
     }
-
-    outFile.write(reinterpret_cast<const char*>(plaintext->data()), plaintext->size());
-
-    // SECURITY NOTE (Halborn FIND-012): Wipe decrypted plaintext after write.
-    memory_cleanse(plaintext->data(), plaintext->size());
-
-    return outFile.good();
+    return true;
 }
 
 } // namespace pqwallet
