@@ -198,26 +198,40 @@ UniValue pqestimatefeerate(const JSONRPCRequest& request)
     uint32_t numOutputs = 2;
 
     if (request.params.size() > 0 && !request.params[0].isNull()) {
+        int val;
         if (request.params[0].isNum()) {
-            numInputs = request.params[0].get_int();
+            val = request.params[0].get_int();
         } else {
             try {
-                numInputs = std::stoi(request.params[0].get_str());
+                val = std::stoi(request.params[0].get_str());
             } catch (const std::exception& e) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid num_inputs: must be a number");
             }
         }
+        // SECURITY NOTE (Halborn FIND-020): get_int() returns signed int.
+        // Without validation, -1 wraps to UINT32_MAX when assigned to uint32_t,
+        // causing overflow in fee calculation (numInputs * VerifyCost::DILITHIUM).
+        if (val < 1 || val > 10000)
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                "num_inputs must be between 1 and 10000");
+        numInputs = static_cast<uint32_t>(val);
     }
     if (request.params.size() > 1 && !request.params[1].isNull()) {
+        int val;
         if (request.params[1].isNum()) {
-            numOutputs = request.params[1].get_int();
+            val = request.params[1].get_int();
         } else {
             try {
-                numOutputs = std::stoi(request.params[1].get_str());
+                val = std::stoi(request.params[1].get_str());
             } catch (const std::exception& e) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid num_outputs: must be a number");
             }
         }
+        // SECURITY NOTE (Halborn FIND-020): Same signed→unsigned overflow as num_inputs.
+        if (val < 1 || val > 10000)
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                "num_outputs must be between 1 and 10000");
+        numOutputs = static_cast<uint32_t>(val);
     }
 
     // Calculate verification cost using per-input cost formula
@@ -408,6 +422,14 @@ UniValue pqchannelreserve(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid capacity: must be a number");
         }
     }
+
+    // SECURITY NOTE (Halborn FIND-029): Negative capacity produces negative
+    // maxHtlcInFlight and usable_capacity. Validate positivity and minimum.
+    if (capacity <= 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Channel capacity must be positive");
+    if (capacity < 20000) // BOLT-2 minimum: 20,000 satoshis
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+            "Channel capacity below minimum (20000 satoshis)");
 
     bool isInitiator = true;
     if (request.params.size() > 1 && !request.params[1].isNull()) {
