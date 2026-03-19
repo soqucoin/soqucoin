@@ -554,6 +554,13 @@ void RPCRunLater(const std::string& name, std::function<void(void)> func, int64_
 {
     if (!timerInterface)
         throw JSONRPCError(RPC_INTERNAL_ERROR, "No timer handler registered for RPC");
+    // SECURITY NOTE (Halborn FIND-021): nSeconds * 1000 overflows int64_t for
+    // large values, producing negative/zero ms — timer never fires, wallet
+    // stays unlocked indefinitely. Guard against non-positive and overflow.
+    if (nSeconds <= 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Timer duration must be positive");
+    if (nSeconds > std::numeric_limits<int64_t>::max() / 1000)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Timer duration too large");
     deadlineTimers.erase(name);
     LogPrint("rpc", "queue run of timer %s in %i seconds (using %s)\n", name, nSeconds, timerInterface->Name());
     deadlineTimers.emplace(name, std::unique_ptr<RPCTimerBase>(timerInterface->NewTimer(func, nSeconds * 1000)));
