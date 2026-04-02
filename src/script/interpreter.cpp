@@ -501,8 +501,28 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                          scriptPubKey[1] == 32);
     bool is_op_return = (scriptPubKey.size() > 0 && scriptPubKey[0] == OP_RETURN);
 
-    if (!is_dilithium && !is_op_return) {
+    // BIP141-style future witness version extensibility (v2 through v16).
+    // Consensus-valid with no script validation, enabling future soft forks
+    // to define new script semantics without requiring a hard fork.
+    // This is the same pattern that enabled Bitcoin's Taproot (BIP341) and
+    // Litecoin's MWEB privacy layer to be deployed via soft fork.
+    // Reference: Bitcoin BIP141 section 4 — witness program versioning.
+    bool is_future_witness = (scriptPubKey.size() == 34 &&
+                              scriptPubKey[0] >= OP_2 &&
+                              scriptPubKey[0] <= OP_16 &&
+                              scriptPubKey[1] == 32);
+
+    if (!is_dilithium && !is_op_return && !is_future_witness) {
         return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
+    }
+
+    // Future witness versions: consensus-valid, no validation performed.
+    // SECURITY NOTE: Coins sent to v2-v16 outputs are anyone-can-spend at
+    // the consensus layer until a soft fork adds validation rules for that
+    // version. Standardness policy (IsStandard in policy/policy.cpp) MUST
+    // reject creation and relay of these outputs to prevent premature use.
+    if (is_future_witness) {
+        return set_success(serror);
     }
 
     if (is_op_return) {

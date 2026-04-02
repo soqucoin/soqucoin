@@ -54,6 +54,17 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
     else if (!witnessEnabled && (whichType == TX_WITNESS_V0_KEYHASH || whichType == TX_WITNESS_V0_SCRIPTHASH))
         return false;
 
+    // Reject future witness versions (v2-v16) at policy layer.
+    // These are consensus-valid (anyone-can-spend) but MUST NOT be created
+    // or relayed until the corresponding soft fork activates specific
+    // validation rules for that witness version.
+    // Reference: BIP141 section 4 — prevents premature output creation.
+    if (scriptPubKey.size() == 34 &&
+        scriptPubKey[0] >= 0x52 && scriptPubKey[0] <= 0x60 &&  // OP_2 through OP_16
+        scriptPubKey[1] == 32) {
+        return false;
+    }
+
     return whichType != TX_NONSTANDARD;
 }
 
