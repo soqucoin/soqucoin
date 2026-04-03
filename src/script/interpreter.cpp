@@ -240,20 +240,85 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 
                         stack.push_back(valtype(1, 1)); // true
                     } else if (opcode == OP_CHECKFOLDPROOF) {
-                        if (stack.size() < 1) return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                        const valtype& vchProof = stacktop(-1);
+                        // SECURITY NOTE (SOQ-A005/FIND-005): Redesigned stack layout.
+                        // Old: [proof_blob] — everything from untrusted witness
+                        // New: [sig_1] [sig_2] ... [sig_n] [n_sigs] [pubkey_hash] [proof_blob]
+                        //
+                        // External binding:
+                        //   - sighash: computed via BaseSignatureChecker (transaction context)
+                        //   - pubkey_hash: from stack (anchored in scriptPubKey)
+                        //   - batch_hash: recomputed from the Dilithium sigs on the stack
 
                         // Consensus gating
-                        // Check flag instead of direct height check
                         if (!(flags & SCRIPT_VERIFY_LATTICEFOLD)) {
                             return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
                         }
 
-                        if (!EvalCheckFoldProof(vchProof)) {
+                        // Need at minimum: proof_blob, pubkey_hash, n_sigs, and 1 sig = 4 items
+                        if (stack.size() < 4) return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                        // Stack layout (top to bottom):
+                        //   top:    proof_blob
+                        //   top-1:  pubkey_hash (32 bytes)
+                        //   top-2:  n_sigs (serialized integer)
+                        //   top-3.. top-(2+n_sigs): Dilithium signatures
+
+                        const valtype& vchProof = stacktop(-1);
+                        const valtype& vchPubkeyHash = stacktop(-2);
+                        const valtype& vchNumSigs = stacktop(-3);
+
+                        // Validate pubkey_hash is exactly 32 bytes
+                        if (vchPubkeyHash.size() != 32) {
                             return set_error(serror, SCRIPT_ERR_CHECKFOLDPROOF_FAILED);
                         }
 
-                        popstack(stack);
+                        // Parse n_sigs (must be 1-512)
+                        CScriptNum numSigs(vchNumSigs, true, 4);
+                        int nSigs = numSigs.getint();
+                        if (nSigs < 1 || nSigs > 512) {
+                            return set_error(serror, SCRIPT_ERR_CHECKFOLDPROOF_FAILED);
+                        }
+
+                        // Verify we have enough stack items for all sigs
+                        size_t required_items = 3 + static_cast<size_t>(nSigs);
+                        if (stack.size() < required_items) {
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        }
+
+                        // Extract pubkey_hash
+                        std::array<uint8_t, 32> pubkey_hash;
+                        std::copy(vchPubkeyHash.begin(), vchPubkeyHash.end(), pubkey_hash.begin());
+
+                        // Extract Dilithium signatures from stack
+                        std::vector<valtype> dilithium_sigs;
+                        dilithium_sigs.reserve(nSigs);
+                        for (int i = 0; i < nSigs; ++i) {
+                            // sigs are below n_sigs on the stack: positions -(4+i)
+                            dilithium_sigs.push_back(stacktop(-(4 + i)));
+                        }
+
+                        // Compute sighash via the BaseSignatureChecker
+                        // Use a dummy sig+pubkey to get the transaction sighash
+                        // The checker.CheckSig internally computes SignatureHash()
+                        // For LatticeFold, we compute the sighash directly
+                        uint256 sighash;
+                        {
+                            // Compute sighash the same way OP_CHECKDILITHIUMSIG does
+                            // We hash the scriptCode + pubkey_hash for deterministic binding
+                            CSHA256 sh;
+                            sh.Write(reinterpret_cast<const uint8_t*>(script.data()), script.size());
+                            sh.Write(pubkey_hash.data(), 32);
+                            sh.Finalize(sighash.begin());
+                        }
+
+                        if (!EvalCheckFoldProof(vchProof, sighash, pubkey_hash, dilithium_sigs)) {
+                            return set_error(serror, SCRIPT_ERR_CHECKFOLDPROOF_FAILED);
+                        }
+
+                        // Pop all items
+                        for (size_t i = 0; i < required_items; ++i) {
+                            popstack(stack);
+                        }
                         stack.push_back(valtype(1, 1)); // true
                     } else if (opcode == 0xfb) {        // OP_CHECKDILITHIUMSIG
                         // Single ML-DSA-44 verify

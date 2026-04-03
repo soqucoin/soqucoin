@@ -97,8 +97,10 @@ enum {
     //
     SCRIPT_VERIFY_MINIMALIF = (1U << 13),
 
+    // SECURITY NOTE (SOQ-I001): This flag was originally at (1U << 14), which
+    // collides with SCRIPT_VERIFY_NULLFAIL. Moved to bit 16 to resolve.
     // Enable LatticeFold verification (OP_CHECKFOLDPROOF)
-    SCRIPT_VERIFY_LATTICEFOLD = (1U << 14),
+    SCRIPT_VERIFY_LATTICEFOLD = (1U << 16),
 
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
