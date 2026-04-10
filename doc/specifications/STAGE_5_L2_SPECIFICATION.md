@@ -234,7 +234,7 @@ Unilateral Close:
 
 ## Research Roadmap
 
-### Phase 1: Foundation (Q1 2026 - Ongoing) ✅
+### Phase 1: Foundation (Q2 2026 - Ongoing) ✅
 
 | Deliverable | Owner | Status |
 |-------------|-------|--------|

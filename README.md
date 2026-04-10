@@ -40,7 +40,7 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 | ASIC validation (L7) | ✅ Complete | Nov 24, 2025 |
 | Testnet3 launch | ✅ Complete | Dec 2025 |
 | Stability testing (1200+ blocks) | ✅ Complete | Jan 2, 2026 |
-| Mainnet genesis | 🔄 In Progress | Q1 2026 |
+| Mainnet genesis | 🔄 In Progress | Q2 2026 |
 
 ---
 

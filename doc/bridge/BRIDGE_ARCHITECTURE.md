@@ -125,7 +125,7 @@ We'll communicate this clearly. No one should be caught off-guard by liquidity c
 
 | Phase | Target | Deliverable |
 |-------|--------|-------------|
-| Design | Q1 2026 ✅ | This document, threat model |
+| Design | Q2 2026 ✅ | This document, threat model |
 | Development | Q2 2026 | Wormhole integration, vault contract |
 | Audit | Q2-Q3 2026 | Third-party bridge audit (Halborn Phase 2) |
 | Testnet | Q2-Q3 2026 | Integration testing (after block 100,000) |

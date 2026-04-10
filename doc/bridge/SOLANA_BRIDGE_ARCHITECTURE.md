@@ -118,7 +118,7 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 
 | Phase | Target | Description |
 |-------|--------|-------------|
-| **Design** | Q1 2026 | Architecture finalization ✅ |
+| **Design** | Q2 2026 | Architecture finalization ✅ |
 | **Development** | Q2 2026 | Wormhole integration, vault contract |
 | **Audit** | Q2 2026 | Third-party security review |
 | **Testnet** | Q2-Q3 2026 | Integration testing (after block 100,000) |
@@ -344,7 +344,7 @@ Based on expert analysis, the recommended path is:
 
 | Phase | Timeline | Model | Notes |
 |-------|----------|-------|-------|
-| **Genesis** | Q1 2026 | No pSOQ | Focus on SOQ mining, network stability |
+| **Genesis** | Q2 2026 | No pSOQ | Focus on SOQ mining, network stability |
 | **Early Bridge** | Q2 2026 | Model B | Mining-backed only, limited liquidity |
 | **Mature Bridge** | Q3+ 2026 | Model B | Full liquidity from mining circulation |
 

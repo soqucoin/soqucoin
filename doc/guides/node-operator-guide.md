@@ -1,7 +1,7 @@
 # Soqucoin Node Operator Guide
 
 > **Version**: 2.0 | **Updated**: 2026-01-02
-> **Network**: Testnet3 (Mainnet Q1 2026)
+> **Network**: Testnet3 (Mainnet Q2 2026)
 > **Consensus**: Scrypt PoW + AuxPoW
 
 ---

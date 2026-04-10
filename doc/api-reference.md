@@ -1,7 +1,7 @@
 # Soqucoin RPC API Reference
 
 > **Version**: 2.0 | **Updated**: 2026-01-02
-> **Network**: Testnet3 (Mainnet Q1 2026)
+> **Network**: Testnet3 (Mainnet Q2 2026)
 > **Default RPC Port**: 44555
 
 ---

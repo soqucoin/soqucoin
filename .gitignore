@@ -174,3 +174,4 @@ soqu-web/
 test_data/scripts/
 test_data/*_dashboard.html
 design-log/
+GEMINI.md

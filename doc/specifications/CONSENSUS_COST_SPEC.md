@@ -456,7 +456,7 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 
 | Stage | Height | ~Calendar | Features | Rationale |
 |-------|--------|-----------|----------|-----------|
-| **Genesis** | 0 | Q1 2026 | Dilithium signatures, PAT aggregation, AuxPoW | Core PQ identity (transparent) |
+| **Genesis** | 0 | Q2 2026 | Dilithium signatures, PAT aggregation, AuxPoW | Core PQ identity (transparent) |
 | **Stage 1 (Opt-In)** | 50,000 | +~35 days | Bulletproofs++ range proofs | Optional privacy primitive |
 | **Stage 2** | 100,000 | +~69 days | LatticeFold+ batch verification | Scaling optimization |
 | **Stage 3 (Opt-In)** | v0.22 | TBD | Lattice-BP Hybrid | Full PQ privacy + CT |
@@ -549,7 +549,7 @@ Soqucoin uses **staged consensus activation** to minimize launch risk. Novel cry
 
 | Network | Genesis | Chain ID | BP++ Activation | LatticeFold Activation |
 |---------|---------|----------|-----------------|------------------------|
-| Mainnet | Q1 2026 | 0x5351 | Height 50,000 | Height 100,000 |
+| Mainnet | Q2 2026 | 0x5351 | Height 50,000 | Height 100,000 |
 | **Stagenet** | Jan 5, 2026 | 0x5351 | Height 50,000 | Height 100,000 |
 | Testnet3 | Dec 2025 | 0x5351 | Genesis (all features) | Genesis (all features) |
 
