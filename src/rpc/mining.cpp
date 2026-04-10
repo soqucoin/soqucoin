@@ -35,6 +35,14 @@
 
 using namespace std;
 
+// SOQ-INFRA-001: Mutex to serialize access to the static getblocktemplate cache.
+// The GBT handler uses static variables (pindexPrev, pblocktemplate) that are
+// shared across all HTTP worker threads. Without this mutex, concurrent RPC calls
+// can null-dereference pindexPrev during template regeneration.
+// Bug exists identically in Dogecoin v1.14.9. Litecoin v0.21.4 has partial mitigation.
+// SECURITY NOTE: Pre-mainnet critical fix. See PRE-MAINNET-MINING-FIXES.md
+static CCriticalSection cs_blocktemplate;
+
 /**
  * Return average network hashes per second based on the last 'lookup' blocks,
  * or from the last difficulty change if 'lookup' is nonpositive.
@@ -544,6 +552,11 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     bool fSupportsSegwit = setClientRules.find(segwit_info.name) != setClientRules.end();
 
     // Update block
+    // SOQ-INFRA-001: All access to the static template cache must be serialized.
+    // Without this lock, concurrent HTTP worker threads can null-dereference
+    // pindexPrev during template regeneration (SEGFAULT at offset 0x18).
+    LOCK(cs_blocktemplate);
+
     static CBlockIndex* pindexPrev;
     static int64_t nStart;
     static std::unique_ptr<CBlockTemplate> pblocktemplate;
@@ -571,6 +584,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
         // Need to update only after we know CreateNewBlock succeeded
         pindexPrev = pindexPrevNew;
     }
+    // SOQ-INFRA-001: pindexPrev dereference is now safe — we hold cs_blocktemplate
     CBlock* pblock = &pblocktemplate->block; // pointer for convenience
     const Consensus::Params& consensusParams = Params().GetConsensus(pindexPrev->nHeight + 1);
 
@@ -784,6 +798,12 @@ UniValue submitblock(const JSONRPCRequest& request)
 
     submitblock_StateCatcher sc(block.GetHash());
     RegisterValidationInterface(&sc);
+
+    // SOQ-INFRA-001b: Serialize block processing to prevent concurrent
+    // DisconnectBlock/ConnectBlock races that corrupt the UTXO cache.
+    // Without this, two submitblock calls can trigger parallel chain
+    // reorganizations, causing null dereference in CCoins::IsPruned().
+    LOCK(cs_blocktemplate);
     bool fAccepted = ProcessNewBlock(Params(), blockptr, true, NULL);
     // Wait for all validation interface callbacks to complete
     SyncWithValidationInterfaceQueue();

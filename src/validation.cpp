@@ -1526,6 +1526,17 @@ bool ApplyTxInUndo(const CTxInUndo& undo, CCoinsViewCache& view, const COutPoint
     bool fClean = true;
 
     CCoinsModifier coins = view.ModifyCoins(out.hash);
+
+    // SECURITY NOTE: Defensive null guard (SOQ-INFRA-005)
+    // The CCoinsModifier wraps a boost::unordered_map iterator. Under high-frequency
+    // block processing, map rehashes can invalidate iterators, causing operator->()
+    // to return a dangling pointer. This guard prevents SEGFAULT by detecting invalid
+    // state and aborting the undo operation cleanly instead of crashing.
+    if (coins.operator->() == nullptr) {
+        error("%s: coins modifier returned null for %s — possible UTXO cache corruption, skipping undo", __func__, out.hash.ToString());
+        return false;
+    }
+
     if (undo.nHeight != 0) {
         // undo data contains height: this is the last output of the prevout tx being spent
         if (!coins->IsPruned())
@@ -1546,6 +1557,7 @@ bool ApplyTxInUndo(const CTxInUndo& undo, CCoinsViewCache& view, const COutPoint
 
     return fClean;
 }
+
 
 bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockIndex* pindex, CCoinsViewCache& view, bool* pfClean)
 {
@@ -1575,6 +1587,14 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
         // exactly.
         {
             CCoinsModifier outs = view.ModifyCoins(hash);
+
+            // SECURITY NOTE: Defensive null guard (SOQ-INFRA-005)
+            if (outs.operator->() == nullptr) {
+                error("DisconnectBlock(): coins modifier returned null for %s — possible UTXO cache corruption", hash.ToString());
+                fClean = false;
+                continue;  // Skip this tx, try to recover
+            }
+
             outs->ClearUnspendable();
 
             CCoins outsBlock(tx, pindex->nHeight);
