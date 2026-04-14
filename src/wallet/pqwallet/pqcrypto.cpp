@@ -7,6 +7,7 @@
 #include "crypto/hmac_sha256.h"
 #include "random.h"
 #include "support/cleanse.h"
+#include "util.h" // LogPrintf for FIND-009 diagnostic messages
 
 #include <cstring>
 #include <fstream>
@@ -36,122 +37,234 @@ static const uint32_t WALLET_VERSION = 2;
 // KDF version marker (legacy — see KDF_ID_* constants in pqcrypto.h for v2 format)
 static constexpr uint32_t KDF_VERSION = 2;
 
-std::optional<std::pair<std::array<uint8_t, AES_KEY_SIZE>, uint8_t>> WalletCrypto::DeriveKey(
+// IMPORTANT (FIND-009 — future consideration): KDF parameters (iteration counts,
+// memory costs, parallelism) are hardcoded constants and NOT persisted in the wallet
+// file. This is acceptable pre-mainnet because the constants will not change before
+// launch. If OWASP updates KDF recommendations post-mainnet, a wallet format v3
+// bump will be required to persist parameters alongside the KDF ID. See Bitcoin
+// Core's CMasterKey pattern: nDeriveIterations + vchOtherDerivationParameters.
+
+//=============================================================================
+// KDF-specific derivation helpers
+// Extracted from the original monolithic DeriveKey to support both:
+//   - 2-arg auto-detect (encrypt path): tries all KDFs in cascade
+//   - 3-arg targeted (decrypt path): uses ONLY the stored KDF (FIND-009 fix)
+//=============================================================================
+
+std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DeriveArgon2id(
     const SecureString& passphrase,
     const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
 {
     std::array<uint8_t, AES_KEY_SIZE> derivedKey{};
-
-    // Try Argon2id first (OpenSSL 3.x)
     EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "ARGON2ID", nullptr);
-    if (kdf) {
-        EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(kdf);
-        if (ctx) {
-            // Set Argon2id parameters per OWASP recommendations
-            uint32_t t_cost = ARGON2_TIME_COST;   // 3 iterations
-            uint32_t m_cost = ARGON2_MEMORY_COST; // 64 MB
-            uint32_t p_cost = ARGON2_PARALLELISM; // 4 threads
+    if (!kdf) return std::nullopt;
 
-            OSSL_PARAM params[] = {
-                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
-                    const_cast<char*>(passphrase.c_str()), passphrase.size()),
-                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
-                    const_cast<uint8_t*>(salt.data()), salt.size()),
-                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &t_cost),
-                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &m_cost),
-                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &p_cost),
-                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &p_cost),
-                OSSL_PARAM_END};
-
-            if (EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0) {
-                EVP_KDF_CTX_free(ctx);
-                EVP_KDF_free(kdf);
-                // SECURITY NOTE (FIND-026): Caller receives copy; we cleanse our local
-                auto result = std::make_pair(derivedKey, KDF_ID_ARGON2ID);
-                memory_cleanse(derivedKey.data(), derivedKey.size());
-                return result;
-            }
-            EVP_KDF_CTX_free(ctx);
-        }
+    EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(kdf);
+    if (!ctx) {
         EVP_KDF_free(kdf);
+        return std::nullopt;
     }
 
-    // Fallback: scrypt (also memory-hard, widely available)
-    EVP_KDF* scrypt = EVP_KDF_fetch(nullptr, "SCRYPT", nullptr);
-    if (scrypt) {
-        EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(scrypt);
-        if (ctx) {
-            uint64_t n = 1 << 15; // N = 32768 (CPU/memory cost)
-            uint32_t r = 8;       // Block size
-            uint32_t p = 1;       // Parallelization
+    uint32_t t_cost = ARGON2_TIME_COST;   // 3 iterations
+    uint32_t m_cost = ARGON2_MEMORY_COST; // 64 MB
+    uint32_t p_cost = ARGON2_PARALLELISM; // 4 threads
 
-            OSSL_PARAM params[] = {
-                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
-                    const_cast<char*>(passphrase.c_str()), passphrase.size()),
-                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
-                    const_cast<uint8_t*>(salt.data()), salt.size()),
-                OSSL_PARAM_construct_uint64(OSSL_KDF_PARAM_SCRYPT_N, &n),
-                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_SCRYPT_R, &r),
-                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_SCRYPT_P, &p),
-                OSSL_PARAM_END};
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
+            const_cast<char*>(passphrase.c_str()), passphrase.size()),
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
+            const_cast<uint8_t*>(salt.data()), salt.size()),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &t_cost),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_MEMCOST, &m_cost),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_THREADS, &p_cost),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ARGON2_LANES, &p_cost),
+        OSSL_PARAM_END};
 
-            if (EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0) {
-                EVP_KDF_CTX_free(ctx);
-                EVP_KDF_free(scrypt);
-                // SECURITY NOTE (FIND-026): Cleanse local before return
-                auto result = std::make_pair(derivedKey, KDF_ID_SCRYPT);
-                memory_cleanse(derivedKey.data(), derivedKey.size());
-                return result;
-            }
-            EVP_KDF_CTX_free(ctx);
-        }
-        EVP_KDF_free(scrypt);
+    bool success = EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0;
+    EVP_KDF_CTX_free(ctx);
+    EVP_KDF_free(kdf);
+
+    if (!success) {
+        memory_cleanse(derivedKey.data(), derivedKey.size());
+        return std::nullopt;
+    }
+    return derivedKey;
+}
+
+std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DeriveScrypt(
+    const SecureString& passphrase,
+    const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
+{
+    std::array<uint8_t, AES_KEY_SIZE> derivedKey{};
+    EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "SCRYPT", nullptr);
+    if (!kdf) return std::nullopt;
+
+    EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(kdf);
+    if (!ctx) {
+        EVP_KDF_free(kdf);
+        return std::nullopt;
     }
 
-    // Last resort: PBKDF2 (not memory-hard but better than nothing)
-    EVP_KDF* pbkdf2 = EVP_KDF_fetch(nullptr, "PBKDF2", nullptr);
-    if (pbkdf2) {
-        EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(pbkdf2);
-        if (ctx) {
-            uint32_t iterations = 600000; // OWASP 2023 for SHA256
+    uint64_t n = 1 << 15; // N = 32768 (CPU/memory cost)
+    uint32_t r = 8;       // Block size
+    uint32_t p = 1;       // Parallelization
 
-            OSSL_PARAM params[] = {
-                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
-                    const_cast<char*>(passphrase.c_str()), passphrase.size()),
-                OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
-                    const_cast<uint8_t*>(salt.data()), salt.size()),
-                OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &iterations),
-                OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST,
-                    const_cast<char*>("SHA256"), 0),
-                OSSL_PARAM_END};
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
+            const_cast<char*>(passphrase.c_str()), passphrase.size()),
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
+            const_cast<uint8_t*>(salt.data()), salt.size()),
+        OSSL_PARAM_construct_uint64(OSSL_KDF_PARAM_SCRYPT_N, &n),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_SCRYPT_R, &r),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_SCRYPT_P, &p),
+        OSSL_PARAM_END};
 
-            if (EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0) {
-                EVP_KDF_CTX_free(ctx);
-                EVP_KDF_free(pbkdf2);
-                // SECURITY NOTE (FIND-008): Defense-in-depth — verify key is non-zero
-                bool allZero = true;
-                for (size_t i = 0; i < derivedKey.size(); ++i) {
-                    if (derivedKey[i] != 0) { allZero = false; break; }
-                }
-                if (allZero) {
-                    memory_cleanse(derivedKey.data(), derivedKey.size());
-                    return std::nullopt;
-                }
-                // SECURITY NOTE (FIND-026): Cleanse local before return
-                auto result = std::make_pair(derivedKey, KDF_ID_PBKDF2);
-                memory_cleanse(derivedKey.data(), derivedKey.size());
-                return result;
-            }
-            EVP_KDF_CTX_free(ctx);
-        }
-        EVP_KDF_free(pbkdf2);
+    bool success = EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0;
+    EVP_KDF_CTX_free(ctx);
+    EVP_KDF_free(kdf);
+
+    if (!success) {
+        memory_cleanse(derivedKey.data(), derivedKey.size());
+        return std::nullopt;
+    }
+    return derivedKey;
+}
+
+std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DerivePbkdf2(
+    const SecureString& passphrase,
+    const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
+{
+    std::array<uint8_t, AES_KEY_SIZE> derivedKey{};
+    EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "PBKDF2", nullptr);
+    if (!kdf) return std::nullopt;
+
+    EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(kdf);
+    if (!ctx) {
+        EVP_KDF_free(kdf);
+        return std::nullopt;
+    }
+
+    uint32_t iterations = 600000; // OWASP 2023 for SHA256
+
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_PASSWORD,
+            const_cast<char*>(passphrase.c_str()), passphrase.size()),
+        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
+            const_cast<uint8_t*>(salt.data()), salt.size()),
+        OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &iterations),
+        OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST,
+            const_cast<char*>("SHA256"), 0),
+        OSSL_PARAM_END};
+
+    bool success = EVP_KDF_derive(ctx, derivedKey.data(), derivedKey.size(), params) > 0;
+    EVP_KDF_CTX_free(ctx);
+    EVP_KDF_free(kdf);
+
+    if (!success) {
+        memory_cleanse(derivedKey.data(), derivedKey.size());
+        return std::nullopt;
+    }
+
+    // SECURITY NOTE (FIND-008): Defense-in-depth — verify key is non-zero
+    bool allZero = true;
+    for (size_t i = 0; i < derivedKey.size(); ++i) {
+        if (derivedKey[i] != 0) { allZero = false; break; }
+    }
+    if (allZero) {
+        memory_cleanse(derivedKey.data(), derivedKey.size());
+        return std::nullopt;
+    }
+    return derivedKey;
+}
+
+//=============================================================================
+// DeriveKey — 2-arg auto-detect overload (ENCRYPT path)
+// Tries Argon2id → scrypt → PBKDF2 in cascade. Returns whichever succeeds.
+//=============================================================================
+
+std::optional<std::pair<std::array<uint8_t, AES_KEY_SIZE>, uint8_t>> WalletCrypto::DeriveKey(
+    const SecureString& passphrase,
+    const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
+{
+    // Try Argon2id first (OpenSSL 3.2+, OWASP recommended)
+    if (auto key = DeriveArgon2id(passphrase, salt)) {
+        auto result = std::make_pair(*key, KDF_ID_ARGON2ID);
+        memory_cleanse(key->data(), key->size()); // FIND-026: cleanse local
+        return result;
+    }
+
+    // Fallback: scrypt (memory-hard, widely available)
+    if (auto key = DeriveScrypt(passphrase, salt)) {
+        auto result = std::make_pair(*key, KDF_ID_SCRYPT);
+        memory_cleanse(key->data(), key->size());
+        return result;
+    }
+
+    // Last resort: PBKDF2 (not memory-hard but universally available)
+    if (auto key = DerivePbkdf2(passphrase, salt)) {
+        auto result = std::make_pair(*key, KDF_ID_PBKDF2);
+        memory_cleanse(key->data(), key->size());
+        return result;
     }
 
     // SECURITY NOTE (Halborn FIND-008): All 3 KDFs failed.
     // Return nullopt instead of zero key to prevent wallet encryption
     // with trivially brutable key.
-    memory_cleanse(derivedKey.data(), derivedKey.size());
     return std::nullopt;
+}
+
+//=============================================================================
+// DeriveKey — 3-arg targeted overload (DECRYPT path)
+// Uses ONLY the specified KDF. Fails explicitly if unavailable.
+// SECURITY NOTE (Halborn FIND-009): Prevents cross-platform key mismatch.
+//=============================================================================
+
+std::optional<std::pair<std::array<uint8_t, AES_KEY_SIZE>, uint8_t>> WalletCrypto::DeriveKey(
+    const SecureString& passphrase,
+    const std::array<uint8_t, ARGON2_SALT_SIZE>& salt,
+    uint8_t required_kdf_id)
+{
+    std::optional<std::array<uint8_t, AES_KEY_SIZE>> key;
+
+    switch (required_kdf_id) {
+        case KDF_ID_ARGON2ID:
+            key = DeriveArgon2id(passphrase, salt);
+            if (!key) {
+                LogPrintf("ERROR: Wallet was encrypted with Argon2id (KDF ID %d) but "
+                          "Argon2id is not available on this system. This typically "
+                          "means OpenSSL < 3.2 is installed. Cannot decrypt wallet. "
+                          "Upgrade to OpenSSL 3.2+ to access this wallet.\n",
+                          required_kdf_id);
+            }
+            break;
+        case KDF_ID_SCRYPT:
+            key = DeriveScrypt(passphrase, salt);
+            if (!key) {
+                LogPrintf("ERROR: Wallet was encrypted with scrypt (KDF ID %d) but "
+                          "scrypt is not available on this system. Cannot decrypt "
+                          "wallet.\n", required_kdf_id);
+            }
+            break;
+        case KDF_ID_PBKDF2:
+            key = DerivePbkdf2(passphrase, salt);
+            if (!key) {
+                LogPrintf("ERROR: Wallet was encrypted with PBKDF2 (KDF ID %d) but "
+                          "PBKDF2 derivation failed. Cannot decrypt wallet.\n",
+                          required_kdf_id);
+            }
+            break;
+        default:
+            LogPrintf("ERROR: Wallet file contains unknown KDF ID %d. "
+                      "This wallet may have been created by a newer version of "
+                      "Soqucoin. Cannot decrypt.\n", required_kdf_id);
+            return std::nullopt;
+    }
+
+    if (!key) return std::nullopt;
+
+    auto result = std::make_pair(*key, required_kdf_id);
+    memory_cleanse(key->data(), key->size()); // FIND-026: cleanse local
+    return result;
 }
 
 //=============================================================================
@@ -348,12 +461,30 @@ std::optional<std::vector<uint8_t> > WalletCrypto::Decrypt(
     const EncryptedData& encrypted,
     const SecureString& passphrase)
 {
-    // Derive key (FIND-008: returns nullopt on total failure)
-    auto keyResult = DeriveKey(passphrase, encrypted.salt);
+    // SECURITY NOTE (Halborn FIND-009): Use the STORED kdf_id to derive the key.
+    // The 2-arg auto-detect overload must NOT be used on the decrypt path — if
+    // OpenSSL KDF availability changed since encryption (e.g., Argon2id became
+    // available after an OS upgrade to OpenSSL 3.2+), the auto-detect cascade
+    // would pick a different KDF, produce a different key from the same passphrase
+    // and salt, and the wallet would be permanently unreadable.
+    // The 3-arg overload uses ONLY the stored KDF, failing explicitly with a
+    // diagnostic log message if that specific KDF is unavailable on this system.
+    auto keyResult = DeriveKey(passphrase, encrypted.salt, encrypted.kdf_id);
     if (!keyResult) {
-        return std::nullopt; // All KDFs failed
+        return std::nullopt; // Required KDF unavailable or derivation failed
     }
     auto& [key, kdfId] = *keyResult;
+
+    // SECURITY NOTE (FIND-009 defense-in-depth): Verify the KDF we used matches
+    // the file's stored kdf_id. Should always be true when using the 3-arg overload,
+    // but catches implementation bugs in the helper functions.
+    if (kdfId != encrypted.kdf_id) {
+        LogPrintf("CRITICAL: KDF mismatch in Decrypt — file expects KDF ID %d, "
+                  "derivation used KDF ID %d. This indicates an implementation bug.\n",
+                  encrypted.kdf_id, kdfId);
+        memory_cleanse(key.data(), key.size());
+        return std::nullopt;
+    }
 
     // SECURITY NOTE (Halborn FIND-016): Verify HMAC over full header.
     // HMAC-SHA256(key, version || kdf_id || salt || iv || ciphertext)

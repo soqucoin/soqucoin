@@ -106,10 +106,44 @@ public:
      * SECURITY NOTE (Halborn FIND-008): Returns nullopt instead of all-zero key
      * when all 3 KDFs fail. Defense-in-depth: verifies derived key is non-zero.
      * SECURITY NOTE (Halborn FIND-026): Cleanses derived key on stack before return.
+     *
+     * This overload auto-detects the best available KDF. Use for ENCRYPTION only.
      */
     static std::optional<std::pair<std::array<uint8_t, AES_KEY_SIZE>, uint8_t>> DeriveKey(
         const SecureString& passphrase,
         const std::array<uint8_t, ARGON2_SALT_SIZE>& salt);
+
+    /**
+     * @brief Derive encryption key using a SPECIFIC KDF (decrypt path)
+     * @param passphrase User passphrase (FIND-025: SecureString)
+     * @param salt Random salt from stored wallet file
+     * @param required_kdf_id KDF algorithm ID read from wallet file header
+     * @return {256-bit derived key, kdf_id} or nullopt if required KDF unavailable
+     *
+     * SECURITY NOTE (Halborn FIND-009): This overload does NOT fall back to other
+     * KDFs. If the required KDF is unavailable on this system, it returns nullopt
+     * with a diagnostic log message. This prevents the cross-platform key mismatch
+     * where an OS upgrade (e.g., OpenSSL 3.0 → 3.2) changes KDF availability,
+     * causing DeriveKey to silently select a different KDF and produce a different
+     * key from the same passphrase — permanently bricking the wallet.
+     *
+     * Use for DECRYPTION only. The encrypt path should use the 2-arg auto-detect.
+     */
+    static std::optional<std::pair<std::array<uint8_t, AES_KEY_SIZE>, uint8_t>> DeriveKey(
+        const SecureString& passphrase,
+        const std::array<uint8_t, ARGON2_SALT_SIZE>& salt,
+        uint8_t required_kdf_id);
+
+private:
+    // KDF-specific derivation helpers (shared by both DeriveKey overloads)
+    // Extracted to eliminate code duplication between auto-detect and targeted paths.
+    // Each returns the raw derived key or nullopt if that specific KDF is unavailable.
+    static std::optional<std::array<uint8_t, AES_KEY_SIZE>> DeriveArgon2id(
+        const SecureString& passphrase, const std::array<uint8_t, ARGON2_SALT_SIZE>& salt);
+    static std::optional<std::array<uint8_t, AES_KEY_SIZE>> DeriveScrypt(
+        const SecureString& passphrase, const std::array<uint8_t, ARGON2_SALT_SIZE>& salt);
+    static std::optional<std::array<uint8_t, AES_KEY_SIZE>> DerivePbkdf2(
+        const SecureString& passphrase, const std::array<uint8_t, ARGON2_SALT_SIZE>& salt);
 
     /**
      * @brief Encrypt wallet file in-place
