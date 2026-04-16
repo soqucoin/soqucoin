@@ -43,7 +43,13 @@
 #endif
 #endif
 
-#if !defined(__FreeBSD__) && !defined(__APPLE__)
+// be32dec/be32enc: FreeBSD and macOS 26+ have them in <sys/endian.h>.
+// On older macOS, Linux, Windows — use portable fallback.
+#if defined(__FreeBSD__)
+// FreeBSD always provides via sys/endian.h (included by scrypt.h)
+#elif defined(__APPLE__) && __has_include(<sys/endian.h>)
+// macOS 26+ SDK provides be32dec/be32enc transitively
+#else
 static inline uint32_t be32dec(const void* pp)
 {
     const uint8_t* p = (uint8_t const*)pp;

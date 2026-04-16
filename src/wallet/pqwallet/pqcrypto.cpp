@@ -29,10 +29,67 @@ static const uint32_t WALLET_VERSION = 2;
 // Fallback to scrypt if Argon2 not available, then PBKDF2 as last resort
 //=============================================================================
 
-#include <openssl/core_names.h>
+// OpenSSL headers — the EVP_KDF API requires OpenSSL 3.0+.
+// The depends/ system for Windows cross-compile uses OpenSSL 1.0.2u,
+// which lacks kdf.h, params.h, and the entire OSSL_PARAM infrastructure.
 #include <openssl/evp.h>
+#include <openssl/opensslv.h>
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+// OpenSSL 3.x: full KDF API available
 #include <openssl/kdf.h>
 #include <openssl/params.h>
+#define HAVE_OPENSSL3_KDF 1
+#else
+// OpenSSL 1.x/2.x: no EVP_KDF API. All three DeriveXxx() helpers will
+// return nullopt, and DeriveKey will return nullopt (all KDFs failed).
+// This is safe because wallet encryption simply won't be available on
+// platforms with legacy OpenSSL. The node still runs fine.
+#define HAVE_OPENSSL3_KDF 0
+#endif
+
+// openssl/core_names.h was added in OpenSSL 3.0, but Argon2 KDF param
+// constants (OSSL_KDF_PARAM_ARGON2_*) were added in OpenSSL 3.2.
+// On CI runners (Ubuntu 22.04 ships 3.0.x, mingw-w64 may be 1.1.1),
+// either the header or the constants may be missing.
+#if __has_include(<openssl/core_names.h>)
+#include <openssl/core_names.h>
+#endif
+
+// Fallback definitions for KDF param names.
+// These are string constants — if the runtime OpenSSL doesn't support
+// the Argon2 provider, EVP_KDF_fetch("ARGON2ID") returns NULL and
+// DeriveArgon2id() correctly returns nullopt, falling through to scrypt/PBKDF2.
+#ifndef OSSL_KDF_PARAM_PASSWORD
+#define OSSL_KDF_PARAM_PASSWORD    "pass"
+#endif
+#ifndef OSSL_KDF_PARAM_SALT
+#define OSSL_KDF_PARAM_SALT        "salt"
+#endif
+#ifndef OSSL_KDF_PARAM_ITER
+#define OSSL_KDF_PARAM_ITER        "iter"
+#endif
+#ifndef OSSL_KDF_PARAM_DIGEST
+#define OSSL_KDF_PARAM_DIGEST      "digest"
+#endif
+#ifndef OSSL_KDF_PARAM_THREADS
+#define OSSL_KDF_PARAM_THREADS     "threads"
+#endif
+#ifndef OSSL_KDF_PARAM_ARGON2_MEMCOST
+#define OSSL_KDF_PARAM_ARGON2_MEMCOST  "memcost"
+#endif
+#ifndef OSSL_KDF_PARAM_ARGON2_LANES
+#define OSSL_KDF_PARAM_ARGON2_LANES    "lanes"
+#endif
+#ifndef OSSL_KDF_PARAM_SCRYPT_N
+#define OSSL_KDF_PARAM_SCRYPT_N    "n"
+#endif
+#ifndef OSSL_KDF_PARAM_SCRYPT_R
+#define OSSL_KDF_PARAM_SCRYPT_R    "r"
+#endif
+#ifndef OSSL_KDF_PARAM_SCRYPT_P
+#define OSSL_KDF_PARAM_SCRYPT_P    "p"
+#endif
 
 // KDF version marker (legacy — see KDF_ID_* constants in pqcrypto.h for v2 format)
 static constexpr uint32_t KDF_VERSION = 2;
@@ -55,6 +112,7 @@ std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DeriveArgon2id(
     const SecureString& passphrase,
     const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
 {
+#if HAVE_OPENSSL3_KDF
     std::array<uint8_t, AES_KEY_SIZE> derivedKey{};
     EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "ARGON2ID", nullptr);
     if (!kdf) return std::nullopt;
@@ -89,12 +147,16 @@ std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DeriveArgon2id(
         return std::nullopt;
     }
     return derivedKey;
+#else
+    return std::nullopt; // EVP_KDF API unavailable on this OpenSSL version
+#endif
 }
 
 std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DeriveScrypt(
     const SecureString& passphrase,
     const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
 {
+#if HAVE_OPENSSL3_KDF
     std::array<uint8_t, AES_KEY_SIZE> derivedKey{};
     EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "SCRYPT", nullptr);
     if (!kdf) return std::nullopt;
@@ -128,12 +190,16 @@ std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DeriveScrypt(
         return std::nullopt;
     }
     return derivedKey;
+#else
+    return std::nullopt; // EVP_KDF API unavailable on this OpenSSL version
+#endif
 }
 
 std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DerivePbkdf2(
     const SecureString& passphrase,
     const std::array<uint8_t, ARGON2_SALT_SIZE>& salt)
 {
+#if HAVE_OPENSSL3_KDF
     std::array<uint8_t, AES_KEY_SIZE> derivedKey{};
     EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "PBKDF2", nullptr);
     if (!kdf) return std::nullopt;
@@ -175,6 +241,9 @@ std::optional<std::array<uint8_t, AES_KEY_SIZE>> WalletCrypto::DerivePbkdf2(
         return std::nullopt;
     }
     return derivedKey;
+#else
+    return std::nullopt; // EVP_KDF API unavailable on this OpenSSL version
+#endif
 }
 
 //=============================================================================
