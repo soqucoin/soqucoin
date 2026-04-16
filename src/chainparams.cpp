@@ -116,6 +116,7 @@ public:
         consensus.nPowTargetSpacing = 60;                                                                    // 1 minute
         consensus.fDigishieldDifficultyCalculation = false;
         consensus.nCoinbaseMaturity = 30;
+        consensus.fSimplifiedRewards = true; // Fixed 500K SOQ/block from genesis (no Dogecoin random rewards)
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowAllowDigishieldMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
