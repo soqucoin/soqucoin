@@ -71,7 +71,7 @@ jobs:
           sudo swapoff /swapfile 2>/dev/null || true
           sudo rm -f /swapfile
           # Add swap for QEMU memory needs (fallocate may fail on some filesystems)
-          sudo fallocate -l 8G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1G count=8
+          sudo fallocate -l 12G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1G count=12
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
@@ -92,7 +92,9 @@ jobs:
               libevent-dev libboost-all-dev libminiupnpc-dev \
               libzmq3-dev libsqlite3-dev libdb++-dev
             ./autogen.sh
-            ./configure --without-gui --disable-tests --disable-bench
+            # --disable-wallet: PQ wallet encryption not needed for miners
+            # CXXFLAGS="-O1": reduce compiler memory usage under QEMU emulation
+            CXXFLAGS="-O1" ./configure --without-gui --disable-tests --disable-bench --disable-wallet
             make -j1
       
       - name: Package

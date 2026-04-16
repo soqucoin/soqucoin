@@ -659,6 +659,13 @@ bool WalletCrypto::IsEncrypted(const std::string& path)
     return file.good() && std::memcmp(magic, WALLET_MAGIC, 4) == 0;
 }
 
+// Windows <windows.h> may be transitively re-included after our header's
+// #undef. Defensively undef again right before our method definitions.
+#ifdef WIN32
+#undef EncryptFile
+#undef DecryptFile
+#endif
+
 bool WalletCrypto::EncryptFile(const std::string& path, const SecureString& passphrase)
 {
     // Read file
