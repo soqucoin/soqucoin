@@ -66,8 +66,10 @@ static UniValue AuxMiningCreateBlock(const CScript& scriptPubKey)
     static uint64_t nStart;
     static unsigned nExtraNonce = 0;
 
-    // Soqucoin: Never mine witness tx
-    const bool fMineWitnessTx = false;
+    // SECURITY NOTE: Must include witness transactions in AuxPoW blocks.
+    // Setting this to false causes ALL SegWit txs to be stuck in mempool,
+    // since our wallet generates bech32 (SegWit) addresses exclusively.
+    const bool fMineWitnessTx = true;
 
     /* Search for cached blocks with given scriptPubKey and assign it to pBlock
      * if we find a match. This allows for creating multiple aux templates with
