@@ -29,6 +29,14 @@
 
 #include "support/allocators/secure.h" // FIND-025: SecureString (zero-on-free)
 
+// Windows <windows.h> defines EncryptFile and DecryptFile as macros
+// (mapping to EncryptFileA/EncryptFileW). Undefine them to prevent
+// collision with our WalletCrypto static methods.
+#ifdef WIN32
+#undef EncryptFile
+#undef DecryptFile
+#endif
+
 namespace soqucoin
 {
 namespace pqwallet

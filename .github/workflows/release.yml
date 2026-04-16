@@ -67,6 +67,9 @@ jobs:
         run: |
           # Free up disk space
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          # Remove any existing swapfile (Ubuntu 24.04 has one active)
+          sudo swapoff /swapfile 2>/dev/null || true
+          sudo rm -f /swapfile
           # Add swap for QEMU memory needs (fallocate may fail on some filesystems)
           sudo fallocate -l 8G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1G count=8
           sudo chmod 600 /swapfile
