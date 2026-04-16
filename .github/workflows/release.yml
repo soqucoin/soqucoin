@@ -12,7 +12,7 @@ on:
       version:
         description: 'Version tag (e.g., v0.21.0)'
         required: true
-        default: 'v0.21.0'
+        default: 'v1.0.0-rc1'
 
 env:
   MAKEFLAGS: -j4
@@ -177,6 +177,53 @@ jobs:
           path: soqucoin-*-macos-arm64.tar.gz
 
   # ============================================
+  # Windows x64 Cross-Compile Build
+  # ============================================
+  build-windows-x64:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libtool autotools-dev automake \
+            pkg-config bsdmainutils python3 \
+            g++-mingw-w64-x86-64 mingw-w64-x86-64-dev \
+            curl
+      
+      - name: Set mingw-w64 to POSIX threading
+        run: |
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+      
+      - name: Build depends
+        run: |
+          make -C depends HOST=x86_64-w64-mingw32 -j4 NO_QT=1
+      
+      - name: Build
+        run: |
+          ./autogen.sh
+          CONFIG_SITE=$PWD/depends/x86_64-w64-mingw32/share/config.site \
+            ./configure --prefix=/ --without-gui --disable-tests --disable-bench
+          make $MAKEFLAGS
+      
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp src/soqucoind.exe src/soqucoin-cli.exe dist/ 2>/dev/null || \
+          cp src/soqucoind src/soqucoin-cli dist/
+          cd dist && zip -r ../soqucoin-${{ github.ref_name }}-windows-x64.zip .
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soqucoin-windows-x64
+          path: soqucoin-*-windows-x64.zip
+
+  # ============================================
   # Create Release with All Artifacts
   # ============================================
   create-release:
@@ -185,6 +232,7 @@ jobs:
       - build-linux-arm64
       - build-macos-x64
       - build-macos-arm64
+      - build-windows-x64
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -194,17 +242,19 @@ jobs:
         run: |
           mkdir release
           find . -name "*.tar.gz" -exec mv {} release/ \;
+          find . -name "*.zip" -exec mv {} release/ \;
       
       - name: Generate checksums
         run: |
           cd release
-          sha256sum *.tar.gz > SHA256SUMS
+          sha256sum *.tar.gz *.zip > SHA256SUMS
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
             release/*.tar.gz
+            release/*.zip
             release/SHA256SUMS
           generate_release_notes: true
           draft: false
