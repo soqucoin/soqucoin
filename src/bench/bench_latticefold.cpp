@@ -92,11 +92,15 @@ static void LatticeFoldVerify512(benchmark::State& state)
     LatticeFoldVerifier::Proof proof;
     latticefold_bench::GenerateTestBatch(instance, proof);
 
+    // Derive consensus matrix A (same as production)
+    std::array<std::array<LatticeFoldVerifier::Fp, MATRIX_A_COLS>, MATRIX_A_ROWS> matrixA;
+    LatticeFoldVerifier::DeriveConsensusMatrixA(matrixA);
+
     while (state.KeepRunning()) {
         // Note: This will fail verification (random data), but we're measuring
         // the computational cost of the verification algorithm itself.
         // The failure happens at the final check, after all crypto operations.
-        (void)LatticeFoldVerifier::VerifyDilithiumBatch(instance, proof);
+        (void)LatticeFoldVerifier::VerifyDilithiumBatch(instance, proof, matrixA);
     }
 }
 
@@ -115,8 +119,15 @@ static void LatticeFoldOpcode(benchmark::State& state)
     // Fill with random data
     GetRandBytes(proof.data(), proof.size());
 
+    // Create dummy external binding parameters (matching post-SOQ-A005 API)
+    uint256 sighash;
+    GetRandBytes(sighash.begin(), 32);
+    std::array<uint8_t, 32> pubkey_hash{};
+    GetRandBytes(pubkey_hash.data(), 32);
+    std::vector<valtype> dilithium_sigs;  // empty — proof will fail, but exercises parser
+
     while (state.KeepRunning()) {
-        (void)EvalCheckFoldProof(proof);
+        (void)EvalCheckFoldProof(proof, sighash, pubkey_hash, dilithium_sigs);
     }
 }
 
