@@ -275,10 +275,13 @@ test_pqderive_test_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 test_pqderive_test_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 test_pqderive_test_LDADD = \
   $(LIBSOQUCOIN_WALLET) \
+  $(LIBSOQUCOIN_COMMON) \
+  $(LIBSOQUCOIN_CONSENSUS) \
   $(LIBSOQUCOIN_UTIL) \
   $(LIBSOQUCOIN_CRYPTO) \
   $(BOOST_LIBS) \
   $(CRYPTO_LIBS) \
+  $(BDB_LIBS) \
   $(LIBSECP256K1)
 
 # Fuzz binary
