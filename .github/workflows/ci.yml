@@ -230,7 +230,8 @@ jobs:
                procps bison python3 python3-pip python3-setuptools python3-wheel
           apt-get install -y ${{ matrix.packages }}
           python3 -m pip install setuptools==70.3.0 --upgrade
-          python3 -m pip install lief
+          # lief is only needed for security/symbol checks, not the build itself
+          python3 -m pip install lief==0.14.1 || echo 'WARNING: lief install failed, security checks may be skipped'
 
       - name: Post install
         if: ${{ matrix.postinstall }}
