@@ -17,6 +17,9 @@ on:
 env:
   MAKEFLAGS: -j4
 
+permissions:
+  contents: write
+
 jobs:
   # ============================================
   # Linux x86_64 Build
