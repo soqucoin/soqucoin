@@ -55,48 +55,54 @@ jobs:
           path: soqucoin-*-linux-x64.tar.gz
 
   # ============================================
-  # Linux ARM64 Build (QEMU for Raspberry Pi)
+  # Linux ARM64 Build (cross-compile from x64)
   # ============================================
   build-linux-arm64:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Free disk space and add swap
+      - name: Install cross-compilation toolchain
         run: |
-          # Free up disk space
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          # Remove any existing swapfile (Ubuntu 24.04 has one active)
-          sudo swapoff /swapfile 2>/dev/null || true
-          sudo rm -f /swapfile
-          # Add swap for QEMU memory needs (fallocate may fail on some filesystems)
-          sudo fallocate -l 12G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1G count=12
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libtool autotools-dev automake \
+            pkg-config bsdmainutils python3 \
+            g++-aarch64-linux-gnu gcc-aarch64-linux-gnu \
+            libboost-all-dev:arm64 || true
+          # Install ARM64 cross-build dependencies via dpkg --add-architecture
+          sudo dpkg --add-architecture arm64
+          # Add ARM64 package sources
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev:arm64 libevent-dev:arm64 \
+            libboost-system-dev:arm64 libboost-filesystem-dev:arm64 \
+            libboost-thread-dev:arm64 libboost-chrono-dev:arm64 \
+            libdb++-dev:arm64 libminiupnpc-dev:arm64 \
+            libzmq3-dev:arm64 || true
       
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Build (cross-compile)
+        run: |
+          ./autogen.sh
+          ./configure --without-gui --disable-tests --disable-bench --disable-wallet \
+            --host=aarch64-linux-gnu \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib \
+            STRIP=aarch64-linux-gnu-strip \
+            PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+          make $MAKEFLAGS
       
-      - name: Build in ARM64 container
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: aarch64
-          distro: ubuntu22.04
-          run: |
-            apt-get update
-            apt-get install -y \
-              build-essential libtool autotools-dev automake \
-              pkg-config bsdmainutils python3 libssl-dev \
-              libevent-dev libboost-all-dev libminiupnpc-dev \
-              libzmq3-dev libsqlite3-dev libdb++-dev
-            ./autogen.sh
-            # --disable-wallet: PQ wallet encryption not needed for miners
-            # CXXFLAGS="-O1": reduce compiler memory usage under QEMU emulation
-            CXXFLAGS="-O1" ./configure --without-gui --disable-tests --disable-bench --disable-wallet
-            make -j1
-      
+      - name: Verify binary architecture
+        run: |
+          file src/soqucoind
+          file src/soqucoin-cli
+
       - name: Package
         run: |
           mkdir -p dist
