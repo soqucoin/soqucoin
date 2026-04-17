@@ -10,6 +10,7 @@
 #include "base58.h"
 #include "chain.h"
 #include "chainparams.h"
+#include "utiladdress.h"
 #include "consensus/consensus.h"
 #include "consensus/params.h"
 #include "core_io.h"
@@ -183,13 +184,19 @@ UniValue createauxblock(const JSONRPCRequest& request)
             "\nExamples:\n" +
             HelpExampleCli("createauxblock", "\"address\"") + HelpExampleRpc("createauxblock", "\"address\""));
 
-    // Check coinbase payout address
-    CBitcoinAddress coinbaseAddress(request.params[0].get_str());
-
-    if (!coinbaseAddress.IsValid())
+    // Check coinbase payout address — support both bech32m (Dilithium) and legacy Base58
+    const std::string strAddress = request.params[0].get_str();
+    CTxDestination dest = DecodeDestination(strAddress, Params().Bech32HRP());
+    if (!IsValidDestination(dest)) {
+        // Fallback: try legacy Base58 (backward compatibility)
+        CBitcoinAddress legacyAddr(strAddress);
+        if (legacyAddr.IsValid())
+            dest = legacyAddr.Get();
+    }
+    if (!IsValidDestination(dest))
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid coinbase payout address");
 
-    const CScript scriptPubKey = GetScriptForDestination(coinbaseAddress.Get());
+    const CScript scriptPubKey = GetScriptForDestination(dest);
     return AuxMiningCreateBlock(scriptPubKey);
 }
 

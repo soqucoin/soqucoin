@@ -14,12 +14,16 @@
  * - Testnet: tsq1... / tsqp1... / tsqsh1...
  * - Stagenet: ssq1... / ssqp1... / ssqsh1...
  *
- * Address hash function: BLAKE2b-160 (20 bytes)
- * Why BLAKE2b-160:
- * - 3-5x faster than SHA-256 for large Dilithium keys (1,312 bytes)
- * - 160 bits provides 80-bit collision resistance (sufficient for addresses)
- * - Stronger quantum security margins than SHA-256
- * - Compatible with HKDF for L2 key derivation
+ * Address hash function: SHA-256 (32 bytes)
+ * Why SHA-256:
+ * - Matches consensus path in VerifyScript() (interpreter.cpp L639-640)
+ * - Produces 32-byte witness programs compatible with DecodeDestination()
+ * - FIPS 180-4 approved, widely audited
+ * - Aligned with core wallet (rpcwallet.cpp getnewaddress, utiladdress.cpp)
+ *
+ * HISTORY: Originally BLAKE2b-160 (20 bytes) was specified here for speed,
+ * but the consensus layer and core wallet both use SHA-256/32-byte.
+ * SOQ-INFRA-010 remediation aligns this module to match consensus.
  */
 
 #include "pqkeys.h"
@@ -58,7 +62,7 @@ enum class AddressType {
 struct AddressInfo {
     AddressType type = AddressType::Unknown;
     Network network = Network::Unknown;
-    std::array<uint8_t, 20> hash{}; ///< BLAKE2b-160 of public key
+    std::array<uint8_t, 32> hash{}; ///< SHA-256 of public key (SOQ-INFRA-010: aligned with consensus)
     bool valid = false;
     std::string error;
 };
@@ -83,13 +87,13 @@ public:
 
     /**
      * @brief Encode from public key hash
-     * @param pubkeyHash 20-byte BLAKE2b-160 hash
+     * @param pubkeyHash 32-byte SHA-256 hash
      * @param network Target network
      * @param type Address type
      * @return Bech32m-encoded address
      */
     static std::string EncodeFromHash(
-        const std::array<uint8_t, 20>& pubkeyHash,
+        const std::array<uint8_t, 32>& pubkeyHash,
         Network network = Network::Mainnet,
         AddressType type = AddressType::P2PQ);
 
@@ -123,11 +127,11 @@ public:
     static std::string GetPrefix(Network network, AddressType type);
 
     /**
-     * @brief Compute BLAKE2b-160 hash of public key
+     * @brief Compute SHA-256 hash of public key
      * @param pubkey Dilithium public key
-     * @return 20-byte hash (160 bits)
+     * @return 32-byte hash (256 bits) — matches consensus in VerifyScript()
      */
-    static std::array<uint8_t, 20> HashPublicKey(
+    static std::array<uint8_t, 32> HashPublicKey(
         const std::array<uint8_t, DILITHIUM_PUBKEY_SIZE>& pubkey);
 };
 

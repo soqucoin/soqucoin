@@ -36,7 +36,7 @@
 
 #include "wallet/pqwallet/pqwallet.h"
 #include "bech32.h"
-#include "crypto/blake2b.h"
+#include "crypto/sha256.h"  // SOQ-INFRA-010: SHA-256 replaces BLAKE2b-160
 #include "support/cleanse.h"
 #include "wallet/pqwallet/pqaddress.h"
 #include "wallet/pqwallet/pqderive.h"
@@ -254,39 +254,31 @@ bool PQKeyPair::Verify(const std::vector<uint8_t>& message,
 //=============================================================================
 // PQAddress implementation
 //-----------------------------------------------------------------------------
-// SECURITY: Bech32m address encoding with BLAKE2b-160 public key hashing
+// SECURITY: Bech32m address encoding with SHA-256 public key hashing
 //
-// ADDRESS FORMAT: [HRP]1[version][pubkey_hash][checksum]
-// - Mainnet:  sq1..., sqp1..., sqsh1...
-// - Testnet:  tsq1..., tsqp1..., tsqsh1...
-// - Stagenet: ssq1..., ssqp1..., ssqsh1...
+// SOQ-INFRA-010 REMEDIATION: Changed from BLAKE2b-160 (20 bytes) to SHA-256 (32 bytes)
+// to match the consensus-active path:
+//   - VerifyScript() (interpreter.cpp L639-640): SHA-256(pubkey) compared to scriptPubKey[2..34]
+//   - DecodeDestination() (utiladdress.cpp L73): requires conv.size() == 32
+//   - EncodeDilithiumAddress() (utiladdress.cpp L100-102): uses CSHA256()
+//   - getnewaddress (rpcwallet.cpp L143): uses SHA-256 via EncodeDilithiumAddress()
 //
-// THREAT: S1 - Address substitution attack
-// MITIGATION: Bech32m 6-character checksum detects random errors
-//             Error detection: 1 in 10^9 for up to 4 character errors
+// MITIGATION: SHA-256 provides 128-bit collision resistance
 //
-// THREAT: Collision attack on address hashing
-// MITIGATION: BLAKE2b-160 provides 80-bit collision resistance
-//             Preimage resistance is 160-bit (quantum: 80-bit with Grover's)
-//             Sufficient for address purposes per Bitcoin Core precedent
-//
-// PUBLIC KEY HASH: BLAKE2b-160(Dilithium_pubkey)
-// RATIONALE: BLAKE2b is 3-5x faster than SHA-256 on 1,312-byte Dilithium keys
+// PUBLIC KEY HASH: SHA-256(Dilithium_pubkey)
+// RATIONALE: Must match consensus — all 9,300+ testnet3 blocks use SHA-256/32-byte
 //=============================================================================
 
-std::array<uint8_t, 20> PQAddress::HashPublicKey(
+std::array<uint8_t, 32> PQAddress::HashPublicKey(
     const std::array<uint8_t, DILITHIUM_PUBKEY_SIZE>& pubkey)
 {
-    std::array<uint8_t, 20> hash;
+    std::array<uint8_t, 32> hash;
 
-    // Use BLAKE2b-160 for public key hashing
-    // Why BLAKE2b-160:
-    // - 3-5x faster than SHA-256 for large Dilithium keys (1,312 bytes)
-    // - 160 bits provides 80-bit collision resistance (sufficient for addresses)
-    // - Matches whitepaper specification for L2 compatibility
-    CBLAKE2b blake(20);
-    blake.Write(pubkey.data(), pubkey.size());
-    blake.Finalize(hash.data());
+    // SOQ-INFRA-010: Use SHA-256 to match consensus path in VerifyScript()
+    // This is the same hash function used by:
+    //   - VerifyScript() (interpreter.cpp L640): CSHA256().Write(pubkeyData, pubkeySize).Finalize(hash.begin())
+    //   - EncodeDilithiumAddress() (utiladdress.cpp L102): CSHA256().Write(...).Finalize(hash.begin())
+    CSHA256().Write(pubkey.data(), pubkey.size()).Finalize(hash.data());
 
     return hash;
 }
@@ -344,16 +336,18 @@ std::string PQAddress::Encode(
 }
 
 std::string PQAddress::EncodeFromHash(
-    const std::array<uint8_t, 20>& pubkeyHash,
+    const std::array<uint8_t, 32>& pubkeyHash,
     Network network,
     AddressType type)
 {
     std::string hrp = GetPrefix(network, type);
 
-    // Version byte (0x00 for v1 P2PQ)
+    // SOQ-INFRA-010: Use witness version 1 with 32-byte hash
+    // This matches the scriptPubKey format: OP_1 <32-byte hash>
+    // which is what VerifyScript() expects and DecodeDestination() accepts.
     std::vector<uint8_t> data;
-    data.reserve(21);     // version + 20-byte hash
-    data.push_back(0x00); // Version
+    data.reserve(33);     // version + 32-byte hash
+    data.push_back(0x01); // Witness version 1 (Dilithium)
     data.insert(data.end(), pubkeyHash.begin(), pubkeyHash.end());
 
     // Convert to 5-bit groups for Bech32m
@@ -408,9 +402,9 @@ bool PQAddress::IsValid(const std::string& address)
         return false;
     }
 
-    // Check data length (version + 20-byte hash in 5-bit groups)
-    // 21 bytes = 168 bits = ~34 5-bit groups
-    if (decoded.data.size() < 30 || decoded.data.size() > 40) {
+    // Check data length (version + 32-byte hash in 5-bit groups)
+    // 33 bytes = 264 bits = ~53 5-bit groups
+    if (decoded.data.size() < 50 || decoded.data.size() > 60) {
         return false;
     }
 
@@ -455,13 +449,13 @@ AddressInfo PQAddress::Decode(const std::string& address)
         }
     }
 
-    if (data.size() < 21) {
+    if (data.size() < 33) {
         info.error = "Invalid data length";
         return info;
     }
 
-    // Skip version byte, extract 20-byte hash
-    std::copy(data.begin() + 1, data.begin() + 21, info.hash.begin());
+    // Skip version byte, extract 32-byte hash
+    std::copy(data.begin() + 1, data.begin() + 33, info.hash.begin());
 
     info.valid = true;
     return info;

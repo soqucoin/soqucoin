@@ -6,6 +6,8 @@
 
 #include "base58.h"
 #include "chain.h"
+#include "chainparams.h"
+#include "utiladdress.h"
 #include "coins.h"
 #include "consensus/validation.h"
 #include "core_io.h"
@@ -55,8 +57,14 @@ void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fInclud
     out.pushKV("type", GetTxnOutputType(type));
 
     UniValue a(UniValue::VARR);
-    BOOST_FOREACH(const CTxDestination& addr, addresses)
-        a.push_back(CBitcoinAddress(addr).ToString());
+    BOOST_FOREACH(const CTxDestination& addr, addresses) {
+        // SECURITY NOTE: Try bech32m encoding first (Dilithium/WitnessV1),
+        // fall back to legacy Base58 for P2PKH/P2SH destinations
+        std::string addrStr = EncodeDestination(addr, Params().Bech32HRP());
+        if (addrStr.empty())
+            addrStr = CBitcoinAddress(addr).ToString();
+        a.push_back(addrStr);
+    }
     out.pushKV("addresses", a);
 }
 
@@ -435,7 +443,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
         rawTx.vin.push_back(in);
     }
 
-    set<CBitcoinAddress> setAddress;
+    set<std::string> setAddress;
     vector<string> addrList = sendTo.getKeys();
     BOOST_FOREACH(const string& name_, addrList) {
 
@@ -445,15 +453,21 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             CTxOut out(0, CScript() << OP_RETURN << data);
             rawTx.vout.push_back(out);
         } else {
-            CBitcoinAddress address(name_);
-            if (!address.IsValid())
+            // Try bech32m first (Dilithium), fall back to legacy Base58
+            CTxDestination dest = DecodeDestination(name_, Params().Bech32HRP());
+            if (!IsValidDestination(dest)) {
+                CBitcoinAddress legacyAddr(name_);
+                if (legacyAddr.IsValid())
+                    dest = legacyAddr.Get();
+            }
+            if (!IsValidDestination(dest))
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("Invalid Soqucoin address: ")+name_);
 
-            if (setAddress.count(address))
+            if (setAddress.count(name_))
                 throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ")+name_);
-            setAddress.insert(address);
+            setAddress.insert(name_);
 
-            CScript scriptPubKey = GetScriptForDestination(address.Get());
+            CScript scriptPubKey = GetScriptForDestination(dest);
             CAmount nAmount = AmountFromValue(sendTo[name_]);
 
             CTxOut out(nAmount, scriptPubKey);

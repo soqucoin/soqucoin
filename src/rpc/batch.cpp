@@ -6,7 +6,9 @@
 #ifdef ENABLE_WALLET
 
 #include "base58.h"
+#include "chainparams.h"
 #include "core_io.h"
+#include "utiladdress.h"
 #include "crypto/latticefold/verifier.h"
 #include "crypto/pat/logarithmic.h"
 #include "policy/policy.h"
@@ -87,10 +89,15 @@ UniValue createbatchtransaction(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "No outputs specified");
     }
     const std::string& addr = outputs.getKeys()[0]; // Take the first address from outputs
-    CBitcoinAddress address(addr);
-    if (!address.IsValid())
+    // Try bech32m first (Dilithium), fall back to legacy Base58
+    CTxDestination dest = DecodeDestination(addr, Params().Bech32HRP());
+    if (!IsValidDestination(dest)) {
+        CBitcoinAddress legacyAddr(addr);
+        if (legacyAddr.IsValid())
+            dest = legacyAddr.Get();
+    }
+    if (!IsValidDestination(dest))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Soqucoin address");
-    CTxDestination dest = address.Get();
 
     // Create transaction outputs
     tx.vout.resize(1); // Resize to 1 as per diff, assuming single output for now

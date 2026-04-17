@@ -497,11 +497,16 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     if (!g_connman)
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
 
+    // SOQ-INFRA-002: Connection check disabled — solo mining on empty genesis network
+    // requires zero peers initially. Re-enable after seeder network is established.
     // if (g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) == 0)
     //    throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "Soqucoin is not connected!");
 
-    // if (IsInitialBlockDownload())
-    //    throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Soqucoin is downloading blocks...");
+    // SOQ-INFRA-002: IBD guard re-enabled for mainnet safety.
+    // During Initial Block Download, the chain tip is stale and mining would
+    // produce orphan blocks that waste hashpower. Must be active for production.
+    if (IsInitialBlockDownload())
+        throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Soqucoin is downloading blocks...");
 
     static unsigned int nTransactionsUpdatedLast;
 
@@ -523,18 +528,37 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
             nTransactionsUpdatedLastLP = nTransactionsUpdatedLast;
         }
 
+        // SOQ-INFRA-003: Cache the current tip hash while we hold cs_main,
+        // so the long-poll wait loop doesn't dereference chainActive.Tip()
+        // without holding the lock (race against concurrent reorgs).
+        uint256 hashBestChainCached;
+        {
+            const CBlockIndex* pTipLP = chainActive.Tip();
+            if (pTipLP)
+                hashBestChainCached = pTipLP->GetBlockHash();
+        }
+
         // Release the wallet and main lock while waiting
         LEAVE_CRITICAL_SECTION(cs_main);
         {
             checktxtime = boost::get_system_time() + boost::posix_time::minutes(1);
 
             boost::unique_lock<boost::mutex> lock(csBestBlock);
-            while (chainActive.Tip()->GetBlockHash() == hashWatchedChain && IsRPCRunning()) {
+            // SOQ-INFRA-003: Use cached hash instead of live chainActive.Tip() dereference.
+            // cvBlockChange is notified from UpdateTip() which re-caches under cs_main.
+            while (hashBestChainCached == hashWatchedChain && IsRPCRunning()) {
                 if (!cvBlockChange.timed_wait(lock, checktxtime)) {
                     // Timeout: Check transactions for update
                     if (mempool.GetTransactionsUpdated() != nTransactionsUpdatedLastLP)
                         break;
                     checktxtime += boost::posix_time::seconds(10);
+                }
+                // Re-cache tip hash under cs_main to detect new blocks
+                {
+                    LOCK(cs_main);
+                    const CBlockIndex* pTipLP = chainActive.Tip();
+                    if (pTipLP)
+                        hashBestChainCached = pTipLP->GetBlockHash();
                 }
             }
         }

@@ -214,9 +214,12 @@ UniValue getrawchangeaddress(const JSONRPCRequest& request)
 
     reservekey.KeepKey();
 
-    CKeyID keyID = vchPubKey.GetID();
+    // INFRA-008: Return bech32m Dilithium address (witness v1) instead of legacy Base58
+    uint256 pubkeyHash;
+    CSHA256().Write(vchPubKey.begin(), vchPubKey.size()).Finalize(pubkeyHash.begin());
+    WitnessV1ScriptHash dest(pubkeyHash);
 
-    return CBitcoinAddress(keyID).ToString();
+    return EncodeDestination(dest, Params().Bech32HRP());
 }
 
 
@@ -237,8 +240,15 @@ UniValue setaccount(const JSONRPCRequest& request)
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
-    CBitcoinAddress address(request.params[0].get_str());
-    if (!address.IsValid())
+    // Try bech32m first (Dilithium), fall back to legacy Base58
+    const std::string strAddr = request.params[0].get_str();
+    CTxDestination dest = DecodeDestination(strAddr, Params().Bech32HRP());
+    if (!IsValidDestination(dest)) {
+        CBitcoinAddress legacyAddr(strAddr);
+        if (legacyAddr.IsValid())
+            dest = legacyAddr.Get();
+    }
+    if (!IsValidDestination(dest))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Soqucoin address");
 
     string strAccount;
@@ -246,14 +256,15 @@ UniValue setaccount(const JSONRPCRequest& request)
         strAccount = AccountFromValue(request.params[1]);
 
     // Only add the account if the address is yours.
-    if (IsMine(*pwalletMain, address.Get())) {
+    if (IsMine(*pwalletMain, dest)) {
         // Detect when changing the account of an address that is the 'unused current key' of another account:
-        if (pwalletMain->mapAddressBook.count(address.Get())) {
-            string strOldAccount = pwalletMain->mapAddressBook[address.Get()].name;
-            if (address == GetAccountAddress(strOldAccount))
+        if (pwalletMain->mapAddressBook.count(dest)) {
+            string strOldAccount = pwalletMain->mapAddressBook[dest].name;
+            CBitcoinAddress oldAcctAddr = GetAccountAddress(strOldAccount);
+            if (oldAcctAddr.IsValid() && oldAcctAddr.Get() == dest)
                 GetAccountAddress(strOldAccount, true);
         }
-        pwalletMain->SetAddressBook(address.Get(), strAccount, "receive");
+        pwalletMain->SetAddressBook(dest, strAccount, "receive");
     } else
         throw JSONRPCError(RPC_MISC_ERROR, "setaccount can only be used with own address");
 
@@ -279,12 +290,19 @@ UniValue getaccount(const JSONRPCRequest& request)
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
-    CBitcoinAddress address(request.params[0].get_str());
-    if (!address.IsValid())
+    // Try bech32m first (Dilithium), fall back to legacy Base58
+    const std::string strAddr = request.params[0].get_str();
+    CTxDestination dest = DecodeDestination(strAddr, Params().Bech32HRP());
+    if (!IsValidDestination(dest)) {
+        CBitcoinAddress legacyAddr(strAddr);
+        if (legacyAddr.IsValid())
+            dest = legacyAddr.Get();
+    }
+    if (!IsValidDestination(dest))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Soqucoin address");
 
     string strAccount;
-    map<CTxDestination, CAddressBookData>::iterator mi = pwalletMain->mapAddressBook.find(address.Get());
+    map<CTxDestination, CAddressBookData>::iterator mi = pwalletMain->mapAddressBook.find(dest);
     if (mi != pwalletMain->mapAddressBook.end() && !(*mi).second.name.empty())
         strAccount = (*mi).second.name;
     return strAccount;
@@ -491,11 +509,16 @@ UniValue listaddressgroupings(const JSONRPCRequest& request)
         UniValue jsonGrouping(UniValue::VARR);
         BOOST_FOREACH (CTxDestination address, grouping) {
             UniValue addressInfo(UniValue::VARR);
-            addressInfo.push_back(CBitcoinAddress(address).ToString());
+            // SECURITY NOTE: Try bech32m encoding first (Dilithium/WitnessV1),
+            // fall back to legacy Base58 for P2PKH/P2SH destinations
+            std::string addrStr = EncodeDestination(address, Params().Bech32HRP());
+            if (addrStr.empty())
+                addrStr = CBitcoinAddress(address).ToString();
+            addressInfo.push_back(addrStr);
             addressInfo.push_back(ValueFromAmount(balances[address]));
             {
-                if (pwalletMain->mapAddressBook.find(CBitcoinAddress(address).Get()) != pwalletMain->mapAddressBook.end())
-                    addressInfo.push_back(pwalletMain->mapAddressBook.find(CBitcoinAddress(address).Get())->second.name);
+                if (pwalletMain->mapAddressBook.find(address) != pwalletMain->mapAddressBook.end())
+                    addressInfo.push_back(pwalletMain->mapAddressBook.find(address)->second.name);
             }
             jsonGrouping.push_back(addressInfo);
         }
@@ -580,11 +603,17 @@ UniValue getreceivedbyaddress(const JSONRPCRequest& request)
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
-    // Bitcoin address
-    CBitcoinAddress address = CBitcoinAddress(request.params[0].get_str());
-    if (!address.IsValid())
+    // Try bech32m first (Dilithium), fall back to legacy Base58
+    const std::string strAddr = request.params[0].get_str();
+    CTxDestination dest = DecodeDestination(strAddr, Params().Bech32HRP());
+    if (!IsValidDestination(dest)) {
+        CBitcoinAddress legacyAddr(strAddr);
+        if (legacyAddr.IsValid())
+            dest = legacyAddr.Get();
+    }
+    if (!IsValidDestination(dest))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid Soqucoin address");
-    CScript scriptPubKey = GetScriptForDestination(address.Get());
+    CScript scriptPubKey = GetScriptForDestination(dest);
     if (!IsMine(*pwalletMain, scriptPubKey))
         return ValueFromAmount(0);
 
@@ -2568,18 +2597,24 @@ UniValue listunspent(const JSONRPCRequest& request)
         nMaxDepth = request.params[1].get_int();
     }
 
-    set<CBitcoinAddress> setAddress;
+    set<CTxDestination> setAddress;
     if (request.params.size() > 2 && !request.params[2].isNull()) {
         RPCTypeCheckArgument(request.params[2], UniValue::VARR);
         UniValue inputs = request.params[2].get_array();
         for (unsigned int idx = 0; idx < inputs.size(); idx++) {
             const UniValue& input = inputs[idx];
-            CBitcoinAddress address(input.get_str());
-            if (!address.IsValid())
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("Invalid Soqucoin address: ") + input.get_str());
-            if (setAddress.count(address))
-                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ") + input.get_str());
-            setAddress.insert(address);
+            const std::string strAddr = input.get_str();
+            CTxDestination dest = DecodeDestination(strAddr, Params().Bech32HRP());
+            if (!IsValidDestination(dest)) {
+                CBitcoinAddress legacyAddr(strAddr);
+                if (legacyAddr.IsValid())
+                    dest = legacyAddr.Get();
+            }
+            if (!IsValidDestination(dest))
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("Invalid Soqucoin address: ") + strAddr);
+            if (setAddress.count(dest))
+                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ") + strAddr);
+            setAddress.insert(dest);
         }
     }
 
@@ -2629,7 +2664,10 @@ UniValue listunspent(const JSONRPCRequest& request)
         entry.pushKV("vout", out.i);
 
         if (fValidAddress) {
-            entry.pushKV("address", CBitcoinAddress(address).ToString());
+            std::string addrStr = EncodeDestination(address, Params().Bech32HRP());
+            if (addrStr.empty())
+                addrStr = CBitcoinAddress(address).ToString();
+            entry.pushKV("address", addrStr);
 
             if (pwalletMain->mapAddressBook.count(address))
                 entry.pushKV("account", pwalletMain->mapAddressBook[address].name);
@@ -2738,12 +2776,17 @@ UniValue fundrawtransaction(const JSONRPCRequest& request)
                 true, true);
 
             if (options.exists("changeAddress")) {
-                CBitcoinAddress address(options["changeAddress"].get_str());
-
-                if (!address.IsValid())
+                const std::string strChangeAddr = options["changeAddress"].get_str();
+                CTxDestination changeDest = DecodeDestination(strChangeAddr, Params().Bech32HRP());
+                if (!IsValidDestination(changeDest)) {
+                    CBitcoinAddress legacyAddr(strChangeAddr);
+                    if (legacyAddr.IsValid())
+                        changeDest = legacyAddr.Get();
+                }
+                if (!IsValidDestination(changeDest))
                     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "changeAddress must be a valid soqucoin address");
 
-                changeAddress = address.Get();
+                changeAddress = changeDest;
             }
 
             if (options.exists("changePosition"))
