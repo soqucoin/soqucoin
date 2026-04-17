@@ -362,6 +362,12 @@ libsoqucoin_consensus_a_SOURCES = \
   crypto/binius/verifier.cpp \
   crypto/latticefold/verifier.cpp \
   crypto/latticefold/verifier.h \
+  crypto/latticebp/commitment.cpp \
+  crypto/latticebp/commitment.h \
+  crypto/latticebp/range_proof.cpp \
+  crypto/latticebp/range_proof.h \
+  crypto/latticebp/ring_signature.cpp \
+  crypto/latticebp/ring_signature.h \
   crypto/pat/logarithmic.cpp \
   crypto/pat/logarithmic.h \
   crypto/sangria/fold.cpp \

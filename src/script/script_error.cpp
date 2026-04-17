@@ -28,6 +28,8 @@ const char* ScriptErrorString(const ScriptError serror)
         return "PAT batch verification failed";
     case SCRIPT_ERR_ZKPROOF_FAILED:
         return "Zero-Knowledge proof verification failed";
+    case SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED:
+        return "Lattice-BP++ range proof verification failed";
     case SCRIPT_ERR_SCRIPT_SIZE:
         return "Script is too big";
     case SCRIPT_ERR_DISALLOWED_OUTPUT_TYPE:

@@ -175,3 +175,8 @@ test_data/scripts/
 test_data/*_dashboard.html
 design-log/
 GEMINI.md
+
+# Lattice-BP++ build artifacts
+src/crypto/latticebp/*.dSYM/
+src/crypto/latticebp/test_latticebp
+src/crypto/latticebp/quick_test

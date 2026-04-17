@@ -220,18 +220,28 @@ bool LatticeFoldVerifier::VerifyDoubleCommitmentOpening(
     // The double_openings encode [C_y_component, C_cy_component, A_y_component, A_cy_component]
     Fp lhs = proof.double_openings[0] + r * proof.double_openings[1];
 
-    // Compute matrix-vector product using consensus matrix A
-    // The folded coefficients are in inst.t_coeffs (8 elements)
-    Fp mat_product = Fp::zero();
+    // SECURITY NOTE (SOQ-D001 REMEDIATED): Per-row Ajtai commitment verification.
+    // The original code accumulated all 4 matrix rows into a single scalar:
+    //   mat_product += row_sum  (across all rows)
+    // This is WRONG per ePrint 2025/247 §4.1 — an attacker could satisfy the
+    // aggregated check without satisfying each individual row commitment.
+    //
+    // The fix verifies each row of A × t_coeffs independently against the
+    // corresponding component of proof.folded_commitment (which encodes the
+    // per-row Ajtai commitment vector from the prover).
     for (size_t row = 0; row < MATRIX_A_ROWS; ++row) {
-        Fp row_sum = Fp::zero();
+        Fp row_product = Fp::zero();
         for (size_t col = 0; col < MATRIX_A_COLS; ++col) {
-            row_sum += matrixA[row][col] * inst.t_coeffs[col];
+            row_product += matrixA[row][col] * inst.t_coeffs[col];
         }
-        mat_product += row_sum; // accumulate across rows (simplified verification)
+        // Each row of A·t must match corresponding folded_commitment component
+        if (row_product != proof.folded_commitment[row]) {
+            return false;
+        }
     }
 
-    Fp rhs = mat_product + proof.double_openings[2] + r * proof.double_openings[3];
+    // Remaining double-commitment opening check (lhs vs rhs with error term)
+    Fp rhs = proof.double_openings[2] + r * proof.double_openings[3];
     return lhs == rhs;
 }
 

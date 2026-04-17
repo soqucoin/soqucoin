@@ -1857,6 +1857,16 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_NULLDUMMY;
     }
 
+    // SOQ-P001: Start enforcing PAT aggregation verification
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_CHECKPATAGG, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_PAT;
+    }
+
+    // SOQ-P002: Start enforcing LatticeFold privacy proof verification
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_LATTICEFOLD, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_LATTICEFOLD;
+    }
+
     int64_t nTime2 = GetTimeMicros();
     nTimeForks += nTime2 - nTime1;
     LogPrint("bench", "    - Fork checks: %.2fms [%.2fs]\n", 0.001 * (nTime2 - nTime1), nTimeForks * 0.000001);
@@ -2121,6 +2131,15 @@ void static UpdateTip(CBlockIndex* pindexNew, const CChainParams& chainParams)
 {
     chainActive.SetTip(pindexNew);
 
+    // SOQ-INFRA-004: Defensive null guard — chainActive.Tip() should never be null
+    // after SetTip(pindexNew), but guard against race conditions during concurrent
+    // GBT mining / reorg scenarios.
+    const CBlockIndex* pTip = chainActive.Tip();
+    if (!pTip) {
+        LogPrintf("%s: WARNING — chainActive.Tip() null after SetTip, skipping update\n", __func__);
+        return;
+    }
+
     // New best block
     mempool.AddTransactionsUpdated(1);
 
@@ -2130,7 +2149,7 @@ void static UpdateTip(CBlockIndex* pindexNew, const CChainParams& chainParams)
     std::vector<std::string> warningMessages;
     if (!IsInitialBlockDownload()) {
         int nUpgraded = 0;
-        const CBlockIndex* pindex = chainActive.Tip();
+        const CBlockIndex* pindex = pTip;
         for (int bit = 0; bit < VERSIONBITS_NUM_BITS; bit++) {
             WarningBitsConditionChecker checker(bit);
             ThresholdState state = checker.GetStateFor(pindex, chainParams.GetConsensus(pindex->nHeight), warningcache[bit]);
@@ -2167,10 +2186,10 @@ void static UpdateTip(CBlockIndex* pindexNew, const CChainParams& chainParams)
         }
     }
     LogPrintf("%s: new best=%s height=%d version=0x%08x log2_work=%.8g tx=%lu date='%s' progress=%f cache=%.1fMiB(%utx)", __func__,
-        chainActive.Tip()->GetBlockHash().ToString(), chainActive.Height(), chainActive.Tip()->nVersion,
-        log(chainActive.Tip()->nChainWork.getdouble()) / log(2.0), (unsigned long)chainActive.Tip()->nChainTx,
-        DateTimeStrFormat("%Y-%m-%d %H:%M:%S", chainActive.Tip()->GetBlockTime()),
-        GuessVerificationProgress(chainParams.TxData(), chainActive.Tip()), pcoinsTip->DynamicMemoryUsage() * (1.0 / (1 << 20)), pcoinsTip->GetCacheSize());
+        pTip->GetBlockHash().ToString(), chainActive.Height(), pTip->nVersion,
+        log(pTip->nChainWork.getdouble()) / log(2.0), (unsigned long)pTip->nChainTx,
+        DateTimeStrFormat("%Y-%m-%d %H:%M:%S", pTip->GetBlockTime()),
+        GuessVerificationProgress(chainParams.TxData(), pindexNew), pcoinsTip->DynamicMemoryUsage() * (1.0 / (1 << 20)), pcoinsTip->GetCacheSize());
     if (!warningMessages.empty())
         LogPrintf(" warning='%s'", boost::algorithm::join(warningMessages, ", "));
     LogPrintf("\n");

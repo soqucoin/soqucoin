@@ -145,10 +145,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // LatticeFold+ activation - January 2026 (future soft fork)
+        // LatticeFold+ activation — ALWAYS_ACTIVE from genesis (April 2026 decision)
+        // SOQ-P002: No BIP9 signaling needed — new chain, privacy from block 0
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // SOQ-P003: Lattice-BP++ Range Proofs — NOT ACTIVE (future soft-fork)
+        // Post-quantum confidential transaction amount hiding using Ring-LWE
+        // commitments. Activation requires separate soft-fork after audit.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;    // Never activates
 
 
         // The best chain should have at least this much work.
@@ -158,7 +166,7 @@ public:
         consensus.defaultAssumeValid = uint256S("0x00");
         consensus.dilithiumOnlyHeight = 0;
         consensus.dilithiumOnlyHeight = 0;
-        consensus.nLatticeFoldActivationHeight = 2147483647; // INT_MAX for now
+        consensus.nLatticeFoldActivationHeight = 0; // Active from genesis
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
@@ -298,22 +306,15 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // LatticeFold+ activation — ALWAYS_ACTIVE from genesis (April 2026 decision)
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
-
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].bit = 3;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-
-        // LatticeFold+ activation - January 2026 (future soft fork)
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
+        // SOQ-P003: Lattice-BP++ Range Proofs — NOT ACTIVE (future soft-fork)
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -456,9 +457,15 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // LatticeFold+ activation — ALWAYS_ACTIVE for regtest
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 1737331200; // Jan 20 2026
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 1768867200;   // Jan 20 2027
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // SOQ-P003: Lattice-BP++ Range Proofs — ALWAYS_ACTIVE for regtest
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
 
         // The best chain should have at least this much work.
@@ -605,6 +612,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // SOQ-P003: Lattice-BP++ Range Proofs — NOT ACTIVE (future soft-fork)
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;
 
         consensus.nMinimumChainWork = uint256S("0x00");
         consensus.defaultAssumeValid = uint256S("0x00");

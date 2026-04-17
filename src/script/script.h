@@ -183,6 +183,9 @@ enum opcodetype {
     OP_PUBKEYS_TEMPLATE = 0xf2,
     OP_SMALLINTEGER_TEMPLATE = 0xf3,
 
+    // Post-quantum privacy: Lattice-BP++ range proof (SOQ-P003)
+    OP_LATTICEBP_RANGEPROOF = 0xfa,
+
     OP_CHECKDILITHIUMSIG = 0xfb,
     OP_CHECKFOLDPROOF = 0xfc,
     OP_CHECKPATAGG = 0xfd,
@@ -190,6 +193,8 @@ enum opcodetype {
     OP_INVALIDOPCODE = 0xff,
 };
 
+// SOQ-I002: DEPRECATED — old Binius SNARK batch verifier, replaced by OP_CHECKFOLDPROOF (0xfc).
+// Constant retained for serialization compatibility; handler rejects at consensus.
 static const unsigned char OP_CHECKBATCHSIG = 0xfe;
 
 const char* GetOpName(opcodetype opcode);

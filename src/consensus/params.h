@@ -22,6 +22,7 @@ enum DeploymentPos {
     DEPLOYMENT_CHECKBATCHSIG,
     DEPLOYMENT_CHECKPATAGG,
     DEPLOYMENT_LATTICEFOLD,
+    DEPLOYMENT_LATTICEBP,
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };

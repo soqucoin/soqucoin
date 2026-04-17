@@ -102,6 +102,14 @@ enum {
     // Enable LatticeFold verification (OP_CHECKFOLDPROOF)
     SCRIPT_VERIFY_LATTICEFOLD = (1U << 16),
 
+    // SOQ-P001: Enable PAT aggregation verification (OP_CHECKPATAGG)
+    SCRIPT_VERIFY_PAT = (1U << 17),
+
+    // SOQ-P003: Enable Lattice-BP++ range proof verification (OP_LATTICEBP_RANGEPROOF)
+    // Lattice-based Ring-LWE commitments with Fiat-Shamir binding for
+    // quantum-safe confidential transaction amounts.
+    SCRIPT_VERIFY_LATTICEBP = (1U << 18),
+
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),
