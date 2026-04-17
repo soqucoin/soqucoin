@@ -5,7 +5,7 @@
 <h1 align="center">Soqucoin™ Core</h1>
 
 <p align="center">
-  <strong>The first production cryptocurrency with native post-quantum signature verification</strong>
+  <strong>The first production cryptocurrency with native post-quantum signatures and confidential transactions</strong>
 </p>
 
 <p align="center">
@@ -40,6 +40,8 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 | ASIC validation (L7) | ✅ Complete | Nov 24, 2025 |
 | Testnet3 launch | ✅ Complete | Dec 2025 |
 | Stability testing (1200+ blocks) | ✅ Complete | Jan 2, 2026 |
+| Halborn security audit (30 findings) | ✅ Complete | Feb–Mar 2026 |
+| Lattice-BP++ consensus wired | ✅ Complete | Apr 2026 |
 | Mainnet genesis | 🔄 In Progress | Q2 2026 |
 
 ---
@@ -51,20 +53,21 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 | Component | Implementation | Security Level |
 |-----------|---------------|----------------|
 | **Signatures** | ML-DSA-44 (Dilithium) | NIST Level 2 (128-bit quantum) |
-| **Address Hashing** | BLAKE2b-160 | 80-bit collision (sufficient for addresses) |
+| **Address Hashing** | SHA-256 | 128-bit collision |
 | **Batch Verification** | LatticeFold+ / PAT | Constant-size proofs |
 | **Proof-of-Work** | Scrypt (N=1024, r=1, p=1) | Grover-resistant |
 
-### Confidential Transactions
+### Confidential Transactions (Lattice-BP++)
 
 | Component | Implementation | Security Level |
 |-----------|---------------|----------------|
-| **Commitments** | Pedersen (secp256k1) | 128-bit classical |
-| **Range Proofs** | Bulletproofs++ | 128-bit classical |
-| **Proof Size** | 675 bytes | — |
-| **Verify Time** | 0.89 ms | Apple M4 |
+| **Commitments** | Lattice (Module-LWE, n=256, q=8380417) | NIST Level 2 (quantum-safe) |
+| **Range Proofs** | Lattice-BP++ | NIST Level 2 (quantum-safe) |
+| **Ring Signatures** | Module-LWE ring sigs (up to size 11) | NIST Level 2 (quantum-safe) |
+| **Proof Size** | 12,321 bytes | — |
+| **Verify Time** | 0.022 ms | Apple M-series arm64 |
 
-> **Note:** Bulletproofs++ relies on the discrete logarithm assumption (DLOG) and provides classical security only. Activates at **Height 50,000** on mainnet. A lattice-based replacement is planned for a future soft-fork.
+> **Note:** Lattice-BP++ uses the same Module-LWE/SIS hardness assumptions as NIST's ML-DSA (Dilithium) standard, providing full quantum resistance. Activated via `OP_LATTICEBP_RANGEPROOF` (witness v4) soft fork. Patent pending.
 
 ### Performance Benchmarks
 
@@ -76,17 +79,18 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 │ Dilithium Verify                │ 0.041 ms       │ —           │
 │ PAT Aggregate (1000 sigs)       │ 0.67 ms        │ 72 bytes    │
 │ LatticeFold+ Verify (512 sigs)  │ 0.68 ms        │ 1.38 KB     │
-│ Bulletproofs++ Verify           │ 0.89 ms        │ 675 bytes   │
+│ Lattice-BP++ Prove              │ 0.556 ms       │ 12.3 KB     │
+│ Lattice-BP++ Verify             │ 0.022 ms       │ —           │
 └─────────────────────────────────┴────────────────┴─────────────┘
 ```
 
 ### ASIC Compatibility
 
-Validated on **Antminer L7** (9.5 GH/s) — November 2025:
+Validated on **Antminer L7** (9.5 GH/s):
 - Standard Stratum V1 protocol
 - Zero firmware modifications
-- 147 confidential transactions per block
-- 75+ minutes continuous operation
+- Zero rejected shares (cleaner than Litecoinpool/Powerpool)
+- 640+ blocks continuous operation, zero crashes
 
 ### PAT (Practical Aggregation Technique)
 
@@ -109,7 +113,7 @@ Soqucoin implements PAT for logarithmic batching of Dilithium signatures through
 #### Verification Guarantees
 
 - ✅ **Merkle Root Binding**: Prevents proof forgery and signature omission
-- ✅ **XOR Binding**: Prevents rogue-key substitution attacks  
+- ✅ **Hash Aggregation (SHA3-256)**: Prevents rogue-key substitution attacks  
 - ✅ **Message Commitment**: Prevents message tampering or reordering
 - ✅ **Non-Malleability**: Canonical ordering ensures unique proofs
 
@@ -123,20 +127,12 @@ Soqucoin implements PAT for logarithmic batching of Dilithium signatures through
 | Space Savings | 25,600× @ n=1024 | vs individual Dilithium signatures |
 | Activation | Block 0 | Active since genesis |
 
-#### Usage Modes
+#### Consensus Mode
 
-**Simple Mode** (Production):
 ```
-Stack: <proof> <agg_pk> <msg_root> OP_CHECKPATAGG
-Use Case: Transaction validation, block verification
-Trust Model: Trust proof structure, validate commitments
-```
-
-**Full Mode** (Infrastructure):
-```
-Stack: <sigs...> <pks...> <msgs...> <sibling_path> <count> 
+Stack: <sigs...> <pks...> <msgs...> <count> 
        <proof> <agg_pk> <msg_root> OP_CHECKPATAGG
-Use Case: Trustless verification, audit applications
+Use Case: Transaction validation, block verification
 Trust Model: Full cryptographic verification with witness data
 ```
 
@@ -209,11 +205,11 @@ make install  # optional
 
 ### Consensus Opcodes
 
-| Opcode | Hex | Purpose |
-|--------|-----|---------|
-| `OP_CHECKDILITHIUMSIG` | 0xfb | Single ML-DSA-44 signature verification |
-| `OP_CHECKFOLDPROOF` | 0xfc | LatticeFold+ batch proof verification |
-| `OP_CHECKPATAGG` | 0xfd | PAT Merkle commitment verification |
+| Opcode | Hex | Witness | Purpose |
+|--------|-----|---------|----------|
+| `OP_LATTICEBP_RANGEPROOF` | 0xfa | v4 | Lattice-BP++ range proof verification |
+| `OP_CHECKFOLDPROOF` | 0xfc | v3 | LatticeFold+ batch proof verification |
+| `OP_CHECKPATAGG` | 0xfd | v2 | PAT Merkle commitment verification |
 
 ### Prover Implementation Status
 
@@ -223,11 +219,11 @@ make install  # optional
 | **PAT Verifier** | `src/crypto/pat/logarithmic.cpp` | ✅ In-tree |
 | **LatticeFold+ Prover** | Off-chain (trusted pools) | ✅ Operational |
 | **LatticeFold+ Verifier** | `src/crypto/latticefold/verifier.cpp` | ✅ In-tree |
+| **Lattice-BP++ Prover** | `src/crypto/latticebp/range_proof.cpp` | ✅ In-tree |
+| **Lattice-BP++ Verifier** | `src/crypto/latticebp/range_proof.cpp` | ✅ In-tree |
 | **PQ Wallet Library** | `src/wallet/pqwallet/` | ✅ In-tree |
-| **BLAKE2b-160** | `src/crypto/blake2b.cpp` | ✅ In-tree |
-| **Distributed Provers** | — | 🔄 Future work |
 
-Note: LatticeFold+ verification is enabled on regtest/testnet and activates at **Height 100,000** on mainnet via staged consensus activation.
+Note: LatticeFold+ is `ALWAYS_ACTIVE` from genesis on all networks. Lattice-BP++ is `ALWAYS_ACTIVE` on regtest, `NEVER_ACTIVE` on mainnet pending audit.
 
 ### Branch Structure
 
@@ -240,9 +236,9 @@ Note: LatticeFold+ verification is enabled on regtest/testnet and activates at *
 
 ## Contributing
 
-### Pre-Launch Policy (until March 1, 2026)
+### Pre-Launch Policy
 
-Soqucoin Core is in **pre-genesis lockdown**. The consensus stack is undergoing intensive testing on real Scrypt ASICs.
+Soqucoin Core is in **pre-genesis final validation**. The consensus stack has completed security audit (Halborn, 30 findings remediated) and is undergoing final pre-mainnet testing.
 
 **How to contribute now:**
 
@@ -255,7 +251,7 @@ Soqucoin Core is in **pre-genesis lockdown**. The consensus stack is undergoing 
 ### Code Style
 
 This project follows [Bitcoin Core contribution guidelines](CONTRIBUTING.md):
-- C++14 standard
+- C++17 standard
 - 4-space indentation
 - No trailing whitespace
 - Signed commits required
