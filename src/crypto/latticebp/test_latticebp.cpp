@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Soqucoin Foundation
 // Distributed under the MIT software license
 //
-// Lattice-BP++ Test Harness
-// Stage 3 R&D - Unit tests for core primitives
+// Lattice-BP++ Verification Harness
+// Unit tests for core lattice privacy primitives
+//
+// BUILD: c++ -std=c++17 -O2 -DLATTICEBP_STANDALONE -I. test_latticebp.cpp commitment.cpp ring_signature.cpp range_proof.cpp -o test_latticebp
 //
 
 #include "commitment.h"
@@ -423,14 +425,208 @@ void benchmark_ring_signature()
 }
 
 // ============================================================================
+// Range Proof Tests (Phase 2)
+// ============================================================================
+
+#include "range_proof.h"
+
+void test_range_proof_basic()
+{
+    std::cout << "Testing range proof (v=42)... ";
+
+    // Setup
+    std::array<uint8_t, 32> seed = {};
+    seed[0] = 0x42;
+    auto pub_params = LatticeCommitment::PublicParams::generate(seed);
+
+    RangeProofParams rp_params;
+    rp_params.commit_params = pub_params;
+
+    uint64_t value = 42;
+    RingElement randomness = RingElement::sampleGaussian(LatticeParams::SIGMA);
+    LatticeCommitment commitment = LatticeCommitment::commit(value, randomness, pub_params);
+
+    std::array<uint8_t, 32> sighash = {};
+    sighash[0] = 0xAA;
+    std::array<uint8_t, 32> pubkey_hash = {};
+    pubkey_hash[0] = 0xBB;
+
+    // Prove
+    LatticeRangeProofV2 proof;
+    bool prove_ok = LatticeRangeProofV2::prove(value, randomness, commitment, rp_params,
+                                                sighash, pubkey_hash, proof);
+    assert(prove_ok && "Proof generation should succeed");
+
+    // Verify
+    bool verify_ok = proof.verify(commitment, rp_params, sighash, pubkey_hash);
+    assert(verify_ok && "Valid proof should verify");
+
+    std::cout << "PASSED (proof_size=" << proof.proof_data.size() << " bytes)" << std::endl;
+}
+
+void test_range_proof_zero()
+{
+    std::cout << "Testing range proof (v=0)... ";
+
+    std::array<uint8_t, 32> seed = {};
+    auto pub_params = LatticeCommitment::PublicParams::generate(seed);
+    RangeProofParams rp_params;
+    rp_params.commit_params = pub_params;
+
+    uint64_t value = 0;
+    RingElement randomness = RingElement::sampleGaussian(LatticeParams::SIGMA);
+    LatticeCommitment commitment = LatticeCommitment::commit(value, randomness, pub_params);
+
+    std::array<uint8_t, 32> sighash = {}, pubkey_hash = {};
+
+    LatticeRangeProofV2 proof;
+    bool prove_ok = LatticeRangeProofV2::prove(value, randomness, commitment, rp_params,
+                                                sighash, pubkey_hash, proof);
+    assert(prove_ok);
+    assert(proof.verify(commitment, rp_params, sighash, pubkey_hash));
+
+    std::cout << "PASSED" << std::endl;
+}
+
+void test_range_proof_max()
+{
+    std::cout << "Testing range proof (v=2^64-1)... ";
+
+    std::array<uint8_t, 32> seed = {};
+    auto pub_params = LatticeCommitment::PublicParams::generate(seed);
+    RangeProofParams rp_params;
+    rp_params.commit_params = pub_params;
+
+    uint64_t value = UINT64_MAX;
+    RingElement randomness = RingElement::sampleGaussian(LatticeParams::SIGMA);
+    LatticeCommitment commitment = LatticeCommitment::commit(value, randomness, pub_params);
+
+    std::array<uint8_t, 32> sighash = {}, pubkey_hash = {};
+
+    LatticeRangeProofV2 proof;
+    bool prove_ok = LatticeRangeProofV2::prove(value, randomness, commitment, rp_params,
+                                                sighash, pubkey_hash, proof);
+    assert(prove_ok);
+    assert(proof.verify(commitment, rp_params, sighash, pubkey_hash));
+
+    std::cout << "PASSED" << std::endl;
+}
+
+void test_range_proof_tampered()
+{
+    std::cout << "Testing range proof rejection (tampered)... ";
+
+    std::array<uint8_t, 32> seed = {};
+    auto pub_params = LatticeCommitment::PublicParams::generate(seed);
+    RangeProofParams rp_params;
+    rp_params.commit_params = pub_params;
+
+    uint64_t value = 100;
+    RingElement randomness = RingElement::sampleGaussian(LatticeParams::SIGMA);
+    LatticeCommitment commitment = LatticeCommitment::commit(value, randomness, pub_params);
+
+    std::array<uint8_t, 32> sighash = {}, pubkey_hash = {};
+
+    LatticeRangeProofV2 proof;
+    LatticeRangeProofV2::prove(value, randomness, commitment, rp_params,
+                               sighash, pubkey_hash, proof);
+
+    // Tamper with challenge_seed (Fiat-Shamir binding check)
+    LatticeRangeProofV2 tampered = proof;
+    tampered.challenge_seed[0] ^= 0xFF;
+
+    bool should_fail = tampered.verify(commitment, rp_params, sighash, pubkey_hash);
+    assert(!should_fail && "Tampered proof should be rejected");
+
+    std::cout << "PASSED" << std::endl;
+}
+
+void test_range_proof_serialization()
+{
+    std::cout << "Testing range proof serialization... ";
+
+    std::array<uint8_t, 32> seed = {};
+    auto pub_params = LatticeCommitment::PublicParams::generate(seed);
+    RangeProofParams rp_params;
+    rp_params.commit_params = pub_params;
+
+    uint64_t value = 1000000;
+    RingElement randomness = RingElement::sampleGaussian(LatticeParams::SIGMA);
+    LatticeCommitment commitment = LatticeCommitment::commit(value, randomness, pub_params);
+
+    std::array<uint8_t, 32> sighash = {}, pubkey_hash = {};
+
+    LatticeRangeProofV2 proof;
+    LatticeRangeProofV2::prove(value, randomness, commitment, rp_params,
+                               sighash, pubkey_hash, proof);
+
+    // Serialize
+    auto serialized = proof.serialize();
+
+    // Deserialize
+    LatticeRangeProofV2 deserialized;
+    bool deser_ok = LatticeRangeProofV2::deserialize(serialized, deserialized);
+    assert(deser_ok && "Deserialization should succeed");
+
+    // Verify deserialized proof
+    bool verify_ok = deserialized.verify(commitment, rp_params, sighash, pubkey_hash);
+    assert(verify_ok && "Deserialized proof should verify");
+
+    std::cout << "PASSED (serialized=" << serialized.size() << " bytes)" << std::endl;
+}
+
+void benchmark_range_proof()
+{
+    std::cout << "\nBenchmarking range proof... ";
+
+    std::array<uint8_t, 32> seed = {};
+    auto pub_params = LatticeCommitment::PublicParams::generate(seed);
+    RangeProofParams rp_params;
+    rp_params.commit_params = pub_params;
+
+    uint64_t value = 50000;
+    RingElement randomness = RingElement::sampleGaussian(LatticeParams::SIGMA);
+    LatticeCommitment commitment = LatticeCommitment::commit(value, randomness, pub_params);
+    std::array<uint8_t, 32> sighash = {}, pubkey_hash = {};
+
+    // Benchmark prove
+    const int iterations = 5;
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < iterations; i++) {
+        LatticeRangeProofV2 proof;
+        LatticeRangeProofV2::prove(value, randomness, commitment, rp_params,
+                                   sighash, pubkey_hash, proof);
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    double prove_us = (double)dur.count() / iterations;
+
+    // Benchmark verify
+    LatticeRangeProofV2 proof;
+    LatticeRangeProofV2::prove(value, randomness, commitment, rp_params,
+                               sighash, pubkey_hash, proof);
+
+    start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < iterations; i++) {
+        proof.verify(commitment, rp_params, sighash, pubkey_hash);
+    }
+    end = std::chrono::high_resolution_clock::now();
+    dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    double verify_us = (double)dur.count() / iterations;
+
+    std::cout << "prove=" << prove_us/1000.0 << "ms, verify=" << verify_us/1000.0 << "ms" << std::endl;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
 int main()
 {
     std::cout << "===========================================\n";
-    std::cout << "  Lattice-BP++ Stage 3 R&D Test Harness    \n";
-    std::cout << "===========================================\n\n";
+    std::cout << "  Lattice-BP++ Verification Harness\n";
+    std::cout << "  OP_LATTICEBP_RANGEPROOF (0xfa) Witness v4\n";
+    std::cout << "===========================================\n";
 
     std::cout << "Parameters:\n";
     std::cout << "  Ring dimension (n): " << LatticeParams::N << "\n";
@@ -455,11 +651,20 @@ int main()
     test_ring_signature_large();
     test_ring_signature_serialization();
 
+    // Unit tests - Range Proofs (Phase 2)
+    std::cout << "\nRunning range proof tests:\n";
+    test_range_proof_basic();
+    test_range_proof_zero();
+    test_range_proof_max();
+    test_range_proof_tampered();
+    test_range_proof_serialization();
+
     // Benchmarks
-    std::cout << "\nRunning benchmarks:\n";
+    std::cout << "\nRunning benchmarks:";
     benchmark_ntt_multiplication();
     benchmark_commitment();
     benchmark_ring_signature();
+    benchmark_range_proof();
 
     std::cout << "\n===========================================\n";
     std::cout << "  All tests PASSED                          \n";

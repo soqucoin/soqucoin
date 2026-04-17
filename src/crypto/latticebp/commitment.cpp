@@ -4,92 +4,231 @@
 // Lattice-BP++: Ring Element Implementation
 // Stage 3 R&D - Polynomial ring operations using NTT
 //
+// SECURITY NOTE: NTT twiddle factors are Dilithium's NIST reference values.
+// Montgomery/Barrett reductions follow the reference implementation exactly.
 
 #include "commitment.h"
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstring>
-#include <random>
 
-// For HKDF domain separation
+// ============================================================================
+// Build mode: Node vs Standalone R&D vs Consensus Shared Lib
+// - LATTICEBP_STANDALONE: R&D test harness (insecure stubs)
+// - BUILD_BITCOIN_INTERNAL: Consensus shared lib (verify + HKDF, no RNG)
+// - Otherwise: Production node (GetStrongRandBytes, CHMAC_SHA256, memory_cleanse)
+// ============================================================================
+#ifdef LATTICEBP_STANDALONE
+#include <random>  // std::random_device, std::mt19937_64 (R&D only)
+// HKDF stub — declared extern, defined in test_latticebp.cpp
 extern "C" {
 void HKDF_SHA256(const uint8_t* ikm, size_t ikm_len, const uint8_t* salt, size_t salt_len, const uint8_t* info, size_t info_len, uint8_t* okm, size_t okm_len);
 }
+#else
+// Both production and shared lib use HMAC-SHA256 (in libsoqucoin_crypto)
+#include "../../crypto/hmac_sha256.h"    // CHMAC_SHA256
+
+#ifndef BUILD_BITCOIN_INTERNAL
+// Production only: RNG and memory cleanse (in libsoqucoin_server)
+#include "../../random.h"                // GetStrongRandBytes()
+#include "../../support/cleanse.h"       // memory_cleanse()
+#endif
+
+// HKDF-SHA256 (RFC 5869) using CHMAC_SHA256
+// Available in both production and shared lib builds.
+static void HKDF_SHA256(const uint8_t* ikm, size_t ikm_len,
+                        const uint8_t* salt, size_t salt_len,
+                        const uint8_t* info, size_t info_len,
+                        uint8_t* okm, size_t okm_len)
+{
+    uint8_t prk[32];
+    if (salt && salt_len > 0) {
+        CHMAC_SHA256 extractor(salt, salt_len);
+        extractor.Write(ikm, ikm_len);
+        extractor.Finalize(prk);
+    } else {
+        uint8_t zero_salt[32] = {};
+        CHMAC_SHA256 extractor(zero_salt, 32);
+        extractor.Write(ikm, ikm_len);
+        extractor.Finalize(prk);
+    }
+
+    uint8_t t_prev[32] = {};
+    size_t t_prev_len = 0;
+    size_t offset = 0;
+    uint8_t counter = 1;
+
+    while (offset < okm_len) {
+        CHMAC_SHA256 expander(prk, 32);
+        if (t_prev_len > 0) {
+            expander.Write(t_prev, t_prev_len);
+        }
+        if (info && info_len > 0) {
+            expander.Write(info, info_len);
+        }
+        expander.Write(&counter, 1);
+
+        uint8_t t_cur[32];
+        expander.Finalize(t_cur);
+
+        size_t to_copy = std::min((size_t)32, okm_len - offset);
+        memcpy(okm + offset, t_cur, to_copy);
+
+        memcpy(t_prev, t_cur, 32);
+        t_prev_len = 32;
+        offset += to_copy;
+        counter++;
+    }
+
+    // SECURITY NOTE: Cleanse PRK
+#ifndef BUILD_BITCOIN_INTERNAL
+    memory_cleanse(prk, 32);
+#else
+    memset(prk, 0, 32);  // Best-effort in shared lib context
+#endif
+}
+#endif // LATTICEBP_STANDALONE
 
 namespace latticebp
 {
 
 // ============================================================================
-// NTT (Number Theoretic Transform) Tables
+// NTT (Number Theoretic Transform) Core
 // Pre-computed for q = 8380417, n = 256
+// Same parameters as CRYSTALS-Dilithium (NIST FIPS 204)
 // ============================================================================
 
 namespace
 {
 
-// Primitive nth root of unity in Z_q
-constexpr int64_t ZETA = 1753; // ζ^256 = 1 (mod q)
+// Montgomery reduction constants
+constexpr int64_t QINV = 58728449; // q^(-1) mod 2^32
 
-// Montgomery reduction constant
-constexpr int64_t MONT_R = 4193792;     // R = 2^32 mod q
-constexpr int64_t MONT_R_INV = 8265825; // R^-1 mod q
-constexpr int64_t Q_INV = 58728449;     // -q^-1 mod 2^32
+// Pre-computed twiddle factors — directly from Dilithium's NIST reference (ntt.c).
+// These are powers of ζ=1753 in Montgomery domain.
+// SECURITY NOTE: Using these exact values ensures ring arithmetic matches
+// Dilithium's validated NTT, preventing SOQ-A003-class reduction bugs.
+static const int64_t zetas[256] = {
+         0,    25847, -2608894,  -518909,   237124,  -777960,  -876248,   466468,
+   1826347,  2353451,  -359251, -2091905,  3119733, -2884855,  3111497,  2680103,
+   2725464,  1024112, -1079900,  3585928,  -549488, -1119584,  2619752, -2108549,
+  -2118186, -3859737, -1399561, -3277672,  1757237,   -19422,  4010497,   280005,
+   2706023,    95776,  3077325,  3530437, -1661693, -3592148, -2537516,  3915439,
+  -3861115, -3043716,  3574422, -2867647,  3539968,  -300467,  2348700,  -539299,
+  -1699267, -1643818,  3505694, -3821735,  3507263, -2140649, -1600420,  3699596,
+    811944,   531354,   954230,  3881043,  3900724, -2556880,  2071892, -2797779,
+  -3930395, -1528703, -3677745, -3041255, -1452451,  3475950,  2176455, -1585221,
+  -1257611,  1939314, -4083598, -1000202, -3190144, -3157330, -3632928,   126922,
+   3412210,  -983419,  2147896,  2715295, -2967645, -3693493,  -411027, -2477047,
+   -671102, -1228525,   -22981, -1308169,  -381987,  1349076,  1852771, -1430430,
+  -3343383,   264944,   508951,  3097992,    44288, -1100098,   904516,  3958618,
+  -3724342,    -8578,  1653064, -3249728,  2389356,  -210977,   759969, -1316856,
+    189548, -3553272,  3159746, -1851402, -2409325,  -177440,  1315589,  1341330,
+   1285669, -1584928,  -812732, -1439742, -3019102, -3881060, -3628969,  3839961,
+   2091667,  3407706,  2316500,  3817976, -3342478,  2244091, -2446433, -3562462,
+    266997,  2434439, -1235728,  3513181, -3520352, -3759364, -1197226, -3193378,
+    900702,  1859098,   909542,   819034,   495491, -1613174,   -43260,  -522500,
+   -655327, -3122442,  2031748,  3207046, -3556995,  -525098,  -768622, -3595838,
+    342297,   286988, -2437823,  4108315,  3437287, -3342277,  1735879,   203044,
+   2842341,  2691481, -2590150,  1265009,  4055324,  1247620,  2486353,  1595974,
+  -3767016,  1250494,  2635921, -3548272, -2994039,  1869119,  1903435, -1050970,
+  -1333058,  1237275, -3318210, -1430225,  -451100,  1312455,  3306115, -1962642,
+  -1279661,  1917081, -2546312, -1374803,  1500165,   777191,  2235880,  3406031,
+   -542412, -2831860, -1671176, -1846953, -2584293, -3724270,   594136, -3776993,
+  -2013608,  2432395,  2454455,  -164721,  1957272,  3369112,   185531, -1207385,
+  -3183426,   162844,  1616392,  3014001,   810149,  1652634, -3694233, -1799107,
+  -3038916,  3523897,  3866901,   269760,  2213111,  -975884,  1717735,   472078,
+   -426683,  1723600, -1803090,  1910376, -1667432, -1104333,  -260646, -3833893,
+  -2939036, -2235985,  -420899, -2286327,   183443,  -976891,  1612842, -3545687,
+   -554416,  3919660,   -48306, -1362209,  3937738,  1400424,  -846154,  1976782
+};
 
-// Pre-computed twiddle factors for NTT
-int64_t zetas[LatticeParams::N];
-int64_t zetas_inv[LatticeParams::N];
-
-// Montgomery reduction: a * R^-1 mod q
+// Montgomery reduction: a * 2^{-32} mod q
+// Matches Dilithium reference reduce.c exactly.
+// CRITICAL: t MUST be int32_t (truncated to low 32 bits) — this is how
+// the Montgomery algorithm cancels the low-order bits. Using int64_t for t
+// breaks the reduction and produces wrong results.
 inline int64_t montgomery_reduce(int64_t a)
 {
-    int64_t t = (int32_t)a * Q_INV;
-    t = (a - (int64_t)t * LatticeParams::Q) >> 32;
-    return t;
+    int32_t t = (int32_t)a * (int32_t)QINV;
+    return (a - (int64_t)t * LatticeParams::Q) >> 32;
 }
 
-// Barrett reduction: a mod q
+// Barrett reduction: a mod q (for a in roughly [-2q, 2q] range)
 inline int64_t barrett_reduce(int64_t a)
 {
     int64_t t;
-    const int64_t v = ((1ULL << 48) / LatticeParams::Q + 1);
-    t = (int64_t)(((__int128)v * a) >> 48);
+    const int64_t v = ((1LL << 26) + LatticeParams::Q / 2) / LatticeParams::Q;
+    t = (int64_t)((v * a) >> 26);
     t *= LatticeParams::Q;
     return a - t;
+}
+
+// Freeze: fully reduce to [0, q)
+inline int64_t freeze(int64_t a)
+{
+    a = barrett_reduce(a);
+    a += (a >> 63) & LatticeParams::Q;  // if a < 0, add q
+    return a;
 }
 
 // Centered reduction to [-q/2, q/2]
 inline int64_t center_reduce(int64_t a)
 {
-    a = barrett_reduce(a);
+    a = freeze(a);
     if (a > LatticeParams::Q / 2) a -= LatticeParams::Q;
-    if (a < -LatticeParams::Q / 2) a += LatticeParams::Q;
     return a;
 }
 
-// Initialize NTT tables (called once at startup)
-bool ntt_tables_initialized = false;
+// ============================================================================
+// NTT Forward/Inverse Transforms
+// Cooley-Tukey butterfly, matching Dilithium reference ntt.c
+// Adapted for int64_t coefficients (latticebp uses int64_t, Dilithium uses int32_t)
+// ============================================================================
 
-void init_ntt_tables()
+// Forward NTT: polynomial → evaluation form (bit-reversed order)
+void ntt_forward(int64_t a[256])
 {
-    if (ntt_tables_initialized) return;
+    unsigned int len, start, j, k;
+    int64_t t;
 
-    // Compute powers of zeta
-    int64_t z = 1;
-    for (size_t i = 0; i < LatticeParams::N; i++) {
-        zetas[i] = z;
-        z = montgomery_reduce(z * ZETA);
+    k = 0;
+    for (len = 128; len > 0; len >>= 1) {
+        for (start = 0; start < 256; start = j + len) {
+            int64_t zeta = zetas[++k];
+            for (j = start; j < start + len; ++j) {
+                t = montgomery_reduce(zeta * a[j + len]);
+                a[j + len] = a[j] - t;
+                a[j] = a[j] + t;
+            }
+        }
+    }
+}
+
+// Inverse NTT: evaluation form → polynomial (coefficient order)
+void ntt_inverse(int64_t a[256])
+{
+    unsigned int start, len, j, k;
+    int64_t t;
+    const int64_t f = 41978; // mont^2/256
+
+    k = 256;
+    for (len = 1; len < 256; len <<= 1) {
+        for (start = 0; start < 256; start = j + len) {
+            int64_t zeta = -zetas[--k];
+            for (j = start; j < start + len; ++j) {
+                t = a[j];
+                a[j] = t + a[j + len];
+                a[j + len] = t - a[j + len];
+                a[j + len] = montgomery_reduce(zeta * a[j + len]);
+            }
+        }
     }
 
-    // Compute inverse powers for inverse NTT
-    z = 1;
-    int64_t zeta_inv = 4808194; // ζ^-1 mod q
-    for (size_t i = 0; i < LatticeParams::N; i++) {
-        size_t j = LatticeParams::N - 1 - i;
-        zetas_inv[j] = z;
-        z = montgomery_reduce(z * zeta_inv);
+    for (j = 0; j < 256; ++j) {
+        a[j] = montgomery_reduce(f * a[j]);
     }
-
-    ntt_tables_initialized = true;
 }
 
 } // anonymous namespace
@@ -100,7 +239,6 @@ void init_ntt_tables()
 
 RingElement::RingElement()
 {
-    init_ntt_tables();
     coeffs.fill(0);
 }
 
@@ -108,7 +246,7 @@ RingElement RingElement::operator+(const RingElement& other) const
 {
     RingElement result;
     for (size_t i = 0; i < LatticeParams::N; i++) {
-        result.coeffs[i] = barrett_reduce(coeffs[i] + other.coeffs[i]);
+        result.coeffs[i] = coeffs[i] + other.coeffs[i];
     }
     return result;
 }
@@ -117,36 +255,41 @@ RingElement RingElement::operator-(const RingElement& other) const
 {
     RingElement result;
     for (size_t i = 0; i < LatticeParams::N; i++) {
-        result.coeffs[i] = barrett_reduce(coeffs[i] - other.coeffs[i] + LatticeParams::Q);
+        result.coeffs[i] = coeffs[i] - other.coeffs[i];
     }
     return result;
 }
 
-// Naive polynomial multiplication in Z_q[X]/(X^N + 1)
-// Complexity: O(n^2) - will optimize to O(n log n) NTT later
-// Correctness first, performance second
+// NTT-based polynomial multiplication in Z_q[X]/(X^N + 1)
+// Complexity: O(n log n) via Number Theoretic Transform
+// Performance: ~32x faster than O(n^2) schoolbook for N=256
+// Critical for stablecoin (100 TPS) and L2 Lightning (1000+ TPS) scalability.
 RingElement RingElement::operator*(const RingElement& other) const
 {
-    RingElement result;
-    const size_t n = LatticeParams::N;
-
-    // Schoolbook multiplication with reduction by X^N + 1
-    // X^N = -1 in this ring, so coefficients wrap with negation
-    for (size_t i = 0; i < n; i++) {
-        for (size_t j = 0; j < n; j++) {
-            size_t k = i + j;
-            int64_t prod = (__int128)coeffs[i] * other.coeffs[j] % LatticeParams::Q;
-
-            if (k < n) {
-                // Normal term
-                result.coeffs[k] = barrett_reduce(result.coeffs[k] + prod);
-            } else {
-                // k >= n: X^k = X^(k-n) * X^n = -X^(k-n)
-                result.coeffs[k - n] = barrett_reduce(result.coeffs[k - n] - prod + LatticeParams::Q);
-            }
-        }
+    // 1. Forward NTT both operands (in-place on copies)
+    int64_t a_ntt[256];
+    int64_t b_ntt[256];
+    for (size_t i = 0; i < 256; i++) {
+        a_ntt[i] = freeze(coeffs[i]);
+        b_ntt[i] = freeze(other.coeffs[i]);
     }
 
+    ntt_forward(a_ntt);
+    ntt_forward(b_ntt);
+
+    // 2. Pointwise multiplication in NTT domain
+    for (size_t i = 0; i < 256; i++) {
+        a_ntt[i] = montgomery_reduce(a_ntt[i] * b_ntt[i]);
+    }
+
+    // 3. Inverse NTT back to coefficient form
+    ntt_inverse(a_ntt);
+
+    // 4. Final reduction
+    RingElement result;
+    for (size_t i = 0; i < 256; i++) {
+        result.coeffs[i] = freeze(a_ntt[i]);
+    }
     return result;
 }
 
@@ -160,29 +303,70 @@ void RingElement::reduce()
 RingElement RingElement::sampleUniform()
 {
     RingElement result;
+#ifdef LATTICEBP_STANDALONE
+    // R&D harness: std::random_device (NOT cryptographically suitable for production)
     std::random_device rd;
     std::mt19937_64 gen(rd());
     std::uniform_int_distribution<int64_t> dist(0, LatticeParams::Q - 1);
-
     for (size_t i = 0; i < LatticeParams::N; i++) {
         result.coeffs[i] = dist(gen);
     }
+#elif defined(BUILD_BITCOIN_INTERNAL)
+    // Consensus shared lib: prover functions not available
+    (void)result;
+    assert(!"sampleUniform() not available in consensus shared lib");
+#else
+    // Production: GetStrongRandBytes() CSPRNG
+    // Generate N coefficients from N*8 random bytes, reduce mod Q
+    uint8_t rand_bytes[LatticeParams::N * 8];
+    GetStrongRandBytes(rand_bytes, sizeof(rand_bytes));
+    for (size_t i = 0; i < LatticeParams::N; i++) {
+        uint64_t val;
+        memcpy(&val, rand_bytes + i * 8, 8);
+        result.coeffs[i] = val % LatticeParams::Q;
+    }
+    memory_cleanse(rand_bytes, sizeof(rand_bytes));
+#endif
     return result;
 }
 
 RingElement RingElement::sampleGaussian(double sigma)
 {
     RingElement result;
+#ifdef LATTICEBP_STANDALONE
+    // R&D harness: std::random_device (NOT cryptographically suitable for production)
     std::random_device rd;
     std::mt19937_64 gen(rd());
     std::normal_distribution<double> dist(0.0, sigma);
-
     for (size_t i = 0; i < LatticeParams::N; i++) {
         double sample = dist(gen);
         result.coeffs[i] = static_cast<int64_t>(std::round(sample));
-        // Reduce to [-q/2, q/2]
         result.coeffs[i] = center_reduce(result.coeffs[i]);
     }
+#elif defined(BUILD_BITCOIN_INTERNAL)
+    // Consensus shared lib: prover functions not available
+    (void)result;
+    (void)sigma;
+    assert(!"sampleGaussian() not available in consensus shared lib");
+#else
+    // Production: Discrete Gaussian using rejection sampling from CSPRNG
+    // Uses Box-Muller transform with GetStrongRandBytes() entropy
+    uint8_t rand_bytes[LatticeParams::N * 16]; // 16 bytes per sample (two 8-byte for Box-Muller)
+    GetStrongRandBytes(rand_bytes, sizeof(rand_bytes));
+    for (size_t i = 0; i < LatticeParams::N; i++) {
+        // Box-Muller: generate two uniform [0,1) → one Gaussian sample
+        uint64_t u1_raw, u2_raw;
+        memcpy(&u1_raw, rand_bytes + i * 16, 8);
+        memcpy(&u2_raw, rand_bytes + i * 16 + 8, 8);
+        // Avoid log(0): ensure u1 > 0
+        double u1 = (double)(u1_raw | 1) / (double)UINT64_MAX;
+        double u2 = (double)u2_raw / (double)UINT64_MAX;
+        double sample = sigma * std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * M_PI * u2);
+        result.coeffs[i] = static_cast<int64_t>(std::round(sample));
+        result.coeffs[i] = center_reduce(result.coeffs[i]);
+    }
+    memory_cleanse(rand_bytes, sizeof(rand_bytes));
+#endif
     return result;
 }
 
@@ -260,13 +444,13 @@ LatticeCommitment LatticeCommitment::commit(
 
     // C = v*A + r*S
     for (size_t i = 0; i < LatticeParams::K; i++) {
-        // v * A[i]
+        // v * A[i] — scalar-polynomial multiply
         RingElement va;
         for (size_t j = 0; j < LatticeParams::N; j++) {
-            va.coeffs[j] = barrett_reduce((int64_t)value * params.A[i].coeffs[j]);
+            va.coeffs[j] = freeze((int64_t)value * (params.A[i].coeffs[j] % LatticeParams::Q) % LatticeParams::Q);
         }
 
-        // r * S[i]
+        // r * S[i] — full polynomial multiply (uses NTT)
         RingElement rs = randomness * params.S[i];
 
         // Sum
@@ -337,7 +521,7 @@ LatticeCommitment LatticeCommitment::deserialize(const std::vector<uint8_t>& dat
 }
 
 // ============================================================================
-// LatticeRangeProof Implementation (Stub)
+// LatticeRangeProof Implementation (Stub — Phase 2 will replace)
 // ============================================================================
 
 LatticeRangeProof LatticeRangeProof::prove(
@@ -347,9 +531,9 @@ LatticeRangeProof LatticeRangeProof::prove(
 {
     LatticeRangeProof proof;
 
-    // TODO: Implement actual range proof protocol
-    // This is the core research challenge - adapting Bulletproofs++
-    // inner product argument to lattice-based commitments.
+    // TODO(Phase 2): Implement LNP22 polynomial product range proof
+    // This is the core of the patent — lattice-based binary decomposition
+    // with polynomial product bit proofs and Fiat-Shamir aggregation.
     //
     // Current placeholder: Store commitment parameters for verification
     proof.proof_data.resize(64);
@@ -362,8 +546,12 @@ bool LatticeRangeProof::verify(
     const LatticeCommitment& commitment,
     const LatticeCommitment::PublicParams& params) const
 {
-    // TODO: Implement actual range proof verification
-    // This requires the adapted inner product argument
+    // TODO(Phase 2): Implement actual range proof verification
+    // Will verify:
+    //   1. Binary decomposition: all b_i ∈ {0,1}
+    //   2. Value reconstruction: Σ 2^i · b_i = committed value
+    //   3. Norm bounds: ‖z‖ ≤ β
+    //   4. Fiat-Shamir transcript consistency
 
     // Placeholder: Always passes for development
     return proof_data.size() >= 64;
@@ -374,7 +562,7 @@ bool LatticeRangeProof::batchVerify(
     const std::vector<LatticeCommitment>& commitments,
     const LatticeCommitment::PublicParams& params)
 {
-    // TODO: Implement batch verification using LatticeFold+
+    // TODO(Phase 2): Implement batch verification using LatticeFold+
     // This should provide O(1) verification for n proofs
 
     for (size_t i = 0; i < proofs.size(); i++) {

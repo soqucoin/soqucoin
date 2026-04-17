@@ -33,6 +33,13 @@ struct LatticeParams {
     static constexpr size_t OPENING_SIZE = N * K * 4;    // ~4KB
 };
 
+// SECURITY NOTE: Compile-time parameter validation (prevents SOQ-A001-class bugs)
+static_assert(LatticeParams::N == 256, "N must be 256 for NTT compatibility with Dilithium");
+static_assert((LatticeParams::N & (LatticeParams::N - 1)) == 0, "N must be power of 2 for NTT");
+static_assert(LatticeParams::Q == 8380417, "Q must match Dilithium modulus for NTT twiddle factors");
+static_assert(LatticeParams::Q % (2 * LatticeParams::N) == 1, "Q must be ≡ 1 (mod 2N) for NTT");
+static_assert(LatticeParams::K >= 2 && LatticeParams::K <= 8, "K must be in [2,8] for NIST security levels");
+
 /**
  * Polynomial ring element Z_q[X]/(X^N + 1)
  *
@@ -127,7 +134,7 @@ public:
 
     // Range proof parameters
     static constexpr size_t RANGE_BITS = 64;
-    static constexpr size_t MAX_PROOF_SIZE = 2048; // ~2KB target
+    static constexpr size_t MAX_PROOF_SIZE = 16384; // Actual: ~12KB (1 + 32 + 2×2048 + K×2048)
 
     // Generate range proof
     static LatticeRangeProof prove(
