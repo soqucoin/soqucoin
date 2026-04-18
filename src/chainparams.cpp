@@ -546,9 +546,11 @@ static CRegTestParams regTestParams;
 
 /**
  * Stagenet - Mainnet rehearsal network
- * Mirrors mainnet staged activation schedule:
- * - BP++ activates at height 50,000
- * - LatticeFold+ activates at height 100,000
+ * Mirrors mainnet consensus exactly:
+ * - Real difficulty adjustment (fPowAllowMinDifficultyBlocks = false)
+ * - Dilithium, PAT, LatticeFold+ all ALWAYS_ACTIVE from genesis
+ * - Lattice-BP++ NOT_ACTIVE (future soft-fork, same as mainnet)
+ * - fRequireStandard = true (reject non-standard txs)
  */
 class CStageNetParams : public CChainParams
 {
@@ -574,8 +576,8 @@ public:
         consensus.nPowTargetTimespan = 4 * 60 * 60; // 4 hours
         consensus.nPowTargetSpacing = 60;           // 1 minute
         consensus.fDigishieldDifficultyCalculation = true;
-        consensus.fPowAllowMinDifficultyBlocks = true;
-        consensus.fPowAllowDigishieldMinDifficultyBlocks = true;
+        consensus.fPowAllowMinDifficultyBlocks = false;  // SOQ-INFRA-005: MUST be false to emulate mainnet
+        consensus.fPowAllowDigishieldMinDifficultyBlocks = false;  // SOQ-INFRA-005: real Digishield retarget
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 1512;
         consensus.nMinerConfirmationWindow = 2016;
@@ -585,7 +587,8 @@ public:
         // Dilithium only from genesis
         consensus.dilithiumOnlyHeight = 0;
 
-        // Mainnet-mirrored staged activation\n        // BP++ activation is via BIP9 softfork\n        consensus.nLatticeFoldActivationHeight = 100000; // LatticeFold+ at height 100k (same as mainnet)
+        // LatticeFold+ ALWAYS_ACTIVE from genesis (matches mainnet April 2026 decision)
+        consensus.nLatticeFoldActivationHeight = 0;
 
         // BIP9 deployments - all active from genesis (Dilithium)
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
@@ -673,9 +676,9 @@ public:
 
         vFixedSeeds.clear();
 
-        fMiningRequiresPeers = false;
+        fMiningRequiresPeers = false;  // Allow solo mining during bootstrap
         fDefaultConsistencyChecks = false;
-        fRequireStandard = false;
+        fRequireStandard = true;  // SOQ-INFRA-005: Match mainnet — reject non-standard txs
         fMineBlocksOnDemand = false;
 
         checkpointData = (CCheckpointData){
