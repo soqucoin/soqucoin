@@ -74,7 +74,9 @@ BOOST_AUTO_TEST_CASE(subsidy_first_100k_test)
         prevHash += nSubsidy;
     }
 
-    const CAmount expected = 54894174438 * COIN;
+    // Soqucoin: fSimplifiedRewards=true from genesis
+    // 100,000 blocks × 500,000 COIN + 1 block × 250,000 COIN (halvings=1 at h=100000)
+    const CAmount expected = (CAmount)50000250000LL * COIN;
     BOOST_CHECK_EQUAL(expected, nSum);
 }
 
@@ -94,7 +96,9 @@ BOOST_AUTO_TEST_CASE(subsidy_100k_145k_test)
         prevHash += nSubsidy;
     }
 
-    const CAmount expected = 12349960000 * COIN;
+    // Soqucoin: fSimplifiedRewards=true, halvings=1 for all blocks [100000,145000]
+    // 45,001 blocks × 250,000 COIN
+    const CAmount expected = (CAmount)11250250000LL * COIN;
     BOOST_CHECK_EQUAL(expected, nSum);
 }
 
