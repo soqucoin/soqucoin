@@ -1,66 +1,77 @@
 # Contributing to Soqucoin Core
 
-Soqucoin is a hard-fork of Dogecoin with NIST-standard post-quantum signatures and recursive batch verification. Consensus code is sacred. We follow Bitcoin Core contribution standards with zero tolerance for slop.
+Thank you for considering contributing to Soqucoin Core. This document outlines
+the process for contributing to this project.
 
-## Code Style
+## Getting Started
 
-- Follow the [Bitcoin Core Developer Guidelines](https://github.com/bitcoin/bitcoin/blob/master/CONTRIBUTING.md) exactly.
+1. Fork the repository
+2. Create a feature branch from `main`: `git checkout -b feature/my-feature`
+3. Make your changes
+4. Run the test suite: `make check`
+5. Submit a Pull Request against `main`
 
-- C++14, no exceptions, no RTTI
+## Development Setup
 
-- `clang-format` with the .clang-format in this repo (run `clang-format -i -style=file <file>` before committing)
+### Prerequisites
 
-- All new files must have copyright header: // Copyright (c) 2025-2026 The Soqucoin developers
+- C++17 compatible compiler (GCC 10+, Clang 12+, MSVC 2019+)
+- autotools (`autoconf`, `automake`, `libtool`)
+- Boost 1.70+
+- OpenSSL 1.1+
+- libevent 2.1+
 
-  // Distributed under the MIT software license, see the accompanying file COPYING or https://opensource.org/licenses/MIT 
+### Build
 
-## Branch Strategy
+```bash
+./autogen.sh
+./configure --without-gui
+make -j$(nproc)
+make check
+```
 
-- `master` is dead — never commit to it
+## Pull Request Guidelines
 
-- Default branch: `soqucoin-genesis`
+- **One logical change per PR** — don't mix unrelated changes
+- **Include tests** — every bug fix and feature should come with tests
+- **Update CHANGELOG.md** — add an entry under `[Unreleased]`
+- **Sign your commits** — use `git commit -s` (DCO sign-off)
+- **Follow existing style** — match the code style of surrounding code
+- **Consensus-critical changes** require review from @odenrider
 
-- Feature branches: `feature/<descriptive-name>`
+## Commit Message Format
 
-- All consensus or cryptographic changes require a signed tag and review by at least two core maintainers
+```
+component: Short description (50 chars max)
 
-## Pull Requests
+Longer explanation of the change, if needed. Wrap at 72 characters.
+Reference relevant issues: Fixes #123
 
-- One logical change per PR
+Signed-off-by: Your Name <you@example.com>
+```
 
-- Rebase, never merge commit
+**Component prefixes:** `consensus:`, `wallet:`, `rpc:`, `p2p:`, `build:`, `ci:`,
+`doc:`, `test:`, `crypto:`, `pat:`, `privacy:`
 
-- Linear history required
+## Code Review
 
-- Sign your commits (`git commit -S`)
+All submissions require review. We use GitHub Pull Requests for this purpose.
 
-- Include release notes in `doc/release-notes/`
+### Review Priorities
 
-- Crypto-related PRs require review by @odenrider and at least one external auditor
+| Priority | Scope |
+|----------|-------|
+| **P0 — Critical** | Consensus bugs, key leakage, chain splits |
+| **P1 — High** | New crypto primitives, protocol changes |
+| **P2 — Normal** | Features, optimizations, refactoring |
+| **P3 — Low** | Documentation, typos, comments |
 
-## Testing
+## Security Vulnerabilities
 
-- `make check` must pass
+**Do NOT open a public issue.** See [SECURITY.md](SECURITY.md) for the
+responsible disclosure process.
 
-- `test/functional` must pass
+## License
 
-- All new consensus rules must have functional tests
-
-- PQ-related code must have property-based tests using test/fuzz
-
-## Cryptography & Consensus Code
-
-- Any change touching src/consensus/, src/script/, src/pat/, or src/primitives/transaction.cpp requires **two independent reviews** and a signed tag from @odenrider.
-
-- No new cryptography without a published paper or NIST standard reference.
-
-- All new opcodes require a detailed design doc in doc/design/
-
-## Issue & PR Template
-
-Use the templates in .github/ — do not delete or disable them.
-
-Thank you for helping make Soqucoin the first production-ready post-quantum Scrypt-PoW chain.
-
-– The Soqucoin Core Team
-
+By contributing to Soqucoin Core, you agree that your contributions will be
+licensed under the MIT License.

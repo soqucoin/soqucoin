@@ -9,10 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/soqucoin/soqucoin/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen" alt="Build Status"></a>
-  <a href="https://github.com/soqucoin/soqucoin/blob/soqucoin-genesis/COPYING"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://github.com/soqucoin/soqucoin/actions/workflows/ci.yml"><img src="https://github.com/soqucoin/soqucoin/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/soqucoin/soqucoin/releases/latest"><img src="https://img.shields.io/github/v/release/soqucoin/soqucoin?include_prereleases&label=release" alt="Release"></a>
+  <a href="https://github.com/soqucoin/soqucoin/blob/main/COPYING"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
   <a href="https://soqu.org"><img src="https://img.shields.io/badge/website-soqu.org-purple" alt="Website"></a>
-  <a href="https://github.com/soqucoin/soqucoin/releases"><img src="https://img.shields.io/badge/version-1.0--rc1-orange" alt="Version"></a>
 </p>
 
 <p align="center">
@@ -229,8 +229,9 @@ Note: LatticeFold+ is `ALWAYS_ACTIVE` from genesis on all networks. Lattice-BP++
 
 | Branch | Purpose |
 |--------|---------|
-| `soqucoin-genesis` | Active development (default) |
-| `master` | Created at mainnet launch |
+| `main` | Active development (default, protected) |
+| `release/v1.0.x` | Stable release branch (hotfixes only) |
+| `feature/*` | Feature branches (PR into main) |
 
 ---
 

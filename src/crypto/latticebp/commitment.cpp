@@ -13,6 +13,11 @@
 #include <cmath>
 #include <cstring>
 
+// M_PI is a POSIX extension, not guaranteed in strict C++ mode
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // ============================================================================
 // Build mode: Node vs Standalone R&D vs Consensus Shared Lib
 // - LATTICEBP_STANDALONE: R&D test harness (insecure stubs)

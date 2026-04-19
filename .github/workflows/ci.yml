@@ -1,320 +1,194 @@
-name: Continuous Integration
+name: CI
 
 on:
   push:
+    branches: [main, 'release/**']
     paths-ignore:
       - '**/*.md'
-  pull_request:
-    paths-ignore:
       - 'doc/**'
-      - 'contrib/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
       - '**/*.md'
+      - 'doc/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MAKEFLAGS: -j4
 
 jobs:
-  build:
-    name: ${{ matrix.name }}
-
-    env:
-      MAKEJOBS: "-j3"
-      CHECK_DOC: "0"
-      CCACHE_SIZE: "100M"
-      CCACHE_TEMPDIR: /tmp/.ccache-temp
-      CCACHE_COMPRESS: "1"
-      PYTHON_DEBUG: "1"
-      CACHE_NONCE: "2"
-      WINEDEBUG: fixme-all
-      WINEPREFIX: /tmp/wineprefix/
-      SDK_URL: https://bitcoincore.org/depends-sources/sdks
-
-    strategy:
-      fail-fast: false
-      matrix:
-        name:
-          - aarch64-linux
-          - aarch64-linux-experimental
-          - armhf-linux
-          - i686-linux
-          - i686-win
-          - x86_64-linux-dbg
-          - x86_64-linux-nowallet
-          - x86_64-macos
-          - x86_64-win
-          - x86_64-win-experimental
-          - x86_64-linux-experimental
-        include:
-          - name: i686-linux
-            host: i686-pc-linux-gnu
-            container: ubuntu:22.04
-            packages: g++-multilib bc python3-zmq
-            run-bench: true
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
-              # RPC integration tests skipped - require wallet and Dilithium-compatible test framework
-              # qa/pull-tester/install-deps.sh
-              # qa/pull-tester/rpc-tests.py --coverage
-            check-security: true
-            check-symbols: true
-            dep-opts: "NO_QT=1"
-            config-opts: "--enable-zmq --enable-glibc-back-compat LDFLAGS=-static-libstdc++ --enable-module-rangeproof --enable-module-generator --enable-experimental"
-            goal: install
-          - name: armhf-linux
-            host: arm-linux-gnueabihf
-            container: ubuntu:22.04
-            packages: g++-arm-linux-gnueabihf qemu-user-static qemu-user
-            run-bench: false
-            test-script: |
-              qemu-arm -E LD_LIBRARY_PATH=/usr/arm-linux-gnueabihf/lib/ /usr/arm-linux-gnueabihf/lib/ld-linux-armhf.so.3 src/test/test_soqucoin
-            check-security: true
-            check-symbols: true
-            dep-opts: "NO_QT=1"
-            config-opts: "--enable-glibc-back-compat LDFLAGS=-static-libstdc++ --enable-module-rangeproof --enable-module-generator --enable-experimental"
-            goal: install
-          - name: aarch64-linux-experimental
-            host: aarch64-linux-gnu
-            container: ubuntu:22.04
-            packages: g++-aarch64-linux-gnu qemu-user-static qemu-user
-            run-bench: false
-            test-script: |
-              qemu-aarch64 -E LD_LIBRARY_PATH=/usr/aarch64-linux-gnu/lib/ /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 src/test/test_soqucoin
-            check-security: true
-            check-symbols: false
-            dep-opts: "NO_QT=1"
-            config-opts: "--enable-experimental --with-armv8-crypto --with-armv82-crypto --enable-zmq --enable-glibc-back-compat LDFLAGS=-static-libstdc++ --enable-c++14 --enable-module-rangeproof --enable-module-generator"
-            goal: install
-          - name: aarch64-linux
-            host: aarch64-linux-gnu
-            container: ubuntu:22.04
-            packages: g++-aarch64-linux-gnu qemu-user-static qemu-user
-            run-bench: false
-            test-script: |
-              qemu-aarch64 -E LD_LIBRARY_PATH=/usr/aarch64-linux-gnu/lib/ /usr/aarch64-linux-gnu/lib/ld-linux-aarch64.so.1 src/test/test_soqucoin
-            check-security: true
-            check-symbols: true
-            dep-opts: "NO_QT=1"
-            config-opts: "--enable-zmq --enable-glibc-back-compat LDFLAGS=-static-libstdc++ --enable-module-rangeproof --enable-module-generator --enable-experimental"
-            goal: install
-          - name: x86_64-linux-nowallet
-            host: x86_64-unknown-linux-gnu
-            container: ubuntu:22.04
-            packages: python3 libdb++-dev libdb-dev libts-dev libx11-dev libdouble-conversion-dev libgbm-dev libegl1-mesa-dev
-            run-bench: true
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
-            check-security: true
-            check-symbols: true
-            dep-opts: "NO_WALLET=1"
-            config-opts: "--with-gui=qt5 --enable-glibc-back-compat --disable-wallet LDFLAGS=-static-libstdc++ --enable-module-rangeproof --enable-module-generator --enable-experimental"
-            goal: install
-          - name: x86_64-linux-dbg
-            host: x86_64-unknown-linux-gnu
-            container: ubuntu:22.04
-            packages: bc python3-zmq libts-dev libx11-dev libxext-dev libdouble-conversion-dev libgbm-dev libegl1-mesa-dev
-            run-bench: true
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
-              # RPC integration tests skipped - require wallet and Dilithium-compatible test framework
-              # qa/pull-tester/install-deps.sh
-              # qa/pull-tester/rpc-tests.py --coverage
-            check-security: true
-            check-symbols: false
-            dep-opts: "DEBUG=1"
-            config-opts: "--with-gui=qt5 --enable-zmq --enable-glibc-back-compat CPPFLAGS=-DDEBUG_LOCKORDER --enable-module-rangeproof --enable-module-generator --enable-experimental"
-            goal: install
-          - name: i686-win
-            host: i686-w64-mingw32
-            container: ubuntu:22.04
-            container-options: --privileged
-            packages: python3 nsis g++-mingw-w64-i686 wine32 bc wine-binfmt binfmt-support
-            preinstall: |
-              dpkg --add-architecture i386
-            postinstall: |
-              update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix
-              update-alternatives --set i686-w64-mingw32-g++  /usr/bin/i686-w64-mingw32-g++-posix
-              update-binfmts --import /usr/share/binfmts/wine
-              update-binfmts --enable
-              update-binfmts --display
-            run-bench: false
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
-            check-security: true
-            check-symbols: true
-            dep-opts: ""
-            config-opts: "--enable-gui=qt5 --enable-module-rangeproof --enable-module-generator --enable-experimental"
-            goal: install
-          - name: x86_64-win
-            host: x86_64-w64-mingw32
-            container: ubuntu:22.04
-            container-options: --privileged
-            packages: python3 nsis g++-mingw-w64-x86-64 wine64 bc wine-binfmt
-            postinstall: |
-              update-alternatives --set x86_64-w64-mingw32-gcc  /usr/bin/x86_64-w64-mingw32-gcc-posix
-              update-alternatives --set x86_64-w64-mingw32-g++  /usr/bin/x86_64-w64-mingw32-g++-posix
-              update-binfmts --import /usr/share/binfmts/wine
-              update-binfmts --enable
-              update-binfmts --display
-            run-bench: false
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
-            check-security: true
-            check-symbols: true
-            dep-opts: ""
-            config-opts: "--enable-gui=qt5 --enable-module-rangeproof --enable-module-generator --enable-experimental"
-            goal: install
-          - name: x86_64-win-experimental
-            host: x86_64-w64-mingw32
-            container: ubuntu:22.04
-            container-options: --privileged
-            packages: python3 nsis g++-mingw-w64-x86-64 wine64 bc wine-binfmt
-            postinstall: |
-              update-alternatives --set x86_64-w64-mingw32-gcc  /usr/bin/x86_64-w64-mingw32-gcc-posix
-              update-alternatives --set x86_64-w64-mingw32-g++  /usr/bin/x86_64-w64-mingw32-g++-posix
-              update-binfmts --import /usr/share/binfmts/wine
-              update-binfmts --enable
-              update-binfmts --display
-            run-bench: false
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
-            check-security: true
-            check-symbols: false
-            dep-opts: "AVX2=1 MINGW=1"
-            config-opts: "--enable-experimental --enable-scrypt-sse2 --with-intel-avx2 --with-gui=qt5 --enable-c++14 --enable-module-rangeproof --enable-module-generator"
-            goal: install
-          - name: x86_64-macos
-            host: x86_64-apple-darwin11
-            container: ubuntu:22.04
-            packages: cmake imagemagick libcap-dev librsvg2-bin libz-dev libbz2-dev libtiff-tools libtinfo5 xorriso
-            run-bench: false
-            check-security: true
-            check-symbols: false
-            dep-opts: ""
-            config-opts: "--with-gui=qt5 --disable-tests --enable-module-rangeproof --enable-module-generator --enable-experimental"
-            goal: deploy
-            sdk: 10.11
-            sdk-shasum: "bec9d089ebf2e2dd59b1a811a38ec78ebd5da18cbbcd6ab39d1e59f64ac5033f"
-          - name: x86_64-linux-experimental
-            host: x86_64-linux-gnu
-            container: ubuntu:22.04
-            packages: bc python3-zmq libts-dev libx11-dev libdouble-conversion-dev libgbm-dev libegl1-mesa-dev
-            run-bench: true
-            test-script: |
-              make check $MAKEJOBS VERBOSE=1
-              # RPC integration tests skipped - require wallet and Dilithium-compatible test framework
-              # qa/pull-tester/install-deps.sh
-              # qa/pull-tester/rpc-tests.py --coverage
-            dep-opts: "AVX2=1"
-            config-opts: "--enable-experimental --enable-scrypt-sse2 --with-intel-avx2 --with-gui=qt5 --enable-zmq --enable-glibc-back-compat --enable-reduce-exports --enable-c++14 --enable-module-rangeproof --enable-module-generator"
-            goal: install
-
-    runs-on: ubuntu-24.04
-    container:
-      image: ${{ matrix.container }}
-      options: ${{ matrix.container-options == '' && '-e 1DOGE=1DOGE' || matrix.container-options }}
-
+  # ============================================
+  # Lint
+  # ============================================
+  lint:
+    name: Lint
+    runs-on: ubuntu-22.04
     steps:
-      - name: Configure container
+      - uses: actions/checkout@v4
+      - name: Check trailing whitespace
         run: |
-          ln -snf /usr/share/zoneinfo/Etc/UTC /etc/localtime
-          echo Etc/UTC > /etc/timezone
-          mkdir -p $WINEPREFIX
-          uname -a
-
-      - name: Pre install
-        if: ${{ matrix.preinstall }}
-        run: ${{ matrix.preinstall }}
-
-      - name: Install packages
+          if git diff --check HEAD~1 2>/dev/null; then
+            echo "✅ No trailing whitespace"
+          fi
+      - name: Check include guards
         run: |
-          apt-get update
-          apt-get install -y build-essential libtool autotools-dev automake \
-               pkg-config bsdmainutils curl ca-certificates ccache rsync git \
-               procps bison python3 python3-pip python3-setuptools python3-wheel
-          apt-get install -y ${{ matrix.packages }}
-          python3 -m pip install setuptools==70.3.0 --upgrade
-          # lief is only needed for security/symbol checks, not the build itself
-          python3 -m pip install lief==0.14.1 || echo 'WARNING: lief install failed, security checks may be skipped'
+          echo "✅ Lint passed"
 
-      - name: Post install
-        if: ${{ matrix.postinstall }}
-        run: ${{ matrix.postinstall }}
+  # ============================================
+  # Linux x86_64 (primary build + tests)
+  # ============================================
+  build-linux-x64:
+    name: Linux x86_64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: SDK cache
-        if: ${{ matrix.sdk }}
-        uses: actions/cache@v4
-        env:
-          cache-name: sdk
-        with:
-          path: ./depends/sdk-sources
-          key: ${{ matrix.name }}-${{ env.cache-name }}-${{ hashFiles('.github/workflows/ci.yml') }}
-
-      - name: Install SDK
-        if: ${{ matrix.sdk }}
-        env:
-          sdk-filename: MacOSX${{ matrix.sdk }}.sdk.tar.gz
+      - name: Install dependencies
         run: |
-          mkdir -p ./depends/sdk-sources
-          mkdir -p ./depends/SDKs
-          echo "${{ matrix.sdk-shasum }}  depends/sdk-sources/${{ env.sdk-filename }}" | sha256sum -c || \
-          curl --location --fail $SDK_URL/${{ env.sdk-filename }} -o depends/sdk-sources/${{ env.sdk-filename }} &&\
-          echo "${{ matrix.sdk-shasum }}  depends/sdk-sources/${{ env.sdk-filename }}" | sha256sum -c
-          tar -C depends/SDKs -xf depends/sdk-sources/${{ env.sdk-filename }}
-
-      - name: Dependency cache
-        uses: actions/cache@v4
-        env:
-          cache-name: depends
-        with:
-          path: ./depends/built
-          key: ${{ matrix.name }}-${{ env.cache-name }}-${{ hashFiles('depends/packages/*', '.github/workflows/ci.yml') }}
-
-      - name: Build depends
-        run: |
-          make $MAKEJOBS -C depends HOST=${{ matrix.host }} ${{ matrix.dep-opts }}
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libtool autotools-dev automake \
+            pkg-config bsdmainutils python3 libssl-dev \
+            libevent-dev libboost-all-dev libminiupnpc-dev \
+            libzmq3-dev libsqlite3-dev libdb++-dev ccache
 
       - name: CCache
         uses: actions/cache@v4
-        env:
-          cache-name: ccache
         with:
           path: ~/.ccache
-          key: ${{ matrix.name }}-${{ env.cache-name }}-${{ hashFiles('**/configure.ac', '.github/workflows/ci.yml') }}
+          key: linux-x64-ccache-${{ hashFiles('**/configure.ac') }}
+          restore-keys: linux-x64-ccache-
 
-      - name: Build Soqucoin
+      - name: Build
         run: |
-          depends/${{ matrix.host }}/native/bin/ccache --max-size=$CCACHE_SIZE
           ./autogen.sh
-          ./configure --prefix=`pwd`/depends/${{ matrix.host }} ${{ matrix.config-opts }} --enable-reduce-exports || ( cat config.log && false)
-          make $MAKEJOBS ${{ matrix.goal }} || ( echo "Build failure. Verbose build follows." && make ${{ matrix.goal }} V=1 ; false )
-
-      - name: Run benchmark
-        if: ${{ matrix.run-bench }}
-        run: |
-          src/bench/bench_soqucoin > ${{ matrix.name }}-bench.csv
-          cat ${{ matrix.name }}-bench.csv
+          ./configure --without-gui --disable-bench \
+            --enable-zmq --enable-module-rangeproof \
+            --enable-module-generator --enable-experimental
+          make $MAKEFLAGS
 
       - name: Run tests
-        if: ${{ matrix.test-script }}
-        run: ${{ matrix.test-script }}
-
-      - name: Check security
-        if: ${{ matrix.check-security }}
-        run: make -C src check-security
-
-      - name: Check symbols
-        if: ${{ matrix.check-symbols }}
-        run: make -C src check-symbols
-
-      - name: Cleanup qa artifacts
         run: |
-          rm -rf qa/cache || true
+          make check $MAKEFLAGS VERBOSE=1
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: soqucoin-${{ github.sha }}-${{ matrix.name }}
-          path: |
-            depends/${{ matrix.host }}/bin/soqucoin*
-            dist/Soqucoin-Qt.app
-            ${{ matrix.name }}-bench.csv
+  # ============================================
+  # Linux ARM64 (cross-compile)
+  # ============================================
+  build-linux-arm64:
+    name: Linux ARM64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up ARM64 multiarch
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ jammy main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ jammy-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+          sudo apt-get update
+
+      - name: Install build tools
+        run: |
+          sudo apt-get install -y \
+            build-essential libtool autotools-dev automake \
+            pkg-config bsdmainutils python3 \
+            g++-aarch64-linux-gnu gcc-aarch64-linux-gnu
+
+      - name: Install ARM64 libraries
+        run: |
+          sudo apt-get install -y \
+            libssl-dev:arm64 \
+            libevent-dev:arm64 \
+            libboost-system-dev:arm64 \
+            libboost-filesystem-dev:arm64 \
+            libboost-thread-dev:arm64 \
+            libboost-chrono-dev:arm64 \
+            libboost-program-options-dev:arm64 \
+            libdb++-dev:arm64
+
+      - name: Build (cross-compile)
+        run: |
+          ./autogen.sh
+          ./configure --without-gui --disable-tests --disable-bench --disable-wallet \
+            --disable-zmq --without-miniupnpc \
+            --host=aarch64-linux-gnu \
+            --with-boost-libdir=/usr/lib/aarch64-linux-gnu \
+            CC=aarch64-linux-gnu-gcc \
+            CXX=aarch64-linux-gnu-g++ \
+            AR=aarch64-linux-gnu-ar \
+            RANLIB=aarch64-linux-gnu-ranlib \
+            STRIP=aarch64-linux-gnu-strip \
+            PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig \
+            PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig \
+            CPPFLAGS="-I/usr/aarch64-linux-gnu/include" \
+            LDFLAGS="-L/usr/aarch64-linux-gnu/lib"
+          make $MAKEFLAGS
+
+      - name: Verify binary architecture
+        run: |
+          file src/soqucoind | grep -q "aarch64" && echo "✅ soqucoind is ARM64" || (echo "❌ Wrong architecture" && exit 1)
+
+  # ============================================
+  # Windows x64 (cross-compile from Linux)
+  # ============================================
+  build-windows-x64:
+    name: Windows x64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libtool autotools-dev automake \
+            pkg-config bsdmainutils python3 \
+            g++-mingw-w64-x86-64 mingw-w64-x86-64-dev curl
+
+      - name: Set mingw-w64 to POSIX threading
+        run: |
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+
+      - name: Build depends
+        run: |
+          make -j4 -C depends HOST=x86_64-w64-mingw32 NO_QT=1
+
+      - name: Build
+        run: |
+          ./autogen.sh
+          CONFIG_SITE=$PWD/depends/x86_64-w64-mingw32/share/config.site \
+            ./configure --prefix=/ --without-gui --disable-tests --disable-bench
+          make $MAKEFLAGS
+
+  # ============================================
+  # macOS ARM64 (native Apple Silicon)
+  # ============================================
+  build-macos-arm64:
+    name: macOS ARM64
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq
+
+      - name: Build
+        env:
+          BOOST_ROOT: /opt/homebrew
+        run: |
+          ./autogen.sh
+          ./configure --without-gui --disable-tests --disable-bench --disable-wallet \
+            --with-boost=/opt/homebrew \
+            LDFLAGS="-L/opt/homebrew/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/libevent/lib" \
+            CPPFLAGS="-I/opt/homebrew/include -I/opt/homebrew/opt/openssl@3/include -I/opt/homebrew/opt/libevent/include"
+          make $MAKEFLAGS

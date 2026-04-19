@@ -1,8 +1,32 @@
+# CODEOWNERS — Soqucoin Core
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
-* @odenrider @soqucoin/admins
+# Default — all PRs require a core maintainer review
+*                               @odenrider
 
-src/consensus/ @odenrider
-src/pat/ @odenrider
-src/script/ @odenrider
-src/rpc/pat* @odenrider
+# ── Consensus-Critical (highest review bar) ──────────────────────
+src/consensus/                  @odenrider
+src/script/                     @odenrider
+src/validation.*                @odenrider
+src/miner.*                     @odenrider
+src/pow.*                       @odenrider
+src/auxpow.*                    @odenrider
 
+# ── Post-Quantum Cryptography ────────────────────────────────────
+src/pat/                        @odenrider
+src/rpc/pat*                    @odenrider
+src/wallet/pqwallet/            @odenrider
+src/crypto/dilithium/           @odenrider
+
+# ── Privacy (Lattice-BP++) ───────────────────────────────────────
+src/crypto/latticebp/           @odenrider
+src/crypto/latticefold/         @odenrider
+
+# ── CI / Build Infrastructure ────────────────────────────────────
+.github/                        @odenrider
+Makefile.am                     @odenrider
+configure.ac                    @odenrider
+
+# ── Security Policy ──────────────────────────────────────────────
+SECURITY.md                     @odenrider
+.github/SECURITY.md             @odenrider

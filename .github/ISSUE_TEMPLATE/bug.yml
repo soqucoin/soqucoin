@@ -1,0 +1,88 @@
+name: 🐛 Bug Report
+description: Report a bug in Soqucoin Core
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before filing a bug, please search existing issues to avoid duplicates.**
+        For general questions, use [Discord](https://discord.gg/soqucoin).
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of Soqucoin Core is affected?
+      options:
+        - Node (soqucoind)
+        - Wallet
+        - P2P Networking
+        - RPC/REST API
+        - Consensus
+        - Mining / AuxPoW
+        - Post-Quantum Crypto (Dilithium/PAT)
+        - Build System / CI
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is.
+      placeholder: Describe the issue...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the issue.
+      placeholder: |
+        1. Start soqucoind with flags...
+        2. Call RPC method...
+        3. Observe error...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Soqucoin Core Version
+      description: "Output of `soqucoind --version` or commit hash"
+      placeholder: "v1.0.0-rc1 / abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux x86_64
+        - Linux ARM64
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows x64
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Paste relevant output from debug.log or console
+      render: shell

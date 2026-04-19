@@ -1,40 +1,37 @@
+## Description
 
-**Description**
+<!-- Briefly describe what this PR does. -->
 
-<!-- One-paragraph summary of the change -->
+## Motivation
 
-**Motivation and context**
+<!-- Why is this change needed? Link to issue if applicable. -->
 
-<!-- Why is this change required? What problem does it solve? -->
-<!-- If it fixes an open issue, link to the issue here. -->
+Fixes #
 
-**How has this been tested?**
+## Type of Change
 
-<!-- Please describe the tests that you ran to verify your changes. -->
-<!-- Provide instructions so we can reproduce. -->
-<!-- List any relevant details for your test configuration -->
+- [ ] Bug fix (non-breaking change that fixes an issue)
+- [ ] New feature (non-breaking change that adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+- [ ] Refactoring (no functional changes)
+- [ ] Documentation update
+- [ ] CI/Build system change
+- [ ] Consensus-critical change ⚠️
 
-**Type of change**
+## Checklist
 
-- Please delete options that are not relevant**
-- Bug fix (non-breaking change which fixes an issue)
-- New feature (non-breaking change which adds functionality)
-- Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- Consensus-critical change (affects validation rules or P2P protocol)
-
-**Checklist:
-
-- [ ] My code follows the code style of this project.
+- [ ] My code follows the project's style guidelines
 - [ ] I have performed a self-review of my code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation
-- [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
-- [ ] For consensus changes: I have tested with Litecoin/Dogecoin regtest merged-mining
-- [ ] For cryptographic changes touching src/pat/ or src/script/: I have requested review from @odenrider
+- [ ] I have added tests that prove my fix is effective or my feature works
+- [ ] New and existing unit tests pass locally with my changes (`make check`)
+- [ ] I have updated the CHANGELOG.md with a description of my changes
+- [ ] My changes generate no new compiler warnings
+- [ ] Any consensus-critical changes have been reviewed by @odenrider
 
-**Additional context**
+## Testing
 
-Add any other context or screenshots about the pull request here.
+<!-- Describe the tests you ran. Include test output if relevant. -->
 
+## Screenshots / Logs
+
+<!-- If applicable, add screenshots or log output. -->

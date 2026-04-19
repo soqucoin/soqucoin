@@ -16,6 +16,7 @@
 #include "wallet/pqwallet/pqkeys.h"
 #include "wallet/pqwallet/pqwallet.h"
 
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <vector>
