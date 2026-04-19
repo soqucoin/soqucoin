@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <string>
 
 // M_PI is a POSIX extension, not guaranteed in strict C++ mode
 #ifndef M_PI

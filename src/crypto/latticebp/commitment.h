@@ -9,7 +9,8 @@
 #define SOQUCOIN_CRYPTO_LATTICEBP_COMMITMENT_H
 
 #include <array>
-#include <stdint.h>
+#include <cstddef>  // size_t (required by GCC, Clang gets it transitively)
+#include <cstdint>  // int64_t, uint64_t
 #include <vector>
 
 namespace latticebp
