@@ -632,23 +632,24 @@ BOOST_AUTO_TEST_CASE(script_bulletproofs_test)
     // Note: VerifyScript signature might vary. Let's check interpreter.cpp
     // bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 
-    // OP_RETURN always terminates script with failure — this is by design.
-    // These outputs are provably unspendable. The proof data is never evaluated.
+    // SOQ-INFRA-016: OP_RETURN outputs are data-carrying and always valid.
+    // The inline Bulletproofs verifier was removed — OP_RETURN now passes
+    // through VerifyScript as a valid, provably-unspendable output.
+    // The proof data is never evaluated (it's just embedded data).
     bool result = VerifyScript(scriptSig, scriptPubKey, &witness, SCRIPT_VERIFY_P2SH, checker, &serror);
-    BOOST_CHECK(!result);
-    BOOST_CHECK(serror == SCRIPT_ERR_OP_RETURN);
+    BOOST_CHECK(result);
+    BOOST_CHECK(serror == SCRIPT_ERR_OK);
 
-    // OP_RETURN immediately fails with SCRIPT_ERR_OP_RETURN — the script
-    // engine never evaluates the pushed data. This is correct behavior:
-    // OP_RETURN outputs are provably unspendable.
+    // Even with corrupted proof data, OP_RETURN is still valid —
+    // the data is never parsed or verified after INFRA-016.
     CScript badScript;
     badScript << OP_RETURN;
     badScript << std::vector<unsigned char>(comm.data);
     badScript << std::vector<unsigned char>(corruptedProof.data);
 
     result = VerifyScript(scriptSig, badScript, &witness, SCRIPT_VERIFY_P2SH, checker, &serror);
-    BOOST_CHECK(!result);
-    BOOST_CHECK(serror == SCRIPT_ERR_OP_RETURN);
+    BOOST_CHECK(result);
+    BOOST_CHECK(serror == SCRIPT_ERR_OK);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
