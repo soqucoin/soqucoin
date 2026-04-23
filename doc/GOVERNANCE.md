@@ -32,7 +32,7 @@ Soqucoin follows a **community-driven governance model** similar to Dogecoin, wi
 | Protocol Maintenance | Core codebase security & updates |
 | Documentation | Public documentation & standards |
 | Community Outreach | Developer relations & education |
-| Trademark Stewardship | Protect Soqucoin™, SOQ™, sSOQ™ marks |
+| Trademark Stewardship | Protect Soqucoin™, SOQ™, sSOQ™, USDSOQ™ marks |
 
 **Foundation Does NOT:**
 - Control consensus rules unilaterally

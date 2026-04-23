@@ -180,3 +180,6 @@ GEMINI.md
 src/crypto/latticebp/*.dSYM/
 src/crypto/latticebp/test_latticebp
 src/crypto/latticebp/quick_test
+
+# AI agent brain files (local only, never commit)
+.gemini/

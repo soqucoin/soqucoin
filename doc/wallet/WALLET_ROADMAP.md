@@ -38,7 +38,7 @@ Soqucoin's post-quantum wallet is built on Dilithium (ML-DSA-44) signatures with
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
-| Multi-Asset Support | 🔴 High | Native stablecoin (sSOQ-USD) tracking |
+| Multi-Asset Support | 🔴 High | Native stablecoin (USDSOQ) tracking |
 | Hardware Wallets | 🟠 Medium | Ledger/Trezor research |
 | Privacy Features | 🟠 Medium | Stealth addresses (Stage 3) |
 | Multisig | 🟡 Future | FROST-based PQ multisig |
