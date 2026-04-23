@@ -23,6 +23,7 @@ enum DeploymentPos {
     DEPLOYMENT_CHECKPATAGG,
     DEPLOYMENT_LATTICEFOLD,
     DEPLOYMENT_LATTICEBP,
+    DEPLOYMENT_USDSOQ,     // SOQ-AUD2-002: USDSOQ stablecoin (bit 6)
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };

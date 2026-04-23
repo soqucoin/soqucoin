@@ -183,6 +183,14 @@ enum opcodetype {
     OP_PUBKEYS_TEMPLATE = 0xf2,
     OP_SMALLINTEGER_TEMPLATE = 0xf3,
 
+    // SOQ-AUD2-002: USDSOQ stablecoin authority opcodes (witness v5)
+    // Gated behind DEPLOYMENT_USDSOQ BIP9 activation (bit 6).
+    // All require M-of-N Dilithium multisig authorization.
+    OP_USDSOQ_MINT   = 0xf4,  // Mint new USDSOQ supply
+    OP_USDSOQ_BURN   = 0xf5,  // Burn USDSOQ supply
+    OP_USDSOQ_FREEZE = 0xf6,  // Freeze a USDSOQ UTXO (GENIUS Act compliance)
+    OP_USDSOQ_ROTATE = 0xf7,  // Rotate authority key set
+
     // Post-quantum privacy: Lattice-BP++ range proof (SOQ-P003)
     OP_LATTICEBP_RANGEPROOF = 0xfa,
 

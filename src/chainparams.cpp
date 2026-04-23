@@ -158,6 +158,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;  // Not started
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;    // Never activates
 
+        // SOQ-AUD2-002: USDSOQ Stablecoin — NOT ACTIVE (future BIP9 soft-fork)
+        // Activation requires miner signaling after Halborn audit.
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;    // Never activates
+
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
@@ -316,6 +322,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;
 
+        // SOQ-AUD2-002: USDSOQ Stablecoin — NOT ACTIVE (mirrors mainnet)
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
 
@@ -467,6 +478,10 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // SOQ-AUD2-002: USDSOQ Stablecoin — ALWAYS_ACTIVE for regtest
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -620,6 +635,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;
+
+        // SOQ-AUD2-002: USDSOQ Stablecoin — NOT ACTIVE (mirrors mainnet)
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;
 
         consensus.nMinimumChainWork = uint256S("0x00");
         consensus.defaultAssumeValid = uint256S("0x00");

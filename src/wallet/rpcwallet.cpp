@@ -4,7 +4,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "../zk/bulletproofs.h"
+// SOQ-INFRA-016 Phase 2: Classical ECC Bulletproofs removed.
+// Confidential TX will use Lattice-BP++ (post-quantum) once BIP9-activated.
 #include "amount.h"
 #include "base58.h"
 #include "chain.h"
@@ -362,33 +363,14 @@ static void SendMoney(const CTxDestination& address, CAmount nValue, bool fSubtr
 
     // Confidential Transaction Logic (v1)
     if (fConfidential) {
-        // 1. Generate blinding factor
-        uint256 blinding;
-        GetStrongRandBytes(blinding.begin(), 32);
-
-        // Generate Pedersen commitment and range proof
-        zk::Commitment comm;
-        if (!zk::GenerateCommitment(nValue, blinding, comm)) {
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to generate commitment");
-        }
-
-        zk::RangeProof proof;
-        uint256 nonce;
-        GetStrongRandBytes(nonce.begin(), 32); // TODO: Use ECDH for recipient recovery
-        if (!zk::GenRangeProof(nValue, blinding, nonce, comm, proof)) {
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to generate range proof");
-        }
-
-        // 4. Construct Confidential Script: OP_RETURN <commitment> <proof>
-        // We use OP_RETURN to embed the proof without consensus change
-        scriptPubKey.clear();
-        scriptPubKey << OP_RETURN;
-        scriptPubKey << std::vector<unsigned char>(comm.data);
-        scriptPubKey << std::vector<unsigned char>(proof.data);
-
-        // 5. Explicitly handle value preservation
-        // The output amount remains transparent (nValue), but the OP_RETURN proof validates the commitment.
-        // This hybrid model prevents inflation while allowing verifiable amounts.
+        // SOQ-INFRA-016 Phase 2: Classical secp256k1-zkp confidential TX removed.
+        // Lattice-BP++ confidential transactions are available via witness v4
+        // (OP_4 routing in VerifyScript) but require BIP9 activation on mainnet.
+        // Wallet-layer CT generation will be implemented post-activation.
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+            "Confidential transactions not yet available. "
+            "Classical Bulletproofs++ removed; Lattice-BP++ (post-quantum) "
+            "will be enabled via BIP9 activation. See SOQ-P003.");
     }
 
     // Create and send the transaction
@@ -435,7 +417,7 @@ UniValue sendtoaddress(const JSONRPCRequest& request)
                             "                             transaction, just kept in your wallet.\n"
                             "5. subtractfeefromamount  (boolean, optional, default=false) The fee will be deducted from the amount being sent.\n"
                             "                             The recipient will receive less soqucoins than you enter in the amount field.\n"
-                            "6. confidential           (boolean, optional, default=false) If true, create a confidential transaction with Bulletproofs++ range proof.\n"
+                            "6. confidential           (boolean, optional, default=false) RESERVED: Lattice-BP++ confidential transactions (post-quantum). Not yet active — requires BIP9 activation.\n"
                             "\nResult:\n"
                             "\"txid\"                  (string) The transaction id.\n"
                             "\nExamples:\n" +

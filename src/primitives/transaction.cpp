@@ -48,11 +48,24 @@ CTxOut::CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn)
 {
     nValue = nValueIn;
     scriptPubKey = scriptPubKeyIn;
+    nVisibility = 0x00;
+    nAssetType = 0x00;
+}
+
+CTxOut::CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn,
+               uint8_t nVisibilityIn, uint8_t nAssetTypeIn)
+{
+    nValue = nValueIn;
+    scriptPubKey = scriptPubKeyIn;
+    nVisibility = nVisibilityIn;
+    nAssetType = nAssetTypeIn;
 }
 
 std::string CTxOut::ToString() const
 {
-    return strprintf("CTxOut(nValue=%d.%08d, scriptPubKey=%s)", nValue / COIN, nValue % COIN, HexStr(scriptPubKey).substr(0, 30));
+    return strprintf("CTxOut(nValue=%d.%08d, scriptPubKey=%s, vis=%02x, asset=%02x)",
+        nValue / COIN, nValue % COIN, HexStr(scriptPubKey).substr(0, 30),
+        nVisibility, nAssetType);
 }
 
 CMutableTransaction::CMutableTransaction() : nVersion(CTransaction::CURRENT_VERSION), nLockTime(0) {}

@@ -24,6 +24,9 @@ static const char DB_FLAG = 'F';
 static const char DB_REINDEX_FLAG = 'R';
 static const char DB_LAST_BLOCK = 'l';
 
+// SOQ-AUD2-002: USDSOQ supply counter persistence key
+static const char DB_USDSOQ_SUPPLY = 'U';
+
 
 CCoinsViewDB::CCoinsViewDB(size_t nCacheSize, bool fMemory, bool fWipe) : db(GetDataDir() / "chainstate", nCacheSize, fMemory, fWipe, true) 
 {
@@ -104,6 +107,15 @@ CCoinsViewCursor *CCoinsViewDB::Cursor() const
         i->keyTmp.first = 0; // Make sure Valid() and GetKey() return false
     }
     return i;
+}
+
+// SOQ-AUD2-002: USDSOQ supply counter persistence
+bool CCoinsViewDB::ReadUSDSOQSupply(CUSDSOQSupply &supply) const {
+    return db.Read(DB_USDSOQ_SUPPLY, supply);
+}
+
+bool CCoinsViewDB::WriteUSDSOQSupply(const CUSDSOQSupply &supply) {
+    return db.Write(DB_USDSOQ_SUPPLY, supply);
 }
 
 bool CCoinsViewDBCursor::GetKey(uint256 &key) const

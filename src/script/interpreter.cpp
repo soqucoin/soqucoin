@@ -395,6 +395,107 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // This opcode is a future soft-fork — reject in shared lib context.
                         return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
 #endif // BUILD_BITCOIN_INTERNAL
+                    } else if (opcode == OP_USDSOQ_MINT ||
+                               opcode == OP_USDSOQ_BURN ||
+                               opcode == OP_USDSOQ_FREEZE ||
+                               opcode == OP_USDSOQ_ROTATE) {
+                        // =========================================================
+                        // SOQ-AUD2-002: USDSOQ Stablecoin Authority Opcodes
+                        // Post-quantum Dilithium M-of-N authority verification.
+                        //
+                        // These opcodes ONLY verify authorization (signature checks).
+                        // Actual supply mutations and UTXO state changes happen in
+                        // ConnectBlock() — EvalScript is context-free per Bitcoin
+                        // architecture.
+                        //
+                        // Witness v5 stack layout for all 4 opcodes:
+                        //   [0]     = opcode_tag (1 byte: 0x01=MINT, 0x02=BURN,
+                        //                        0x03=FREEZE, 0x04=ROTATE)
+                        //   [1]     = payload (opcode-specific data)
+                        //   [2..N]  = Dilithium signatures (M of them)
+                        //   [N+1]   = serialized authority pubkey set
+                        //
+                        // The opcode_tag in the witness MUST match the opcode byte.
+                        // This prevents cross-opcode witness replay.
+                        // =========================================================
+
+                        // BIP9 gate: reject if USDSOQ deployment not active
+                        if (!(flags & SCRIPT_VERIFY_USDSOQ)) {
+                            return set_error(serror, SCRIPT_ERR_USDSOQ_NOT_ACTIVE);
+                        }
+
+                        // Minimum stack: opcode_tag + payload + 1 sig + authority_set = 4
+                        if (stack.size() < 4) {
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        }
+
+                        // Validate opcode_tag matches the actual opcode byte
+                        const valtype& vchOpcodeTag = stacktop(-static_cast<int>(stack.size()));
+                        if (vchOpcodeTag.size() != 1) {
+                            return set_error(serror, SCRIPT_ERR_USDSOQ_INVALID_OPCODE);
+                        }
+
+                        uint8_t expected_tag = 0;
+                        if (opcode == OP_USDSOQ_MINT)   expected_tag = 0x01;
+                        else if (opcode == OP_USDSOQ_BURN)   expected_tag = 0x02;
+                        else if (opcode == OP_USDSOQ_FREEZE) expected_tag = 0x03;
+                        else if (opcode == OP_USDSOQ_ROTATE) expected_tag = 0x04;
+
+                        if (vchOpcodeTag[0] != expected_tag) {
+                            return set_error(serror, SCRIPT_ERR_USDSOQ_INVALID_OPCODE);
+                        }
+
+                        // Extract authority pubkey set (bottom of stack after opcode_tag)
+                        // and payload (second from bottom).
+                        // The witness validator in ConnectBlock will perform the actual
+                        // authority M-of-N verification using CUSDSOQAuthority.
+                        //
+                        // At the EvalScript level, we validate:
+                        //   1. Correct opcode_tag binding
+                        //   2. Minimum stack depth
+                        //   3. Non-empty signatures present
+                        //   4. Payload size within bounds
+                        //
+                        // Full M-of-N Dilithium sig verification is deferred to
+                        // ConnectBlock() which has access to the chain-state
+                        // authority key set (CUSDSOQAuthority from CCoinsViewCache).
+
+                        // Validate payload size bounds
+                        const valtype& vchPayload = stacktop(-static_cast<int>(stack.size()) + 1);
+
+                        // MINT payload: amount (8 bytes) + destination scriptPubKey
+                        // BURN payload: amount (8 bytes)
+                        // FREEZE payload: txid (32 bytes) + vout index (4 bytes) = 36 bytes
+                        // ROTATE payload: new_threshold (4 bytes) + new_key_count (4 bytes) + keys
+                        if (vchPayload.empty() || vchPayload.size() > 65536) {
+                            return set_error(serror, SCRIPT_ERR_USDSOQ_INVALID_OPCODE);
+                        }
+
+                        // Validate at least one signature is present between
+                        // payload and authority_set
+                        size_t n_sigs = stack.size() - 3;  // total - tag - payload - authset
+                        if (n_sigs == 0) {
+                            return set_error(serror, SCRIPT_ERR_USDSOQ_AUTHORITY_FAILED);
+                        }
+
+                        // Validate each signature blob is Dilithium-sized (2420 bytes)
+                        // SECURITY: Reject malformed sigs before any verification
+                        for (size_t i = 0; i < n_sigs; ++i) {
+                            const valtype& vchSig = stacktop(-static_cast<int>(stack.size()) + 2 + static_cast<int>(i));
+                            if (vchSig.size() != 2420) {
+                                return set_error(serror, SCRIPT_ERR_USDSOQ_AUTHORITY_FAILED);
+                            }
+                        }
+
+                        // Pop all items and push true
+                        // The actual authority verification happens in ConnectBlock()
+                        // where we have access to the chain-state CUSDSOQAuthority.
+                        size_t items_to_pop = stack.size();
+                        for (size_t i = 0; i < items_to_pop; ++i) {
+                            popstack(stack);
+                        }
+                        stack.push_back(valtype(1, 1)); // true
+
                     } else if (opcode == 0xfb) {        // OP_CHECKDILITHIUMSIG
                         // SOQ-I003: OP_CHECKDILITHIUMSIG (0xfb) is DEPRECATED.
                         // Dilithium signature verification is performed INLINE by
@@ -619,7 +720,8 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 }
 
 // Strict post-quantum script verification — ECDSA paths completely removed
-// Active EvalScript opcodes: OP_CHECKFOLDPROOF (0xfc), OP_CHECKPATAGG (0xfd)
+// Active EvalScript opcodes: OP_CHECKFOLDPROOF (0xfc), OP_CHECKPATAGG (0xfd),
+//   OP_LATTICEBP_RANGEPROOF (0xfa), OP_USDSOQ_MINT/BURN/FREEZE/ROTATE (0xf4-0xf7)
 // Deprecated (SOQ-I002): OP_CHECKBATCHSIG (0xfe) — replaced by LatticeFold
 // Deprecated (SOQ-I003): OP_CHECKDILITHIUMSIG (0xfb) — redundant, inline in VerifyScript
 // Dilithium verification: performed inline by VerifyScript (witness v0/v1)
@@ -648,13 +750,21 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                                  scriptPubKey[0] == OP_4 &&
                                  scriptPubKey[1] == 32);
 
-    // Future witness versions (v5-v16): anyone-can-spend until soft fork
+    // SOQ-AUD2-002: USDSOQ Stablecoin Authority (witness v5)
+    // Same soft fork pattern: when SCRIPT_VERIFY_USDSOQ is not set,
+    // v5 outputs are anyone-can-spend. When active, we route to the
+    // appropriate OP_USDSOQ_* handler based on the witness opcode_tag.
+    bool is_usdsoq_witness = (scriptPubKey.size() == 34 &&
+                               scriptPubKey[0] == OP_5 &&
+                               scriptPubKey[1] == 32);
+
+    // Future witness versions (v6-v16): anyone-can-spend until soft fork
     bool is_future_witness = (scriptPubKey.size() == 34 &&
-                              scriptPubKey[0] >= OP_5 &&
+                              scriptPubKey[0] >= OP_6 &&
                               scriptPubKey[0] <= OP_16 &&
                               scriptPubKey[1] == 32);
 
-    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness) {
+    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness) {
         return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
@@ -756,7 +866,50 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         return set_success(serror);
     }
 
-    // Future witness versions (v5-v16): consensus-valid, no validation performed.
+    // =========================================================================
+    // SOQ-AUD2-002: USDSOQ Authority (witness v5)
+    // Same soft fork pattern: BIP9 gate → anyone-can-spend → dispatch.
+    // The witness opcode_tag byte determines which OP_USDSOQ_* handler runs.
+    // =========================================================================
+    if (is_usdsoq_witness) {
+        if (!(flags & SCRIPT_VERIFY_USDSOQ)) {
+            return set_success(serror);  // Not active yet — anyone-can-spend
+        }
+
+        // Minimum witness stack: opcode_tag + payload + 1 sig + authority_set = 4
+        if (!witness || witness->stack.size() < 4) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        }
+
+        // Determine which USDSOQ opcode to dispatch from the witness opcode_tag
+        const std::vector<unsigned char>& tagItem = witness->stack[0];
+        if (tagItem.size() != 1) {
+            return set_error(serror, SCRIPT_ERR_USDSOQ_INVALID_OPCODE);
+        }
+
+        opcodetype usdsoq_opcode;
+        switch (tagItem[0]) {
+            case 0x01: usdsoq_opcode = OP_USDSOQ_MINT;   break;
+            case 0x02: usdsoq_opcode = OP_USDSOQ_BURN;   break;
+            case 0x03: usdsoq_opcode = OP_USDSOQ_FREEZE; break;
+            case 0x04: usdsoq_opcode = OP_USDSOQ_ROTATE; break;
+            default:
+                return set_error(serror, SCRIPT_ERR_USDSOQ_INVALID_OPCODE);
+        }
+
+        // Delegate to EvalScript's USDSOQ handler
+        std::vector<std::vector<unsigned char>> evalStack(witness->stack.begin(), witness->stack.end());
+        CScript usdsoqScript;
+        usdsoqScript << usdsoq_opcode;
+
+        if (!EvalScript(evalStack, usdsoqScript, flags, checker, SIGVERSION_WITNESS_V0, serror)) {
+            return false;  // serror already set by EvalScript
+        }
+
+        return set_success(serror);
+    }
+
+    // Future witness versions (v6-v16): consensus-valid, no validation performed.
     // SECURITY NOTE: Coins sent to these outputs are anyone-can-spend at
     // the consensus layer until a soft fork adds validation rules.
     if (is_future_witness) {

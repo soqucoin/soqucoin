@@ -238,6 +238,7 @@ libsoqucoin_server_a_SOURCES = \
   rpc/net.cpp \
   rpc/pat.cpp \
   rpc/batch.cpp \
+  rpc/usdsoq.cpp \
   rpc/rawtransaction.cpp \
   rpc/server.cpp \
   script/sigcache.cpp \
@@ -339,6 +340,8 @@ libsoqucoin_consensus_a_SOURCES = \
   consensus/merkle.cpp \
   consensus/merkle.h \
   consensus/params.h \
+  consensus/usdsoq.cpp \
+  consensus/usdsoq.h \
   consensus/validation.h \
   hash.cpp \
   hash.h \
@@ -371,8 +374,6 @@ libsoqucoin_consensus_a_SOURCES = \
   crypto/pat/logarithmic.cpp \
   crypto/pat/logarithmic.h \
   crypto/sangria/fold.cpp \
-  zk/bulletproofs.cpp \
-  zk/bulletproofs.h \
   serialize.h \
   tinyformat.h \
   uint256.cpp \

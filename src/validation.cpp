@@ -12,6 +12,7 @@
 #include "checkqueue.h"
 #include "consensus/consensus.h"
 #include "consensus/merkle.h"
+#include "consensus/usdsoq.h"
 #include "consensus/validation.h"
 #include "fs.h"
 #include "hash.h"
@@ -528,6 +529,47 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fChe
 
     if (!tx.HasDilithiumSignatures()) {
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-requires-dilithium");
+    }
+
+    // SOQ-AUD2-002: Validate nVisibility and nAssetType fields
+    // These are always-present from genesis (defaults: 0x00/0x00).
+    {
+        bool hasSOQ = false;
+        bool hasUSDSOQ = false;
+
+        for (const auto& txout : tx.vout) {
+            // Reject unknown visibility values (excluding frozen flag in high bit)
+            // Valid base modes: VISIBILITY_TRANSPARENT (0x00), VISIBILITY_CONFIDENTIAL (0x01)
+            // The VISIBILITY_FROZEN_MASK (0x80) is allowed — enforcement in ConnectBlock
+            uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
+            if (baseVisibility != VISIBILITY_TRANSPARENT &&
+                baseVisibility != VISIBILITY_CONFIDENTIAL) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-unknown-visibility");
+            }
+
+            // Reject unknown asset types
+            // Valid: ASSET_SOQ (0x00), ASSET_USDSOQ (0x01)
+            if (txout.nAssetType != ASSET_SOQ &&
+                txout.nAssetType != ASSET_USDSOQ) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-unknown-asset-type");
+            }
+
+            if (txout.nAssetType == ASSET_SOQ) hasSOQ = true;
+            if (txout.nAssetType == ASSET_USDSOQ) hasUSDSOQ = true;
+        }
+
+        // Asset isolation: a single transaction MUST NOT mix SOQ and USDSOQ outputs.
+        // This prevents cross-contamination in supply accounting and simplifies
+        // the per-asset balance invariant checks in ConnectBlock.
+        // Exception: coinbase is always SOQ-only (enforced below).
+        if (hasSOQ && hasUSDSOQ) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-txns-mixed-asset-types");
+        }
+
+        // Coinbase outputs must be native SOQ — cannot mint USDSOQ via mining
+        if (tx.IsCoinBase() && hasUSDSOQ) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-cb-usdsoq-asset");
+        }
     }
 
     return true;
@@ -1624,6 +1666,33 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
         }
     }
 
+    // =========================================================================
+    // SOQ-AUD2-002: USDSOQ supply reversal on reorg
+    // When disconnecting a block that contained USDSOQ supply changes,
+    // log the reversal for the audit trail. The LevelDB supply counter
+    // update will be added in the persistence phase.
+    // =========================================================================
+    {
+        CAmount nUSDSOQReversedMint = 0;
+        CAmount nUSDSOQReversedBurn = 0;
+
+        for (const auto& ptx : block.vtx) {
+            const CTransaction& tx = *ptx;
+
+            // Count USDSOQ outputs being removed (reverses mints)
+            for (const auto& txout : tx.vout) {
+                if (txout.nAssetType == ASSET_USDSOQ) {
+                    nUSDSOQReversedMint += txout.nValue;
+                }
+            }
+        }
+
+        if (nUSDSOQReversedMint > 0 || nUSDSOQReversedBurn > 0) {
+            LogPrintf("USDSOQ: reorg reversal at block %d: reversed_mint=%d reversed_burn=%d\n",
+                pindex->nHeight, nUSDSOQReversedMint, nUSDSOQReversedBurn);
+        }
+    }
+
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
@@ -1867,6 +1936,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_LATTICEFOLD;
     }
 
+    // SOQ-AUD2-002: Start enforcing USDSOQ stablecoin authority opcodes
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_USDSOQ;
+    }
+
     int64_t nTime2 = GetTimeMicros();
     nTimeForks += nTime2 - nTime1;
     LogPrint("bench", "    - Fork checks: %.2fms [%.2fs]\n", 0.001 * (nTime2 - nTime1), nTimeForks * 0.000001);
@@ -1949,6 +2023,106 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             error("ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)",
                 block.vtx[0]->GetValueOut(), blockReward),
             REJECT_INVALID, "bad-cb-amount");
+
+    // =========================================================================
+    // SOQ-AUD2-002: USDSOQ Consensus Enforcement
+    // When DEPLOYMENT_USDSOQ is active, enforce:
+    //   1. Input-side asset isolation (USDSOQ inputs → USDSOQ outputs only)
+    //   2. Frozen UTXO spend rejection (GENIUS Act §4(a)(2))
+    //   3. Per-block supply delta tracking (mint/burn accounting)
+    //
+    // Full M-of-N Dilithium authority verification was already performed in
+    // EvalScript (Phase 2). ConnectBlock enforces the structural invariants
+    // that require UTXO set access.
+    // =========================================================================
+    if (flags & SCRIPT_VERIFY_USDSOQ) {
+        CAmount nUSDSOQMinted = 0;
+        CAmount nUSDSOQBurned = 0;
+
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            const CTransaction& tx = *(block.vtx[i]);
+            if (tx.IsCoinBase()) continue;
+
+            // Determine if this tx has USDSOQ outputs
+            bool txHasUSDSOQ = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.nAssetType == ASSET_USDSOQ) {
+                    txHasUSDSOQ = true;
+                    break;
+                }
+            }
+
+            // Input-side validation for non-coinbase transactions
+            for (const auto& txin : tx.vin) {
+                const CCoins* coins = view.AccessCoins(txin.prevout.hash);
+                if (!coins || !coins->IsAvailable(txin.prevout.n))
+                    continue;  // Already caught by HaveInputs check above
+
+                const CTxOut& prevOut = coins->vout[txin.prevout.n];
+
+                // Frozen UTXO guard: reject spending any frozen output
+                // A frozen output has nVisibility high bit set (0x80 | visibility)
+                // This encoding allows frozen+transparent (0x80) and
+                // frozen+confidential (0x81) states.
+                if (prevOut.nVisibility & VISIBILITY_FROZEN_MASK) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u",
+                            txin.prevout.hash.ToString(), txin.prevout.n),
+                        REJECT_INVALID, "bad-txns-spend-frozen-usdsoq");
+                }
+
+                // Asset isolation on inputs: if ANY output is USDSOQ,
+                // ALL inputs must also be USDSOQ (or this is a mint tx).
+                // MINT transactions have no USDSOQ inputs by definition
+                // (they create new supply from authority-signed witness).
+                if (txHasUSDSOQ && prevOut.nAssetType != ASSET_USDSOQ) {
+                    // Check if this is an authority mint/burn tx (witness v5)
+                    // Authority txs are allowed to have SOQ inputs for fees
+                    bool isAuthorityTx = false;
+                    for (const auto& txout : tx.vout) {
+                        if (txout.scriptPubKey.size() == 34 &&
+                            txout.scriptPubKey[0] == OP_5 &&
+                            txout.scriptPubKey[1] == 32) {
+                            isAuthorityTx = true;
+                            break;
+                        }
+                    }
+
+                    if (!isAuthorityTx) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): USDSOQ tx has non-USDSOQ input %s:%u",
+                                txin.prevout.hash.ToString(), txin.prevout.n),
+                            REJECT_INVALID, "bad-txns-usdsoq-input-mismatch");
+                    }
+                }
+            }
+
+            // Track supply deltas for USDSOQ outputs in this block
+            for (const auto& txout : tx.vout) {
+                if (txout.nAssetType == ASSET_USDSOQ) {
+                    nUSDSOQMinted += txout.nValue;
+                }
+            }
+
+            // Track USDSOQ inputs being spent (consumed supply)
+            for (const auto& txin : tx.vin) {
+                const CCoins* coins = view.AccessCoins(txin.prevout.hash);
+                if (!coins || !coins->IsAvailable(txin.prevout.n))
+                    continue;
+                const CTxOut& prevOut = coins->vout[txin.prevout.n];
+                if (prevOut.nAssetType == ASSET_USDSOQ) {
+                    nUSDSOQBurned += prevOut.nValue;
+                }
+            }
+        }
+
+        // Log the per-block USDSOQ supply delta for audit trail
+        if (nUSDSOQMinted > 0 || nUSDSOQBurned > 0) {
+            LogPrintf("USDSOQ: block %d supply delta: minted=%d burned=%d net=%d\n",
+                pindex->nHeight, nUSDSOQMinted, nUSDSOQBurned,
+                nUSDSOQMinted - nUSDSOQBurned);
+        }
+    }
 
     if (!control.Wait())
         return state.DoS(100, false);

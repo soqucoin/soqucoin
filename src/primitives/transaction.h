@@ -132,12 +132,31 @@ public:
 
 /** An output of a transaction.  It contains the public key that the next input
  * must be able to sign with to claim it.
+ *
+ * SOQ-AUD2-002 / SOQ-ARCH-001: Extended with nVisibility and nAssetType for
+ * native dual-format privacy and multi-asset (USDSOQ stablecoin) support.
+ * Both fields are always-present in the wire format from genesis.
+ * Default values (0x00) preserve backward compatibility.
  */
 class CTxOut
 {
 public:
     CAmount nValue;
     CScript scriptPubKey;
+
+    //! SOQ-ARCH-001: Visibility mode
+    //! 0x00 = TRANSPARENT (default): cleartext amount in nValue
+    //! 0x01 = CONFIDENTIAL: amount hidden via Lattice-BP++ commitment
+    //! Gated behind DEPLOYMENT_LATTICEBP BIP9 activation.
+    uint8_t nVisibility;
+
+    //! SOQ-AUD2-002: Asset type tag
+    //! 0x00 = native SOQ (default)
+    //! 0x01 = USDSOQ stablecoin
+    //! Gated behind DEPLOYMENT_USDSOQ BIP9 activation.
+    //! Per-asset balance isolation: SOQ and USDSOQ balance independently.
+    //! Fees are always paid in native SOQ (nAssetType == 0x00).
+    uint8_t nAssetType;
 
     CTxOut()
     {
@@ -146,24 +165,44 @@ public:
 
     CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn);
 
+    //! Extended constructor with visibility and asset type
+    CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn,
+           uint8_t nVisibilityIn, uint8_t nAssetTypeIn);
+
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(nValue);
         READWRITE(*(CScriptBase*)(&scriptPubKey));
+        READWRITE(nVisibility);
+        READWRITE(nAssetType);
     }
 
     void SetNull()
     {
         nValue = -1;
         scriptPubKey.clear();
+        nVisibility = 0x00;
+        nAssetType = 0x00;
     }
 
     bool IsNull() const
     {
         return (nValue == -1);
     }
+
+    //! Returns true if this output carries native SOQ
+    bool IsNativeSOQ() const { return nAssetType == 0x00; }
+
+    //! Returns true if this output carries USDSOQ
+    bool IsUSDSOQ() const { return nAssetType == 0x01; }
+
+    //! Returns true if this output is transparent (cleartext amount)
+    bool IsTransparent() const { return nVisibility == 0x00; }
+
+    //! Returns true if this output is confidential (hidden amount)
+    bool IsConfidential() const { return nVisibility == 0x01; }
 
     // Soqucoin: allow comparison against different dustlimit parameters
     bool IsDust(const CAmount dustLimit) const
@@ -177,7 +216,9 @@ public:
     friend bool operator==(const CTxOut& a, const CTxOut& b)
     {
         return (a.nValue       == b.nValue &&
-                a.scriptPubKey == b.scriptPubKey);
+                a.scriptPubKey == b.scriptPubKey &&
+                a.nVisibility  == b.nVisibility &&
+                a.nAssetType   == b.nAssetType);
     }
 
     friend bool operator!=(const CTxOut& a, const CTxOut& b)

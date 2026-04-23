@@ -7,6 +7,7 @@
 #define BITCOIN_TXDB_H
 
 #include "coins.h"
+#include "consensus/usdsoq.h"
 #include "dbwrapper.h"
 #include "chain.h"
 
@@ -79,6 +80,13 @@ public:
     uint256 GetBestBlock() const;
     bool BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock);
     CCoinsViewCursor *Cursor() const;
+
+    // SOQ-AUD2-002: USDSOQ supply counter persistence
+    //! Read the USDSOQ supply counter from LevelDB. Returns false if not found.
+    bool ReadUSDSOQSupply(CUSDSOQSupply &supply) const;
+
+    //! Write the USDSOQ supply counter to LevelDB.
+    bool WriteUSDSOQSupply(const CUSDSOQSupply &supply);
 };
 
 /** Specialization of CCoinsViewCursor to iterate over a CCoinsViewDB */

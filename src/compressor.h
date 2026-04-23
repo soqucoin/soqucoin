@@ -115,6 +115,14 @@ public:
         }
         CScriptCompressor cscript(REF(txout.scriptPubKey));
         READWRITE(cscript);
+
+        // SOQ-ARCH-001 / SOQ-AUD2-002: Persist nVisibility and nAssetType
+        // in the UTXO database. Without these 2 bytes, ConnectBlock's asset
+        // isolation and frozen UTXO checks would fail after node restart
+        // (fields would deserialize as 0x00 defaults).
+        // This is an irreversible wire format extension from genesis.
+        READWRITE(txout.nVisibility);
+        READWRITE(txout.nAssetType);
     }
 };
 

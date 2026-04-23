@@ -110,6 +110,11 @@ enum {
     // quantum-safe confidential transaction amounts.
     SCRIPT_VERIFY_LATTICEBP = (1U << 18),
 
+    // SOQ-P004: Enable USDSOQ authority opcode verification
+    // (OP_USDSOQ_MINT, OP_USDSOQ_BURN, OP_USDSOQ_FREEZE, OP_USDSOQ_ROTATE)
+    // Gated behind DEPLOYMENT_USDSOQ BIP9 activation (bit 6).
+    SCRIPT_VERIFY_USDSOQ = (1U << 19),
+
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),

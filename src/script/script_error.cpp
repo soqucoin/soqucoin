@@ -30,6 +30,16 @@ const char* ScriptErrorString(const ScriptError serror)
         return "Zero-Knowledge proof verification failed";
     case SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED:
         return "Lattice-BP++ range proof verification failed";
+    case SCRIPT_ERR_USDSOQ_NOT_ACTIVE:
+        return "USDSOQ opcodes not active (BIP9 deployment not signaled)";
+    case SCRIPT_ERR_USDSOQ_AUTHORITY_FAILED:
+        return "USDSOQ authority M-of-N signature verification failed";
+    case SCRIPT_ERR_USDSOQ_SUPPLY_OVERFLOW:
+        return "USDSOQ supply operation would overflow or underflow";
+    case SCRIPT_ERR_USDSOQ_INVALID_OPCODE:
+        return "USDSOQ invalid opcode or malformed witness data";
+    case SCRIPT_ERR_USDSOQ_FROZEN_UTXO:
+        return "Attempt to spend a frozen USDSOQ UTXO";
     case SCRIPT_ERR_SCRIPT_SIZE:
         return "Script is too big";
     case SCRIPT_ERR_DISALLOWED_OUTPUT_TYPE:
