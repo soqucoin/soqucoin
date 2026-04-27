@@ -690,11 +690,11 @@ public:
         nDefaultPort = 28333;
         nPruneAfterHeight = 1000;
 
-        // Stagenet Genesis Block - January 5, 2026
+        // Stagenet Genesis Block - April 2026 (v2 - post CTxOut format change)
         // Unique genesis isolates Stagenet from all other networks
-        // Timestamp: 1736107200 = 2026-01-05 12:00:00 UTC
-        // Mined on stagenet VPS (DO-Premium-Intel) using C++ soqucoind
-        genesis = CreateGenesisBlockStagenet(1736107200, 1110063, 0x1e0ffff0, 1, 500000 * COIN);
+        // Timestamp: 1745769600 = 2026-04-27 12:00:00 UTC (new genesis for v2 format)
+        // Reward: 500,000 SOQ (matches mainnet emission schedule)
+        genesis = CreateGenesisBlockStagenet(1745769600, 0, 0x1e0ffff0, 1, 500000 * COIN);
 
         // Re-mine genesis if nonce is stale after CTxOut format change
         {
