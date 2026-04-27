@@ -14,7 +14,7 @@
 
 #include <boost/assign/list_of.hpp>
 
-#include "arith_uint256.h" // For genesis mining
+
 #include "chainparamsseeds.h"
 
 static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
@@ -527,23 +527,11 @@ public:
 
         genesis = CreateGenesisBlock(1296688602, 2, 0x207fffff, 1, 88 * COIN);
 
-        // Re-mine genesis after CTxOut format change (regtest: very low difficulty)
-        {
-            arith_uint256 bnTarget;
-            bnTarget.SetCompact(genesis.nBits);
-            while (UintToArith256(genesis.GetPoWHash()) > bnTarget) {
-                genesis.nNonce++;
-            }
-            printf("REGTEST genesis mined! nonce=%u hash=%s merkle=%s\n",
-                   genesis.nNonce, genesis.GetHash().ToString().c_str(),
-                   genesis.hashMerkleRoot.ToString().c_str());
-        }
-
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        // assert(consensus.hashGenesisBlock == uint256S("..."));
-        // assert(genesis.hashMerkleRoot == uint256S("..."));
+        assert(consensus.hashGenesisBlock == uint256S("0x22ad706761265b8c05cbc33ff212c1ad7c049afc4e15fc8c04f7e6824da9630f"));
+        assert(genesis.hashMerkleRoot == uint256S("0xef6d97da4c49ec2be1f68b1608b62e15645237767a8a5f6e16747ede9b114920"));
 
         vFixedSeeds.clear(); //!< Regtest mode doesn't have any fixed seeds.
         vSeeds.clear();      //!< Regtest mode doesn't have any DNS seeds.
@@ -692,31 +680,15 @@ public:
 
         // Stagenet Genesis Block - April 2026 (v2 - post CTxOut format change)
         // Unique genesis isolates Stagenet from all other networks
-        // Timestamp: 1745769600 = 2026-04-27 12:00:00 UTC (new genesis for v2 format)
+        // Timestamp: 1745769600 = 2026-04-27 12:00:00 UTC
         // Reward: 500,000 SOQ (matches mainnet emission schedule)
-        genesis = CreateGenesisBlockStagenet(1745769600, 0, 0x1e0ffff0, 1, 500000 * COIN);
-
-        // Re-mine genesis using scrypt PoW (GetPoWHash, NOT GetHash which is SHA256d)
-        {
-            arith_uint256 bnTarget;
-            bnTarget.SetCompact(genesis.nBits);
-            while (UintToArith256(genesis.GetPoWHash()) > bnTarget) {
-                genesis.nNonce++;
-                if (genesis.nNonce % 1000 == 0)
-                    printf("STAGENET mining genesis (scrypt)... nonce=%u\n", genesis.nNonce);
-            }
-            printf("STAGENET genesis mined! nonce=%u hash=%s powhash=%s merkle=%s\n",
-                   genesis.nNonce,
-                   genesis.GetHash().ToString().c_str(),
-                   genesis.GetPoWHash().ToString().c_str(),
-                   genesis.hashMerkleRoot.ToString().c_str());
-        }
+        // Nonce mined with scrypt PoW on Services VPS (DO-Premium-Intel)
+        genesis = CreateGenesisBlockStagenet(1745769600, 942423, 0x1e0ffff0, 1, 500000 * COIN);
 
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        // Temporarily allow any hash — will hardcode after mining
-        // assert(consensus.hashGenesisBlock == uint256S("..."));
+        assert(consensus.hashGenesisBlock == uint256S("0x073812fa10d3c23358db3a96365ec4afe6a1d674e87a505b31aca2c032554ec0"));
         assert(genesis.hashMerkleRoot == uint256S("0x9abbf4b3788c188d54f03437f8cfecdfd92ee5406159931146d86cb32cee10b5"));
 
         vSeeds.clear();
