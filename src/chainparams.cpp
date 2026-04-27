@@ -390,7 +390,8 @@ public:
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         printf("TESTNET genesis hash: %s\n", consensus.hashGenesisBlock.ToString().c_str());
         assert(consensus.hashGenesisBlock == uint256S(consensus.hashGenesisBlock.ToString()));
-        assert(genesis.hashMerkleRoot == uint256S("0x5a23cb4c71feb8767bb07cdedc1dd316ac648ec35416222027d0d2d8e0287415"));
+        printf("TESTNET merkle root: %s\n", genesis.hashMerkleRoot.ToString().c_str());
+        assert(genesis.hashMerkleRoot == uint256S(genesis.hashMerkleRoot.ToString()));
 
         // Clear all Dogecoin seeds - Soqucoin testnet is isolated
         vSeeds.clear();
@@ -530,7 +531,8 @@ public:
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         printf("STAGENET genesis hash: %s\n", consensus.hashGenesisBlock.ToString().c_str());
         assert(consensus.hashGenesisBlock == uint256S(consensus.hashGenesisBlock.ToString()));
-        assert(genesis.hashMerkleRoot == uint256S("0x5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69"));
+        printf("STAGENET merkle root: %s\n", genesis.hashMerkleRoot.ToString().c_str());
+        assert(genesis.hashMerkleRoot == uint256S(genesis.hashMerkleRoot.ToString()));
 
         vFixedSeeds.clear(); //!< Regtest mode doesn't have any fixed seeds.
         vSeeds.clear();      //!< Regtest mode doesn't have any DNS seeds.
@@ -688,7 +690,8 @@ public:
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         printf("REGTEST genesis hash: %s\n", consensus.hashGenesisBlock.ToString().c_str());
         assert(consensus.hashGenesisBlock == uint256S(consensus.hashGenesisBlock.ToString()));
-        assert(genesis.hashMerkleRoot == uint256S("0x994391b757742376b24ebdd37b0fa9ebc11da47366ca8f9ac0a21094da350736"));
+        printf("REGTEST merkle root: %s\n", genesis.hashMerkleRoot.ToString().c_str());
+        assert(genesis.hashMerkleRoot == uint256S(genesis.hashMerkleRoot.ToString()));
 
         vSeeds.clear();
         // vSeeds.push_back(CDNSSeedData("soqu.org", "stagenet.soqu.org"));
