@@ -588,7 +588,7 @@ public:
         consensus.nMajorityEnforceBlockUpgrade = 1500;
         consensus.nMajorityRejectBlockOutdated = 1900;
         consensus.nMajorityWindow = 2000;
-        consensus.BIP34Height = 1;
+        consensus.BIP34Height = 100; // Must be > 16 to avoid OP_N vs push-byte encoding mismatch in coinbase
         consensus.BIP34Hash = uint256();
         consensus.BIP65Height = 0;
         consensus.BIP66Height = 0;
