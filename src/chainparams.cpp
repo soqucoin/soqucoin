@@ -215,10 +215,8 @@ public:
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        printf("MAINNET genesis hash: %s\n", consensus.hashGenesisBlock.ToString().c_str());
-        printf("MAINNET merkle root:  %s\n", genesis.hashMerkleRoot.ToString().c_str());
-        assert(consensus.hashGenesisBlock == uint256S(consensus.hashGenesisBlock.ToString()));
-        assert(genesis.hashMerkleRoot == uint256S(genesis.hashMerkleRoot.ToString()));
+        assert(consensus.hashGenesisBlock == uint256S("0x0fdef86f7e03c94b6df2d2c430528ad58a63cc98c52b857d83605f72b7809fc4"));
+        assert(genesis.hashMerkleRoot == uint256S("0xef6d97da4c49ec2be1f68b1608b62e15645237767a8a5f6e16747ede9b114920"));
 
         // Note that of those with the service bits flag, most only support a subset of possible options
         vSeeds.push_back(CDNSSeedData("multidoge.org", "seed.multidoge.org", true));
@@ -388,10 +386,8 @@ public:
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         minDifficultyConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        printf("TESTNET genesis hash: %s\n", consensus.hashGenesisBlock.ToString().c_str());
-        assert(consensus.hashGenesisBlock == uint256S(consensus.hashGenesisBlock.ToString()));
-        printf("TESTNET merkle root: %s\n", genesis.hashMerkleRoot.ToString().c_str());
-        assert(genesis.hashMerkleRoot == uint256S(genesis.hashMerkleRoot.ToString()));
+        assert(consensus.hashGenesisBlock == uint256S("0x56ac383c3719544c636e7a8a3b2e1cb14b1ca3c82c10be8230d5b6dfd4a1638d"));
+        assert(genesis.hashMerkleRoot == uint256S("0x0af255f496aca195398e5247cadd16c50cfd068db3d714eb8a7581f6d4352e13"));
 
         // Clear all Dogecoin seeds - Soqucoin testnet is isolated
         vSeeds.clear();
@@ -529,10 +525,8 @@ public:
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        printf("STAGENET genesis hash: %s\n", consensus.hashGenesisBlock.ToString().c_str());
-        assert(consensus.hashGenesisBlock == uint256S(consensus.hashGenesisBlock.ToString()));
-        printf("STAGENET merkle root: %s\n", genesis.hashMerkleRoot.ToString().c_str());
-        assert(genesis.hashMerkleRoot == uint256S(genesis.hashMerkleRoot.ToString()));
+        assert(consensus.hashGenesisBlock == uint256S("0x22ad706761265b8c05cbc33ff212c1ad7c049afc4e15fc8c04f7e6824da9630f"));
+        assert(genesis.hashMerkleRoot == uint256S("0xef6d97da4c49ec2be1f68b1608b62e15645237767a8a5f6e16747ede9b114920"));
 
         vFixedSeeds.clear(); //!< Regtest mode doesn't have any fixed seeds.
         vSeeds.clear();      //!< Regtest mode doesn't have any DNS seeds.
@@ -688,10 +682,8 @@ public:
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        printf("REGTEST genesis hash: %s\n", consensus.hashGenesisBlock.ToString().c_str());
-        assert(consensus.hashGenesisBlock == uint256S(consensus.hashGenesisBlock.ToString()));
-        printf("REGTEST merkle root: %s\n", genesis.hashMerkleRoot.ToString().c_str());
-        assert(genesis.hashMerkleRoot == uint256S(genesis.hashMerkleRoot.ToString()));
+        assert(consensus.hashGenesisBlock == uint256S("0x9bdf47134927de66ffe4a5e934bf21c5e3e5e68537193c8e8d59d821542cf016"));
+        assert(genesis.hashMerkleRoot == uint256S("0x9abbf4b3788c188d54f03437f8cfecdfd92ee5406159931146d86cb32cee10b5"));
 
         vSeeds.clear();
         // vSeeds.push_back(CDNSSeedData("soqu.org", "stagenet.soqu.org"));
