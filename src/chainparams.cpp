@@ -212,25 +212,13 @@ public:
 
         genesis = CreateGenesisBlock(1386325540, 99943, 0x1e0ffff0, 1, 88 * COIN);
 
-        // Re-mine genesis after CTxOut format change
-        {
-            arith_uint256 bnTarget;
-            bnTarget.SetCompact(genesis.nBits);
-            while (UintToArith256(genesis.GetHash()) > bnTarget) {
-                genesis.nNonce++;
-                if (genesis.nNonce % 100000 == 0)
-                    printf("MAINNET mining genesis... nonce=%u\n", genesis.nNonce);
-            }
-            printf("MAINNET genesis mined! nonce=%u hash=%s merkle=%s\n",
-                   genesis.nNonce, genesis.GetHash().ToString().c_str(),
-                   genesis.hashMerkleRoot.ToString().c_str());
-        }
-
+        // TODO: Re-mine mainnet genesis with new nonce after CTxOut format change
+        // The old nonce (99943) is invalid after nVisibility+nAssetType serialization.
+        // Mainnet genesis will be properly mined before mainnet launch.
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        // assert(consensus.hashGenesisBlock == uint256S("..."));
-        // assert(genesis.hashMerkleRoot == uint256S("..."));
+        // Genesis hash assertion deferred — nonce needs re-mining for mainnet launch
 
         // Note that of those with the service bits flag, most only support a subset of possible options
         vSeeds.push_back(CDNSSeedData("multidoge.org", "seed.multidoge.org", true));
@@ -397,26 +385,13 @@ public:
         // "First quantum-resistant Scrypt chain - Soqucoin Testnet3 Dec 2025"
         genesis = CreateGenesisBlockTestnet3(1766813480, 1014070, 0x1e0ffff0, 1, 88 * COIN);
 
-        // Re-mine genesis after CTxOut format change
-        {
-            arith_uint256 bnTarget;
-            bnTarget.SetCompact(genesis.nBits);
-            while (UintToArith256(genesis.GetHash()) > bnTarget) {
-                genesis.nNonce++;
-                if (genesis.nNonce % 100000 == 0)
-                    printf("TESTNET mining genesis... nonce=%u\n", genesis.nNonce);
-            }
-            printf("TESTNET genesis mined! nonce=%u hash=%s merkle=%s\n",
-                   genesis.nNonce, genesis.GetHash().ToString().c_str(),
-                   genesis.hashMerkleRoot.ToString().c_str());
-        }
-
+        // TODO: Re-mine testnet3 genesis with new nonce after CTxOut format change
+        // Testnet3 is being retired in favor of stagenet.
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         minDifficultyConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        // assert(consensus.hashGenesisBlock == uint256S("..."));
-        // assert(genesis.hashMerkleRoot == uint256S("..."));
+        // Genesis hash assertion deferred — testnet3 is being retired
 
         // Clear all Dogecoin seeds - Soqucoin testnet is isolated
         vSeeds.clear();
