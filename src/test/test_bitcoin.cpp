@@ -23,7 +23,7 @@
 #include "txmempool.h"
 #include "ui_interface.h"
 #include "validation.h"
-#include "zk/bulletproofs.h"
+// SOQ-INFRA-016: #include "zk/bulletproofs.h" removed — BP++ deprecated
 
 #include "test/testutil.h"
 
@@ -46,7 +46,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName)
 {
     RandomInit();
     // Post-quantum: ECC_Start removed
-    zk::InitRangeProofContext();
+    // Post-quantum: zk::InitRangeProofContext() removed — BP++ deprecated in favor of LatticeFold+
     SetupEnvironment();
     SetupNetworking();
     InitSignatureCache();

@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#include "zk/bulletproofs.h"
+// SOQ-INFRA-016: #include "zk/bulletproofs.h" removed — BP++ deprecated in favor of LatticeFold+
 
 #include <boost/foreach.hpp>
 #include <boost/test/unit_test.hpp>
@@ -572,84 +572,7 @@ BOOST_AUTO_TEST_CASE(dilithium_signature_uniqueness)
     BOOST_CHECK(pubkey.Verify(hash, sig3));
 }
 
-BOOST_AUTO_TEST_CASE(script_bulletproofs_test)
-{
-    // 1. Setup
-    CAmount value = 50 * COIN;
-    uint256 blinding;
-    GetStrongRandBytes(blinding.begin(), 32);
-
-    // 2. Generate Commitment
-    zk::Commitment comm;
-    BOOST_CHECK(zk::GenerateCommitment(value, blinding, comm));
-    BOOST_CHECK(comm.data.size() == 33);
-
-    // 3. Generate Range Proof
-    zk::RangeProof proof;
-    uint256 nonce = blinding; // Use blinding as nonce for test
-    BOOST_CHECK(zk::GenRangeProof(value, blinding, nonce, comm, proof));
-    BOOST_CHECK_EQUAL(proof.data.size(), 2660); // Approx size
-
-    // 4. Verify Proof (Valid)
-    BOOST_CHECK(zk::VerifyRangeProof(proof, comm));
-
-    // 5. Verify Proof (Invalid - Corrupted Proof)
-    zk::RangeProof corruptedProof = proof;
-    corruptedProof.data[0] ^= 0xFF; // Flip a bit
-    // Note: Our mock implementation might be robust to this specific bit if it's just seed expansion,
-    // but the tag check at the end should fail.
-    // Let's corrupt the tag at the end.
-    corruptedProof.data[corruptedProof.data.size() - 1] ^= 0xFF;
-    BOOST_CHECK(!zk::VerifyRangeProof(corruptedProof, comm));
-
-    // 6. Verify Proof (Invalid - Wrong Commitment)
-    zk::Commitment wrongComm = comm;
-    wrongComm.data[0] ^= 0xFF;
-    // In our mock, the proof is derived from the commitment, so if we change the commitment,
-    // the proof's internal derivation won't match the commitment?
-    // Actually, our mock Verify checks integrity of proof self-consistency.
-    // It doesn't strongly bind to commitment in the mock logic I wrote (I noted this weakness).
-    // "Weakness: this mock doesn't bind proof to commitment strongly without the value"
-    // So this check might pass in the mock.
-    // Let's skip this check for the mock or improve the mock.
-    // I'll improve the mock in bulletproofs.cpp if needed, but for now let's stick to basic validity.
-
-    // 7. Verify Script Integration
-    // Construct a script: OP_RETURN <commitment> <proof>
-    CScript scriptPubKey;
-    scriptPubKey << OP_RETURN;
-    scriptPubKey << std::vector<unsigned char>(comm.data);
-    scriptPubKey << std::vector<unsigned char>(proof.data);
-
-    // VerifyScript should pass
-    ScriptError serror;
-    BaseSignatureChecker checker; // Dummy checker
-    // We pass empty scriptSig and witness
-    CScript scriptSig;
-    CScriptWitness witness;
-
-    // VerifyScript(scriptSig, scriptPubKey, witness, flags, checker, serror)
-    // Note: VerifyScript signature might vary. Let's check interpreter.cpp
-    // bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
-
-    // SOQ-INFRA-016: OP_RETURN outputs are data-carrying and always valid.
-    // The inline Bulletproofs verifier was removed — OP_RETURN now passes
-    // through VerifyScript as a valid, provably-unspendable output.
-    // The proof data is never evaluated (it's just embedded data).
-    bool result = VerifyScript(scriptSig, scriptPubKey, &witness, SCRIPT_VERIFY_P2SH, checker, &serror);
-    BOOST_CHECK(result);
-    BOOST_CHECK(serror == SCRIPT_ERR_OK);
-
-    // Even with corrupted proof data, OP_RETURN is still valid —
-    // the data is never parsed or verified after INFRA-016.
-    CScript badScript;
-    badScript << OP_RETURN;
-    badScript << std::vector<unsigned char>(comm.data);
-    badScript << std::vector<unsigned char>(corruptedProof.data);
-
-    result = VerifyScript(scriptSig, badScript, &witness, SCRIPT_VERIFY_P2SH, checker, &serror);
-    BOOST_CHECK(result);
-    BOOST_CHECK(serror == SCRIPT_ERR_OK);
-}
+// SOQ-INFRA-016: script_bulletproofs_test removed — BP++ deprecated in favor of LatticeFold+.
+// Range proof tests will be re-added when LatticeFold+ range proofs ship (SOQ-P003).
 
 BOOST_AUTO_TEST_SUITE_END()
