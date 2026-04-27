@@ -664,7 +664,7 @@ public:
         // AuxPoW from block 100
         auxpowConsensus = digishieldConsensus;
         auxpowConsensus.nHeightEffective = 100;
-        auxpowConsensus.fAllowLegacyBlocks = true;
+        auxpowConsensus.fAllowLegacyBlocks = false;
 
         pConsensusRoot = &digishieldConsensus;
         digishieldConsensus.pLeft = &consensus;
