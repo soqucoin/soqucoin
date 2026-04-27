@@ -531,7 +531,7 @@ public:
         {
             arith_uint256 bnTarget;
             bnTarget.SetCompact(genesis.nBits);
-            while (UintToArith256(genesis.GetHash()) > bnTarget) {
+            while (UintToArith256(genesis.GetPoWHash()) > bnTarget) {
                 genesis.nNonce++;
             }
             printf("REGTEST genesis mined! nonce=%u hash=%s merkle=%s\n",
@@ -696,18 +696,19 @@ public:
         // Reward: 500,000 SOQ (matches mainnet emission schedule)
         genesis = CreateGenesisBlockStagenet(1745769600, 0, 0x1e0ffff0, 1, 500000 * COIN);
 
-        // Re-mine genesis if nonce is stale after CTxOut format change
+        // Re-mine genesis using scrypt PoW (GetPoWHash, NOT GetHash which is SHA256d)
         {
             arith_uint256 bnTarget;
             bnTarget.SetCompact(genesis.nBits);
-            while (UintToArith256(genesis.GetHash()) > bnTarget) {
+            while (UintToArith256(genesis.GetPoWHash()) > bnTarget) {
                 genesis.nNonce++;
-                if (genesis.nNonce % 100000 == 0)
-                    printf("STAGENET mining genesis... nonce=%u\n", genesis.nNonce);
+                if (genesis.nNonce % 1000 == 0)
+                    printf("STAGENET mining genesis (scrypt)... nonce=%u\n", genesis.nNonce);
             }
-            printf("STAGENET genesis mined! nonce=%u hash=%s merkle=%s\n",
+            printf("STAGENET genesis mined! nonce=%u hash=%s powhash=%s merkle=%s\n",
                    genesis.nNonce,
                    genesis.GetHash().ToString().c_str(),
+                   genesis.GetPoWHash().ToString().c_str(),
                    genesis.hashMerkleRoot.ToString().c_str());
         }
 
