@@ -502,10 +502,10 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     // if (g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) == 0)
     //    throw JSONRPCError(RPC_CLIENT_NOT_CONNECTED, "Soqucoin is not connected!");
 
-    // SOQ-INFRA-002: IBD guard re-enabled for mainnet safety.
-    // During Initial Block Download, the chain tip is stale and mining would
-    // produce orphan blocks that waste hashpower. Must be active for production.
-    if (IsInitialBlockDownload())
+    // SOQ-INFRA-002: IBD guard — skip for stagenet/regtest to allow mining
+    // the first block on a fresh chain (genesis tip is always stale → IBD=true).
+    // Re-enable for mainnet/testnet where IBD protection is critical.
+    if (IsInitialBlockDownload() && Params().NetworkIDString() != "stagenet" && Params().NetworkIDString() != "regtest")
         throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Soqucoin is downloading blocks...");
 
     static unsigned int nTransactionsUpdatedLast;
