@@ -638,15 +638,17 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // SOQ-P003: Lattice-BP++ Range Proofs — NOT ACTIVE (future soft-fork)
+        // SOQ-P003: Lattice-BP++ Range Proofs — ALWAYS_ACTIVE on stagenet
+        // Enables confidential transaction testing. Mainnet remains NOT_ACTIVE pending audit.
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // SOQ-AUD2-002: USDSOQ Stablecoin — NOT ACTIVE (mirrors mainnet)
+        // SOQ-AUD2-002: USDSOQ Stablecoin — ALWAYS_ACTIVE on stagenet
+        // Enables mint/burn/freeze testing. Mainnet remains NOT_ACTIVE pending audit.
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
-        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         consensus.nMinimumChainWork = uint256S("0x00");
         consensus.defaultAssumeValid = uint256S("0x00");

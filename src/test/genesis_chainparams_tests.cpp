@@ -183,13 +183,15 @@ BOOST_AUTO_TEST_CASE(stagenet_critical_deployments_active)
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
 
-    // NOTE: Lattice-BP++ (bit 5) and USDSOQ (bit 6) are NOT ALWAYS_ACTIVE on
-    // stagenet — they mirror mainnet where they await Halborn audit + BIP9 signaling.
-    // Testnet3 has them ALWAYS_ACTIVE for integration testing.
-    // If you need to test confidential TXs or USDSOQ opcodes on stagenet,
-    // these must be changed to ALWAYS_ACTIVE here.
-    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime, 0);
-    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime, 0);
+    // Lattice-BP++ (bit 5) — ALWAYS_ACTIVE on stagenet (Apr 28, 2026 activation)
+    // Enables confidential TX testing. Mainnet remains NOT_ACTIVE pending audit.
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime,
+                      Consensus::BIP9Deployment::ALWAYS_ACTIVE);
+
+    // USDSOQ (bit 6) — ALWAYS_ACTIVE on stagenet (Apr 28, 2026 activation)
+    // Enables mint/burn/freeze testing. Mainnet remains NOT_ACTIVE pending audit.
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime,
+                      Consensus::BIP9Deployment::ALWAYS_ACTIVE);
 }
 
 BOOST_AUTO_TEST_CASE(regtest_critical_deployments_active)
