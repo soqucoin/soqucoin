@@ -1936,6 +1936,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_LATTICEFOLD;
     }
 
+    // SOQ-ARCH-001: Start enforcing Lattice-BP++ privacy proof verification
+    // and confidential transaction output validation. When active, witness v4
+    // outputs are no longer anyone-can-spend — range proofs are verified.
+    // When NOT active, confidential outputs (nVisibility != 0x00) are rejected
+    // in the per-TX output validation loop below.
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_LATTICEBP, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_LATTICEBP;
+    }
+
     // SOQ-AUD2-002: Start enforcing USDSOQ stablecoin authority opcodes
     if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache) == THRESHOLD_ACTIVE) {
         flags |= SCRIPT_VERIFY_USDSOQ;
@@ -1994,7 +2003,26 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
         txdata.emplace_back(tx);
         if (!tx.IsCoinBase()) {
-            nFees += view.GetValueIn(tx) - tx.GetValueOut();
+            // SOQ-ARCH-001: Per-asset fee computation.
+            // Only native SOQ (nAssetType == 0x00) contributes to miner-claimable fees.
+            // USDSOQ surplus in a transaction is NOT claimable as fees — this prevents
+            // cross-asset fee inflation where USDSOQ surplus inflates SOQ coinbase.
+            CAmount nSOQIn = 0;
+            for (unsigned int j = 0; j < tx.vin.size(); j++) {
+                const CCoins* coins = view.AccessCoins(tx.vin[j].prevout.hash);
+                if (coins && coins->IsAvailable(tx.vin[j].prevout.n)) {
+                    if (coins->vout[tx.vin[j].prevout.n].nAssetType == ASSET_TYPE_SOQ) {
+                        nSOQIn += coins->vout[tx.vin[j].prevout.n].nValue;
+                    }
+                }
+            }
+            CAmount nSOQOut = 0;
+            for (const auto& txout : tx.vout) {
+                if (txout.nAssetType == ASSET_TYPE_SOQ) {
+                    nSOQOut += txout.nValue;
+                }
+            }
+            nFees += nSOQIn - nSOQOut;
 
             std::vector<CScriptCheck> vChecks;
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
@@ -2023,6 +2051,33 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             error("ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)",
                 block.vtx[0]->GetValueOut(), blockReward),
             REJECT_INVALID, "bad-cb-amount");
+
+    // =========================================================================
+    // SOQ-ARCH-001: Confidential Output Rejection (Pre-Activation)
+    // When DEPLOYMENT_LATTICEBP is NOT active, reject any output with
+    // nVisibility != VISIBILITY_TRANSPARENT. This prevents creation of
+    // privacy-mode UTXOs before the network has consensus support for
+    // validating range proofs and ring signatures.
+    //
+    // Defense-in-depth: VerifyScript already makes witness v4 anyone-can-spend
+    // when SCRIPT_VERIFY_LATTICEBP is unset, but this catches the edge case
+    // where nVisibility is set on a non-v4 output type (e.g., standard P2WPKH
+    // with a manually crafted nVisibility byte).
+    // =========================================================================
+    if (!(flags & SCRIPT_VERIFY_LATTICEBP)) {
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            const CTransaction& tx = *(block.vtx[i]);
+            for (const auto& txout : tx.vout) {
+                uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
+                if (baseVisibility != VISIBILITY_TRANSPARENT) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): confidential output in block %d before LATTICEBP activation",
+                              pindex->nHeight),
+                        REJECT_INVALID, "bad-txns-confidential-not-active");
+                }
+            }
+        }
+    }
 
     // =========================================================================
     // SOQ-AUD2-002: USDSOQ Consensus Enforcement
