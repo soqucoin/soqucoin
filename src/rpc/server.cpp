@@ -29,7 +29,6 @@
 
 extern void RegisterPATRPCCommands(CRPCTable& t);
 extern void RegisterBatchRPCCommands(CRPCTable& t);
-extern void RegisterUSDSOQRPCCommands(CRPCTable& t);
 
 using namespace RPCServer;
 using namespace std;
@@ -587,10 +586,5 @@ static const bool fRegisterPATRPC = []() {
 
 static const bool fRegisterBatchRPC = []() {
     RegisterBatchRPCCommands(tableRPC);
-    return true;
-}();
-
-static const bool fRegisterUSDSOQRPC = []() {
-    RegisterUSDSOQRPCCommands(tableRPC);
     return true;
 }();

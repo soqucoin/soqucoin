@@ -1007,6 +1007,12 @@ bool AppInitParameterInteraction()
     }
 
     RegisterAllCoreRPCCommands(tableRPC);
+
+    // USDSOQ consensus RPCs (authority, supply, verification)
+    // Registered outside ENABLE_WALLET since they don't require wallet
+    extern void RegisterUSDSOQRPCCommands(CRPCTable& t);
+    RegisterUSDSOQRPCCommands(tableRPC);
+
 #ifdef ENABLE_WALLET
     RegisterWalletRPCCommands(tableRPC);
     RegisterPQWalletRPCCommands(tableRPC);

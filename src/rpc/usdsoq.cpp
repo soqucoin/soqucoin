@@ -24,14 +24,14 @@ extern "C" {
 using namespace std;
 
 // =========================================================================
-// getusdsoqinfo — Query USDSOQ deployment status and supply
+// getusdsoqstatus — Query USDSOQ deployment status and supply
 // =========================================================================
-static UniValue getusdsoqinfo(const JSONRPCRequest& request)
+static UniValue getusdsoqstatus(const JSONRPCRequest& request)
 {
     if (request.fHelp || request.params.size() != 0)
         throw runtime_error(
-            "getusdsoqinfo\n"
-            "\nReturns information about the USDSOQ stablecoin subsystem.\n"
+            "getusdsoqstatus\n"
+            "\nReturns consensus-level status of the USDSOQ stablecoin subsystem.\n"
             "\nResult:\n"
             "{\n"
             "  \"deployment_status\": \"xxxx\",  (string) BIP9 deployment status\n"
@@ -50,8 +50,8 @@ static UniValue getusdsoqinfo(const JSONRPCRequest& request)
             "  }\n"
             "}\n"
             "\nExamples:\n" +
-            HelpExampleCli("getusdsoqinfo", "") +
-            HelpExampleRpc("getusdsoqinfo", ""));
+            HelpExampleCli("getusdsoqstatus", "") +
+            HelpExampleRpc("getusdsoqstatus", ""));
 
     LOCK(cs_main);
 
@@ -633,7 +633,7 @@ static const CRPCCommand commands[] =
 {
     //  category    name                    actor (function)          okSafe argNames
     //  ----------  ----------------------  ------------------------  ------ --------
-    { "usdsoq", "getusdsoqinfo",           &getusdsoqinfo,           true,  {} },
+    { "usdsoq", "getusdsoqstatus",         &getusdsoqstatus,         true,  {} },
     { "usdsoq", "getusdsoqauthority",      &getusdsoqauthority,      true,  {} },
     { "usdsoq", "verifyusdsoqauthority",   &verifyusdsoqauthority,   true,  {"message", "signatures"} },
     { "usdsoq", "usdsoqmint",             &usdsoqmint,              false, {"amount", "destination"} },
