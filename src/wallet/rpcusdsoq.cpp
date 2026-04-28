@@ -571,6 +571,7 @@ static const CRPCCommand usdsoqCommands[] =
     //  category              name                actor (function)        okSafeMode
     {"usdsoq",   "mintusdsoq",     &mintusdsoq,     false, {"address", "amount", "comment"}},
     {"usdsoq",   "burnusdsoq",     &burnusdsoq,     false, {"amount", "comment"}},
+    {"usdsoq",   "getusdsoqinfo",  &getusdsoqinfo,  true,  {}},
     {"privacy",  "sendprivate",    &sendprivate,     false, {"address", "amount", "comment"}},
     {"privacy",  "getprivacyinfo", &getprivacyinfo,  true,  {}},
 };
