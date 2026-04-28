@@ -455,16 +455,13 @@ const BaseSignatureChecker& DummySignatureCreator::Checker() const
 
 bool DummySignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, const CKeyID& keyid, const CScript& scriptCode, SigVersion sigversion) const
 {
-    // Create a dummy signature that is a valid DER-encoding
-    vchSig.assign(72, '\000');
-    vchSig[0] = 0x30;
-    vchSig[1] = 69;
-    vchSig[2] = 0x02;
-    vchSig[3] = 33;
-    vchSig[4] = 0x01;
-    vchSig[4 + 33] = 0x02;
-    vchSig[5 + 33] = 32;
-    vchSig[6 + 33] = 0x01;
-    vchSig[6 + 33 + 32] = SIGHASH_ALL;
+    // SOQ-P006 follow-up: Soqucoin uses Dilithium (ML-DSA-44) exclusively.
+    // ML-DSA-44 signatures are 2420 bytes (FIPS 204), plus 1 byte for
+    // SIGHASH_ALL = 2421 total. The old 72-byte ECDSA DER dummy caused
+    // fee estimation to be ~33x too low.
+    // Content is irrelevant — DummySignatureChecker accepts everything.
+    // Only the SIZE matters for accurate fee calculation.
+    vchSig.assign(2420 + 1, 0x00);  // 2420-byte Dilithium sig + SIGHASH_ALL
+    vchSig.back() = SIGHASH_ALL;
     return true;
 }
