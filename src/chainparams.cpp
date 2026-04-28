@@ -319,15 +319,17 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // SOQ-P003: Lattice-BP++ Range Proofs — NOT ACTIVE (future soft-fork)
+        // SOQ-P003: Lattice-BP++ Range Proofs — ACTIVE on stagenet for integration testing
+        // Mainnet remains NEVER_ACTIVE pending Halborn audit. See DL-LATTICE-RANGE-PROOF.md.
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // SOQ-AUD2-002: USDSOQ Stablecoin — NOT ACTIVE (mirrors mainnet)
+        // SOQ-AUD2-002: USDSOQ Stablecoin — ACTIVE on stagenet for integration testing
+        // Mainnet remains NEVER_ACTIVE pending Halborn audit. See DL-USDSOQ-STABLECOIN.md.
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
-        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
