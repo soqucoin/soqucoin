@@ -1,0 +1,27 @@
+# Soqucoin Mining Pool systemd Service File
+# Keeps pool-server alive across reboots
+#
+# Installation:
+#   sudo cp pool-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable pool-server
+#   sudo systemctl start pool-server
+
+[Unit]
+Description=Soqucoin Mining Pool Server
+Documentation=https://soqu.org
+After=soqucoind.service
+Requires=soqucoind.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/merged-mining-pool
+ExecStart=/opt/merged-mining-pool/pool-server
+Restart=on-failure
+RestartSec=10
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

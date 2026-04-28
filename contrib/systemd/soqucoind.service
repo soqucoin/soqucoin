@@ -1,0 +1,41 @@
+# Soqucoin Node systemd Service File
+# SOQ-INFRA-021: Auto-restart soqucoind on crash/reboot
+#
+# Installation (Mining VPS):
+#   sudo cp soqucoind.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable soqucoind
+#   sudo systemctl start soqucoind
+#
+# Logs:
+#   journalctl -u soqucoind -f
+
+[Unit]
+Description=Soqucoin Node (Stagenet)
+Documentation=https://soqu.org
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/soqucoind -conf=%h/.soqucoin/soqucoin.conf -daemon
+ExecStop=/usr/local/bin/soqucoin-cli -stagenet stop
+
+# Restart policy: restart on crash but not on clean shutdown (stop command)
+Restart=on-failure
+RestartSec=30
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=65536
+
+# Security hardening
+PrivateTmp=true
+ProtectSystem=full
+NoNewPrivileges=true
+
+# OOM protection — soqucoind should not be killed under memory pressure
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target
