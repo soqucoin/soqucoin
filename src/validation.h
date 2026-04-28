@@ -564,6 +564,13 @@ extern CCoinsViewDB *pcoinsdbview;
 /** Global variable that points to the active block tree (protected by cs_main) */
 extern CBlockTreeDB *pblocktree;
 
+/** SOQ-AUD2-002 D4: Global USDSOQ authority key set (protected by cs_main).
+ *  Initialized from Consensus::Params on BIP9 DEPLOYMENT_USDSOQ activation.
+ *  Updated on OP_USDSOQ_ROTATE_AUTHORITY transactions.
+ *  Persisted to LevelDB on rotation for crash recovery. */
+class CUSDSOQAuthority;  // Forward declaration
+extern CUSDSOQAuthority g_usdsoq_authority;
+
 /**
  * Return the spend height, which is one more than the inputs.GetBestBlock().
  * While checking, GetBestBlock() refers to the parent block. (protected by cs_main)

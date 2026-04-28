@@ -219,6 +219,11 @@ CBlockIndex* FindForkInGlobalIndex(const CChain& chain, const CBlockLocator& loc
 CCoinsViewCache* pcoinsTip = NULL;
 CBlockTreeDB* pblocktree = NULL;
 
+// SOQ-AUD2-002 D4: Global USDSOQ authority key set.
+// Initialized from Consensus::Params when DEPLOYMENT_USDSOQ becomes ACTIVE.
+// Protected by cs_main.
+CUSDSOQAuthority g_usdsoq_authority;
+
 enum FlushStateMode {
     FLUSH_STATE_NONE,
     FLUSH_STATE_IF_NEEDED,
@@ -1994,6 +1999,28 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // SOQ-AUD2-002: Start enforcing USDSOQ stablecoin authority opcodes
     if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache) == THRESHOLD_ACTIVE) {
         flags |= SCRIPT_VERIFY_USDSOQ;
+
+        // SOQ-AUD2-002 D4: Lazy-initialize authority from Consensus::Params.
+        // Only runs once — subsequent blocks skip if already initialized.
+        if (!g_usdsoq_authority.IsInitialized() && !consensus.usdsoqAuthorityKeys.empty()) {
+            std::vector<std::vector<uint8_t>> keys;
+            for (const auto& hexKey : consensus.usdsoqAuthorityKeys) {
+                std::vector<uint8_t> key = ParseHex(hexKey);
+                if (key.size() == DILITHIUM_PUBKEY_SIZE) {
+                    keys.push_back(key);
+                } else {
+                    LogPrintf("USDSOQ: WARNING: Skipping authority key with invalid size %u (expected %u)\n",
+                              key.size(), DILITHIUM_PUBKEY_SIZE);
+                }
+            }
+            if (g_usdsoq_authority.Initialize(keys, consensus.usdsoqAuthorityThreshold)) {
+                LogPrintf("USDSOQ: Authority initialized: %u-of-%u Dilithium multisig\n",
+                          consensus.usdsoqAuthorityThreshold, keys.size());
+            } else {
+                LogPrintf("USDSOQ: WARNING: Authority initialization failed (threshold=%u, keys=%u)\n",
+                          consensus.usdsoqAuthorityThreshold, keys.size());
+            }
+        }
     }
 
     int64_t nTime2 = GetTimeMicros();

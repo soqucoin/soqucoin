@@ -97,6 +97,14 @@ struct Params {
     struct Params* pLeft = nullptr;  // Left hand branch
     struct Params* pRight = nullptr; // Right hand branch
     const Consensus::Params* GetConsensus(uint32_t nTargetHeight) const;
+
+    /** USDSOQ authority key set (SOQ-AUD2-002, D4)
+     *  Initial M-of-N Dilithium public keys for MINT/BURN/FREEZE/ROTATE.
+     *  Loaded from chainparams on BIP9 activation. Keys are hex-encoded
+     *  1312-byte ML-DSA-44 public keys. Can be rotated on-chain via
+     *  OP_USDSOQ_ROTATE_AUTHORITY. Empty = no authority (mainnet at genesis). */
+    std::vector<std::string> usdsoqAuthorityKeys;
+    uint32_t usdsoqAuthorityThreshold = 0;
 };
 } // namespace Consensus
 

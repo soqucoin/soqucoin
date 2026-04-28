@@ -14,6 +14,10 @@
 #include "utilstrencodings.h"
 #include "versionbits.h"
 #include "chainparams.h"
+#include "hash.h"
+extern "C" {
+#include "crypto/dilithium/api.h"
+}
 
 #include <univalue.h>
 
@@ -147,13 +151,35 @@ static UniValue getusdsoqauthority(const JSONRPCRequest& request)
         return result;
     }
 
-    // When active, the authority would be loaded from chain state.
-    // Placeholder until D4 (authority key injection) is implemented.
-    result.pushKV("initialized", false);
-    result.pushKV("threshold", 0);
-    result.pushKV("key_count", 0);
-    result.pushKV("scheme", "pending initialization");
-    result.pushKV("keys", UniValue(UniValue::VARR));
+    // SOQ-AUD2-002 D4: Read from global authority instance
+    if (g_usdsoq_authority.IsInitialized()) {
+        result.pushKV("initialized", true);
+        result.pushKV("threshold", (int)g_usdsoq_authority.GetThreshold());
+        result.pushKV("key_count", (int)g_usdsoq_authority.GetKeyCount());
+        result.pushKV("scheme", strprintf("%u-of-%u",
+            g_usdsoq_authority.GetThreshold(), g_usdsoq_authority.GetKeyCount()));
+
+        // Return key hashes (SHA-256 of full pubkeys for readability)
+        UniValue keysArr(UniValue::VARR);
+        const auto& keys = g_usdsoq_authority.GetKeys();
+        for (size_t i = 0; i < keys.size(); ++i) {
+            UniValue keyObj(UniValue::VOBJ);
+            keyObj.pushKV("index", (int)i);
+            // Hash the full 1312-byte key down to a 32-byte identifier
+            uint256 keyHash;
+            CSHA256().Write(keys[i].data(), keys[i].size()).Finalize(keyHash.begin());
+            keyObj.pushKV("pubkey_hash", keyHash.GetHex());
+            keyObj.pushKV("pubkey_size", (int)keys[i].size());
+            keysArr.push_back(keyObj);
+        }
+        result.pushKV("keys", keysArr);
+    } else {
+        result.pushKV("initialized", false);
+        result.pushKV("threshold", 0);
+        result.pushKV("key_count", 0);
+        result.pushKV("scheme", "pending initialization (authority keys not configured)");
+        result.pushKV("keys", UniValue(UniValue::VARR));
+    }
 
     return result;
 }
@@ -217,14 +243,25 @@ static UniValue verifyusdsoqauthority(const JSONRPCRequest& request)
         sigs.push_back(sig);
     }
 
-    // Placeholder: authority verification requires chain-state key set (D4)
+    // SOQ-AUD2-002 D4: Verify against live authority
     UniValue result(UniValue::VOBJ);
-    result.pushKV("valid", false);
-    result.pushKV("threshold_met", false);
-    result.pushKV("valid_sigs", 0);
-    result.pushKV("required_sigs", 0);
-    result.pushKV("total_keys", 0);
-    result.pushKV("error", "Authority key set not yet initialized (see deferred item D4)");
+    if (!g_usdsoq_authority.IsInitialized()) {
+        result.pushKV("valid", false);
+        result.pushKV("threshold_met", false);
+        result.pushKV("valid_sigs", 0);
+        result.pushKV("required_sigs", 0);
+        result.pushKV("total_keys", 0);
+        result.pushKV("error", "Authority key set not initialized — check chainparams configuration");
+        return result;
+    }
+
+    bool verified = g_usdsoq_authority.VerifyAuthoritySignatures(msg, sigs);
+    result.pushKV("valid", verified);
+    result.pushKV("threshold_met", verified);
+    // Note: we don't expose individual sig counts for security (prevents
+    // attackers from learning which keys they've compromised)
+    result.pushKV("required_sigs", (int)g_usdsoq_authority.GetThreshold());
+    result.pushKV("total_keys", (int)g_usdsoq_authority.GetKeyCount());
 
     return result;
 }
@@ -465,6 +502,131 @@ static UniValue usdsoqrotatekeys(const JSONRPCRequest& request)
 }
 
 // =========================================================================
+// usdsoqgenkeys — Generate a Dilithium ML-DSA-44 keypair for authority use
+// =========================================================================
+static UniValue usdsoqgenkeys(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 0)
+        throw runtime_error(
+            "usdsoqgenkeys\n"
+            "\nGenerate a fresh Dilithium ML-DSA-44 keypair for USDSOQ authority use.\n"
+            "The private key is returned for OFFLINE storage — never expose it on-chain.\n"
+            "Use the public key with usdsoqsetauthority to initialize the authority.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"pubkey\": \"xxxx\",      (string) Hex-encoded 1312-byte ML-DSA-44 public key\n"
+            "  \"privkey\": \"xxxx\",     (string) Hex-encoded 2560-byte ML-DSA-44 private key\n"
+            "  \"algorithm\": \"xxxx\",   (string) Algorithm identifier\n"
+            "  \"pubkey_size\": n,      (numeric) Public key size in bytes\n"
+            "  \"privkey_size\": n      (numeric) Private key size in bytes\n"
+            "}\n"
+            "\nExamples:\n" +
+            HelpExampleCli("usdsoqgenkeys", "") +
+            HelpExampleRpc("usdsoqgenkeys", ""));
+
+    uint8_t pk[1312];
+    uint8_t sk[2560];
+
+    if (pqcrystals_dilithium2_ref_keypair(pk, sk) != 0)
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Dilithium keypair generation failed");
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("pubkey", HexStr(pk, pk + 1312));
+    result.pushKV("privkey", HexStr(sk, sk + 2560));
+    result.pushKV("algorithm", "ML-DSA-44 (FIPS 204)");
+    result.pushKV("pubkey_size", 1312);
+    result.pushKV("privkey_size", 2560);
+    result.pushKV("warning", "Store the private key securely offline. Never transmit it on-chain.");
+
+    return result;
+}
+
+// =========================================================================
+// usdsoqsetauthority — Initialize authority key set (stagenet/regtest only)
+// =========================================================================
+static UniValue usdsoqsetauthority(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 2)
+        throw runtime_error(
+            "usdsoqsetauthority threshold [\"pubkey\",...]\n"
+            "\nInitialize the USDSOQ authority key set at runtime.\n"
+            "Only available on stagenet and regtest (not mainnet).\n"
+            "This sets the M-of-N Dilithium multisig that controls MINT/BURN/FREEZE.\n"
+            "\nArguments:\n"
+            "1. threshold     (numeric, required) Minimum signatures required (M)\n"
+            "2. pubkeys       (array, required)   Array of hex-encoded ML-DSA-44 public keys\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"success\": true|false,\n"
+            "  \"scheme\": \"M-of-N\",\n"
+            "  \"threshold\": n,\n"
+            "  \"key_count\": n\n"
+            "}\n"
+            "\nExamples:\n" +
+            HelpExampleCli("usdsoqsetauthority", "2 '[\"<hex_pubkey_1>\", \"<hex_pubkey_2>\", \"<hex_pubkey_3>\"]'") +
+            HelpExampleRpc("usdsoqsetauthority", "2, [\"<hex_pubkey_1>\", \"<hex_pubkey_2>\", \"<hex_pubkey_3>\"]"));
+
+    // SECURITY: Only allow on non-mainnet chains
+    const CChainParams& chainparams = Params();
+    std::string networkId = chainparams.NetworkIDString();
+    if (networkId == "main")
+        throw JSONRPCError(RPC_MISC_ERROR,
+            "usdsoqsetauthority is not available on mainnet. "
+            "Mainnet authority is configured via chainparams and can only be "
+            "changed via OP_USDSOQ_ROTATE_AUTHORITY transactions.");
+
+    // SECURITY: Prevent re-initialization (require rotation instead)
+    if (g_usdsoq_authority.IsInitialized())
+        throw JSONRPCError(RPC_MISC_ERROR,
+            "Authority is already initialized. Use usdsoqrotatekeys to change the key set.");
+
+    uint32_t threshold = request.params[0].get_int();
+    const UniValue& keyArray = request.params[1].get_array();
+
+    if (keyArray.size() == 0 || keyArray.size() > USDSOQ_MAX_AUTHORITY_KEYS)
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+            strprintf("Key count must be 1-%u", USDSOQ_MAX_AUTHORITY_KEYS));
+
+    if (threshold < USDSOQ_MIN_THRESHOLD)
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+            strprintf("Threshold must be at least %u", USDSOQ_MIN_THRESHOLD));
+
+    if (threshold > keyArray.size())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Threshold cannot exceed key count");
+
+    std::vector<std::vector<uint8_t>> keys;
+    for (unsigned int i = 0; i < keyArray.size(); i++) {
+        string keyHex = keyArray[i].get_str();
+        if (!IsHex(keyHex))
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("Key %u is not valid hex", i));
+        vector<uint8_t> key = ParseHex(keyHex);
+        if (key.size() != DILITHIUM_PUBKEY_SIZE)
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("Key %u has invalid size %u (expected %u)",
+                    i, key.size(), DILITHIUM_PUBKEY_SIZE));
+        keys.push_back(key);
+    }
+
+    LOCK(cs_main);
+    bool success = g_usdsoq_authority.Initialize(keys, threshold);
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("success", success);
+    if (success) {
+        result.pushKV("scheme", strprintf("%u-of-%u", threshold, keys.size()));
+        result.pushKV("threshold", (int)threshold);
+        result.pushKV("key_count", (int)keys.size());
+        LogPrintf("USDSOQ: Authority set via RPC: %u-of-%u Dilithium multisig\n",
+                  threshold, keys.size());
+    } else {
+        result.pushKV("error", "Authority initialization failed — check key sizes and threshold");
+    }
+
+    return result;
+}
+
+// =========================================================================
 // RPC Command Registration
 // =========================================================================
 static const CRPCCommand commands[] =
@@ -478,6 +640,8 @@ static const CRPCCommand commands[] =
     { "usdsoq", "usdsoqburn",             &usdsoqburn,              false, {"amount"} },
     { "usdsoq", "usdsoqfreeze",           &usdsoqfreeze,            false, {"txid", "vout"} },
     { "usdsoq", "usdsoqrotatekeys",       &usdsoqrotatekeys,        false, {"threshold", "pubkeys"} },
+    { "usdsoq", "usdsoqgenkeys",          &usdsoqgenkeys,           true,  {} },
+    { "usdsoq", "usdsoqsetauthority",     &usdsoqsetauthority,      false, {"threshold", "pubkeys"} },
 };
 
 void RegisterUSDSOQRPCCommands(CRPCTable &tableRPC)
