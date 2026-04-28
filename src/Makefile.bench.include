@@ -26,7 +26,6 @@ bench_bench_soqucoin_SOURCES = \
   bench/perf.h \
   bench/scrypt.cpp \
   bench/dilithium.cpp \
-  bench/bench_bulletproofs.cpp \
   bench/bench_soqucoin_blocks.cpp \
   bench/bench_pat.cpp \
   bench/bench_latticefold.cpp
