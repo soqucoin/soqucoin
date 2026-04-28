@@ -138,6 +138,16 @@ int AbstractThresholdConditionChecker::GetStateSinceHeightFor(const CBlockIndex*
 
     const int nPeriod = Period(params);
 
+    // SECURITY NOTE: For ALWAYS_ACTIVE deployments (or any state) on chains shorter
+    // than one confirmation window, GetAncestor(height - nPeriod) would compute a
+    // negative index and return NULL, causing a segfault. Since ALWAYS_ACTIVE
+    // deployments are active from genesis, return 0 (active since block 0).
+    // For non-ALWAYS_ACTIVE deployments on short chains, the state must be DEFINED
+    // (handled above) so this is defense-in-depth.
+    if (pindexPrev->nHeight < nPeriod) {
+        return 0;
+    }
+
     // A block's state is always the same as that of the first of its period, so it is computed based on a pindexPrev whose height equals a multiple of nPeriod - 1.
     // To ease understanding of the following height calculation, it helps to remember that
     // right now pindexPrev points to the block prior to the block that we are computing for, thus:
