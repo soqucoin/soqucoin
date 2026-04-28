@@ -13,6 +13,7 @@
 #include "consensus/consensus.h"
 #include "consensus/merkle.h"
 #include "consensus/usdsoq.h"
+#include "consensus/privacy.h"
 #include "consensus/validation.h"
 #include "fs.h"
 #include "hash.h"
