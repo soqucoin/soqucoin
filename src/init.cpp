@@ -1575,6 +1575,18 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
             }
 
             fLoaded = true;
+
+            // SOQ-AUD2-002: Restore USDSOQ authority key set from chainstate DB
+            if (pcoinsdbview) {
+                CUSDSOQAuthority persistedAuthority;
+                if (pcoinsdbview->ReadUSDSOQAuthority(persistedAuthority) &&
+                    persistedAuthority.IsInitialized()) {
+                    g_usdsoq_authority = persistedAuthority;
+                    LogPrintf("USDSOQ: Restored authority from DB: %u-of-%u Dilithium multisig\n",
+                              g_usdsoq_authority.GetThreshold(),
+                              g_usdsoq_authority.GetKeyCount());
+                }
+            }
         } while (false);
 
         if (!fLoaded) {

@@ -32,6 +32,8 @@ static const char DB_USDSOQ_SUPPLY = 'U';
 // Value: int32_t block height where key-image was spent
 static const char DB_KEY_IMAGE = 'K';
 
+// SOQ-AUD2-002: USDSOQ authority key set persistence
+static const char DB_USDSOQ_AUTHORITY = 'A';
 
 CCoinsViewDB::CCoinsViewDB(size_t nCacheSize, bool fMemory, bool fWipe) : db(GetDataDir() / "chainstate", nCacheSize, fMemory, fWipe, true) 
 {
@@ -138,6 +140,15 @@ bool CCoinsViewDB::WriteKeyImage(const uint256 &keyImageHash, int32_t nHeight) {
 
 bool CCoinsViewDB::EraseKeyImage(const uint256 &keyImageHash) {
     return db.Erase(std::make_pair(DB_KEY_IMAGE, keyImageHash));
+}
+
+// SOQ-AUD2-002: USDSOQ authority key set persistence
+bool CCoinsViewDB::ReadUSDSOQAuthority(CUSDSOQAuthority &authority) const {
+    return db.Read(DB_USDSOQ_AUTHORITY, authority);
+}
+
+bool CCoinsViewDB::WriteUSDSOQAuthority(const CUSDSOQAuthority &authority) {
+    return db.Write(DB_USDSOQ_AUTHORITY, authority);
 }
 
 bool CCoinsViewDBCursor::GetKey(uint256 &key) const

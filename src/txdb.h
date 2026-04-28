@@ -100,6 +100,13 @@ public:
 
     //! Remove a key-image from the spent set (for reorg/disconnect).
     bool EraseKeyImage(const uint256 &keyImageHash);
+
+    // SOQ-AUD2-002: USDSOQ authority persistence
+    //! Read the USDSOQ authority key set from LevelDB. Returns false if not found.
+    bool ReadUSDSOQAuthority(CUSDSOQAuthority &authority) const;
+
+    //! Write the USDSOQ authority key set to LevelDB.
+    bool WriteUSDSOQAuthority(const CUSDSOQAuthority &authority);
 };
 
 /** Specialization of CCoinsViewCursor to iterate over a CCoinsViewDB */

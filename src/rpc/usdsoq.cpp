@@ -614,6 +614,11 @@ static UniValue usdsoqsetauthority(const JSONRPCRequest& request)
     UniValue result(UniValue::VOBJ);
     result.pushKV("success", success);
     if (success) {
+        // Persist authority to LevelDB so it survives daemon restarts
+        if (pcoinsdbview) {
+            pcoinsdbview->WriteUSDSOQAuthority(g_usdsoq_authority);
+            LogPrintf("USDSOQ: Authority persisted to chainstate DB\n");
+        }
         result.pushKV("scheme", strprintf("%u-of-%u", threshold, keys.size()));
         result.pushKV("threshold", (int)threshold);
         result.pushKV("key_count", (int)keys.size());
