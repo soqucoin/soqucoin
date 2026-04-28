@@ -26,9 +26,10 @@ bool TransactionSignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, 
     if (!keystore->GetKey(address, key))
         return false;
 
-    // Signing with uncompressed keys is disabled in witness scripts
-    if (sigversion == SIGVERSION_WITNESS_V0 && !key.IsCompressed())
-        return false;
+    // SOQ-P006: Removed ECDSA compressed-key check. Soqucoin uses Dilithium
+    // (ML-DSA-44) exclusively — no compressed/uncompressed distinction exists.
+    // CKey::fCompressed is always false for Dilithium, causing this legacy
+    // Bitcoin Core check to reject ALL valid keys in witness scripts.
 
     uint256 hash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion);
     if (!key.Sign(hash, vchSig))
@@ -205,7 +206,11 @@ bool ProduceSignature(const BaseSignatureCreator& creator, const CScript& fromPu
 
                     // Create the signature
                     std::vector<unsigned char> vchSig;
-                    if (!creator.CreateSig(vchSig, keyID, fromPubKey, SIGVERSION_BASE)) {
+                    // SOQ-P006: Must use SIGVERSION_WITNESS_V0 (BIP143 sighash)
+                    // to match the verification path in interpreter.cpp:964.
+                    // SIGVERSION_BASE computes a legacy sighash — the post-signing
+                    // VerifyScript() at line 240 would reject it.
+                    if (!creator.CreateSig(vchSig, keyID, fromPubKey, SIGVERSION_WITNESS_V0)) {
                         continue;
                     }
 

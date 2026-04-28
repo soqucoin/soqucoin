@@ -959,9 +959,11 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
     }
 
-    // Verify signature
-    // Use SIGVERSION_WITNESS_V0 for now as it provides witness sighash structure
-    if (!checker.CheckSig(sig, pubkey, scriptSig, SIGVERSION_WITNESS_V0)) {
+    // SOQ-P006: scriptCode must match what sign.cpp uses when creating the sig.
+    // The signing path passes the scriptPubKey (OP_1 <32-byte-hash>) to
+    // SignatureHash. Passing scriptSig (empty for witness) produces a different
+    // sighash, causing every Dilithium signature to fail verification.
+    if (!checker.CheckSig(sig, pubkey, scriptPubKey, SIGVERSION_WITNESS_V0)) {
         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
     }
 

@@ -3297,7 +3297,15 @@ void CWallet::GetScriptForMining(std::shared_ptr<CReserveScript>& script)
         return;
 
     script = rKey;
-    script->reserveScript = CScript() << ToByteVector(pubkey) << OP_CHECKSIG;
+
+    // SOQ-P006: Generate witness v1 (Dilithium) coinbase script.
+    // Must match getnewaddress format: OP_1 <32-byte-SHA256(pubkey)>
+    // The old P2PK script (pubkey OP_CHECKSIG) is rejected by
+    // CreateNewBlock's dilithiumOnlyHeight enforcement.
+    uint256 pubkeyHash;
+    CSHA256().Write(pubkey.begin(), pubkey.size()).Finalize(pubkeyHash.begin());
+    std::vector<unsigned char> hashBytes(pubkeyHash.begin(), pubkeyHash.end());
+    script->reserveScript = CScript() << OP_1 << hashBytes;
 }
 
 void CWallet::LockCoin(const COutPoint& output)
