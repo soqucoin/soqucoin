@@ -134,6 +134,20 @@ static const CRPCConvertParam vRPCConvertParams[] =
         {"bumpfee", 1, "options"},
         {"setmaxconnections", 0, "maxconnectioncount"},
         {"rescan", 0, "height"},
+        // USDSOQ stablecoin RPCs
+        {"usdsoqsetauthority", 0, "threshold"},
+        {"usdsoqsetauthority", 1, "pubkeys"},
+        {"usdsoqrotatekeys", 0, "threshold"},
+        {"usdsoqrotatekeys", 1, "pubkeys"},
+        {"usdsoqmint", 0, "amount"},
+        {"usdsoqburn", 0, "amount"},
+        {"usdsoqfreeze", 1, "vout"},
+        {"verifyusdsoqauthority", 1, "signatures"},
+        // USDSOQ wallet RPCs
+        {"mintusdsoq", 1, "amount"},
+        {"burnusdsoq", 0, "amount"},
+        // Privacy RPCs
+        {"sendprivate", 1, "amount"},
         // Echo with conversion (For testing only)
         {"echojson", 0, "arg0"},
         {"echojson", 1, "arg1"},
