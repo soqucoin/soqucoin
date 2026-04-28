@@ -87,6 +87,19 @@ public:
 
     //! Write the USDSOQ supply counter to LevelDB.
     bool WriteUSDSOQSupply(const CUSDSOQSupply &supply);
+
+    // SOQ-ARCH-001: Spent key-image set (double-spend prevention for confidential TXs)
+    //! Check if a key-image hash has been seen (spent) before.
+    bool HaveKeyImage(const uint256 &keyImageHash) const;
+
+    //! Read the block height at which a key-image was spent. Returns false if not found.
+    bool ReadKeyImageHeight(const uint256 &keyImageHash, int32_t &nHeight) const;
+
+    //! Record a key-image as spent at the given block height.
+    bool WriteKeyImage(const uint256 &keyImageHash, int32_t nHeight);
+
+    //! Remove a key-image from the spent set (for reorg/disconnect).
+    bool EraseKeyImage(const uint256 &keyImageHash);
 };
 
 /** Specialization of CCoinsViewCursor to iterate over a CCoinsViewDB */

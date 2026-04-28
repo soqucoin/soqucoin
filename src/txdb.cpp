@@ -27,6 +27,11 @@ static const char DB_LAST_BLOCK = 'l';
 // SOQ-AUD2-002: USDSOQ supply counter persistence key
 static const char DB_USDSOQ_SUPPLY = 'U';
 
+// SOQ-ARCH-001: Spent key-image persistence (double-spend prevention)
+// Key: DB_KEY_IMAGE + uint256(SHA256(serialized_key_image))
+// Value: int32_t block height where key-image was spent
+static const char DB_KEY_IMAGE = 'K';
+
 
 CCoinsViewDB::CCoinsViewDB(size_t nCacheSize, bool fMemory, bool fWipe) : db(GetDataDir() / "chainstate", nCacheSize, fMemory, fWipe, true) 
 {
@@ -116,6 +121,23 @@ bool CCoinsViewDB::ReadUSDSOQSupply(CUSDSOQSupply &supply) const {
 
 bool CCoinsViewDB::WriteUSDSOQSupply(const CUSDSOQSupply &supply) {
     return db.Write(DB_USDSOQ_SUPPLY, supply);
+}
+
+// SOQ-ARCH-001: Spent key-image persistence
+bool CCoinsViewDB::HaveKeyImage(const uint256 &keyImageHash) const {
+    return db.Exists(std::make_pair(DB_KEY_IMAGE, keyImageHash));
+}
+
+bool CCoinsViewDB::ReadKeyImageHeight(const uint256 &keyImageHash, int32_t &nHeight) const {
+    return db.Read(std::make_pair(DB_KEY_IMAGE, keyImageHash), nHeight);
+}
+
+bool CCoinsViewDB::WriteKeyImage(const uint256 &keyImageHash, int32_t nHeight) {
+    return db.Write(std::make_pair(DB_KEY_IMAGE, keyImageHash), nHeight);
+}
+
+bool CCoinsViewDB::EraseKeyImage(const uint256 &keyImageHash) {
+    return db.Erase(std::make_pair(DB_KEY_IMAGE, keyImageHash));
 }
 
 bool CCoinsViewDBCursor::GetKey(uint256 &key) const
