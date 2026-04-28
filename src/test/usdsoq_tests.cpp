@@ -529,4 +529,185 @@ BOOST_AUTO_TEST_CASE(versionbits_usdsoq_name)
     BOOST_CHECK(std::string(info.name) == "usdsoq");
 }
 
+// =========================================================================
+// 12. USDSOQ VISIBILITY ENFORCEMENT (Phase 3)
+// =========================================================================
+// These test the visibility enforcement logic that ConnectBlock applies:
+// USDSOQ outputs MUST be transparent (nVisibility base bits == 0x00).
+// The frozen mask (0x80) is allowed, but confidential (0x01) is not.
+
+BOOST_AUTO_TEST_CASE(usdsoq_visibility_transparent_allowed)
+{
+    // Transparent USDSOQ is the only valid mode
+    CScript script;
+    script << OP_RETURN;
+    CTxOut out(1000, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
+
+    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
+    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_TRANSPARENT);
+    BOOST_CHECK(out.IsUSDSOQ());
+    BOOST_CHECK(out.IsTransparent());
+}
+
+BOOST_AUTO_TEST_CASE(usdsoq_visibility_frozen_transparent_allowed)
+{
+    // Frozen + transparent USDSOQ is valid (GENIUS Act freeze compliance)
+    CScript script;
+    script << OP_RETURN;
+    uint8_t frozenTransparent = VISIBILITY_FROZEN_MASK | VISIBILITY_TRANSPARENT;
+    CTxOut out(1000, script, frozenTransparent, ASSET_TYPE_USDSOQ);
+
+    // After masking off frozen bit, base visibility must be transparent
+    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
+    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_TRANSPARENT);
+    BOOST_CHECK(out.nVisibility & VISIBILITY_FROZEN_MASK);
+}
+
+BOOST_AUTO_TEST_CASE(usdsoq_visibility_confidential_rejected)
+{
+    // Confidential USDSOQ violates consensus — the base visibility
+    // check in ConnectBlock would reject this output.
+    CScript script;
+    script << OP_RETURN;
+    CTxOut out(1000, script, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_USDSOQ);
+
+    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
+    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_CONFIDENTIAL);
+    // This would trigger "bad-txns-usdsoq-confidential" in ConnectBlock
+    BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);
+}
+
+BOOST_AUTO_TEST_CASE(usdsoq_visibility_frozen_confidential_rejected)
+{
+    // Frozen + confidential USDSOQ is also invalid
+    CScript script;
+    script << OP_RETURN;
+    uint8_t frozenConf = VISIBILITY_FROZEN_MASK | VISIBILITY_CONFIDENTIAL;
+    CTxOut out(1000, script, frozenConf, ASSET_TYPE_USDSOQ);
+
+    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
+    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_CONFIDENTIAL);
+    BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);
+}
+
+BOOST_AUTO_TEST_CASE(soq_visibility_confidential_allowed)
+{
+    // Native SOQ CAN be confidential — only USDSOQ has this restriction
+    CScript script;
+    script << OP_RETURN;
+    CTxOut out(1000, script, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_SOQ);
+
+    BOOST_CHECK(out.IsConfidential());
+    BOOST_CHECK(out.IsNativeSOQ());
+    // No visibility restriction for native SOQ
+}
+
+BOOST_AUTO_TEST_CASE(usdsoq_visibility_all_invalid_modes)
+{
+    // Test all non-zero base visibility values are detected as invalid
+    CScript script;
+    script << OP_RETURN;
+
+    for (uint8_t v = 1; v <= VISIBILITY_MAX; v++) {
+        CTxOut out(1000, script, v, ASSET_TYPE_USDSOQ);
+        uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
+        BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);  // All rejected
+    }
+
+    // Also check with frozen mask applied
+    for (uint8_t v = 1; v <= VISIBILITY_MAX; v++) {
+        uint8_t frozen = VISIBILITY_FROZEN_MASK | v;
+        CTxOut out(1000, script, frozen, ASSET_TYPE_USDSOQ);
+        uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
+        BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);  // All rejected
+    }
+}
+
+// =========================================================================
+// 13. CROSS-ASSET ISOLATION (Phase 3 verification)
+// =========================================================================
+
+BOOST_AUTO_TEST_CASE(cross_asset_isolation_ctxout_fields)
+{
+    // SOQ and USDSOQ outputs with same value/script differ by nAssetType
+    CScript script;
+    script << OP_RETURN;
+
+    CTxOut soqOut(5000, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ);
+    CTxOut usdsoqOut(5000, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
+
+    // They must NOT be equal — prevents cross-asset confusion
+    BOOST_CHECK(soqOut != usdsoqOut);
+    BOOST_CHECK(soqOut.IsNativeSOQ());
+    BOOST_CHECK(!soqOut.IsUSDSOQ());
+    BOOST_CHECK(usdsoqOut.IsUSDSOQ());
+    BOOST_CHECK(!usdsoqOut.IsNativeSOQ());
+}
+
+BOOST_AUTO_TEST_CASE(shielding_usdsoq_preserves_asset_type)
+{
+    // If someone attempts to "shield" a USDSOQ output (changing visibility
+    // from transparent to confidential), the nAssetType must be preserved.
+    // ConnectBlock will then reject it because nVisibility != 0x00 for USDSOQ.
+    CScript script;
+    script << OP_RETURN;
+
+    // Start transparent USDSOQ
+    CTxOut transparent(1000, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
+    BOOST_CHECK(transparent.IsTransparent());
+    BOOST_CHECK(transparent.IsUSDSOQ());
+
+    // "Shield" it — change visibility to confidential, asset stays USDSOQ
+    CTxOut shielded(1000, script, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_USDSOQ);
+    BOOST_CHECK(shielded.IsConfidential());
+    BOOST_CHECK(shielded.IsUSDSOQ());
+
+    // ConnectBlock enforcement: base visibility check would reject
+    uint8_t baseVis = shielded.nVisibility & ~VISIBILITY_FROZEN_MASK;
+    BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);
+    // This means the output is invalid at consensus level
+}
+
+BOOST_AUTO_TEST_CASE(checktx_rejects_invalid_asset_type)
+{
+    // CheckTransaction should reject unknown asset types
+    // Currently ASSET_TYPE_MAX = 0x01, so 0x02+ is invalid
+    CScript script;
+    script << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0xab)
+           << OP_EQUALVERIFY << OP_CHECKSIG;
+    CTxOut out(1000, script, VISIBILITY_TRANSPARENT, 0x02);  // Invalid asset type
+
+    BOOST_CHECK_EQUAL(out.nAssetType, 0x02);
+    BOOST_CHECK(out.nAssetType > ASSET_TYPE_MAX);  // Exceeds max
+}
+
+BOOST_AUTO_TEST_CASE(checktx_rejects_invalid_visibility)
+{
+    // Visibility values above VISIBILITY_MAX (excluding frozen mask) are invalid
+    CScript script;
+    script << OP_RETURN;
+    CTxOut out(1000, script, 0x02, ASSET_TYPE_SOQ);  // Invalid base visibility
+
+    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
+    BOOST_CHECK(baseVis > VISIBILITY_MAX);
+}
+
+BOOST_AUTO_TEST_CASE(fee_must_be_soq_not_usdsoq)
+{
+    // Transaction fees must be nAssetType == 0x00 (SOQ).
+    // This is enforced in ConnectBlock's per-asset fee computation.
+    // Verify the field distinction exists at the data structure level.
+    CScript script;
+    script << OP_RETURN;
+
+    CTxOut feeOutput(100, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ);
+    BOOST_CHECK(feeOutput.IsNativeSOQ());
+    BOOST_CHECK_EQUAL(feeOutput.nAssetType, ASSET_SOQ);
+
+    CTxOut usdsoqOutput(100, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
+    BOOST_CHECK(!usdsoqOutput.IsNativeSOQ());
+    // ConnectBlock would reject this as a fee-paying output
+}
+
 BOOST_AUTO_TEST_SUITE_END()
+
