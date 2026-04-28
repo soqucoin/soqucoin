@@ -1895,7 +1895,45 @@ CAmount CWallet::GetImmatureWatchOnlyBalance() const
     return nTotal;
 }
 
-void CWallet::AvailableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl* coinControl, const CAmount& nMinimumAmount, const CAmount& nMaximumAmount, const CAmount& nMinimumSumAmount, const uint64_t& nMaximumCount, const int& nMinDepth, const int& nMaxDepth) const
+CAmount CWallet::GetBalanceByAsset(uint8_t nAssetType) const
+{
+    CAmount nTotal = 0;
+    {
+        LOCK2(cs_main, cs_wallet);
+        std::vector<COutput> vCoins;
+        AvailableCoins(vCoins, true, NULL, 1, MAX_MONEY, MAX_MONEY, 0, 0, 9999999, nAssetType);
+        for (const auto& output : vCoins) {
+            if (output.fSpendable)
+                nTotal += output.tx->tx->vout[output.i].nValue;
+        }
+    }
+    return nTotal;
+}
+
+CAmount CWallet::GetUnconfirmedBalanceByAsset(uint8_t nAssetType) const
+{
+    CAmount nTotal = 0;
+    {
+        LOCK2(cs_main, cs_wallet);
+        for (map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it) {
+            const CWalletTx* pcoin = &(*it).second;
+            if (!pcoin->IsTrusted() && pcoin->GetDepthInMainChain() == 0 && pcoin->InMempool()) {
+                for (unsigned int i = 0; i < pcoin->tx->vout.size(); i++) {
+                    if (pcoin->tx->vout[i].nAssetType != nAssetType)
+                        continue;
+                    if (!IsSpent(pcoin->GetHash(), i)) {
+                        isminetype mine = IsMine(pcoin->tx->vout[i]);
+                        if (mine & ISMINE_SPENDABLE)
+                            nTotal += pcoin->tx->vout[i].nValue;
+                    }
+                }
+            }
+        }
+    }
+    return nTotal;
+}
+
+void CWallet::AvailableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const CCoinControl* coinControl, const CAmount& nMinimumAmount, const CAmount& nMaximumAmount, const CAmount& nMinimumSumAmount, const uint64_t& nMaximumCount, const int& nMinDepth, const int& nMaxDepth, const int nFilterAssetType) const
 {
     vCoins.clear();
 
@@ -1961,6 +1999,13 @@ void CWallet::AvailableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const
                 continue;
 
             for (unsigned int i = 0; i < pcoin->tx->vout.size(); i++) {
+                // SOQ-AUD2-003: Asset type filter — skip UTXOs that don't match
+                // the requested asset type (0x00=SOQ, 0x01=USDSOQ, -1=all).
+                if (nFilterAssetType >= 0 &&
+                    pcoin->tx->vout[i].nAssetType != static_cast<uint8_t>(nFilterAssetType)) {
+                    continue;
+                }
+
                 if (pcoin->tx->vout[i].nValue < nMinimumAmount || pcoin->tx->vout[i].nValue > nMaximumAmount)
                     continue;
 

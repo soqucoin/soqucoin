@@ -945,6 +945,76 @@ UniValue importviewkey(const JSONRPCRequest& request)
 }
 
 // =========================================================================
+// Wallet Balance — Multi-Asset Breakdown
+// =========================================================================
+
+UniValue getwalletbalances(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() > 0)
+        throw std::runtime_error(
+            "getwalletbalances\n"
+            "\nReturns per-asset balance breakdown for the wallet.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"soq\": {\n"
+            "    \"confirmed\": n,      (numeric) Confirmed SOQ balance\n"
+            "    \"unconfirmed\": n,    (numeric) Unconfirmed SOQ in mempool\n"
+            "    \"total\": n           (numeric) confirmed + unconfirmed\n"
+            "  },\n"
+            "  \"usdsoq\": {\n"
+            "    \"confirmed\": n,      (numeric) Confirmed USDSOQ balance\n"
+            "    \"unconfirmed\": n,    (numeric) Unconfirmed USDSOQ in mempool\n"
+            "    \"total\": n           (numeric) confirmed + unconfirmed\n"
+            "  },\n"
+            "  \"shielded_utxo_count\": n (numeric) Number of confidential SOQ UTXOs\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getwalletbalances", "")
+            + HelpExampleRpc("getwalletbalances", ""));
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    // SOQ balances (nAssetType = 0x00)
+    CAmount soqConfirmed = pwalletMain->GetBalanceByAsset(0x00);
+    CAmount soqUnconfirmed = pwalletMain->GetUnconfirmedBalanceByAsset(0x00);
+
+    // USDSOQ balances (nAssetType = 0x01)
+    CAmount usdsoqConfirmed = pwalletMain->GetBalanceByAsset(0x01);
+    CAmount usdsoqUnconfirmed = pwalletMain->GetUnconfirmedBalanceByAsset(0x01);
+
+    // Count shielded (confidential) UTXOs for privacy UX
+    int nShieldedCount = 0;
+    {
+        std::vector<COutput> allCoins;
+        pwalletMain->AvailableCoins(allCoins, true, NULL, 1, MAX_MONEY, MAX_MONEY, 0, 0, 9999999, 0x00);
+        for (const auto& output : allCoins) {
+            if (output.tx->tx->vout[output.i].IsConfidential())
+                nShieldedCount++;
+        }
+    }
+
+    UniValue soqObj(UniValue::VOBJ);
+    soqObj.pushKV("confirmed", ValueFromAmount(soqConfirmed));
+    soqObj.pushKV("unconfirmed", ValueFromAmount(soqUnconfirmed));
+    soqObj.pushKV("total", ValueFromAmount(soqConfirmed + soqUnconfirmed));
+
+    UniValue usdsoqObj(UniValue::VOBJ);
+    usdsoqObj.pushKV("confirmed", ValueFromAmount(usdsoqConfirmed));
+    usdsoqObj.pushKV("unconfirmed", ValueFromAmount(usdsoqUnconfirmed));
+    usdsoqObj.pushKV("total", ValueFromAmount(usdsoqConfirmed + usdsoqUnconfirmed));
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("soq", soqObj);
+    result.pushKV("usdsoq", usdsoqObj);
+    result.pushKV("shielded_utxo_count", nShieldedCount);
+
+    return result;
+}
+
+// =========================================================================
 // RPC Registration
 // =========================================================================
 
@@ -960,6 +1030,7 @@ static const CRPCCommand usdsoqCommands[] =
     {"privacy",  "getprivacyinfo", &getprivacyinfo,  true,  {}},
     {"privacy",  "exportviewkey",  &exportviewkey,   true,  {}},
     {"privacy",  "importviewkey",  &importviewkey,   false, {"viewkey", "label"}},
+    {"wallet",   "getwalletbalances", &getwalletbalances, true, {}},
 };
 
 void RegisterUSDSOQWalletRPCCommands(CRPCTable& t)
