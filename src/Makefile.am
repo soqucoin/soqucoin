@@ -342,6 +342,8 @@ libsoqucoin_consensus_a_SOURCES = \
   consensus/merkle.cpp \
   consensus/merkle.h \
   consensus/params.h \
+  consensus/block_accumulator.cpp \
+  consensus/block_accumulator.h \
   consensus/usdsoq.cpp \
   consensus/usdsoq.h \
   consensus/validation.h \

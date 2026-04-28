@@ -38,6 +38,7 @@
 class CBlockIndex;
 class CBlockTreeDB;
 class CBloomFilter;
+class CCoinsViewDB;
 class CBlockUndo;
 class CChainParams;
 class CInv;
@@ -554,6 +555,11 @@ extern CChain chainActive;
 
 /** Global variable that points to the active CCoinsView (protected by cs_main) */
 extern CCoinsViewCache *pcoinsTip;
+
+/** Global variable that points to the active coins database (protected by cs_main).
+ *  SOQ-ARCH-001: Used for key-image persistence (ConnectBlock/DisconnectBlock)
+ *  which is a separate index from the UTXO set. */
+extern CCoinsViewDB *pcoinsdbview;
 
 /** Global variable that points to the active block tree (protected by cs_main) */
 extern CBlockTreeDB *pblocktree;

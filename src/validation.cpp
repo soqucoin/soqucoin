@@ -14,6 +14,7 @@
 #include "consensus/merkle.h"
 #include "consensus/usdsoq.h"
 #include "consensus/privacy.h"
+#include "consensus/block_accumulator.h"
 #include "consensus/validation.h"
 #include "fs.h"
 #include "hash.h"
@@ -1694,6 +1695,50 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
         }
     }
 
+    // =========================================================================
+    // SOQ-ARCH-001 Phase 2: Key-Image Erasure on Reorg
+    // When disconnecting a block, erase all key-images that were recorded
+    // during ConnectBlock. This allows confidential outputs to be re-spent
+    // on the new chain tip after a reorg.
+    //
+    // We re-extract key-images from the block's witness data using the same
+    // logic as ConnectBlock (last witness stack element for confidential inputs).
+    // =========================================================================
+    if (pcoinsdbview) {
+        unsigned int nErasedKeyImages = 0;
+        for (const auto& ptx : block.vtx) {
+            const CTransaction& tx = *ptx;
+            if (tx.IsCoinBase()) continue;
+
+            for (unsigned int j = 0; j < tx.vin.size(); j++) {
+                // We need to check if the input was spending a confidential output.
+                // Since DisconnectBlock has already restored inputs via ApplyTxInUndo,
+                // we can access the restored coins to check nVisibility.
+                const CCoins* coins = view.AccessCoins(tx.vin[j].prevout.hash);
+                if (!coins || !coins->IsAvailable(tx.vin[j].prevout.n))
+                    continue;
+
+                const CTxOut& prevOut = coins->vout[tx.vin[j].prevout.n];
+                if (!prevOut.IsConfidential())
+                    continue;
+
+                // Extract key-image from witness and erase from DB
+                const CScriptWitness& wit = tx.vin[j].scriptWitness;
+                if (!wit.IsNull() && !wit.stack.empty() && !wit.stack.back().empty()) {
+                    LatticeKeyImageHash kiHash =
+                        LatticeKeyImageHash::FromSerializedKeyImage(wit.stack.back());
+                    pcoinsdbview->EraseKeyImage(kiHash.hash);
+                    nErasedKeyImages++;
+                }
+            }
+        }
+
+        if (nErasedKeyImages > 0) {
+            LogPrintf("PRIVACY: reorg at block %d erased %u key-images\n",
+                pindex->nHeight, nErasedKeyImages);
+        }
+    }
+
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
@@ -2156,6 +2201,33 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             // Track supply deltas for USDSOQ outputs in this block
             for (const auto& txout : tx.vout) {
                 if (txout.nAssetType == ASSET_USDSOQ) {
+                    // =========================================================
+                    // SOQ-AUD2-002 Phase 3: USDSOQ Visibility Enforcement
+                    //
+                    // USDSOQ outputs MUST be transparent (nVisibility == 0x00).
+                    // Confidential USDSOQ is a consensus violation because:
+                    //   1. GENIUS Act §4(a)(2): stablecoin supply must be
+                    //      publicly auditable (no hidden mints/burns)
+                    //   2. OP_USDSOQ_FREEZE requires visible output values
+                    //      for law enforcement cooperation
+                    //   3. Reserve proof-of-reserves audits need verifiable
+                    //      on-chain supply counts
+                    //
+                    // The VISIBILITY_FROZEN_MASK (0x80) is still allowed on
+                    // USDSOQ outputs — a frozen-transparent UTXO has
+                    // nVisibility == 0x80 which satisfies this check because
+                    // we mask off the frozen bit before comparing.
+                    // =========================================================
+                    uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
+                    if (baseVisibility != VISIBILITY_TRANSPARENT) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): USDSOQ output %s:%u has non-transparent "
+                                  "visibility 0x%02x — confidential USDSOQ is not permitted",
+                                tx.GetHash().ToString(), (&txout - &tx.vout[0]),
+                                (int)txout.nVisibility),
+                            REJECT_INVALID, "bad-txns-usdsoq-confidential");
+                    }
+
                     nUSDSOQMinted += txout.nValue;
                 }
             }
@@ -2167,6 +2239,18 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     continue;
                 const CTxOut& prevOut = coins->vout[txin.prevout.n];
                 if (prevOut.nAssetType == ASSET_USDSOQ) {
+                    // Defense-in-depth: reject confidential USDSOQ inputs
+                    // If consensus worked correctly, no confidential USDSOQ
+                    // should ever exist. But check anyway to catch corruption.
+                    uint8_t baseVis = prevOut.nVisibility & ~VISIBILITY_FROZEN_MASK;
+                    if (baseVis != VISIBILITY_TRANSPARENT) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): spending confidential USDSOQ input %s:%u "
+                                  "(visibility 0x%02x) — should not exist",
+                                txin.prevout.hash.ToString(), txin.prevout.n,
+                                (int)prevOut.nVisibility),
+                            REJECT_INVALID, "bad-txns-usdsoq-conf-input");
+                    }
                     nUSDSOQBurned += prevOut.nValue;
                 }
             }
@@ -2177,6 +2261,191 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             LogPrintf("USDSOQ: block %d supply delta: minted=%d burned=%d net=%d\n",
                 pindex->nHeight, nUSDSOQMinted, nUSDSOQBurned,
                 nUSDSOQMinted - nUSDSOQBurned);
+        }
+    }
+
+    // =========================================================================
+    // SOQ-ARCH-001 Phase 2: Key-Image Double-Spend Protection
+    // When DEPLOYMENT_LATTICEBP is active, extract key-images from confidential
+    // transaction witness data and enforce uniqueness. A key-image that has
+    // already been recorded in a previous block constitutes a double-spend of
+    // a confidential output.
+    //
+    // Witness v4 confidential inputs carry their key-image as the LAST element
+    // of the witness stack (after the ring signature and range proof data).
+    // Format: [ring_sig_data...] [range_proof_data...] [key_image_bytes]
+    //
+    // The key-image bytes are hashed to a 32-byte LatticeKeyImageHash via
+    // SHA256 before storage (see consensus/privacy.h) for LevelDB efficiency.
+    //
+    // ConnectBlock writes new key-images; DisconnectBlock erases them.
+    // =========================================================================
+    std::vector<LatticeKeyImageHash> vBlockKeyImages;  // Track for DisconnectBlock undo
+
+    if (flags & SCRIPT_VERIFY_LATTICEBP) {
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            const CTransaction& tx = *(block.vtx[i]);
+            if (tx.IsCoinBase()) continue;
+
+            for (unsigned int j = 0; j < tx.vin.size(); j++) {
+                // Only process inputs that spend confidential outputs.
+                // A confidential input's previous output has nVisibility == 0x01.
+                const CCoins* coins = view.AccessCoins(tx.vin[j].prevout.hash);
+                if (!coins || !coins->IsAvailable(tx.vin[j].prevout.n))
+                    continue;
+
+                const CTxOut& prevOut = coins->vout[tx.vin[j].prevout.n];
+                if (!prevOut.IsConfidential())
+                    continue;
+
+                // Extract key-image from witness stack.
+                // The key-image is the last element of the scriptWitness stack
+                // for witness v4 (Lattice-BP++) inputs.
+                const CScriptWitness& wit = tx.vin[j].scriptWitness;
+                if (wit.IsNull() || wit.stack.empty()) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): confidential input %s:%u has no witness data",
+                            tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n),
+                        REJECT_INVALID, "bad-txns-conf-no-witness");
+                }
+
+                // Last stack element = serialized key-image
+                const std::vector<uint8_t>& keyImageBytes = wit.stack.back();
+                if (keyImageBytes.empty()) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): empty key-image in confidential input %s:%u",
+                            tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n),
+                        REJECT_INVALID, "bad-txns-conf-empty-keyimage");
+                }
+
+                // Hash the raw key-image to 32 bytes for storage
+                LatticeKeyImageHash kiHash = LatticeKeyImageHash::FromSerializedKeyImage(keyImageBytes);
+
+                // Check for double-spend: has this key-image been seen before?
+                if (pcoinsdbview && pcoinsdbview->HaveKeyImage(kiHash.hash)) {
+                    int32_t nPrevHeight = 0;
+                    pcoinsdbview->ReadKeyImageHeight(kiHash.hash, nPrevHeight);
+                    return state.DoS(100,
+                        error("ConnectBlock(): duplicate key-image in tx %s input %u "
+                              "(first seen at height %d, current block %d)",
+                            tx.GetHash().ToString(), j, nPrevHeight, pindex->nHeight),
+                        REJECT_INVALID, "bad-txns-conf-duplicate-keyimage");
+                }
+
+                // Check for intra-block duplicates (two TXs in the same block
+                // spending the same confidential output)
+                for (const auto& existing : vBlockKeyImages) {
+                    if (existing == kiHash) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): intra-block duplicate key-image in tx %s input %u",
+                                tx.GetHash().ToString(), j),
+                            REJECT_INVALID, "bad-txns-conf-intrablock-duplicate-keyimage");
+                    }
+                }
+
+                vBlockKeyImages.push_back(kiHash);
+            }
+        }
+
+        // Persist all new key-images from this block to the DB
+        if (pcoinsdbview) {
+            for (const auto& kiHash : vBlockKeyImages) {
+                pcoinsdbview->WriteKeyImage(kiHash.hash, pindex->nHeight);
+            }
+        }
+
+        if (!vBlockKeyImages.empty()) {
+            LogPrintf("PRIVACY: block %d recorded %u new key-images\n",
+                pindex->nHeight, vBlockKeyImages.size());
+        }
+
+        // =================================================================
+        // SOQ-ARCH-001 Phase 2.3: LatticeFold Range Proof Accumulation
+        // After key-image extraction, collect all range proofs from
+        // confidential outputs and accumulate them via LatticeFold.
+        // Then verify the miner's coinbase commitment matches.
+        //
+        // Range proofs are carried in the witness v4 stack as the
+        // second-to-last element (before the key-image):
+        //   [ring_sig_data...] [range_proof] [commitment] [key_image]
+        //
+        // Commitments are the confidential output's serialized
+        // Pedersen commitment in the CTxOut witness extension.
+        // =================================================================
+        std::vector<std::vector<uint8_t>> vBlockRangeProofs;
+        std::vector<std::vector<uint8_t>> vBlockCommitments;
+
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            const CTransaction& tx = *(block.vtx[i]);
+            if (tx.IsCoinBase()) continue;
+
+            for (unsigned int j = 0; j < tx.vout.size(); j++) {
+                const CTxOut& txout = tx.vout[j];
+                if (!txout.IsConfidential()) continue;
+
+                // Extract range proof and commitment from witness data.
+                // For confidential outputs, the proof data is serialized
+                // in the output's witness extension field.
+                // For now, use the scriptPubKey hash as commitment proxy
+                // (real commitment extraction will be wired when the
+                // confidential TX creation path is complete).
+                const CScriptWitness& wit = (j < tx.vin.size()) ?
+                    tx.vin[j].scriptWitness : CScriptWitness();
+
+                if (!wit.IsNull() && wit.stack.size() >= 3) {
+                    // Stack layout: [..., range_proof, commitment, key_image]
+                    const auto& proofData = wit.stack[wit.stack.size() - 3];
+                    const auto& commitData = wit.stack[wit.stack.size() - 2];
+                    vBlockRangeProofs.push_back(proofData);
+                    vBlockCommitments.push_back(commitData);
+                }
+            }
+        }
+
+        // Accumulate range proofs if any exist in this block
+        if (!vBlockRangeProofs.empty()) {
+            BlockProofAccumulator blockAccum;
+            if (!AccumulateBlockRangeProofs(vBlockRangeProofs, vBlockCommitments, blockAccum)) {
+                return state.DoS(100,
+                    error("ConnectBlock(): LatticeFold range proof accumulation failed at height %d",
+                        pindex->nHeight),
+                    REJECT_INVALID, "bad-blk-latticefold-accum");
+            }
+
+            // Verify the miner's coinbase commitment matches our accumulator
+            // Scan coinbase outputs for the LatticeFold OP_RETURN commitment
+            bool fFoundCommitment = false;
+            const CTransaction& coinbase = *(block.vtx[0]);
+            for (const auto& txout : coinbase.vout) {
+                std::vector<uint8_t> scriptBytes(txout.scriptPubKey.begin(),
+                    txout.scriptPubKey.end());
+                uint256 coinbaseAccumHash;
+                if (BlockProofAccumulator::ParseCoinbaseCommitment(scriptBytes, coinbaseAccumHash)) {
+                    if (coinbaseAccumHash != blockAccum.hashAccumulator) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): LatticeFold coinbase commitment mismatch "
+                                  "at height %d (expected %s, got %s)",
+                                pindex->nHeight,
+                                blockAccum.hashAccumulator.ToString().substr(0, 16),
+                                coinbaseAccumHash.ToString().substr(0, 16)),
+                            REJECT_INVALID, "bad-blk-latticefold-commitment");
+                    }
+                    fFoundCommitment = true;
+                    break;
+                }
+            }
+
+            if (!fFoundCommitment) {
+                return state.DoS(100,
+                    error("ConnectBlock(): block %d has %u confidential outputs but "
+                          "no LatticeFold coinbase commitment",
+                        pindex->nHeight, vBlockRangeProofs.size()),
+                    REJECT_INVALID, "bad-blk-missing-latticefold-commitment");
+            }
+
+            LogPrintf("PRIVACY: block %d verified LatticeFold accumulator (%u proofs, hash=%s)\n",
+                pindex->nHeight, blockAccum.nProofCount,
+                blockAccum.hashAccumulator.ToString().substr(0, 16));
         }
     }
 
@@ -3257,6 +3526,55 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
             block.vtx[0] = MakeTransactionRef(std::move(tx));
         }
     }
+
+    // =========================================================================
+    // SOQ-ARCH-001 Phase 2.3: LatticeFold Range Proof Accumulation Commitment
+    // If the block contains confidential outputs, compute the LatticeFold
+    // accumulator and add its hash as an OP_RETURN output in the coinbase.
+    // This follows the same pattern as the SegWit witness commitment above.
+    // =========================================================================
+    {
+        std::vector<std::vector<uint8_t>> vBlockRangeProofs;
+        std::vector<std::vector<uint8_t>> vBlockCommitments;
+
+        for (unsigned int i = 1; i < block.vtx.size(); i++) {  // skip coinbase
+            const CTransaction& tx = *(block.vtx[i]);
+            for (unsigned int j = 0; j < tx.vout.size(); j++) {
+                const CTxOut& txout = tx.vout[j];
+                if (!txout.IsConfidential()) continue;
+
+                const CScriptWitness& wit = (j < tx.vin.size()) ?
+                    tx.vin[j].scriptWitness : CScriptWitness();
+
+                if (!wit.IsNull() && wit.stack.size() >= 3) {
+                    const auto& proofData = wit.stack[wit.stack.size() - 3];
+                    const auto& commitData = wit.stack[wit.stack.size() - 2];
+                    vBlockRangeProofs.push_back(proofData);
+                    vBlockCommitments.push_back(commitData);
+                }
+            }
+        }
+
+        if (!vBlockRangeProofs.empty()) {
+            BlockProofAccumulator blockAccum;
+            if (AccumulateBlockRangeProofs(vBlockRangeProofs, vBlockCommitments, blockAccum)) {
+                auto lfScript = blockAccum.GetCoinbaseCommitmentScript();
+
+                CTxOut lfOut;
+                lfOut.nValue = 0;
+                lfOut.scriptPubKey = CScript(lfScript.begin(), lfScript.end());
+
+                CMutableTransaction tx(*block.vtx[0]);
+                tx.vout.push_back(lfOut);
+                block.vtx[0] = MakeTransactionRef(std::move(tx));
+
+                LogPrintf("PRIVACY: added LatticeFold coinbase commitment (%u proofs, hash=%s)\n",
+                    blockAccum.nProofCount,
+                    blockAccum.hashAccumulator.ToString().substr(0, 16));
+            }
+        }
+    }
+
     UpdateUncommittedBlockStructures(block, pindexPrev, consensusParams);
     return commitment;
 }

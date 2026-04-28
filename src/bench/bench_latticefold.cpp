@@ -134,3 +134,97 @@ static void LatticeFoldOpcode(benchmark::State& state)
 // Register benchmarks
 BENCHMARK(LatticeFoldVerify512);
 BENCHMARK(LatticeFoldOpcode);
+
+// =========================================================================
+// SOQ-ARCH-001 Phase 2.3: Block Accumulator Benchmarks
+// Measures the cost of per-block range proof accumulation.
+// Target: < 5ms for 25 proofs (typical block), < 50ms for 100 proofs (heavy block)
+// =========================================================================
+
+#include "consensus/block_accumulator.h"
+
+static std::vector<uint8_t> MakeBenchProof(int seed, size_t size = 4096)
+{
+    std::vector<uint8_t> proof(size);
+    for (size_t i = 0; i < size; i++)
+        proof[i] = static_cast<uint8_t>((seed * 17 + i * 31) & 0xFF);
+    return proof;
+}
+
+static std::vector<uint8_t> MakeBenchCommit(int seed, size_t size = 3072)
+{
+    std::vector<uint8_t> commit(size);
+    for (size_t i = 0; i < size; i++)
+        commit[i] = static_cast<uint8_t>((seed * 13 + i * 37) & 0xFF);
+    return commit;
+}
+
+static void BlockAccumulate1(benchmark::State& state)
+{
+    std::vector<std::vector<uint8_t>> proofs = {MakeBenchProof(1)};
+    std::vector<std::vector<uint8_t>> commits = {MakeBenchCommit(1)};
+    while (state.KeepRunning()) {
+        BlockProofAccumulator acc;
+        AccumulateBlockRangeProofs(proofs, commits, acc);
+    }
+}
+
+static void BlockAccumulate10(benchmark::State& state)
+{
+    std::vector<std::vector<uint8_t>> proofs, commits;
+    for (int i = 0; i < 10; i++) {
+        proofs.push_back(MakeBenchProof(i));
+        commits.push_back(MakeBenchCommit(i));
+    }
+    while (state.KeepRunning()) {
+        BlockProofAccumulator acc;
+        AccumulateBlockRangeProofs(proofs, commits, acc);
+    }
+}
+
+static void BlockAccumulate25(benchmark::State& state)
+{
+    std::vector<std::vector<uint8_t>> proofs, commits;
+    for (int i = 0; i < 25; i++) {
+        proofs.push_back(MakeBenchProof(i));
+        commits.push_back(MakeBenchCommit(i));
+    }
+    while (state.KeepRunning()) {
+        BlockProofAccumulator acc;
+        AccumulateBlockRangeProofs(proofs, commits, acc);
+    }
+}
+
+static void BlockAccumulate100(benchmark::State& state)
+{
+    std::vector<std::vector<uint8_t>> proofs, commits;
+    for (int i = 0; i < 100; i++) {
+        proofs.push_back(MakeBenchProof(i));
+        commits.push_back(MakeBenchCommit(i));
+    }
+    while (state.KeepRunning()) {
+        BlockProofAccumulator acc;
+        AccumulateBlockRangeProofs(proofs, commits, acc);
+    }
+}
+
+static void BlockAccumVerify25(benchmark::State& state)
+{
+    std::vector<std::vector<uint8_t>> proofs, commits;
+    for (int i = 0; i < 25; i++) {
+        proofs.push_back(MakeBenchProof(i));
+        commits.push_back(MakeBenchCommit(i));
+    }
+    BlockProofAccumulator acc;
+    AccumulateBlockRangeProofs(proofs, commits, acc);
+
+    while (state.KeepRunning()) {
+        VerifyBlockAccumulator(acc, proofs, commits);
+    }
+}
+
+BENCHMARK(BlockAccumulate1);
+BENCHMARK(BlockAccumulate10);
+BENCHMARK(BlockAccumulate25);
+BENCHMARK(BlockAccumulate100);
+BENCHMARK(BlockAccumVerify25);
