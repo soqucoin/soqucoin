@@ -42,6 +42,7 @@
 #include "validation.h"
 #include "validationinterface.h"
 #include "wallet/pqwallet/rpc_pqwallet.h"
+#include "wallet/rpcusdsoq.h"
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
 #endif
@@ -1009,6 +1010,7 @@ bool AppInitParameterInteraction()
 #ifdef ENABLE_WALLET
     RegisterWalletRPCCommands(tableRPC);
     RegisterPQWalletRPCCommands(tableRPC);
+    RegisterUSDSOQWalletRPCCommands(tableRPC);
 #endif
 
     nConnectTimeout = GetArg("-timeout", DEFAULT_CONNECT_TIMEOUT);
