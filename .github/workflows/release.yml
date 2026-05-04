@@ -258,6 +258,65 @@ jobs:
           path: soqucoin-*-windows-x64.zip
 
   # ============================================
+  # Solo Miner (Go cross-compile — all platforms)
+  # ============================================
+  build-solo-miner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      
+      - name: Build all platforms
+        working-directory: contrib/solo-miner
+        run: |
+          VERSION="${{ github.ref_name }}"
+          
+          echo "Building soq-solo-miner $VERSION for all platforms..."
+          
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -ldflags="-s -w" -o soq-solo-miner-linux-x64 .
+          
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+            go build -ldflags="-s -w" -o soq-solo-miner-linux-arm64 .
+          
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
+            go build -ldflags="-s -w" -o soq-solo-miner-macos-arm64 .
+          
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
+            go build -ldflags="-s -w" -o soq-solo-miner-macos-x64 .
+          
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+            go build -ldflags="-s -w" -o soq-solo-miner-windows-x64.exe .
+          
+          # Package each with config example and README
+          for bin in soq-solo-miner-linux-x64 soq-solo-miner-linux-arm64 soq-solo-miner-macos-arm64 soq-solo-miner-macos-x64; do
+            mkdir -p "dist-${bin}"
+            cp "${bin}" "dist-${bin}/soq-solo-miner"
+            cp config.example.json "dist-${bin}/"
+            cp README.md "dist-${bin}/"
+            tar -czvf "${bin}-${VERSION}.tar.gz" -C "dist-${bin}" .
+          done
+          
+          mkdir -p dist-windows
+          cp soq-solo-miner-windows-x64.exe dist-windows/soq-solo-miner.exe
+          cp config.example.json dist-windows/
+          cp README.md dist-windows/
+          cd dist-windows && zip -r "../soq-solo-miner-windows-x64-${VERSION}.zip" .
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soq-solo-miner
+          path: |
+            contrib/solo-miner/soq-solo-miner-*-*.tar.gz
+            contrib/solo-miner/soq-solo-miner-*-*.zip
+
+  # ============================================
   # Create Release with All Artifacts
   # ============================================
   create-release:
@@ -267,6 +326,7 @@ jobs:
       - build-macos-x64
       - build-macos-arm64
       - build-windows-x64
+      - build-solo-miner
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -295,3 +355,4 @@ jobs:
           prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

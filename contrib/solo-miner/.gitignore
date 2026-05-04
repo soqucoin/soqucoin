@@ -1,0 +1,12 @@
+# Build artifacts
+soq-solo-miner
+soq-solo-miner-*
+dist-*/
+
+# Runtime files
+config.json
+found_blocks.json
+
+# Go module cache
+vendor/
+*.bak*

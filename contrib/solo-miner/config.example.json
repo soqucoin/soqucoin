@@ -1,0 +1,24 @@
+{
+  "pool_name": "SoloMiner",
+  "port": "3333",
+  "max_connections": 100,
+  "connection_timeout": "120s",
+  "pool_difficulty": 100000,
+  "block_signature": "SoloMiner",
+  "merged_blockchain_order": ["soqucoin"],
+  "blockchains": {
+    "soqucoin": [{
+      "name": "local",
+      "rpc_url": "http://127.0.0.1:38332",
+      "rpc_username": "soqucoin",
+      "rpc_password": "CHANGE_ME",
+      "block_notify_url": "tcp://127.0.0.1:28332",
+      "timeout": "30s",
+      "reward_to": "YOUR_SOQUCOIN_ADDRESS_HERE"
+    }]
+  },
+  "share_flush_interval": "30s",
+  "hashrate_window": "10m",
+  "pool_stats_interval": "5m",
+  "app_stats_interval": "5m"
+}
