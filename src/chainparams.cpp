@@ -696,7 +696,10 @@ public:
         assert(genesis.hashMerkleRoot == uint256S("0x9abbf4b3788c188d54f03437f8cfecdfd92ee5406159931146d86cb32cee10b5"));
 
         vSeeds.clear();
-        // vSeeds.push_back(CDNSSeedData("soqu.org", "stagenet.soqu.org"));
+        // Stagenet DNS seeds — resolved to our VPS IPs
+        // IMPORTANT: These DNS records MUST be DNS-only (grey cloud) in Cloudflare,
+        // NOT proxied (orange cloud), because P2P port 28333 is not HTTP.
+        vSeeds.push_back(CDNSSeedData("soqu.org", "stagenet.soqu.org"));
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1, 125); // s prefix
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 100); // g prefix
@@ -704,7 +707,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = boost::assign::list_of(0x04)(0x35)(0x87)(0xcf).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[EXT_SECRET_KEY] = boost::assign::list_of(0x04)(0x35)(0x83)(0x94).convert_to_container<std::vector<unsigned char> >();
 
-        vFixedSeeds.clear();
+        vFixedSeeds = std::vector<SeedSpec6>(pnSeed6_stagenet, pnSeed6_stagenet + ARRAYLEN(pnSeed6_stagenet));
 
         fMiningRequiresPeers = false;  // Allow solo mining during bootstrap
         fDefaultConsistencyChecks = false;
