@@ -167,23 +167,40 @@ make install  # optional
 ### Run a Node
 
 ```bash
-# Mainnet
+# Start daemon
 ./src/soqucoind -daemon
 
-# Testnet
-./src/soqucoind -testnet -daemon
+# Stagenet (current network)
+./src/soqucoind -daemon -server -rpcuser=soqucoin -rpcpassword=YOUR_PASSWORD
 
 # Regtest (local development)
 ./src/soqucoind -regtest -daemon
 ```
 
+### ⛏️ Solo Mining
+
+The **SOQ Solo Miner** is a lightweight stratum proxy included in every release. Mine blocks directly to your wallet, zero pool fees.
+
+```bash
+# 1. Download the solo miner from the latest release
+# 2. Configure with your node RPC and wallet address
+cp config.example.json config.json && nano config.json
+
+# 3. Run it
+./soq-solo-miner config.json
+
+# 4. Point your ASIC/GPU at stratum+tcp://localhost:3333
+```
+
+📖 [Full Solo Mining Guide](https://soqu.org/docs/mining/solo-mining/)
+
 ### Network Ports
 
 | Network | P2P | RPC |
 |---------|-----|-----|
-| Mainnet | 33388 | 33389 |
-| Testnet | 44556 | 44555 |
+| Stagenet | 44556 | 44555 |
 | Regtest | 18444 | 18332 |
+
 
 ---
 
