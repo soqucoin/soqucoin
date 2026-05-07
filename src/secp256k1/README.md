@@ -1,3 +1,30 @@
+> ## ⚠️ DEPRECATED — NOT USED BY SOQUCOIN
+>
+> **This library is dead code.** Soqucoin does not use secp256k1 for any
+> consensus-critical operation. All transaction signing, verification, and
+> key generation use **ML-DSA-44 (Dilithium, FIPS 204)** — a NIST-standardized
+> post-quantum digital signature scheme.
+>
+> **Proof:**
+> - `src/pubkey.cpp` — `#include "crypto/dilithium/sign.h"` (zero secp256k1 includes)
+> - `src/key.cpp` — `#include "crypto/dilithium/sign.h"` (Dilithium2 keypair generation)
+> - `src/script/interpreter.cpp` — secp256k1 Bulletproofs handler explicitly removed (SOQ-INFRA-016)
+> - `src/init.cpp` — secp256k1-zkp range proof init explicitly removed (SOQ-INFRA-016)
+> - `grep -rn 'secp256k1_' src/ --exclude-dir=secp256k1` → **zero results**
+>
+> This directory is retained solely because it is an upstream build dependency
+> inherited from the Dogecoin Core / Bitcoin Core source tree. The autotools
+> build system (`Makefile.am`) still compiles and links `libsecp256k1.la` as a
+> transitive dependency, but no Soqucoin code calls any secp256k1 function.
+> Removing it would require non-trivial build system surgery for zero security
+> benefit, since the library is never invoked.
+>
+> For Soqucoin's actual cryptographic architecture, see:
+> - [`src/crypto/dilithium/`](../crypto/dilithium/) — ML-DSA-44 implementation
+> - [`doc/specifications/CRYPTOGRAPHIC_SPEC.md`](../../doc/specifications/CRYPTOGRAPHIC_SPEC.md)
+
+---
+
 libsecp256k1-zkp
 ================
 
