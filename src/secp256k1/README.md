@@ -21,7 +21,7 @@
 >
 > For Soqucoin's actual cryptographic architecture, see:
 > - [`src/crypto/dilithium/`](../crypto/dilithium/) — ML-DSA-44 implementation
-> - [`doc/specifications/CRYPTOGRAPHIC_SPEC.md`](../../doc/specifications/CRYPTOGRAPHIC_SPEC.md)
+> - [`doc/wallet/WALLET_CRYPTOGRAPHIC_SPEC.md`](../../doc/wallet/WALLET_CRYPTOGRAPHIC_SPEC.md) — wallet-layer cryptographic specification
 
 ---
 
