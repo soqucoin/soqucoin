@@ -568,9 +568,22 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fChe
         // Asset isolation: a single transaction MUST NOT mix SOQ and USDSOQ outputs.
         // This prevents cross-contamination in supply accounting and simplifies
         // the per-asset balance invariant checks in ConnectBlock.
-        // Exception: coinbase is always SOQ-only (enforced below).
+        // Exception 1: coinbase is always SOQ-only (enforced below).
+        // Exception 2: authority transactions (witness v5 / OP_5 output) are allowed
+        // to mix assets — they create USDSOQ from SOQ fee inputs under M-of-N control.
         if (hasSOQ && hasUSDSOQ) {
-            return state.DoS(100, false, REJECT_INVALID, "bad-txns-mixed-asset-types");
+            bool isAuthorityTx = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.scriptPubKey.size() == 34 &&
+                    txout.scriptPubKey[0] == OP_5 &&
+                    txout.scriptPubKey[1] == 32) {
+                    isAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isAuthorityTx) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-mixed-asset-types");
+            }
         }
 
         // Coinbase outputs must be native SOQ — cannot mint USDSOQ via mining
