@@ -238,6 +238,7 @@ libsoqucoin_server_a_SOURCES = \
   rpc/misc.cpp \
   rpc/net.cpp \
   rpc/pat.cpp \
+  rpc/privacy.cpp \
   rpc/batch.cpp \
   rpc/usdsoq.cpp \
   rpc/rawtransaction.cpp \

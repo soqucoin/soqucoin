@@ -1013,6 +1013,10 @@ bool AppInitParameterInteraction()
     extern void RegisterUSDSOQRPCCommands(CRPCTable& t);
     RegisterUSDSOQRPCCommands(tableRPC);
 
+    // Privacy RPCs (decoy outputs, privacy status — read-only, no wallet)
+    extern void RegisterPrivacyRPCCommands(CRPCTable& t);
+    RegisterPrivacyRPCCommands(tableRPC);
+
 #ifdef ENABLE_WALLET
     RegisterWalletRPCCommands(tableRPC);
     RegisterPQWalletRPCCommands(tableRPC);

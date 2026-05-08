@@ -148,6 +148,8 @@ static const CRPCConvertParam vRPCConvertParams[] =
         {"burnusdsoq", 0, "amount"},
         // Privacy RPCs
         {"sendprivate", 1, "amount"},
+        {"getdecoyoutputs", 0, "count"},
+        {"getdecoyoutputs", 1, "asset_type"},
         // Echo with conversion (For testing only)
         {"echojson", 0, "arg0"},
         {"echojson", 1, "arg1"},
