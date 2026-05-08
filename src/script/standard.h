@@ -60,6 +60,7 @@ enum txnouttype {
     TX_WITNESS_V0_SCRIPTHASH,
     TX_WITNESS_V0_KEYHASH,
     TX_WITNESS_V1_SCRIPTHASH,
+    TX_WITNESS_V5_AUTHORITY,   // SOQ-AUD2-002: USDSOQ mint/burn/freeze authority marker
 };
 
 class CNoDestination

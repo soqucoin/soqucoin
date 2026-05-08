@@ -59,8 +59,11 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
     // or relayed until the corresponding soft fork activates specific
     // validation rules for that witness version.
     // Reference: BIP141 section 4 — prevents premature output creation.
+    // Exception: OP_5 (0x55) = witness v5 = USDSOQ authority operations.
+    // Witness v5 is ALWAYS_ACTIVE on stagenet and will be BIP9-gated on mainnet.
     if (scriptPubKey.size() == 34 &&
         scriptPubKey[0] >= 0x52 && scriptPubKey[0] <= 0x60 &&  // OP_2 through OP_16
+        scriptPubKey[0] != 0x55 &&                              // except OP_5 (USDSOQ authority)
         scriptPubKey[1] == 32) {
         return false;
     }
@@ -114,7 +117,10 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
 
         if (whichType == TX_NULL_DATA)
             nDataOut++;
-        else if ((whichType == TX_MULTISIG) && (!fIsBareMultisigStd)) {
+        else if (whichType == TX_WITNESS_V5_AUTHORITY) {
+            // Authority marker outputs are 0-value by design — not dust.
+            // They serve as on-chain audit trail for USDSOQ operations.
+        } else if ((whichType == TX_MULTISIG) && (!fIsBareMultisigStd)) {
             reason = "bare-multisig";
             return false;
         } else if (txout.IsDust(nHardDustLimit)) {
