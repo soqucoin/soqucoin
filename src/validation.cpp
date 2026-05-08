@@ -1427,12 +1427,35 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-inputvalues-outofrange");
     }
 
-    if (nValueIn < tx.GetValueOut())
+    // SOQ-AUD2-002: For authority transactions (witness v5 / OP_5 output),
+    // the USDSOQ outputs are minted ex nihilo — they must NOT count in the
+    // input-output value balance. Only SOQ outputs (fee change + marker) count.
+    CAmount nValueOut = tx.GetValueOut();
+    bool isAuthorityTx = false;
+    for (const auto& txout : tx.vout) {
+        if (txout.scriptPubKey.size() == 34 &&
+            txout.scriptPubKey[0] == OP_5 &&
+            txout.scriptPubKey[1] == 32) {
+            isAuthorityTx = true;
+            break;
+        }
+    }
+    if (isAuthorityTx) {
+        // Recompute output value counting only SOQ outputs
+        nValueOut = 0;
+        for (const auto& txout : tx.vout) {
+            if (txout.nAssetType == ASSET_SOQ) {
+                nValueOut += txout.nValue;
+            }
+        }
+    }
+
+    if (nValueIn < nValueOut)
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-in-belowout", false,
-            strprintf("value in (%s) < value out (%s)", FormatMoney(nValueIn), FormatMoney(tx.GetValueOut())));
+            strprintf("value in (%s) < value out (%s)", FormatMoney(nValueIn), FormatMoney(nValueOut)));
 
     // Tally transaction fees
-    CAmount nTxFee = nValueIn - tx.GetValueOut();
+    CAmount nTxFee = nValueIn - nValueOut;
     if (nTxFee < 0)
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-fee-negative");
     nFees += nTxFee;
