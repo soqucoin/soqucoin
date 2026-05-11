@@ -183,3 +183,13 @@ src/crypto/latticebp/quick_test
 
 # AI agent brain files (local only, never commit)
 .gemini/
+
+# Build artifacts and test binaries
+src/crypto/latticebp/liblatticebp.dylib
+src/crypto/latticebp/test_capi_bin
+src/test/fuzz/fuzz
+src/test/pqderive-test
+src/wallet/pqwallet/pqwallet-test
+
+# Agent workflows
+.agent/
