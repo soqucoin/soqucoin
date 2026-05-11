@@ -142,7 +142,9 @@ class MinerStats:
     def _get_export_data(self):
         """Get data for JSON export"""
         miners_list = []
+        pool_blocks_found = 0
         for worker, data in self.stats.items():
+            pool_blocks_found += data.get("blocks_found", 0)
             miners_list.append({
                 "worker": worker,
                 "shares": data["total_shares"],
@@ -159,11 +161,13 @@ class MinerStats:
         pool_hashrate_mhs = sum(data.get("hashrate_mhs", 0) for data in self.stats.values())
         
         return {
-            "block_height": self.block_height,
+            "chain_height": self.block_height,
+            "block_height": self.block_height,  # Keep for backward compat
             "network_hashrate_ths": round(self.network_hashrate / 1000, 2),
             "pool_hashrate_ths": round(pool_hashrate_mhs / 1000000, 4),  # MH/s to TH/s
             "total_miners": len(self.stats),
-            "total_blocks": self.block_height,
+            "total_blocks_found": pool_blocks_found,  # Actual pool-found blocks (not chain height)
+            "total_blocks": pool_blocks_found,  # Renamed: was incorrectly self.block_height
             "miners": miners_list,
             "updated": datetime.utcnow().isoformat() + "Z"
         }

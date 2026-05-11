@@ -28,9 +28,16 @@
 // Schwartz-Zippel over the polynomial ring).
 
 #include "range_proof.h"
+#include <cassert>
 #include <cstring>
 #include <cmath>
-#include <random>
+
+// SECURITY NOTE (SOQ-D004 fix): prove() is a prover-side operation requiring
+// CSPRNG (sampleGaussian). Only available in STANDALONE and production builds.
+// verify() is available in all builds (no RNG needed).
+#ifdef LATTICEBP_STANDALONE
+#include <random>  // R&D harness only
+#endif
 
 namespace {
 
@@ -158,6 +165,14 @@ bool LatticeRangeProofV2::prove(
     const std::array<uint8_t, 32>& pubkey_hash,
     LatticeRangeProofV2& proof_out)
 {
+#ifdef BUILD_BITCOIN_INTERNAL
+    // SECURITY NOTE: Range proof *generation* is prover-only.
+    // The consensus shared lib only needs verify(). Abort if called.
+    (void)value; (void)randomness; (void)commitment; (void)params;
+    (void)sighash; (void)pubkey_hash; (void)proof_out;
+    assert(!"LatticeRangeProofV2::prove() not available in consensus shared lib");
+    return false;
+#else
     const size_t n_bits = RangeProofParams::RANGE_BITS;
 
     // Step 1: Binary decomposition — v = Σ b_i · 2^i
@@ -259,6 +274,7 @@ bool LatticeRangeProofV2::prove(
     }
 
     return true;
+#endif // BUILD_BITCOIN_INTERNAL
 }
 
 // ============================================================================

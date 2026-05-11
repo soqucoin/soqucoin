@@ -322,15 +322,23 @@ RingElement RingElement::sampleUniform()
     (void)result;
     assert(!"sampleUniform() not available in consensus shared lib");
 #else
-    // Production: GetStrongRandBytes() CSPRNG
-    // Generate N coefficients from N*8 random bytes, reduce mod Q
+    // Production: HKDF-expanded CSPRNG
+    // SOQ-D004 FIX: GetStrongRandBytes() has a 32-byte limit (assert at random.cpp:278).
+    // We seed a 32-byte root from GetStrongRandBytes(), then expand via HKDF-SHA256
+    // to produce N*8 = 2048 bytes of cryptographically strong randomness.
+    uint8_t seed[32];
+    GetStrongRandBytes(seed, 32);
     uint8_t rand_bytes[LatticeParams::N * 8];
-    GetStrongRandBytes(rand_bytes, sizeof(rand_bytes));
+    HKDF_SHA256(seed, 32,
+        nullptr, 0,
+        reinterpret_cast<const uint8_t*>("soqucoin.latticebp.uniform"), 26,
+        rand_bytes, sizeof(rand_bytes));
     for (size_t i = 0; i < LatticeParams::N; i++) {
         uint64_t val;
         memcpy(&val, rand_bytes + i * 8, 8);
         result.coeffs[i] = val % LatticeParams::Q;
     }
+    memory_cleanse(seed, 32);
     memory_cleanse(rand_bytes, sizeof(rand_bytes));
 #endif
     return result;
@@ -355,10 +363,17 @@ RingElement RingElement::sampleGaussian(double sigma)
     (void)sigma;
     assert(!"sampleGaussian() not available in consensus shared lib");
 #else
-    // Production: Discrete Gaussian using rejection sampling from CSPRNG
-    // Uses Box-Muller transform with GetStrongRandBytes() entropy
+    // Production: Discrete Gaussian using Box-Muller transform
+    // SOQ-D004 FIX: GetStrongRandBytes() has a 32-byte limit (assert at random.cpp:278).
+    // We seed a 32-byte root from GetStrongRandBytes(), then expand via HKDF-SHA256
+    // to produce N*16 = 4096 bytes of cryptographically strong randomness.
+    uint8_t seed[32];
+    GetStrongRandBytes(seed, 32);
     uint8_t rand_bytes[LatticeParams::N * 16]; // 16 bytes per sample (two 8-byte for Box-Muller)
-    GetStrongRandBytes(rand_bytes, sizeof(rand_bytes));
+    HKDF_SHA256(seed, 32,
+        nullptr, 0,
+        reinterpret_cast<const uint8_t*>("soqucoin.latticebp.gaussian"), 27,
+        rand_bytes, sizeof(rand_bytes));
     for (size_t i = 0; i < LatticeParams::N; i++) {
         // Box-Muller: generate two uniform [0,1) → one Gaussian sample
         uint64_t u1_raw, u2_raw;
@@ -371,6 +386,7 @@ RingElement RingElement::sampleGaussian(double sigma)
         result.coeffs[i] = static_cast<int64_t>(std::round(sample));
         result.coeffs[i] = center_reduce(result.coeffs[i]);
     }
+    memory_cleanse(seed, 32);
     memory_cleanse(rand_bytes, sizeof(rand_bytes));
 #endif
     return result;

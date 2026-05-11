@@ -1220,6 +1220,15 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     softforks.push_back(SoftForkDesc("bip65", 4, tip, consensusParams));
     BIP9SoftForkDescPushBack(bip9_softforks, "csv", consensusParams, Consensus::DEPLOYMENT_CSV);
     BIP9SoftForkDescPushBack(bip9_softforks, "segwit", consensusParams, Consensus::DEPLOYMENT_SEGWIT);
+
+    // Soqucoin-specific BIP9 deployments (Phase B2 — Mainnet Readiness)
+    // These are auto-hidden if nTimeout=0 (guard at line 1135).
+    // SoquShield, Block Explorer, and SOQ-TEC all query activation status from here.
+    BIP9SoftForkDescPushBack(bip9_softforks, "latticefold", consensusParams, Consensus::DEPLOYMENT_LATTICEFOLD);
+    BIP9SoftForkDescPushBack(bip9_softforks, "latticebp", consensusParams, Consensus::DEPLOYMENT_LATTICEBP);
+    BIP9SoftForkDescPushBack(bip9_softforks, "usdsoq", consensusParams, Consensus::DEPLOYMENT_USDSOQ);
+    BIP9SoftForkDescPushBack(bip9_softforks, "checkbatchsig", consensusParams, Consensus::DEPLOYMENT_CHECKBATCHSIG);
+    BIP9SoftForkDescPushBack(bip9_softforks, "checkpatagg", consensusParams, Consensus::DEPLOYMENT_CHECKPATAGG);
     obj.pushKV("softforks", softforks);
     obj.pushKV("bip9_softforks", bip9_softforks);
     obj.pushKV("warnings", GetWarnings("statusbar"));

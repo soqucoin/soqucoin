@@ -4,12 +4,27 @@
 // Lattice-BP++: Ring Signature Implementation
 // Stage 3 R&D - LSAG-style anonymous signatures
 //
+// SECURITY NOTE (SOQ-D004 fix): The sign() function requires CSPRNG entropy.
+// Build modes:
+//   LATTICEBP_STANDALONE: std::random_device (R&D harness only)
+//   BUILD_BITCOIN_INTERNAL: assert-fail (prover not available in shared lib)
+//   Production: GetStrongRandBytes() from libsoqucoin_util
+//
 
 #include "ring_signature.h"
 #include "commitment.h"
 #include <algorithm>
+#include <cassert>
 #include <cstring>
-#include <random>
+
+#ifdef LATTICEBP_STANDALONE
+#include <random>  // std::random_device, std::mt19937_64 (R&D only)
+#else
+#ifndef BUILD_BITCOIN_INTERNAL
+#include "../../random.h"           // GetStrongRandBytes() — production CSPRNG
+#include "../../support/cleanse.h"  // memory_cleanse()
+#endif
+#endif
 
 // SHA3-256 hash function (stub for testing)
 extern "C" {
@@ -231,14 +246,19 @@ LatticeRingSignature LatticeRingSignature::sign(
         return sig; // Invalid input
     }
 
-    // Initialize random generator
-    std::random_device rd;
-    std::mt19937_64 gen(rd());
-
+#ifdef BUILD_BITCOIN_INTERNAL
+    // SECURITY NOTE: Ring signature *signing* is a prover-side operation.
+    // The consensus shared lib only needs verification. Abort if called.
+    (void)message; (void)ring; (void)real_index; (void)private_key;
+    assert(!"LatticeRingSignature::sign() not available in consensus shared lib");
+    return sig;
+#else
     // Generate key image
     sig.key_image = KeyImage::generate(private_key, ring[real_index]);
 
     // Generate random alpha (commitment randomness)
+    // SECURITY NOTE (SOQ-D004): Uses sampleGaussian() which routes through
+    // GetStrongRandBytes() in production, std::random_device in R&D.
     RingElement alpha = RingElement::sampleGaussian(LatticeParams::SIGMA);
 
     // Compute L_real = alpha * G (where G is implicit generator)
@@ -301,6 +321,7 @@ LatticeRingSignature LatticeRingSignature::sign(
     sig.responses[real_index] = alpha - challenges[real_index] * private_key;
 
     return sig;
+#endif // BUILD_BITCOIN_INTERNAL
 }
 
 bool LatticeRingSignature::verify(
