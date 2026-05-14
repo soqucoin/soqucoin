@@ -514,6 +514,13 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         //   covenant construction, script introspection.
                         //
                         // Stack: <vch1> <vch2> → <vch1 || vch2>
+                        //
+                        // SECURITY NOTE (SOQ-COV-008): OP_CAT enables recursive covenants
+                        // when combined with CTV or CSFS (e.g., CAT+SHA256+CTV creates a
+                        // covenant chain). This is INTENTIONAL on Soqucoin. Recursive depth
+                        // is bounded by the number of pre-committed UTXOs in the chain,
+                        // which is economically bounded by fees. No runtime loop exists
+                        // in consensus validation. DoS risk: none beyond element size limit.
                         // =========================================================
                         if (stack.size() < 2)
                             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
@@ -574,14 +581,15 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // message pushed onto the stack. Enables: oracle-verified contracts,
                         // bridge attestation, key delegation, CTV+CSFS covenant patterns.
                         //
-                        // Stack (before): <sig> <msg> <pubkey>
-                        // Stack (after):  <1 or 0>  (CHECKSIGFROMSTACK)
-                        //                 (fails)    (CHECKSIGFROMSTACKVERIFY)
+                        // Stack before execution (bottom to top): sig | msg | pubkey
+                        //   i.e., the script pushes: PUSH <sig>, PUSH <msg>, PUSH <pubkey>
+                        //   then executes OP_CHECKSIGFROMSTACK
+                        // Stack after CHECKSIGFROMSTACK:  <1> (valid) or <0> (invalid)
+                        // Stack after CHECKSIGFROMSTACKVERIFY: empty (success) or FAIL
                         //
-                        // Message is SHA256(msg) before Dilithium verify. This ensures a
-                        // canonical 32-byte message format regardless of msg length.
-                        // Strict ML-DSA-44 ONLY — pubkey must be 1312 or 1313 bytes.
-                        // New signature schemes use witness version upgrades, not version bytes.
+                        // NOTE: stacktop(-1) = most recently pushed = pubkey
+                        //       stacktop(-2) = msg
+                        //       stacktop(-3) = deepest = sig
                         //
                         // BIP9 gated: SCRIPT_VERIFY_CSFS flag must be set.
                         // When not set, behaves as NOP5 (soft-fork safe).
@@ -611,12 +619,13 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             if (!pubkey.IsValid())
                                 return set_error(serror, SCRIPT_ERR_CHECKSIGFROMSTACK);
 
-                            // Hash the message: SHA256(msg) → 32-byte canonical message.
-                            // Oracle signs SHA256(data); we verify against that hash.
-                            // Dilithium takes arbitrary-length messages natively, but we
-                            // mandate SHA256 pre-hashing for predictable oracle formats.
-                            uint256 msgHash;
-                            CSHA256().Write(vchMsg.data(), vchMsg.size()).Finalize(msgHash.begin());
+                            // Hash the message using double-SHA256 (CHashWriter) to match
+                            // the standard SignatureHash() pipeline used everywhere else
+                            // in the codebase. Single SHA256 was a deviation that would
+                            // cause oracle contracts to always fail if the oracle used
+                            // the standard Hash() helper to sign.
+                            // SECURITY NOTE (SOQ-COV-006): double-SHA256 (Hash) not single.
+                            uint256 msgHash = Hash(vchMsg.begin(), vchMsg.end());
 
                             // Verify Dilithium signature over SHA256(msg)
                             bool fSuccess = pubkey.Verify(msgHash, vchSig);
@@ -899,6 +908,16 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
         if (baseHashType == SIGHASH_ANYPREVOUT ||
             baseHashType == SIGHASH_ANYPREVOUTANYSCRIPT) {
 
+            // SECURITY NOTE (SOQ-COV-003): Reject ANYONECANPAY combined with APO.
+            // SIGHASH_ANYONECANPAY (0x80) + SIGHASH_ANYPREVOUT (0x41) = 0xC1.
+            // Both strip prevout context; the combination is undefined in BIP 118
+            // and produces a sighash that commits to neither the specific input
+            // nor any prevout. This could enable transaction malleation.
+            // Safe resolution: treat as invalid, return uint256::ONE (never matches).
+            if (nHashType & SIGHASH_ANYONECANPAY) {
+                return uint256::ONE;
+            }
+
             // APO: hashPrevouts is always zero (we don't commit to prevout)
             // hashPrevouts stays default zero
 
@@ -949,6 +968,13 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
             }
 
             ss << amount;
+
+            // SECURITY NOTE (SOQ-COV-004): ANYPREVOUTANYSCRIPT commits to `amount`
+            // but not to the specific prevout. This is intentional for eltoo rebinding:
+            // the signature is valid for any UTXO with the same amount and output script
+            // pattern, enabling update transaction rebinding across channel states.
+            // Callers must ensure channel contracts enforce economic constraints that
+            // make amount-collision attacks economically infeasible. See BIP 118 §Security.
 
             // APO: sequence is zeroed
             uint32_t zeroSequence = 0;
@@ -1465,19 +1491,50 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
     // The hash does NOT commit to prevouts, making the template reusable
     // across different UTXOs. But it commits to outputs, making the spending
     // pattern deterministic (vault/covenant semantics).
+    //
+    // SECURITY NOTE (SOQ-COV-001): All integer fields are serialized in explicit
+    // little-endian byte order, NOT via reinterpret_cast. This ensures identical
+    // hash output on all architectures (x86 LE, ARM, MIPS BE) and prevents
+    // consensus splits in mixed-hardware deployments.
+    //
+    // SECURITY NOTE (SOQ-COV-002): Final comparison uses XOR-accumulate
+    // (constant-time). memcmp short-circuits on first mismatch, enabling a
+    // timing oracle attack to recover the expected template hash byte-by-byte.
 
     if (hash.size() != 32)
         return false;
 
+    // Helper: write a uint32_t in canonical little-endian
+    auto writeLE32 = [](CSHA256& h, uint32_t v) {
+        uint8_t buf[4];
+        buf[0] = v & 0xff;
+        buf[1] = (v >> 8) & 0xff;
+        buf[2] = (v >> 16) & 0xff;
+        buf[3] = (v >> 24) & 0xff;
+        h.Write(buf, 4);
+    };
+    // Helper: write a uint64_t (int64_t cast) in canonical little-endian
+    auto writeLE64 = [](CSHA256& h, int64_t v) {
+        uint64_t u = (uint64_t)v;
+        uint8_t buf[8];
+        buf[0] = u & 0xff;
+        buf[1] = (u >> 8) & 0xff;
+        buf[2] = (u >> 16) & 0xff;
+        buf[3] = (u >> 24) & 0xff;
+        buf[4] = (u >> 32) & 0xff;
+        buf[5] = (u >> 40) & 0xff;
+        buf[6] = (u >> 48) & 0xff;
+        buf[7] = (u >> 56) & 0xff;
+        h.Write(buf, 8);
+    };
+
     CSHA256 ss;
 
     // 1. nVersion (4 bytes LE)
-    uint32_t nVersion = txTo->nVersion;
-    ss.Write(reinterpret_cast<const uint8_t*>(&nVersion), 4);
+    writeLE32(ss, (uint32_t)txTo->nVersion);
 
     // 2. nLockTime (4 bytes LE)
-    uint32_t nLockTime = txTo->nLockTime;
-    ss.Write(reinterpret_cast<const uint8_t*>(&nLockTime), 4);
+    writeLE32(ss, txTo->nLockTime);
 
     // 3. If any scriptSig is non-empty, hash all scriptSigs
     bool hasScriptSigs = false;
@@ -1490,11 +1547,10 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
     if (hasScriptSigs) {
         CSHA256 ssSigs;
         for (const auto& txin : txTo->vin) {
-            // Serialize length + data for each scriptSig
-            uint32_t len = txin.scriptSig.size();
-            ssSigs.Write(reinterpret_cast<const uint8_t*>(&len), 4);
-            if (len > 0) {
-                ssSigs.Write(txin.scriptSig.data(), len);
+            // Serialize length (LE) + data for each scriptSig
+            writeLE32(ssSigs, (uint32_t)txin.scriptSig.size());
+            if (!txin.scriptSig.empty()) {
+                ssSigs.Write(txin.scriptSig.data(), txin.scriptSig.size());
             }
         }
         uint8_t scriptSigsHash[32];
@@ -1503,15 +1559,13 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
     }
 
     // 4. Number of inputs (4 bytes LE)
-    uint32_t numInputs = txTo->vin.size();
-    ss.Write(reinterpret_cast<const uint8_t*>(&numInputs), 4);
+    writeLE32(ss, (uint32_t)txTo->vin.size());
 
     // 5. Hash of all input sequences
     {
         CSHA256 ssSeq;
         for (const auto& txin : txTo->vin) {
-            uint32_t seq = txin.nSequence;
-            ssSeq.Write(reinterpret_cast<const uint8_t*>(&seq), 4);
+            writeLE32(ssSeq, txin.nSequence);
         }
         uint8_t seqHash[32];
         ssSeq.Finalize(seqHash);
@@ -1519,19 +1573,16 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
     }
 
     // 6. Number of outputs (4 bytes LE)
-    uint32_t numOutputs = txTo->vout.size();
-    ss.Write(reinterpret_cast<const uint8_t*>(&numOutputs), 4);
+    writeLE32(ss, (uint32_t)txTo->vout.size());
 
-    // 7. Hash of all outputs (amount + scriptPubKey)
+    // 7. Hash of all outputs (amount + scriptPubKey) — all LE
     {
         CSHA256 ssOut;
         for (const auto& txout : txTo->vout) {
-            int64_t amount = txout.nValue;
-            ssOut.Write(reinterpret_cast<const uint8_t*>(&amount), 8);
-            uint32_t spkLen = txout.scriptPubKey.size();
-            ssOut.Write(reinterpret_cast<const uint8_t*>(&spkLen), 4);
-            if (spkLen > 0) {
-                ssOut.Write(txout.scriptPubKey.data(), spkLen);
+            writeLE64(ssOut, txout.nValue);
+            writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
+            if (!txout.scriptPubKey.empty()) {
+                ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());
             }
         }
         uint8_t outHash[32];
@@ -1540,12 +1591,14 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
     }
 
     // 8. Input index being spent (4 bytes LE)
-    uint32_t inputIndex = nIn;
-    ss.Write(reinterpret_cast<const uint8_t*>(&inputIndex), 4);
+    writeLE32(ss, (uint32_t)nIn);
 
-    // Finalize and compare
+    // Finalize and compare — CONSTANT TIME (SOQ-COV-002)
     uint8_t computed[32];
     ss.Finalize(computed);
 
-    return memcmp(computed, hash.data(), 32) == 0;
+    // XOR-accumulate: diff==0 iff all bytes match. Short-circuit resistant.
+    uint8_t diff = 0;
+    for (int i = 0; i < 32; i++) diff |= computed[i] ^ hash.data()[i];
+    return diff == 0;
 }
