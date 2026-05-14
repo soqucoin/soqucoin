@@ -114,11 +114,17 @@ public:
 
     /**
      * Batch verify multiple range proofs (future: LatticeFold+ integration).
+     *
+     * SOQ-D002 FIX: Requires actual sighash and pubkey_hash for each proof
+     * to bind the Fiat-Shamir challenge to the specific transaction context.
+     * Previous interface passed zero_hash — allowing cross-transaction replay.
      */
     static bool batchVerify(
         const std::vector<LatticeRangeProofV2>& proofs,
         const std::vector<LatticeCommitment>& commitments,
-        const RangeProofParams& params);
+        const RangeProofParams& params,
+        const std::vector<std::array<uint8_t, 32>>& sighashes,
+        const std::vector<std::array<uint8_t, 32>>& pubkey_hashes);
 
     // Serialization
     std::vector<uint8_t> serialize() const;

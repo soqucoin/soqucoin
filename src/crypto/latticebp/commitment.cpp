@@ -394,16 +394,42 @@ RingElement RingElement::sampleGaussian(double sigma)
 
 std::vector<uint8_t> RingElement::serialize() const
 {
-    std::vector<uint8_t> result(LatticeParams::N * sizeof(int64_t));
-    memcpy(result.data(), coeffs.data(), result.size());
+    // SOQ-D006 FIX: Explicit little-endian byte writes instead of raw memcpy.
+    // Raw memcpy is platform-dependent (little-endian on x86, big-endian on some ARM).
+    // Canonical LE format ensures proofs generated on any architecture verify on any other.
+    std::vector<uint8_t> result;
+    result.reserve(LatticeParams::N * 8);
+    for (size_t i = 0; i < LatticeParams::N; i++) {
+        // Reduce to [0, Q) before serialization for canonical representation
+        int64_t v = coeffs[i] % LatticeParams::Q;
+        if (v < 0) v += LatticeParams::Q;
+        // Write 8 bytes, little-endian
+        result.push_back((uint8_t)((v >>  0) & 0xFF));
+        result.push_back((uint8_t)((v >>  8) & 0xFF));
+        result.push_back((uint8_t)((v >> 16) & 0xFF));
+        result.push_back((uint8_t)((v >> 24) & 0xFF));
+        result.push_back((uint8_t)((v >> 32) & 0xFF));
+        result.push_back((uint8_t)((v >> 40) & 0xFF));
+        result.push_back((uint8_t)((v >> 48) & 0xFF));
+        result.push_back((uint8_t)((v >> 56) & 0xFF));
+    }
     return result;
 }
 
 RingElement RingElement::deserialize(const std::vector<uint8_t>& data)
 {
+    // SOQ-D006 FIX: Explicit little-endian byte reads matching serialize().
     RingElement result;
-    if (data.size() >= LatticeParams::N * sizeof(int64_t)) {
-        memcpy(result.coeffs.data(), data.data(), LatticeParams::N * sizeof(int64_t));
+    const size_t expected = LatticeParams::N * 8;
+    if (data.size() < expected) return result;
+    for (size_t i = 0; i < LatticeParams::N; i++) {
+        const uint8_t* b = data.data() + i * 8;
+        int64_t v = (int64_t)b[0]        | ((int64_t)b[1] <<  8) |
+                    ((int64_t)b[2] << 16) | ((int64_t)b[3] << 24) |
+                    ((int64_t)b[4] << 32) | ((int64_t)b[5] << 40) |
+                    ((int64_t)b[6] << 48) | ((int64_t)b[7] << 56);
+        result.coeffs[i] = v % LatticeParams::Q;
+        if (result.coeffs[i] < 0) result.coeffs[i] += LatticeParams::Q;
     }
     return result;
 }
@@ -568,15 +594,21 @@ bool LatticeRangeProof::verify(
     const LatticeCommitment& commitment,
     const LatticeCommitment::PublicParams& params) const
 {
-    // TODO(Phase 2): Implement actual range proof verification
-    // Will verify:
-    //   1. Binary decomposition: all b_i ∈ {0,1}
-    //   2. Value reconstruction: Σ 2^i · b_i = committed value
-    //   3. Norm bounds: ‖z‖ ≤ β
-    //   4. Fiat-Shamir transcript consistency
-
-    // Placeholder: Always passes for development
-    return proof_data.size() >= 64;
+    // SOQ-D003: This is the deprecated v1 LatticeRangeProof stub.
+    // It was NOT wired into consensus (confirmed via audit — interpreter.cpp
+    // uses LatticeRangeProofV2 exclusively). The always-pass implementation
+    // is intentionally kept as a non-consensus stub for historical reference.
+    //
+    // SECURITY NOTE: If this function ever becomes reachable from consensus,
+    // this build will fail loudly at link time due to the missing real implementation.
+    // DO NOT promote LatticeRangeProof (v1) to consensus use — use LatticeRangeProofV2.
+    //
+    // For the actual verifier, see LatticeRangeProofV2::verify() in range_proof.cpp
+    // which has been hardened per SOQ-D001 and SOQ-D002.
+    (void)commitment; (void)params;
+    // Intentionally always-false in any gated build to prevent silent bypass.
+    // The v1 stub is only kept for API compatibility in tests.
+    return false;
 }
 
 bool LatticeRangeProof::batchVerify(

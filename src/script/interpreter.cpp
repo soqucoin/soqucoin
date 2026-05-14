@@ -703,8 +703,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             if (stack.size() < 2)
                                 return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
-                            CScriptNum bn1(stacktop(-2), fRequireMinimal, 8);
-                            CScriptNum bn2(stacktop(-1), fRequireMinimal, 8);
+                            CScriptNum bn1(stacktop(-2), (flags & SCRIPT_VERIFY_MINIMALDATA) != 0, 8);
+                            CScriptNum bn2(stacktop(-1), (flags & SCRIPT_VERIFY_MINIMALDATA) != 0, 8);
 
                             if ((opcode == OP_DIV || opcode == OP_MOD) && bn2 == 0)
                                 return set_error(serror, SCRIPT_ERR_DIV_BY_ZERO);
@@ -757,8 +757,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                     return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
                                 valtype vch = stacktop(-3);
-                                const CScriptNum begin(stacktop(-2), fRequireMinimal);
-                                const CScriptNum size(stacktop(-1), fRequireMinimal);
+                                const CScriptNum begin(stacktop(-2), (flags & SCRIPT_VERIFY_MINIMALDATA) != 0);
+                                const CScriptNum size(stacktop(-1), (flags & SCRIPT_VERIFY_MINIMALDATA) != 0);
 
                                 if (begin < 0 || size < 0)
                                     return set_error(serror, SCRIPT_ERR_INVALID_SPLIT_RANGE);
@@ -780,7 +780,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                     return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
 
                                 valtype vch = stacktop(-2);
-                                const CScriptNum size(stacktop(-1), fRequireMinimal);
+                                const CScriptNum size(stacktop(-1), (flags & SCRIPT_VERIFY_MINIMALDATA) != 0);
 
                                 if (size < 0)
                                     return set_error(serror, SCRIPT_ERR_INVALID_SPLIT_RANGE);
