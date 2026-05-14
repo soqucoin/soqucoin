@@ -1406,6 +1406,23 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
     int nHashType = vchSigIn.back();
     std::vector<unsigned char> vchSig(vchSigIn.begin(), vchSigIn.end() - 1);
 
+    // SECURITY NOTE (SOQ-COV-009): Reject APO sighash types (0x41, 0x42) at the
+    // CheckSig level. The standard CheckSig path does not pass SCRIPT_VERIFY_APO
+    // flags, so any signature byte claiming SIGHASH_ANYPREVOUT or
+    // SIGHASH_ANYPREVOUTANYSCRIPT is either:
+    //   (a) malformed — the signer intended an APO sig but used wrong dispatch, or
+    //   (b) malicious — attempting to force the APO branch in SignatureHash()
+    //       without the APO activation flag being enforced.
+    // APO-aware verification happens in the dedicated APO sighash path in
+    // SignatureHash(), which is only reached when the caller intentionally
+    // uses an APO nHashType. Standard CheckSig callers never do this.
+    {
+        int baseType = nHashType & 0x7f;
+        if (baseType == SIGHASH_ANYPREVOUT || baseType == SIGHASH_ANYPREVOUTANYSCRIPT) {
+            return false;
+        }
+    }
+
     uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, txdata);
 
     if (!VerifySignature(vchSig, pubkey, sighash)) {
