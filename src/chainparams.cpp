@@ -161,16 +161,35 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;  // Not started
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;    // Never activates
 
+        // SOQ-COV-012 [DOC]: Covenant opcode BIP9 activation — MAINNET
+        // ============================================================
+        // CTV (BIP 119), APO (BIP 118), and CSFS (BIP 348) are NOT YET
+        // activated on mainnet. Activation is gated on Halborn Phase 2
+        // audit sign-off covering SOQ-COV-001 through SOQ-COV-012.
+        //
+        // Activation procedure:
+        //   1. Halborn Phase 2 audit completes and signs off on covenant fixes
+        //   2. nStartTime is set to the UNIX timestamp of a future signaling window
+        //   3. nTimeout is set to nStartTime + 1 year (standard BIP9 window)
+        //   4. STANDARD_SCRIPT_VERIFY_FLAGS in policy.h is updated to include the
+        //      relevant SCRIPT_VERIFY_* flags so mempool enforces covenant policy
+        //
+        // Until activation:
+        //   - CTV/APO/CSFS scripts evaluate as NOP (harmless; soft-fork safe)
+        //   - Covenant transactions are NOT standard and will not relay
+        //   - Regtest and stagenet have these flags ALWAYS_ACTIVE for testing
+        //
+        // Reference: DL-COVENANT-POST-AUDIT-HARDENING.md, SOQ-COV-012
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].bit = 7;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = 0;  // BIP9: pending audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nTimeout = 0;    // Not yet scheduled
 
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].bit = 8;
-        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nStartTime = 0;  // BIP9: requires Halborn sighash audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 sighash audit
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].nTimeout = 0;    // Not yet scheduled
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].bit = 9;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nStartTime = 0;  // BIP9: requires Halborn CSFS audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 CSFS audit
         consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nTimeout = 0;    // Not yet scheduled
 
 
@@ -678,16 +697,36 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // SOQ-COV-012 [DOC]: Covenant opcode activation — STAGENET / REGTEST
+        // ================================================================
+        // CTV (BIP 119), APO (BIP 118), and CSFS (BIP 348) are ALWAYS_ACTIVE
+        // on stagenet and regtest from genesis. This is intentional:
+        //
+        //   - Enables full integration testing of covenant scripts, vaults,
+        //     eltoo payment channels, and oracle contracts before mainnet
+        //   - Allows the covenant_tests.cpp test suite to run against live
+        //     regtest nodes without miner activation signaling
+        //   - Stagenet mirrors mainnet economics but activates all features
+        //     from genesis so developers can test the full feature set
+        //
+        // The ALWAYS_ACTIVE status does NOT indicate these features are
+        // production-ready for mainnet. Mainnet activation is gated on
+        // Halborn Phase 2 audit sign-off. See chainparams.cpp mainnet section
+        // and DL-COVENANT-POST-AUDIT-HARDENING.md, SOQ-COV-012.
+        //
+        // Security implication: Since stagenet is a test network, the risk of
+        // pre-audit covenant bugs being exploited for real funds is zero.
+        // Stagenet SOQ has no monetary value.
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].bit = 7;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY — see note above
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].bit = 8;
-        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY — see note above
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].bit = 9;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY — see note above
         consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // USDSOQ Authority Keys - 2-of-3 ML-DSA-44 multisig (FIPS 204)

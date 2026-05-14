@@ -624,4 +624,154 @@ BOOST_AUTO_TEST_CASE(apo_hashtype_constants)
     BOOST_CHECK_EQUAL(0x42 | 0x80, 0xC2);
 }
 
+// =========================================================================
+// 8. CountWitnessSigOps — DoS prevention (SOQ-COV-010)
+// =========================================================================
+
+BOOST_AUTO_TEST_CASE(count_witness_sigops_no_witness_flag)
+{
+    // Without SCRIPT_VERIFY_WITNESS, CountWitnessSigOps must return 0
+    // (flag-gated safety: don't count sigops for a disabled feature)
+    CScript scriptSig;
+    CScript scriptPubKey;
+    scriptPubKey << OP_0 << std::vector<unsigned char>(20, 0xaa); // P2WPKH
+    CScriptWitness witness;
+
+    size_t count = CountWitnessSigOps(scriptSig, scriptPubKey, &witness, 0 /* no flags */);
+    BOOST_CHECK_EQUAL(count, 0u);
+}
+
+BOOST_AUTO_TEST_CASE(count_witness_sigops_p2wpkh_returns_one)
+{
+    // SOQ-COV-010: P2WPKH (v0, 20-byte hash) = exactly 1 sigop
+    // This prevents batch-filling a block with cheap P2WPKH inputs
+    CScript scriptSig;
+    CScript scriptPubKey;
+    scriptPubKey << OP_0 << std::vector<unsigned char>(20, 0xbb); // P2WPKH
+    CScriptWitness witness;
+    witness.stack.push_back(std::vector<unsigned char>(2420, 0x01)); // dummy sig
+    witness.stack.push_back(std::vector<unsigned char>(1313, 0x02)); // dummy pubkey
+
+    size_t count = CountWitnessSigOps(scriptSig, scriptPubKey, &witness, SCRIPT_VERIFY_WITNESS);
+    BOOST_CHECK_EQUAL(count, 1u);
+}
+
+BOOST_AUTO_TEST_CASE(count_witness_sigops_p2wsh_counts_checksig_in_script)
+{
+    // SOQ-COV-010: P2WSH (v0, 32-byte hash) counts OP_CHECKSIG in witness script
+    // A script with 2x OP_CHECKSIG = 2 sigops
+    CScript witnessScript;
+    witnessScript << OP_CHECKSIG << OP_CHECKSIG;
+
+    CScript scriptSig;
+    CScript scriptPubKey;
+    scriptPubKey << OP_0 << std::vector<unsigned char>(32, 0xcc); // P2WSH
+
+    CScriptWitness witness;
+    witness.stack.push_back(std::vector<unsigned char>(2420, 0x01)); // dummy data
+    // Last item must be the witness script
+    std::vector<unsigned char> wsBytes(witnessScript.begin(), witnessScript.end());
+    witness.stack.push_back(wsBytes);
+
+    size_t count = CountWitnessSigOps(scriptSig, scriptPubKey, &witness, SCRIPT_VERIFY_WITNESS);
+    BOOST_CHECK_EQUAL(count, 2u);
+}
+
+BOOST_AUTO_TEST_CASE(count_witness_sigops_v1_through_v5_return_one)
+{
+    // SOQ-COV-010: Witness v1 (PAT), v2 (LatticeFold), v3..v5 = 1 sigop each
+    // These perform at most 1 aggregate verify per input.
+    CScript scriptSig;
+    CScriptWitness witness;
+    witness.stack.push_back(std::vector<unsigned char>(10, 0x01));
+
+    for (int version = 1; version <= 5; ++version) {
+        CScript scriptPubKey;
+        // Build a minimal witness program for this version
+        opcodetype versionOp = (opcodetype)(OP_1 + version - 1);
+        scriptPubKey << versionOp << std::vector<unsigned char>(20, (unsigned char)version);
+
+        size_t count = CountWitnessSigOps(scriptSig, scriptPubKey, &witness, SCRIPT_VERIFY_WITNESS);
+        BOOST_CHECK_MESSAGE(count == 1u,
+            "Witness v" + std::to_string(version) + " should contribute 1 sigop");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(count_witness_sigops_non_witness_returns_zero)
+{
+    // Non-witness scriptPubKey: CountWitnessSigOps must return 0
+    // (legacy sigops counted separately by GetLegacySigOpCount)
+    CScript scriptSig;
+    CScript scriptPubKey;
+    scriptPubKey << OP_DUP << OP_HASH160
+                 << std::vector<unsigned char>(20, 0xdd)
+                 << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    size_t count = CountWitnessSigOps(scriptSig, scriptPubKey, nullptr, SCRIPT_VERIFY_WITNESS);
+    BOOST_CHECK_EQUAL(count, 0u);
+}
+
+// =========================================================================
+// 9. CheckSignatureEncoding — Dilithium encoding validator (SOQ-COV-011)
+// =========================================================================
+
+BOOST_AUTO_TEST_CASE(check_sig_encoding_empty_sig_passes)
+{
+    // Empty signature is always valid (clean-stack: OP_CHECKSIG with no sig)
+    std::vector<unsigned char> emptySig;
+    ScriptError serror = SCRIPT_ERR_OK;
+    BOOST_CHECK(CheckSignatureEncoding(emptySig, SCRIPT_VERIFY_STRICTENC, &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_OK);
+}
+
+BOOST_AUTO_TEST_CASE(check_sig_encoding_2420_bytes_passes)
+{
+    // Raw Dilithium ML-DSA-44 signature (FIPS 204 §3.3, Table 1)
+    std::vector<unsigned char> dilithiumSig(2420, 0x01);
+    ScriptError serror = SCRIPT_ERR_OK;
+    BOOST_CHECK(CheckSignatureEncoding(dilithiumSig, SCRIPT_VERIFY_STRICTENC, &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_OK);
+}
+
+BOOST_AUTO_TEST_CASE(check_sig_encoding_2421_bytes_passes)
+{
+    // Dilithium signature with 1-byte SIGHASH type appended (CheckSig format)
+    std::vector<unsigned char> dilithiumSigWithHashType(2421, 0x01);
+    dilithiumSigWithHashType[2420] = SIGHASH_ALL; // hash type byte
+    ScriptError serror = SCRIPT_ERR_OK;
+    BOOST_CHECK(CheckSignatureEncoding(dilithiumSigWithHashType, SCRIPT_VERIFY_STRICTENC, &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_OK);
+}
+
+BOOST_AUTO_TEST_CASE(check_sig_encoding_wrong_size_fails)
+{
+    // SOQ-COV-011: Any size other than 0, 2420, 2421 must fail
+    // Tests: classic ECDSA-sized (72), short (10), over-sized (3000)
+    ScriptError serror;
+
+    std::vector<unsigned char> ecdsaSizedSig(72, 0x30); // DER ECDSA length
+    serror = SCRIPT_ERR_OK;
+    BOOST_CHECK(!CheckSignatureEncoding(ecdsaSizedSig, SCRIPT_VERIFY_STRICTENC, &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_SIG_DER);
+
+    std::vector<unsigned char> tooShort(10, 0xaa);
+    serror = SCRIPT_ERR_OK;
+    BOOST_CHECK(!CheckSignatureEncoding(tooShort, SCRIPT_VERIFY_STRICTENC, &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_SIG_DER);
+
+    std::vector<unsigned char> tooLong(3000, 0xbb);
+    serror = SCRIPT_ERR_OK;
+    BOOST_CHECK(!CheckSignatureEncoding(tooLong, SCRIPT_VERIFY_STRICTENC, &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_SIG_DER);
+}
+
+BOOST_AUTO_TEST_CASE(check_sig_encoding_no_flags_still_validates)
+{
+    // CheckSignatureEncoding validates regardless of flag set
+    // (it's called when the interpreter already decided to check encoding)
+    std::vector<unsigned char> dilithiumSig(2420, 0x02);
+    ScriptError serror = SCRIPT_ERR_OK;
+    BOOST_CHECK(CheckSignatureEncoding(dilithiumSig, 0 /* no flags */, &serror));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

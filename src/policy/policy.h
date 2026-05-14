@@ -84,6 +84,38 @@ static const CAmount DEFAULT_HARD_DUST_LIMIT = DEFAULT_DUST_LIMIT / 10;
  * Standard script verification flags that standard transactions will comply
  * with. However scripts violating these flags may still be present in valid
  * blocks and we must accept those blocks.
+ *
+ * SOQ-COV-012 [DOC]: Covenant opcode flags are intentionally OMITTED here.
+ * =========================================================================
+ * SCRIPT_VERIFY_CTV (BIP 119: OP_CHECKTEMPLATEVERIFY, bit 7)
+ * SCRIPT_VERIFY_APO (BIP 118: SIGHASH_ANYPREVOUT, bit 8)
+ * SCRIPT_VERIFY_CSFS (BIP 348: OP_CHECKSIGFROMSTACK, bit 9)
+ * SCRIPT_VERIFY_SCRIPT_RESTORE (Satoshi restoration: OP_MUL/DIV/MOD/CAT/etc)
+ *
+ * These are NOT included in STANDARD_SCRIPT_VERIFY_FLAGS because:
+ *
+ * 1. Pre-mainnet policy gate: Covenant scripts are not yet standard mempool
+ *    transactions. Adding these flags here would cause the mempool to enforce
+ *    covenant rules on relay, which is premature before Phase 2 Halborn audit.
+ *
+ * 2. BIP9 activation: CTV/APO/CSFS activate via BIP9 soft fork:
+ *    - Regtest/Stagenet: ALWAYS_ACTIVE from genesis (safe for testing)
+ *    - Mainnet: nStartTime = 0 (NOT YET SCHEDULED; requires Halborn Phase 2
+ *      audit sign-off on COV-001 through COV-012 remediations)
+ *
+ * 3. Consensus vs policy separation: The covenant flags ARE checked at the
+ *    consensus layer (VerifyScript, ConnectBlock) via the flags passed from
+ *    GetBlockScriptFlags(). Policy layer enforcement comes later, post-audit.
+ *
+ * When to add these flags:
+ *    After Phase 2 Halborn audit clears CTV/APO/CSFS for mainnet activation,
+ *    update chainparams.cpp nStartTime and add the flags here.
+ *
+ * Related flags that ARE included but inherited from Bitcoin Core:
+ *    SCRIPT_VERIFY_DERSIG, SCRIPT_VERIFY_STRICTENC — these remain for
+ *    historical policy compatibility. They do NOT gate Dilithium paths.
+ *    See interpreter.cpp CheckSignatureEncoding() for the Dilithium encoding
+ *    validator (SOQ-COV-011).
  */
 static const unsigned int STANDARD_SCRIPT_VERIFY_FLAGS = MANDATORY_SCRIPT_VERIFY_FLAGS |
                                                          SCRIPT_VERIFY_DERSIG |

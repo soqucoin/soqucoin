@@ -75,16 +75,56 @@ static inline void popstack(vector<valtype>& stack)
     stack.pop_back();
 }
 
-// Removed legacy DER helpers as they are no longer used
-
+// SOQ-COV-011 [MEDIUM] — Dilithium-aware signature encoding check
+// ================================================================
+// Background: This function originally validated ECDSA DER encoding.
+// Soqucoin uses ML-DSA-44 (Dilithium) exclusively; ECDSA is fully removed.
+//
+// When this function was first migrated, the body was replaced with a
+// catch-all SCRIPT_ERR_SIG_DER for any non-empty signature. That is
+// a dead stub: the Dilithium path in EvalScript goes directly to
+// checker.CheckSig() without calling CheckSignatureEncoding(), so the
+// stub does not block any valid transaction today.
+//
+// However, any future code path that calls CheckSignatureEncoding()
+// would incorrectly reject valid Dilithium signatures. Fixing this
+// now eliminates the footgun and gives Halborn an accurate picture of
+// what constitutes a valid signature on this chain.
+//
+// Valid Dilithium signature sizes on Soqucoin:
+//   - 0 bytes:    empty sig (OP_CHECKSIG clean-stack behavior) — valid
+//   - 2420 bytes: raw ML-DSA-44 signature bytes
+//   - 2421 bytes: 2420-byte sig + 1-byte hash type (format used by CheckSig)
+//
+// Any other size is a mis-encoded signature and must fail.
+//
+// SECURITY NOTE: SCRIPT_VERIFY_DERSIG and SCRIPT_VERIFY_STRICTENC remain
+// in STANDARD_SCRIPT_VERIFY_FLAGS for historical reasons (they were set
+// before the Dilithium migration). They do NOT gate this function in the
+// active Dilithium execution paths. See policy.h for the full flags comment.
 bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int flags, ScriptError* serror)
 {
+    // Empty signature is always valid (clean-stack: OP_CHECKSIG with no sig)
     if (vchSig.size() == 0) {
         return true;
     }
 
-    // Soqucoin only permits ML-DSA (Dilithium) signatures and public keys
-    return set_error(serror, SCRIPT_ERR_SIG_DER);
+    // SECURITY NOTE (SOQ-COV-011): Dilithium ML-DSA-44 encoding validation.
+    // Accept only properly-sized Dilithium signatures. Reject any size that
+    // does not match the Dilithium spec — this is the equivalent of DER
+    // encoding validation for the ECDSA era.
+    //
+    // 2420 = raw ML-DSA-44 signature (FIPS 204 §3.3, Table 1)
+    // 2421 = 2420 + 1-byte SIGHASH type appended by CheckSig()
+    if (vchSig.size() != 2420 && vchSig.size() != 2421) {
+        // SECURITY NOTE: SCRIPT_ERR_SIG_DER is reused here as the error code
+        // for "invalid signature encoding" even in the post-DER world.
+        // This maintains backward compatibility with error handling code that
+        // checks for SCRIPT_ERR_SIG_DER to detect encoding failures.
+        return set_error(serror, SCRIPT_ERR_SIG_DER);
+    }
+
+    return true;
 }
 
 
@@ -837,8 +877,96 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 }
 
 
+// SOQ-COV-010 [HIGH] — CountWitnessSigOps: sigop accounting for witness programs
+// ================================================================================
+// Background: This function was a stub returning 0. With CTV, APO, and CSFS now
+// active on stagenet, a block could contain an unbounded number of Dilithium
+// verifications (each CSFS call, each OP_CHECKSIG in a witness script) without
+// contributing to the block sigop budget (MAX_BLOCK_SIGOPS_COST = 80,000).
+// This is a DoS vector: a miner could fill blocks with expensive-to-verify
+// witness scripts at no extra sigop cost.
+//
+// Soqucoin witness program types and their sigop weights:
+//
+//   Witness v0, 20-byte program (P2WPKH — Dilithium key hash):
+//     → 1 sigop. Implicit single-key Dilithium verify.
+//
+//   Witness v0, 32-byte program (P2WSH — Dilithium script hash):
+//     → Count OP_CHECKSIG + OP_CHECKSIGVERIFY + OP_CHECKSIGFROMSTACK in
+//       the witness script (last witness stack item). Each = 1 sigop.
+//       OP_CHECKMULTISIG = N sigops where N is the key count pushdata.
+//
+//   Witness v1..v5 (PAT, LatticeFold, Lattice-BP++, USDSOQ authority):
+//     → 1 sigop per input. These programs perform at most one aggregate
+//       signature verification per input (PAT = aggregated, not per-key).
+//
+//   Witness v6+ (unknown/future programs):
+//     → 0 sigops. Soft-fork safe: unknown programs do not contribute.
+//       This matches Bitcoin Core's precedent for unknown witness versions.
+//
+// CTV (OP_NOP4) contribution: 0 sigops.
+//   CTV is a hash comparison, not a signature verification. Hash operations
+//   (OP_HASH160, OP_SHA256, OP_CHECKTEMPLATEVERIFY) carry no sigop weight.
+//   This matches Bitcoin Core's treatment of non-sig opcodes.
+//
+// CSFS (OP_NOP5) contribution: counted via GetSigOpCount() on the script,
+//   which detects OP_CHECKSIGFROMSTACK the same way it detects OP_CHECKSIG
+//   (see script.cpp L156–177). No special-casing needed here.
+//
+// APO (sighash-level feature): 0 additional sigops.
+//   APO modifies the message being signed, not the number of verifications.
+//   The containing OP_CHECKSIG already contributes its sigop.
 size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags)
 {
+    static const size_t SIGOPS_PER_CHECKSIG = 1;
+
+    if ((flags & SCRIPT_VERIFY_WITNESS) == 0) {
+        return 0;
+    }
+
+    int witnessversion;
+    std::vector<unsigned char> witnessprogram;
+
+    if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)) {
+        if (witnessversion == 0) {
+            if (witnessprogram.size() == 20) {
+                // P2WPKH: implicit single Dilithium verify
+                // SECURITY NOTE (SOQ-COV-010): Each P2WPKH input commits
+                // exactly 1 sigop to the block budget, matching the
+                // legacy P2PKH cost. This prevents batch-filling attacks.
+                return SIGOPS_PER_CHECKSIG;
+            }
+            if (witnessprogram.size() == 32 && witness != nullptr && !witness->stack.empty()) {
+                // P2WSH: count sig-verification opcodes in the witness script
+                // The witness script is always the last stack item.
+                // SECURITY NOTE (SOQ-COV-010): We count OP_CHECKSIG,
+                // OP_CHECKSIGVERIFY, OP_CHECKSIGFROMSTACK, and
+                // OP_CHECKMULTISIG/VERIFY in the redeemScript. CTV (OP_NOP4)
+                // and APO sighash types do NOT contribute additional sigops.
+                const std::vector<unsigned char>& scriptBytes = witness->stack.back();
+                CScript witnessScript(scriptBytes.begin(), scriptBytes.end());
+                return witnessScript.GetSigOpCount(true);
+            }
+            // Witness v0 with unrecognized program size: 0 sigops (invalid but non-fatal here)
+            return 0;
+        }
+
+        if (witnessversion >= 1 && witnessversion <= 5) {
+            // SECURITY NOTE (SOQ-COV-010): Witness v1 (Dilithium taproot-style),
+            // v2 (PAT aggregate), v3 (LatticeFold), v4 (Lattice-BP++), v5 (USDSOQ)
+            // each perform at most one aggregate verification per input.
+            // Budget 1 sigop per input for these program types.
+            // This is conservative: PAT aggregation means N keys → 1 verify,
+            // so 1 sigop per input is already an undercount. It prevents DoS
+            // while remaining permissive enough not to block legitimate txs.
+            return SIGOPS_PER_CHECKSIG;
+        }
+
+        // Witness v6+: unknown future program. Soft-fork safe: charge 0.
+        return 0;
+    }
+
+    // Non-witness scriptPubKey: sigops counted separately by GetLegacySigOpCount
     return 0;
 }
 
