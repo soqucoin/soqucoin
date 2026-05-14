@@ -569,7 +569,13 @@ LatticeCommitment LatticeCommitment::deserialize(const std::vector<uint8_t>& dat
 }
 
 // ============================================================================
-// LatticeRangeProof Implementation (Stub — Phase 2 will replace)
+// LatticeRangeProof v1 — DEPRECATED STUB
+//
+// SECURITY NOTE: LatticeRangeProof (v1) is fully deprecated.
+// All consensus paths use LatticeRangeProofV2 (range_proof.cpp).
+// This file is preserved only for build-system API compatibility.
+// DO NOT promote any of these methods to consensus use.
+// Verified non-reachable from VerifyScript() — audit 2026-05-14.
 // ============================================================================
 
 LatticeRangeProof LatticeRangeProof::prove(
@@ -577,37 +583,25 @@ LatticeRangeProof LatticeRangeProof::prove(
     const RingElement& randomness,
     const LatticeCommitment::PublicParams& params)
 {
-    LatticeRangeProof proof;
-
-    // TODO(Phase 2): Implement LNP22 polynomial product range proof
-    // This is the core of the patent — lattice-based binary decomposition
-    // with polynomial product bit proofs and Fiat-Shamir aggregation.
-    //
-    // Current placeholder: Store commitment parameters for verification
-    proof.proof_data.resize(64);
-    memcpy(proof.proof_data.data(), &value, 8);
-
-    return proof;
+    // SECURITY NOTE: v1 prove() is a deprecated stub.
+    // It must NOT write value data into proof_data — that would be a
+    // plaintext value leak. Returns an empty proof that always fails
+    // verify(), making any accidental use detectable immediately.
+    (void)value; (void)randomness; (void)params;
+    return LatticeRangeProof{}; // empty proof_data — always fails verify()
 }
 
 bool LatticeRangeProof::verify(
     const LatticeCommitment& commitment,
     const LatticeCommitment::PublicParams& params) const
 {
-    // SOQ-D003: This is the deprecated v1 LatticeRangeProof stub.
-    // It was NOT wired into consensus (confirmed via audit — interpreter.cpp
-    // uses LatticeRangeProofV2 exclusively). The always-pass implementation
-    // is intentionally kept as a non-consensus stub for historical reference.
-    //
-    // SECURITY NOTE: If this function ever becomes reachable from consensus,
-    // this build will fail loudly at link time due to the missing real implementation.
-    // DO NOT promote LatticeRangeProof (v1) to consensus use — use LatticeRangeProofV2.
-    //
-    // For the actual verifier, see LatticeRangeProofV2::verify() in range_proof.cpp
-    // which has been hardened per SOQ-D001 and SOQ-D002.
+    // SECURITY NOTE: LatticeRangeProof (v1) is deprecated and consensus-dead.
+    // Interpreter.cpp uses LatticeRangeProofV2::deserialize() exclusively
+    // (confirmed audit 2026-05-14, interpreter.cpp L395-396).
+    // This stub always returns false to prevent silent bypass if ever
+    // called by non-consensus code. See LatticeRangeProofV2 in range_proof.cpp
+    // for the hardened implementation (SOQ-D001, SOQ-D002 fixes applied).
     (void)commitment; (void)params;
-    // Intentionally always-false in any gated build to prevent silent bypass.
-    // The v1 stub is only kept for API compatibility in tests.
     return false;
 }
 
@@ -616,10 +610,11 @@ bool LatticeRangeProof::batchVerify(
     const std::vector<LatticeCommitment>& commitments,
     const LatticeCommitment::PublicParams& params)
 {
-    // TODO(Phase 2): Implement batch verification using LatticeFold+
-    // This should provide O(1) verification for n proofs
-
-    for (size_t i = 0; i < proofs.size(); i++) {
+    // SECURITY NOTE: v1 batch verify delegates to v1 verify() which always
+    // returns false. This is intentional — v1 is deprecated.
+    // Use LatticeRangeProofV2 for production range proof batch verification.
+    (void)params;
+    for (size_t i = 0; i < proofs.size() && i < commitments.size(); i++) {
         if (!proofs[i].verify(commitments[i], params)) {
             return false;
         }
