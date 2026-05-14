@@ -144,7 +144,8 @@ BITCOIN_TESTS =\
   test/keyimage_tests.cpp \
   test/privacy_integration_tests.cpp \
   test/block_accumulator_tests.cpp \
-  test/binius64_field_tests.cpp
+  test/binius64_field_tests.cpp \
+  test/covenant_tests.cpp
 # Legacy ECDSA tests disabled for Post-Quantum Transition
 #  test/audit_tests.cpp
 #  test/multisig_tests.cpp
