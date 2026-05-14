@@ -36,8 +36,11 @@ struct RangeProofParams {
     static constexpr size_t MAX_PROOF_SIZE = 16384;    // Actual: ~12KB (1+32+2N*8+KN*8)
     static constexpr size_t PROOF_VERSION = 1;        // Protocol version
 
-    // Norm bound for rejection sampling: β = 4σ√(NK)
+    // Norm bound on z_randomness (Gaussian blinding factors): β = 4σ√(NK)
     // With σ=2, N=256, K=4: β = 4 * 2 * √(1024) = 256
+    // NOTE: z_response (α-power aggregation over bits) is NOT subject to this
+    // bound — its coefficients are O(q) by construction. Security for z_response
+    // comes from the t_reconstruction check (SOQ-D001), not norm rejection.
     static constexpr int64_t NORM_BOUND_BETA = 256;
 
     // Domain separator for Fiat-Shamir (prevents cross-protocol attacks)

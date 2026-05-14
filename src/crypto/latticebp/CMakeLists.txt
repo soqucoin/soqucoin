@@ -90,6 +90,10 @@ if(LBP_BUILD_TESTS)
     else()
         target_link_libraries(test_capi latticebp_static)
     endif()
+    # Security framework required for SecRandomCopyBytes in standalone_shim.cpp
+    if(APPLE)
+        target_link_libraries(test_capi "-framework Security")
+    endif()
     target_include_directories(test_capi PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
     enable_testing()
