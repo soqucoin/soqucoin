@@ -131,7 +131,7 @@ struct LogarithmicProof {
     uint256 pk_agg;   // SHA3-256(pk_1 || pk_2 || ... || pk_n) — FIND-007
     uint256 msg_root; // Root of the message tree (or commitment)
     uint32_t count;   // number of signatures
-    // 104 bytes total (32+32+32+4)
+    // 100 bytes total (32+32+32+4)
 };
 
 /**

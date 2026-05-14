@@ -2059,6 +2059,31 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
     }
 
+    // BIP 119: Start enforcing OP_CHECKTEMPLATEVERIFY (vault/covenant opcodes)
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_CTV, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_CTV;
+    }
+
+    // BIP 118: Start enforcing SIGHASH_ANYPREVOUT (eltoo Lightning channels)
+    // NOTE: This does NOT modify Dilithium signature verification. It adds
+    // new sighash types (0x41, 0x42) that produce alternate sighash values.
+    // The existing SIGHASH_ALL (0x01) path is completely untouched.
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_APO, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_APO;
+    }
+
+    // BIP 348: Start enforcing OP_CHECKSIGFROMSTACK (oracle contracts, bridge attestation)
+    // Strict ML-DSA-44 only. Message is SHA256'd before Dilithium verify.
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_CSFS, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_CSFS;
+    }
+
+    // SATOSHI SCRIPT RESTORATION: Always-active on Soqucoin (genesis-active).
+    // AND/OR/XOR/MUL/DIV/MOD/SUBSTR/LEFT/RIGHT re-enabled with BCH-style bounds.
+    // No BIP9 gate needed — these are genesis-active like OP_CAT.
+    // DoS vectors eliminated by existing CScriptNum + 520-byte element limits.
+    flags |= SCRIPT_VERIFY_SCRIPT_RESTORE;
+
     int64_t nTime2 = GetTimeMicros();
     nTimeForks += nTime2 - nTime1;
     LogPrint("bench", "    - Fork checks: %.2fms [%.2fs]\n", 0.001 * (nTime2 - nTime1), nTimeForks * 0.000001);

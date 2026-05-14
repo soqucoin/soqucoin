@@ -1218,17 +1218,15 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     softforks.push_back(SoftForkDesc("bip34", 2, tip, consensusParams));
     softforks.push_back(SoftForkDesc("bip66", 3, tip, consensusParams));
     softforks.push_back(SoftForkDesc("bip65", 4, tip, consensusParams));
-    BIP9SoftForkDescPushBack(bip9_softforks, "csv", consensusParams, Consensus::DEPLOYMENT_CSV);
-    BIP9SoftForkDescPushBack(bip9_softforks, "segwit", consensusParams, Consensus::DEPLOYMENT_SEGWIT);
-
-    // Soqucoin-specific BIP9 deployments (Phase B2 — Mainnet Readiness)
-    // These are auto-hidden if nTimeout=0 (guard at line 1135).
-    // SoquShield, Block Explorer, and SOQ-TEC all query activation status from here.
-    BIP9SoftForkDescPushBack(bip9_softforks, "latticefold", consensusParams, Consensus::DEPLOYMENT_LATTICEFOLD);
+    // Soqucoin BIP9 deployments — only features that use actual miner signaling.
+    // Genesis features (csv, segwit, checkpatagg, latticefold) are ALWAYS_ACTIVE
+    // and are NOT shown here since they never went through BIP9 signaling.
+    // SOQ-I002: DEPLOYMENT_CHECKBATCHSIG removed entirely (dead code).
     BIP9SoftForkDescPushBack(bip9_softforks, "latticebp", consensusParams, Consensus::DEPLOYMENT_LATTICEBP);
     BIP9SoftForkDescPushBack(bip9_softforks, "usdsoq", consensusParams, Consensus::DEPLOYMENT_USDSOQ);
-    BIP9SoftForkDescPushBack(bip9_softforks, "checkbatchsig", consensusParams, Consensus::DEPLOYMENT_CHECKBATCHSIG);
-    BIP9SoftForkDescPushBack(bip9_softforks, "checkpatagg", consensusParams, Consensus::DEPLOYMENT_CHECKPATAGG);
+    BIP9SoftForkDescPushBack(bip9_softforks, "ctv", consensusParams, Consensus::DEPLOYMENT_CTV);
+    BIP9SoftForkDescPushBack(bip9_softforks, "apo", consensusParams, Consensus::DEPLOYMENT_APO);
+    BIP9SoftForkDescPushBack(bip9_softforks, "csfs", consensusParams, Consensus::DEPLOYMENT_CSFS);
     obj.pushKV("softforks", softforks);
     obj.pushKV("bip9_softforks", bip9_softforks);
     obj.pushKV("warnings", GetWarnings("statusbar"));

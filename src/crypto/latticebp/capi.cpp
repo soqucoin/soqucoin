@@ -494,19 +494,12 @@ int lbp_sample_randomness(uint8_t* randomness_out, size_t len) {
 
 // ── 7. LatticeFold Accumulation (Phase A7) ──
 //
-// Accumulates multiple Lattice-BP++ range proofs into a single
-// LatticeFold proof. Uses the already-audited LatticeFold v3 verifier
-// infrastructure (Halborn: 6 findings, all remediated).
-//
-// The accumulation flow:
-//   1. Deserialize each individual range proof
-//   2. Build a folding transcript from all proofs + commitments
-//   3. Fiat-Shamir challenge over the transcript
-//   4. Fold all proofs into a single near-constant-size proof
-//   5. Output a serialized folded proof verifiable by lbp_latticefold_verify
-//
-// Both primitives share the same lattice parameter family:
-//   N=256, Q=8380417, K=4 (aligned with Dilithium ML-DSA-44)
+// NOTE: LatticeFold accumulation depends on the full soqucoind LatticeFold
+// verifier infrastructure. For standalone mobile builds (LATTICEBP_STANDALONE),
+// these functions return LBP_ERR_INTERNAL. The mobile wallet only generates
+// individual range proofs — batch accumulation happens node-side.
+
+#ifndef LATTICEBP_STANDALONE
 
 #include "crypto/latticefold/verifier.h"
 #include "crypto/sha256.h"
@@ -914,5 +907,26 @@ int lbp_latticefold_verify(
         return LBP_ERR_INTERNAL;
     }
 }
+
+#else // LATTICEBP_STANDALONE
+
+// Stub implementations for standalone mobile build.
+// LatticeFold accumulation is a node-side feature.
+int lbp_latticefold_accumulate(
+    const uint8_t*, size_t, const size_t*,
+    const uint8_t*, size_t, const size_t*,
+    uint8_t*, size_t*)
+{
+    return LBP_ERR_INTERNAL; // Not available in standalone build
+}
+
+int lbp_latticefold_verify(
+    const uint8_t*, size_t,
+    const uint8_t*, size_t, const size_t*)
+{
+    return LBP_ERR_INTERNAL; // Not available in standalone build
+}
+
+#endif // LATTICEBP_STANDALONE
 
 } // extern "C"

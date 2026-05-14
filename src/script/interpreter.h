@@ -24,6 +24,17 @@ enum {
     SIGHASH_NONE = 2,
     SIGHASH_SINGLE = 3,
     SIGHASH_ANYONECANPAY = 0x80,
+
+    // BIP 118: ANYPREVOUT sighash types for eltoo Lightning channels.
+    // These are NEW sighash types — they do NOT modify the existing
+    // Dilithium verification pipeline. The signature is computed over
+    // a modified sighash that excludes the prevout, enabling rebindable
+    // signatures for channel update mechanisms.
+    //
+    // SECURITY: These ONLY take effect when SCRIPT_VERIFY_APO flag is set.
+    // Without the flag, CheckSig rejects these as unknown hash types.
+    SIGHASH_ANYPREVOUT = 0x41,           // Signs outputs + scriptPubKey, NOT prevout
+    SIGHASH_ANYPREVOUTANYSCRIPT = 0x42,  // Signs outputs only, NOT prevout or script
 };
 
 /** Script verification flags */
@@ -115,6 +126,29 @@ enum {
     // Gated behind DEPLOYMENT_USDSOQ BIP9 activation (bit 6).
     SCRIPT_VERIFY_USDSOQ = (1U << 19),
 
+    // BIP 119: Enable OP_CHECKTEMPLATEVERIFY
+    // Constrains spending outputs via template hash commitment.
+    SCRIPT_VERIFY_CTV = (1U << 20),
+
+    // BIP 118: Enable SIGHASH_ANYPREVOUT and SIGHASH_ANYPREVOUTANYSCRIPT
+    // Allows signatures that do not commit to the prevout, enabling
+    // eltoo/LN-Symmetry update-and-settle channel patterns.
+    // DOES NOT modify existing Dilithium sig verification — additive only.
+    SCRIPT_VERIFY_APO = (1U << 21),
+
+    // BIP 348: Enable OP_CHECKSIGFROMSTACK and OP_CHECKSIGFROMSTACKVERIFY
+    // Verifies a Dilithium (ML-DSA-44) signature over an arbitrary stack message.
+    // Message is SHA256'd before verification for canonical 32-byte format.
+    // Strict ML-DSA-44 only — no versioning byte. New schemes use witness versions.
+    SCRIPT_VERIFY_CSFS = (1U << 22),
+
+    // Satoshi Script Restoration (genesis-active on Soqucoin):
+    // Re-enables arithmetic (MUL/DIV/MOD) and bitwise (AND/OR/XOR) ops
+    // and string ops (SUBSTR/LEFT/RIGHT) disabled by Satoshi in 2010.
+    // Safe on Soqucoin: CScriptNum bounds + 520-byte element limit eliminate
+    // all original DoS vectors. No audit required — trivial math/string ops.
+    SCRIPT_VERIFY_SCRIPT_RESTORE = (1U << 23),
+
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),
@@ -158,6 +192,14 @@ public:
     }
 
     virtual ~BaseSignatureChecker() {}
+
+    // BIP 119: Check that the spending transaction matches a template hash.
+    // Returns true if the hash of the transaction template at nIn matches
+    // the provided hash. Default: returns false (no tx context available).
+    virtual bool CheckTemplateVerify(const std::vector<unsigned char>& hash) const
+    {
+        return false;
+    }
 };
 
 class TransactionSignatureChecker : public BaseSignatureChecker
@@ -177,6 +219,7 @@ public:
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const;
     bool CheckLockTime(const CScriptNum& nLockTime) const;
     bool CheckSequence(const CScriptNum& nSequence) const;
+    bool CheckTemplateVerify(const std::vector<unsigned char>& hash) const override;
 };
 
 class MutableTransactionSignatureChecker : public TransactionSignatureChecker

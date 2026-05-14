@@ -169,8 +169,14 @@ enum opcodetype {
     OP_CHECKSEQUENCEVERIFY = 0xb2,
     OP_NOP3 = OP_CHECKSEQUENCEVERIFY,
     OP_NOP4 = 0xb3,
+    OP_CHECKTEMPLATEVERIFY = OP_NOP4, // BIP 119: CTV vault/covenant opcode
     OP_NOP5 = 0xb4,
+    OP_CHECKSIGFROMSTACK = OP_NOP5,        // BIP 348: verify Dilithium sig over arbitrary stack msg
+    OP_CHECKSIGFROMSTACKVERIFY = OP_NOP5,  // BIP 348: VERIFY variant (fails script on bad sig)
     OP_NOP6 = 0xb5,
+    // OP_NOP6 (0xb5) RESERVED: Future OP_TXHASH (BIP 346) — generalized tx introspection.
+    // Do NOT allocate 0xb5 to any other opcode. Activate post-mainnet via BIP9 after
+    // BIP 346 spec stabilizes and Halborn audits the TxFieldSelector implementation.
     OP_NOP7 = 0xb6,
     OP_NOP8 = 0xb7,
     OP_NOP9 = 0xb8,
@@ -201,9 +207,10 @@ enum opcodetype {
     OP_INVALIDOPCODE = 0xff,
 };
 
-// SOQ-I002: DEPRECATED — old Binius SNARK batch verifier, replaced by OP_CHECKFOLDPROOF (0xfc).
-// Constant retained for serialization compatibility; handler rejects at consensus.
-static const unsigned char OP_CHECKBATCHSIG = 0xfe;
+// SOQ-I002: RESERVED — 0xfe permanently deprecated (was OP_CHECKBATCHSIG).
+// The old Binius SNARK batch verifier was replaced by OP_CHECKFOLDPROOF (0xfc).
+// This byte must NEVER be reassigned to prevent consensus divergence.
+static const unsigned char OP_RESERVED_BATCHSIG = 0xfe;
 
 const char* GetOpName(opcodetype opcode);
 

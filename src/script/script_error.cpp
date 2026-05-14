@@ -40,6 +40,16 @@ const char* ScriptErrorString(const ScriptError serror)
         return "USDSOQ invalid opcode or malformed witness data";
     case SCRIPT_ERR_USDSOQ_FROZEN_UTXO:
         return "Attempt to spend a frozen USDSOQ UTXO";
+    case SCRIPT_ERR_CHECKTEMPLATEVERIFY:
+        return "OP_CHECKTEMPLATEVERIFY hash mismatch";
+    case SCRIPT_ERR_CHECKSIGFROMSTACK:
+        return "OP_CHECKSIGFROMSTACK signature verification failed";
+    case SCRIPT_ERR_DIV_BY_ZERO:
+        return "Division by zero";
+    case SCRIPT_ERR_INVALID_SPLIT_RANGE:
+        return "Invalid substring range (begin or size out of bounds)";
+    case SCRIPT_ERR_CHECKFOLDPROOF_FAILED:
+        return "LatticeFold proof verification failed";
     case SCRIPT_ERR_SCRIPT_SIZE:
         return "Script is too big";
     case SCRIPT_ERR_DISALLOWED_OUTPUT_TYPE:

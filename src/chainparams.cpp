@@ -137,9 +137,6 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1479168000; // November 15th, 2016.
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 0;            // Disabled
 
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].bit = 3;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
@@ -163,6 +160,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;  // Not started
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;    // Never activates
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].bit = 7;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = 0;  // BIP9: pending audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nTimeout = 0;    // Not yet scheduled
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].bit = 8;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nStartTime = 0;  // BIP9: requires Halborn sighash audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nTimeout = 0;    // Not yet scheduled
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].bit = 9;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nStartTime = 0;  // BIP9: requires Halborn CSFS audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nTimeout = 0;    // Not yet scheduled
 
 
         // The best chain should have at least this much work.
@@ -310,9 +319,6 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].bit = 3;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
@@ -334,6 +340,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].bit = 7;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].bit = 8;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].bit = 9;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -470,9 +488,6 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].bit = 3;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
@@ -492,6 +507,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].bit = 7;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].bit = 8;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].bit = 9;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -629,9 +656,6 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].bit = 2;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CHECKBATCHSIG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].bit = 3;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
@@ -653,6 +677,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].bit = 7;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].bit = 8;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].bit = 9;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // USDSOQ Authority Keys - 2-of-3 ML-DSA-44 multisig (FIPS 204)
         // Keys control USDSOQ mint/burn/freeze. Generated by soq-signer gen-authority-keys.

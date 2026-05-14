@@ -34,6 +34,8 @@ set(LBP_SOURCES
     commitment.cpp
     range_proof.cpp
     ring_signature.cpp
+    stealth_address.cpp
+    standalone_shim.cpp
     capi.cpp
 )
 
@@ -66,6 +68,8 @@ if(LBP_BUILD_SHARED)
         set_target_properties(latticebp PROPERTIES
             LINK_FLAGS "-exported_symbols_list ${CMAKE_CURRENT_SOURCE_DIR}/exports.txt"
         )
+        # Link Security framework for SecRandomCopyBytes (standalone CSPRNG)
+        target_link_libraries(latticebp PRIVATE "-framework Security")
     endif()
 endif()
 
@@ -93,8 +97,15 @@ if(LBP_BUILD_TESTS)
 endif()
 
 # ── Install ──
-install(TARGETS latticebp
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    PUBLIC_HEADER DESTINATION include/latticebp
-)
+if(LBP_BUILD_SHARED)
+    install(TARGETS latticebp
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+        PUBLIC_HEADER DESTINATION include/latticebp
+    )
+elseif(LBP_BUILD_STATIC)
+    install(TARGETS latticebp_static
+        ARCHIVE DESTINATION lib
+        PUBLIC_HEADER DESTINATION include/latticebp
+    )
+endif()

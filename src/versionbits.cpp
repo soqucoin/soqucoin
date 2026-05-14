@@ -20,15 +20,11 @@ const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[Consensus::MAX_VERSION
         /*.gbt_force =*/true,
     },
     {
-        /*.name =*/"checkbatchsig",
-        /*.gbt_force =*/true,
-    },
-    {
         /*.name =*/"checkpatagg",
         /*.gbt_force =*/true,
     },
     {
-        /*.name =*/"checkfoldproof",
+        /*.name =*/"latticefold",
         /*.gbt_force =*/true,
     },
     {
@@ -37,6 +33,18 @@ const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[Consensus::MAX_VERSION
     },
     {
         /*.name =*/"usdsoq",
+        /*.gbt_force =*/true,
+    },
+    {
+        /*.name =*/"ctv",
+        /*.gbt_force =*/true,
+    },
+    {
+        /*.name =*/"apo",
+        /*.gbt_force =*/true,
+    },
+    {
+        /*.name =*/"csfs",
         /*.gbt_force =*/true,
     }};
 

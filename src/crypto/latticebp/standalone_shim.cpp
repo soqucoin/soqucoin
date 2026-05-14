@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 
 // ── Platform-specific CSPRNG ──
 #if defined(__APPLE__)
@@ -202,8 +203,12 @@ extern "C" void HKDF_SHA256(const uint8_t* ikm, size_t ikm_len,
 // GetStrongRandBytes (from random.h) — CSPRNG
 extern "C" void GetStrongRandBytes(unsigned char* out, int num) {
 #if defined(__APPLE__)
-    SecRandomCopyBytes(kSecRandomDefault, num, out);
-#elif defined(__linux__) || defined(__ANDROID__)
+    (void)SecRandomCopyBytes(kSecRandomDefault, num, out);
+#elif defined(__ANDROID__)
+    // Android: /dev/urandom always available, getrandom() needs API 28+
+    FILE* f = fopen("/dev/urandom", "rb");
+    if (f) { fread(out, 1, num, f); fclose(f); }
+#elif defined(__linux__)
     getrandom(out, num, 0);
 #elif defined(_WIN32)
     BCryptGenRandom(NULL, out, num, BCRYPT_USE_SYSTEM_PREFERRED_RNG);

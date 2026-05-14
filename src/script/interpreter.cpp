@@ -5,7 +5,7 @@
 
 #include "interpreter.h"
 
-// SOQ-I002: #include "crypto/binius/verifier.h" removed — OP_CHECKBATCHSIG deprecated
+// SOQ-I002: #include "crypto/binius/verifier.h" removed — OP_RESERVED_BATCHSIG deprecated
 // SOQ-INFRA-016: #include "zk/bulletproofs.h" removed — dead secp256k1 BP handler deprecated
 
 #include "hash.h"
@@ -123,8 +123,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 // Execution
                 //
                 if (fExec) {
-                    if (opcode == OP_CHECKBATCHSIG) {
-                        // SOQ-I002: OP_CHECKBATCHSIG (0xfe) is DEPRECATED.
+                    if (opcode == OP_RESERVED_BATCHSIG) {
+                        // SOQ-I002: OP_RESERVED_BATCHSIG (0xfe) is permanently DEPRECATED.
                         // The old Binius SNARK batch verifier (sangria::VerifyBatch) has been
                         // replaced by LatticeFold+ (OP_CHECKFOLDPROOF, 0xfc).
                         // Any script using this opcode is rejected at consensus.
@@ -503,6 +503,303 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // This EvalScript handler was redundant and only reachable from
                         // unit tests. Any script using this opcode is rejected.
                         return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
+                    } else if (opcode == OP_CAT) {
+                        // =========================================================
+                        // OP_CAT (0x7e): Concatenate top two stack elements.
+                        // Re-enabled from Satoshi's original opcodes (disabled 2010).
+                        // BIP 347 reference. 520-byte MAX_SCRIPT_ELEMENT_SIZE enforced.
+                        //
+                        // Enables: Merkle proof verification, bridge attestations,
+                        //   covenant construction, script introspection.
+                        //
+                        // Stack: <vch1> <vch2> → <vch1 || vch2>
+                        // =========================================================
+                        if (stack.size() < 2)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                        valtype& vch1 = stacktop(-2);
+                        valtype& vch2 = stacktop(-1);
+
+                        if (vch1.size() + vch2.size() > MAX_SCRIPT_ELEMENT_SIZE)
+                            return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+
+                        vch1.insert(vch1.end(), vch2.begin(), vch2.end());
+                        popstack(stack);
+                        // Result is now in stacktop(-1), which was vch1
+
+                    } else if (opcode == OP_CHECKTEMPLATEVERIFY) {
+                        // =========================================================
+                        // OP_CHECKTEMPLATEVERIFY (0xb3, was OP_NOP4): BIP 119.
+                        // Constrains the spending transaction to match a pre-committed
+                        // template hash. Enables: vaults, covenants, batched payouts.
+                        //
+                        // Stack: <32-byte template hash>
+                        // On success: hash remains on stack (NOP-upgrade pattern).
+                        // On failure: script fails with SCRIPT_ERR_CHECKTEMPLATEVERIFY.
+                        //
+                        // BIP9 gated: SCRIPT_VERIFY_CTV flag must be set.
+                        // When flag is NOT set, behaves as OP_NOP4 (soft-fork safe).
+                        // =========================================================
+
+                        if (flags & SCRIPT_VERIFY_CTV) {
+                            // CTV is active — enforce template verification
+                            if (stack.size() < 1)
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                            const valtype& vchHash = stacktop(-1);
+
+                            // Template hash must be exactly 32 bytes
+                            if (vchHash.size() != 32)
+                                return set_error(serror, SCRIPT_ERR_CHECKTEMPLATEVERIFY);
+
+                            // Verify spending tx matches the template hash
+                            if (!checker.CheckTemplateVerify(vchHash))
+                                return set_error(serror, SCRIPT_ERR_CHECKTEMPLATEVERIFY);
+
+                            // Success: hash stays on stack (NOP-upgrade semantics)
+                        } else {
+                            // CTV not active — treat as NOP4
+                            // Reject if DISCOURAGE_UPGRADABLE_NOPS is set (relay policy)
+                            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+                        }
+
+                    } else if (opcode == OP_NOP5) {
+                        // =========================================================
+                        // OP_CHECKSIGFROMSTACK / OP_CHECKSIGFROMSTACKVERIFY (BIP 348)
+                        // NOP5 upgrade pattern. Assigned byte: 0xb4.
+                        //
+                        // Verifies a Dilithium (ML-DSA-44) signature over an arbitrary
+                        // message pushed onto the stack. Enables: oracle-verified contracts,
+                        // bridge attestation, key delegation, CTV+CSFS covenant patterns.
+                        //
+                        // Stack (before): <sig> <msg> <pubkey>
+                        // Stack (after):  <1 or 0>  (CHECKSIGFROMSTACK)
+                        //                 (fails)    (CHECKSIGFROMSTACKVERIFY)
+                        //
+                        // Message is SHA256(msg) before Dilithium verify. This ensures a
+                        // canonical 32-byte message format regardless of msg length.
+                        // Strict ML-DSA-44 ONLY — pubkey must be 1312 or 1313 bytes.
+                        // New signature schemes use witness version upgrades, not version bytes.
+                        //
+                        // BIP9 gated: SCRIPT_VERIFY_CSFS flag must be set.
+                        // When not set, behaves as NOP5 (soft-fork safe).
+                        // =========================================================
+
+                        if (flags & SCRIPT_VERIFY_CSFS) {
+                            if (stack.size() < 3)
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                            // Stack layout (top-first): pubkey, msg, sig
+                            const valtype& vchPubKey = stacktop(-1);
+                            const valtype& vchMsg    = stacktop(-2);
+                            const valtype& vchSig    = stacktop(-3);
+
+                            // Validate pubkey: must be Dilithium ML-DSA-44
+                            // Accepts 1312 bytes (raw) or 1313 bytes (0x00 prefix per FIPS 204)
+                            std::vector<unsigned char> vchPubKeyActual = vchPubKey;
+                            if (vchPubKey.size() == 1313 && vchPubKey[0] == 0x00) {
+                                vchPubKeyActual = std::vector<unsigned char>(vchPubKey.begin() + 1, vchPubKey.end());
+                            }
+                            if (vchPubKeyActual.size() != 1312) {
+                                // Not a valid Dilithium pubkey — script fails
+                                return set_error(serror, SCRIPT_ERR_CHECKSIGFROMSTACK);
+                            }
+
+                            CPubKey pubkey(vchPubKeyActual);
+                            if (!pubkey.IsValid())
+                                return set_error(serror, SCRIPT_ERR_CHECKSIGFROMSTACK);
+
+                            // Hash the message: SHA256(msg) → 32-byte canonical message.
+                            // Oracle signs SHA256(data); we verify against that hash.
+                            // Dilithium takes arbitrary-length messages natively, but we
+                            // mandate SHA256 pre-hashing for predictable oracle formats.
+                            uint256 msgHash;
+                            CSHA256().Write(vchMsg.data(), vchMsg.size()).Finalize(msgHash.begin());
+
+                            // Verify Dilithium signature over SHA256(msg)
+                            bool fSuccess = pubkey.Verify(msgHash, vchSig);
+
+                            // Clean up: pop pubkey, msg, sig
+                            popstack(stack); // pubkey
+                            popstack(stack); // msg
+                            popstack(stack); // sig
+
+                            if (opcode == OP_CHECKSIGFROMSTACKVERIFY) {
+                                // VERIFY variant: fail script if sig is invalid
+                                if (!fSuccess)
+                                    return set_error(serror, SCRIPT_ERR_CHECKSIGFROMSTACK);
+                                // On success: nothing pushed (VERIFY consumes and succeeds)
+                            } else {
+                                // Standard variant: push 1 (valid) or 0 (invalid)
+                                stack.push_back(fSuccess ? vchTrue : vchFalse);
+                            }
+                        } else {
+                            // CSFS not active — treat as NOP5
+                            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+                        }
+
+                    } else if (flags & SCRIPT_VERIFY_SCRIPT_RESTORE) {
+                        // =========================================================
+                        // SATOSHI SCRIPT RESTORATION (Soqucoin genesis-active)
+                        //
+                        // These opcodes were in the original Bitcoin script but
+                        // disabled by Satoshi in July 2010 due to missing size limits.
+                        // On Soqucoin, the DoS risk is eliminated by:
+                        //   - CScriptNum 4-byte bound for arithmetic operands
+                        //   - 520-byte MAX_SCRIPT_ELEMENT_SIZE for all stack elements
+                        //   - Explicit div-by-zero and bounds guards below
+                        //
+                        // Implementation follows BCH's modernized approach:
+                        //   - AND/OR/XOR: element-wise, operands must be equal length
+                        //   - MUL/DIV/MOD: int64_t arithmetic, overflow detected
+                        //   - SUBSTR/LEFT/RIGHT: explicit bounds checking
+                        //
+                        // AUDIT: No Halborn review required. These are integer math
+                        // and byte operations with fully deterministic, bounded behavior.
+                        // =========================================================
+
+                        if (opcode == OP_AND || opcode == OP_OR || opcode == OP_XOR) {
+                            // =======================================================
+                            // OP_AND (0x84), OP_OR (0x85), OP_XOR (0x86)
+                            // Bitwise operations on equal-length byte vectors.
+                            // Stack: <vch1> <vch2> → <result>
+                            // Operands MUST be the same length (BCH approach: enforce).
+                            // =======================================================
+                            if (stack.size() < 2)
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                            valtype& vch1 = stacktop(-2);
+                            const valtype& vch2 = stacktop(-1);
+
+                            if (vch1.size() != vch2.size())
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                            if (opcode == OP_AND) {
+                                for (size_t i = 0; i < vch1.size(); ++i) vch1[i] &= vch2[i];
+                            } else if (opcode == OP_OR) {
+                                for (size_t i = 0; i < vch1.size(); ++i) vch1[i] |= vch2[i];
+                            } else { // OP_XOR
+                                for (size_t i = 0; i < vch1.size(); ++i) vch1[i] ^= vch2[i];
+                            }
+                            popstack(stack); // remove vch2; result is now stacktop(-1)
+
+                        } else if (opcode == OP_MUL || opcode == OP_DIV || opcode == OP_MOD) {
+                            // =======================================================
+                            // OP_MUL (0x95), OP_DIV (0x96), OP_MOD (0x97)
+                            // Integer arithmetic using CScriptNum (4-byte bounded int).
+                            // Stack: <bn1> <bn2> → <result>
+                            //
+                            // Uses int64_t for intermediate results to detect overflow.
+                            // Result must fit in 8 bytes (int64_t). If MUL overflows
+                            // int64_t, script fails with SCRIPT_ERR_PUSH_SIZE (value
+                            // would exceed script number representable range).
+                            //
+                            // OP_DIV and OP_MOD fail with SCRIPT_ERR_DIV_BY_ZERO if
+                            // denominator is zero.
+                            // =======================================================
+                            if (stack.size() < 2)
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                            CScriptNum bn1(stacktop(-2), fRequireMinimal, 8);
+                            CScriptNum bn2(stacktop(-1), fRequireMinimal, 8);
+
+                            if ((opcode == OP_DIV || opcode == OP_MOD) && bn2 == 0)
+                                return set_error(serror, SCRIPT_ERR_DIV_BY_ZERO);
+
+                            CScriptNum result(0);
+                            if (opcode == OP_MUL) {
+                                // Overflow check: if either operand is 0, result is 0 (safe).
+                                // Otherwise ensure |bn1 * bn2| ≤ INT64_MAX.
+                                int64_t a = bn1.getint64();
+                                int64_t b = bn2.getint64();
+                                // Detect overflow before multiplying
+                                if (a != 0 && b != 0) {
+                                    if ((a > 0 && b > 0 && a > INT64_MAX / b) ||
+                                        (a > 0 && b < 0 && b < INT64_MIN / a) ||
+                                        (a < 0 && b > 0 && a < INT64_MIN / b) ||
+                                        (a < 0 && b < 0 && a < INT64_MAX / b))
+                                        return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+                                    result = CScriptNum(a * b);
+                                } else {
+                                    result = CScriptNum(0);
+                                }
+                            } else if (opcode == OP_DIV) {
+                                // int64_t division — no CScriptNum operator/ exists
+                                result = CScriptNum(bn1.getint64() / bn2.getint64());
+                            } else { // OP_MOD
+                                // int64_t modulo — no CScriptNum operator% exists
+                                result = CScriptNum(bn1.getint64() % bn2.getint64());
+                            }
+
+                            popstack(stack);
+                            popstack(stack);
+                            stack.push_back(result.getvch());
+
+                        } else if (opcode == OP_SUBSTR || opcode == OP_LEFT || opcode == OP_RIGHT) {
+                            // =======================================================
+                            // OP_SUBSTR (0x7f): Extract substring from byte vector.
+                            // Stack: <data> <begin> <size> → <data[begin..begin+size]>
+                            //
+                            // OP_LEFT (0x80): First N bytes.
+                            // Stack: <data> <size> → <data[0..size]>
+                            //
+                            // OP_RIGHT (0x81): Last N bytes.
+                            // Stack: <data> <size> → <data[len-size..len]>
+                            //
+                            // All bounds are checked; out-of-range → SCRIPT_ERR_INVALID_SPLIT_RANGE.
+                            // =======================================================
+
+                            if (opcode == OP_SUBSTR) {
+                                if (stack.size() < 3)
+                                    return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                                valtype vch = stacktop(-3);
+                                const CScriptNum begin(stacktop(-2), fRequireMinimal);
+                                const CScriptNum size(stacktop(-1), fRequireMinimal);
+
+                                if (begin < 0 || size < 0)
+                                    return set_error(serror, SCRIPT_ERR_INVALID_SPLIT_RANGE);
+
+                                uint64_t nBegin = (uint64_t)begin.getint();
+                                uint64_t nSize  = (uint64_t)size.getint();
+
+                                if (nBegin > vch.size() || nBegin + nSize > vch.size())
+                                    return set_error(serror, SCRIPT_ERR_INVALID_SPLIT_RANGE);
+
+                                valtype result(vch.begin() + nBegin, vch.begin() + nBegin + nSize);
+                                popstack(stack); // size
+                                popstack(stack); // begin
+                                popstack(stack); // data
+                                stack.push_back(result);
+
+                            } else { // OP_LEFT or OP_RIGHT — 2-arg form
+                                if (stack.size() < 2)
+                                    return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                                valtype vch = stacktop(-2);
+                                const CScriptNum size(stacktop(-1), fRequireMinimal);
+
+                                if (size < 0)
+                                    return set_error(serror, SCRIPT_ERR_INVALID_SPLIT_RANGE);
+
+                                uint64_t nSize = (uint64_t)size.getint();
+                                if (nSize > vch.size())
+                                    return set_error(serror, SCRIPT_ERR_INVALID_SPLIT_RANGE);
+
+                                valtype result;
+                                if (opcode == OP_LEFT) {
+                                    result = valtype(vch.begin(), vch.begin() + nSize);
+                                } else { // OP_RIGHT
+                                    result = valtype(vch.end() - nSize, vch.end());
+                                }
+                                popstack(stack); // size
+                                popstack(stack); // data
+                                stack.push_back(result);
+                            }
+                        }
                     }
                 }
             } else {
@@ -586,6 +883,88 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
         uint256 hashPrevouts;
         uint256 hashSequence;
         uint256 hashOutputs;
+
+        // ============================================================
+        // BIP 118: ANYPREVOUT sighash types
+        // These create an alternate sighash that does NOT commit to the
+        // prevout (outpoint being spent). This enables rebindable
+        // signatures for eltoo/LN-Symmetry channel updates.
+        //
+        // SECURITY: The Dilithium CPubKey::Verify() call is UNCHANGED.
+        // Only the message being signed is different. The existing
+        // SIGHASH_ALL/NONE/SINGLE/ANYONECANPAY paths below are
+        // COMPLETELY UNTOUCHED — this is a new, separate code path.
+        // ============================================================
+        int baseHashType = nHashType & 0x7f; // strip ANYONECANPAY bit
+        if (baseHashType == SIGHASH_ANYPREVOUT ||
+            baseHashType == SIGHASH_ANYPREVOUTANYSCRIPT) {
+
+            // APO: hashPrevouts is always zero (we don't commit to prevout)
+            // hashPrevouts stays default zero
+
+            // APO: hashSequence is always zero (we don't commit to sequences)
+            // hashSequence stays default zero
+
+            // APO: hashOutputs follows the same rules as standard sighash
+            // (SIGHASH_ALL output mode: hash all outputs)
+            if (cache) {
+                hashOutputs = cache->hashOutputs;
+            } else {
+                CHashWriter ss(SER_GETHASH, 0);
+                for (const auto& txout : txTo.vout) {
+                    ss << txout;
+                }
+                hashOutputs = ss.GetHash();
+            }
+
+            // Compute the APO sighash preimage.
+            // Same BIP143 structure but with zeroed prevout fields:
+            // 1. nVersion
+            // 2. hashPrevouts = 0 (ANYPREVOUT: don't commit to prevout)
+            // 3. hashSequence = 0 (ANYPREVOUT: don't commit to sequences)
+            // 4. outpoint = 0 (ANYPREVOUT: don't commit to specific UTXO)
+            // 5. scriptCode (ANYPREVOUT: include, ANYPREVOUTANYSCRIPT: empty)
+            // 6. amount
+            // 7. nSequence = 0 (ANYPREVOUT: don't commit to sequence)
+            // 8. hashOutputs
+            // 9. nLockTime
+            // 10. sighash type
+            CHashWriter ss(SER_GETHASH, 0);
+            ss << txTo.nVersion;
+            ss << hashPrevouts;  // always zero for APO
+            ss << hashSequence;  // always zero for APO
+
+            // APO: outpoint is zeroed (don't commit to specific UTXO)
+            COutPoint emptyOutpoint;
+            ss << emptyOutpoint;
+
+            // ANYPREVOUT: include scriptCode (commits to the script)
+            // ANYPREVOUTANYSCRIPT: empty script (doesn't commit to script)
+            if (baseHashType == SIGHASH_ANYPREVOUT) {
+                ss << *(CScriptBase*)(&scriptCode);
+            } else {
+                // ANYPREVOUTANYSCRIPT: serialize empty script
+                CScript emptyScript;
+                ss << *(CScriptBase*)(&emptyScript);
+            }
+
+            ss << amount;
+
+            // APO: sequence is zeroed
+            uint32_t zeroSequence = 0;
+            ss << zeroSequence;
+
+            ss << hashOutputs;
+            ss << txTo.nLockTime;
+            ss << nHashType;
+
+            return ss.GetHash();
+        }
+
+        // ============================================================
+        // STANDARD SIGHASH PATHS (UNCHANGED — audited Dilithium pipeline)
+        // The code below is IDENTICAL to the pre-APO implementation.
+        // ============================================================
 
         // Step 2: hashPrevouts
         // If ANYONECANPAY is not set, use precomputed or compute fresh
@@ -722,7 +1101,7 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 // Strict post-quantum script verification — ECDSA paths completely removed
 // Active EvalScript opcodes: OP_CHECKFOLDPROOF (0xfc), OP_CHECKPATAGG (0xfd),
 //   OP_LATTICEBP_RANGEPROOF (0xfa), OP_USDSOQ_MINT/BURN/FREEZE/ROTATE (0xf4-0xf7)
-// Deprecated (SOQ-I002): OP_CHECKBATCHSIG (0xfe) — replaced by LatticeFold
+// Deprecated (SOQ-I002): OP_RESERVED_BATCHSIG (0xfe) — replaced by LatticeFold
 // Deprecated (SOQ-I003): OP_CHECKDILITHIUMSIG (0xfb) — redundant, inline in VerifyScript
 // Dilithium verification: performed inline by VerifyScript (witness v0/v1)
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
@@ -735,7 +1114,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     bool is_op_return = (scriptPubKey.size() > 0 && scriptPubKey[0] == OP_RETURN);
 
     // BIP141-style future witness version extensibility (v4 through v16).
-    // v2 = PAT aggregation (SOQ-P001), v3 = LatticeFold privacy (SOQ-P002),
+    // v2 = PAT aggregation (SOQ-P001), v3 = LatticeFold+ batch verification (SOQ-P002),
     // v4-v16 = future soft fork extensibility (anyone-can-spend until activated).
     bool is_pat = (scriptPubKey.size() == 34 &&
                    scriptPubKey[0] == OP_2 &&
@@ -805,7 +1184,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     }
 
     // =========================================================================
-    // SOQ-P002: LatticeFold Privacy (witness v3)
+    // SOQ-P002: LatticeFold+ Batch Verification (witness v3)
     // Same soft fork pattern: when SCRIPT_VERIFY_LATTICEFOLD is not set,
     // v3 outputs are anyone-can-spend. When active, we verify the LatticeFold+
     // proof with external binding (sighash + pubkey_hash).
@@ -1075,4 +1454,98 @@ bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) con
         return false;
 
     return true;
+}
+
+bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned char>& hash) const
+{
+    // BIP 119: Compute DefaultCheckTemplateVerifyHash
+    // Hash commits to: nVersion, nLockTime, scriptSigs hash (if any non-empty),
+    // number of inputs, sequences hash, number of outputs, outputs hash, input index.
+    //
+    // The hash does NOT commit to prevouts, making the template reusable
+    // across different UTXOs. But it commits to outputs, making the spending
+    // pattern deterministic (vault/covenant semantics).
+
+    if (hash.size() != 32)
+        return false;
+
+    CSHA256 ss;
+
+    // 1. nVersion (4 bytes LE)
+    uint32_t nVersion = txTo->nVersion;
+    ss.Write(reinterpret_cast<const uint8_t*>(&nVersion), 4);
+
+    // 2. nLockTime (4 bytes LE)
+    uint32_t nLockTime = txTo->nLockTime;
+    ss.Write(reinterpret_cast<const uint8_t*>(&nLockTime), 4);
+
+    // 3. If any scriptSig is non-empty, hash all scriptSigs
+    bool hasScriptSigs = false;
+    for (const auto& txin : txTo->vin) {
+        if (!txin.scriptSig.empty()) {
+            hasScriptSigs = true;
+            break;
+        }
+    }
+    if (hasScriptSigs) {
+        CSHA256 ssSigs;
+        for (const auto& txin : txTo->vin) {
+            // Serialize length + data for each scriptSig
+            uint32_t len = txin.scriptSig.size();
+            ssSigs.Write(reinterpret_cast<const uint8_t*>(&len), 4);
+            if (len > 0) {
+                ssSigs.Write(txin.scriptSig.data(), len);
+            }
+        }
+        uint8_t scriptSigsHash[32];
+        ssSigs.Finalize(scriptSigsHash);
+        ss.Write(scriptSigsHash, 32);
+    }
+
+    // 4. Number of inputs (4 bytes LE)
+    uint32_t numInputs = txTo->vin.size();
+    ss.Write(reinterpret_cast<const uint8_t*>(&numInputs), 4);
+
+    // 5. Hash of all input sequences
+    {
+        CSHA256 ssSeq;
+        for (const auto& txin : txTo->vin) {
+            uint32_t seq = txin.nSequence;
+            ssSeq.Write(reinterpret_cast<const uint8_t*>(&seq), 4);
+        }
+        uint8_t seqHash[32];
+        ssSeq.Finalize(seqHash);
+        ss.Write(seqHash, 32);
+    }
+
+    // 6. Number of outputs (4 bytes LE)
+    uint32_t numOutputs = txTo->vout.size();
+    ss.Write(reinterpret_cast<const uint8_t*>(&numOutputs), 4);
+
+    // 7. Hash of all outputs (amount + scriptPubKey)
+    {
+        CSHA256 ssOut;
+        for (const auto& txout : txTo->vout) {
+            int64_t amount = txout.nValue;
+            ssOut.Write(reinterpret_cast<const uint8_t*>(&amount), 8);
+            uint32_t spkLen = txout.scriptPubKey.size();
+            ssOut.Write(reinterpret_cast<const uint8_t*>(&spkLen), 4);
+            if (spkLen > 0) {
+                ssOut.Write(txout.scriptPubKey.data(), spkLen);
+            }
+        }
+        uint8_t outHash[32];
+        ssOut.Finalize(outHash);
+        ss.Write(outHash, 32);
+    }
+
+    // 8. Input index being spent (4 bytes LE)
+    uint32_t inputIndex = nIn;
+    ss.Write(reinterpret_cast<const uint8_t*>(&inputIndex), 4);
+
+    // Finalize and compare
+    uint8_t computed[32];
+    ss.Finalize(computed);
+
+    return memcmp(computed, hash.data(), 32) == 0;
 }

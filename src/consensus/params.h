@@ -19,11 +19,13 @@ enum DeploymentPos {
     DEPLOYMENT_TESTDUMMY,
     DEPLOYMENT_CSV,    // Deployment of BIP68, BIP112, and BIP113.
     DEPLOYMENT_SEGWIT, // Deployment of BIP141, BIP143, and BIP147.
-    DEPLOYMENT_CHECKBATCHSIG,
     DEPLOYMENT_CHECKPATAGG,
     DEPLOYMENT_LATTICEFOLD,
     DEPLOYMENT_LATTICEBP,
     DEPLOYMENT_USDSOQ,     // SOQ-AUD2-002: USDSOQ stablecoin (bit 6)
+    DEPLOYMENT_CTV,        // BIP 119: OP_CHECKTEMPLATEVERIFY (bit 7) — vaults, covenants
+    DEPLOYMENT_APO,        // BIP 118: SIGHASH_ANYPREVOUT (bit 8) — eltoo Lightning
+    DEPLOYMENT_CSFS,       // BIP 348: OP_CHECKSIGFROMSTACK (bit 9) — oracle contracts, bridge attestation
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };
