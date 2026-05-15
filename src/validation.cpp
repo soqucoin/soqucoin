@@ -2118,6 +2118,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_CSFS;
     }
 
+    // SOQ-AUD2-009: Start enforcing P2WSH-Dilithium (witness v6) — covenant script execution
+    // When active, witness v6 programs execute arbitrary scripts via EvalScript,
+    // enabling CTV vaults, CSFS oracles, OP_CAT covenants, and L2SOQ Lightning.
+    // See DL-P2WSH-DILITHIUM.md for full design.
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_P2WSH_DILITHIUM, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
+    }
+
     // SATOSHI SCRIPT RESTORATION: Always-active on Soqucoin (genesis-active).
     // AND/OR/XOR/MUL/DIV/MOD/SUBSTR/LEFT/RIGHT re-enabled with BCH-style bounds.
     // No BIP9 gate needed — these are genesis-active like OP_CAT.

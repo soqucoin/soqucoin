@@ -962,7 +962,20 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
             return SIGOPS_PER_CHECKSIG;
         }
 
-        // Witness v6+: unknown future program. Soft-fork safe: charge 0.
+        // SOQ-AUD2-009: Witness v6 (P2WSH-Dilithium) — count sigops in the witnessScript.
+        // The witnessScript is the second-to-last stack item (pubkey is last).
+        // This mirrors Bitcoin Core's P2WSH sigop accounting for witness v0.
+        if (witnessversion == 6 && witness != nullptr && witness->stack.size() >= 2) {
+            if (flags & SCRIPT_VERIFY_P2WSH_DILITHIUM) {
+                const std::vector<unsigned char>& scriptBytes = witness->stack[witness->stack.size() - 2];
+                CScript witnessScript(scriptBytes.begin(), scriptBytes.end());
+                return witnessScript.GetSigOpCount(true);
+            }
+            // Flag not active: charge 0 (anyone-can-spend, no script executed)
+            return 0;
+        }
+
+        // Witness v7+: unknown future program. Soft-fork safe: charge 0.
         return 0;
     }
 
@@ -1291,13 +1304,22 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                                scriptPubKey[0] == OP_5 &&
                                scriptPubKey[1] == 32);
 
-    // Future witness versions (v6-v16): anyone-can-spend until soft fork
+    // SOQ-AUD2-009: P2WSH-Dilithium (witness v6) — covenant script execution
+    // When SCRIPT_VERIFY_P2WSH_DILITHIUM is set, v6 programs execute the witnessScript
+    // via EvalScript, enabling CTV vaults, CSFS oracles, and L2SOQ Lightning.
+    // When not set, v6 is anyone-can-spend (soft-fork safe). See DL-P2WSH-DILITHIUM.md.
+    bool is_p2wsh_dilithium = (scriptPubKey.size() == 34 &&
+                               scriptPubKey[0] == OP_6 &&
+                               scriptPubKey[1] == 32);
+
+    // Future witness versions (v7-v16): anyone-can-spend until soft fork
+    // NOTE: v6 is carved out above for P2WSH-Dilithium.
     bool is_future_witness = (scriptPubKey.size() == 34 &&
-                              scriptPubKey[0] >= OP_6 &&
+                              scriptPubKey[0] >= OP_7 &&
                               scriptPubKey[0] <= OP_16 &&
                               scriptPubKey[1] == 32);
 
-    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness) {
+    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium) {
         return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
@@ -1442,7 +1464,73 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         return set_success(serror);
     }
 
-    // Future witness versions (v6-v16): consensus-valid, no validation performed.
+    // =========================================================================
+    // SOQ-AUD2-009: P2WSH-Dilithium (witness v6) — Covenant Script Execution
+    // Same soft fork pattern: BIP9 gate → anyone-can-spend → full P2WSH dispatch.
+    // Witness stack layout (Soqucoin P2WSH-Dilithium):
+    //   [0..n-3] = satisfaction items (stack data for the script)
+    //   [n-2]    = witnessScript (the script to execute)
+    //   [n-1]    = dilithium_pubkey (0x00-prefixed, satisfies HasDilithiumSignatures)
+    // =========================================================================
+    if (is_p2wsh_dilithium) {
+        if (!(flags & SCRIPT_VERIFY_P2WSH_DILITHIUM)) {
+            return set_success(serror);  // Not active yet — anyone-can-spend
+        }
+
+        // Minimum witness stack: at least witnessScript + pubkey = 2 items
+        // (A script with no satisfaction items is valid if the script itself is self-satisfying)
+        if (!witness || witness->stack.size() < 2) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        }
+
+        const size_t stackSize = witness->stack.size();
+
+        // Extract components from fixed positions:
+        //   witness[stackSize - 1] = Dilithium pubkey (consumed by HasDilithiumSignatures)
+        //   witness[stackSize - 2] = witnessScript (the redeemScript to execute)
+        //   witness[0..stackSize - 3] = satisfaction items (script arguments)
+        const std::vector<unsigned char>& witnessScriptBytes = witness->stack[stackSize - 2];
+
+        // Verify: SHA256(witnessScript) must match the 32-byte program in scriptPubKey
+        uint256 scriptHash;
+        CSHA256().Write(witnessScriptBytes.data(), witnessScriptBytes.size()).Finalize(scriptHash.begin());
+        if (memcmp(scriptHash.begin(), scriptPubKey.data() + 2, 32) != 0) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        }
+
+        // Enforce MAX_SCRIPT_SIZE on the witnessScript to prevent DoS
+        if (witnessScriptBytes.size() > MAX_SCRIPT_SIZE) {
+            return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
+        }
+
+        // Build the EvalScript stack: satisfaction items only (exclude witnessScript and pubkey)
+        std::vector<std::vector<unsigned char>> evalStack;
+        if (stackSize > 2) {
+            evalStack.assign(witness->stack.begin(), witness->stack.begin() + (stackSize - 2));
+        }
+
+        // Deserialize the witnessScript
+        CScript witnessScript(witnessScriptBytes.begin(), witnessScriptBytes.end());
+
+        // Execute the witnessScript via EvalScript.
+        // SECURITY NOTE: The witnessScript is used as the scriptCode for sighash
+        // computation (BIP143 §4), which is the correct behavior for P2WSH.
+        // The checker will compute SignatureHash using this script, so any
+        // OP_CHECKSIG inside the witnessScript signs over the script itself.
+        if (!EvalScript(evalStack, witnessScript, flags, checker, SIGVERSION_WITNESS_V0, serror)) {
+            return false;  // serror already set by EvalScript
+        }
+
+        // Clean stack check: after execution, the stack must contain exactly
+        // one truthy element (BIP141 §3.1 clean stack rule).
+        if (evalStack.size() != 1 || !CastToBool(evalStack.back())) {
+            return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+
+        return set_success(serror);
+    }
+
+    // Future witness versions (v7-v16): consensus-valid, no validation performed.
     // SECURITY NOTE: Coins sent to these outputs are anyone-can-spend at
     // the consensus layer until a soft fork adds validation rules.
     if (is_future_witness) {

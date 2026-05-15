@@ -26,6 +26,7 @@ enum DeploymentPos {
     DEPLOYMENT_CTV,        // BIP 119: OP_CHECKTEMPLATEVERIFY (bit 7) — vaults, covenants
     DEPLOYMENT_APO,        // BIP 118: SIGHASH_ANYPREVOUT (bit 8) — eltoo Lightning
     DEPLOYMENT_CSFS,       // BIP 348: OP_CHECKSIGFROMSTACK (bit 9) — oracle contracts, bridge attestation
+    DEPLOYMENT_P2WSH_DILITHIUM, // Witness v6: P2WSH with Dilithium (bit 10) — covenant script execution, L2SOQ Lightning
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };

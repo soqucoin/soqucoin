@@ -149,6 +149,12 @@ enum {
     // all original DoS vectors. No audit required — trivial math/string ops.
     SCRIPT_VERIFY_SCRIPT_RESTORE = (1U << 23),
 
+    // SOQ-AUD2-009: P2WSH-Dilithium (witness v6) — covenant script execution
+    // When set, witness v6 programs (OP_6 <32-byte hash>) execute the witnessScript
+    // via EvalScript, enabling CTV vaults, CSFS oracles, and L2SOQ Lightning channels.
+    // BIP9-gated: ALWAYS_ACTIVE on stagenet/regtest, nStartTime=0 on mainnet.
+    SCRIPT_VERIFY_P2WSH_DILITHIUM = (1U << 24),
+
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),

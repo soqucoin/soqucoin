@@ -774,4 +774,179 @@ BOOST_AUTO_TEST_CASE(check_sig_encoding_no_flags_still_validates)
     BOOST_CHECK(CheckSignatureEncoding(dilithiumSig, 0 /* no flags */, &serror));
 }
 
+// =========================================================================
+// P2WSH-Dilithium (witness v6) — SOQ-AUD2-009
+// =========================================================================
+
+// Helper: build a v6 scriptPubKey from a witnessScript
+static CScript MakeV6ScriptPubKey(const CScript& witnessScript)
+{
+    uint256 scriptHash;
+    CSHA256().Write(witnessScript.data(), witnessScript.size()).Finalize(scriptHash.begin());
+    CScript spk;
+    spk << OP_6;
+    spk << std::vector<unsigned char>(scriptHash.begin(), scriptHash.end());
+    return spk;
+}
+
+// Dummy Dilithium pubkey for HasDilithiumSignatures satisfaction
+// Must start with 0x00 (FIPS 204 ML-DSA-44 prefix)
+static std::vector<unsigned char> MakeDummyDilithiumPubkey()
+{
+    std::vector<unsigned char> pk(1313, 0x00);  // 0x00 prefix + 1312 bytes
+    return pk;
+}
+
+BOOST_AUTO_TEST_CASE(p2wsh_dilithium_basic_op_true)
+{
+    // Simplest possible P2WSH-Dilithium: witnessScript = OP_TRUE
+    // The script pushes TRUE onto the stack, clean stack check passes.
+    CScript witnessScript;
+    witnessScript << OP_TRUE;
+
+    CScript scriptPubKey = MakeV6ScriptPubKey(witnessScript);
+    CScript scriptSig;  // empty for witness
+
+    CScriptWitness witness;
+    // witness stack: [witnessScript, dilithium_pubkey]
+    witness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));
+    witness.stack.push_back(MakeDummyDilithiumPubkey());
+
+    CMutableTransaction tx = MakeBaseTx();
+    MutableTransactionSignatureChecker checker(&tx, 0, 0);
+    ScriptError serror = SCRIPT_ERR_OK;
+
+    unsigned int flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM;
+    bool ok = VerifyScript(scriptSig, scriptPubKey, &witness, flags, checker, &serror);
+    BOOST_CHECK_MESSAGE(ok, "P2WSH-Dilithium with OP_TRUE witnessScript should pass");
+}
+
+BOOST_AUTO_TEST_CASE(p2wsh_dilithium_cat_covenant)
+{
+    // OP_CAT covenant test: concatenate two items. The concatenated result
+    // ("helloworld") is non-empty and truthy, satisfying the clean stack check.
+    // This proves OP_CAT executes correctly through the P2WSH-Dilithium dispatch.
+    // NOTE: OP_DROP and OP_EQUAL are not available in Soqucoin's stripped interpreter.
+    // witnessScript: OP_CAT
+    CScript witnessScript;
+    witnessScript << OP_CAT;
+
+    CScript scriptPubKey = MakeV6ScriptPubKey(witnessScript);
+    CScript scriptSig;
+
+    // Satisfaction: push "hello" and "world" as two separate items
+    std::vector<unsigned char> part1 = {'h','e','l','l','o'};
+    std::vector<unsigned char> part2 = {'w','o','r','l','d'};
+
+    CScriptWitness witness;
+    witness.stack.push_back(part1);                                                        // satisfaction[0]
+    witness.stack.push_back(part2);                                                        // satisfaction[1]
+    witness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));  // witnessScript
+    witness.stack.push_back(MakeDummyDilithiumPubkey());                                    // pubkey (last)
+
+    CMutableTransaction tx = MakeBaseTx();
+    MutableTransactionSignatureChecker checker(&tx, 0, 0);
+    ScriptError serror = SCRIPT_ERR_OK;
+
+    unsigned int flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM | SCRIPT_VERIFY_SCRIPT_RESTORE;
+    bool ok = VerifyScript(scriptSig, scriptPubKey, &witness, flags, checker, &serror);
+    BOOST_CHECK_MESSAGE(ok, "P2WSH-Dilithium OP_CAT covenant should pass, serror=" << ScriptErrorString(serror) << " (" << serror << ")");
+}
+
+BOOST_AUTO_TEST_CASE(p2wsh_dilithium_wrong_hash)
+{
+    // Wrong script hash: the witnessScript doesn't match the scriptPubKey program
+    CScript witnessScript;
+    witnessScript << OP_TRUE;
+
+    // Create scriptPubKey with a different (bogus) hash
+    std::vector<unsigned char> bogusHash(32, 0xde);
+    CScript scriptPubKey;
+    scriptPubKey << OP_6;
+    scriptPubKey << bogusHash;
+
+    CScript scriptSig;
+
+    CScriptWitness witness;
+    witness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));
+    witness.stack.push_back(MakeDummyDilithiumPubkey());
+
+    CMutableTransaction tx = MakeBaseTx();
+    MutableTransactionSignatureChecker checker(&tx, 0, 0);
+    ScriptError serror = SCRIPT_ERR_OK;
+
+    unsigned int flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM;
+    bool ok = VerifyScript(scriptSig, scriptPubKey, &witness, flags, checker, &serror);
+    BOOST_CHECK_MESSAGE(!ok, "P2WSH-Dilithium with wrong hash must fail");
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+}
+
+BOOST_AUTO_TEST_CASE(p2wsh_dilithium_flag_inactive_anyone_can_spend)
+{
+    // When SCRIPT_VERIFY_P2WSH_DILITHIUM is NOT set, v6 is anyone-can-spend
+    CScript witnessScript;
+    witnessScript << OP_TRUE;
+
+    CScript scriptPubKey = MakeV6ScriptPubKey(witnessScript);
+    CScript scriptSig;
+
+    // Even an empty witness should succeed (anyone-can-spend)
+    CScriptWitness witness;
+
+    CMutableTransaction tx = MakeBaseTx();
+    MutableTransactionSignatureChecker checker(&tx, 0, 0);
+    ScriptError serror = SCRIPT_ERR_OK;
+
+    // Deliberately exclude SCRIPT_VERIFY_P2WSH_DILITHIUM
+    unsigned int flags = SCRIPT_VERIFY_WITNESS;
+    bool ok = VerifyScript(scriptSig, scriptPubKey, &witness, flags, checker, &serror);
+    BOOST_CHECK_MESSAGE(ok, "Without P2WSH_DILITHIUM flag, v6 must be anyone-can-spend");
+}
+
+BOOST_AUTO_TEST_CASE(p2wsh_dilithium_clean_stack_required)
+{
+    // Script leaves 2 items on stack — must fail clean stack check
+    CScript witnessScript;
+    witnessScript << OP_TRUE << OP_TRUE;  // pushes 2 items
+
+    CScript scriptPubKey = MakeV6ScriptPubKey(witnessScript);
+    CScript scriptSig;
+
+    CScriptWitness witness;
+    witness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));
+    witness.stack.push_back(MakeDummyDilithiumPubkey());
+
+    CMutableTransaction tx = MakeBaseTx();
+    MutableTransactionSignatureChecker checker(&tx, 0, 0);
+    ScriptError serror = SCRIPT_ERR_OK;
+
+    unsigned int flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM;
+    bool ok = VerifyScript(scriptSig, scriptPubKey, &witness, flags, checker, &serror);
+    BOOST_CHECK_MESSAGE(!ok, "P2WSH-Dilithium with unclean stack must fail");
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_EVAL_FALSE);
+}
+
+BOOST_AUTO_TEST_CASE(p2wsh_dilithium_sigops_counted)
+{
+    // Verify CountWitnessSigOps counts OP_CHECKSIG in the witnessScript
+    CScript witnessScript;
+    witnessScript << OP_DUP << OP_CHECKSIG << OP_CHECKSIGVERIFY;
+
+    // Build a v6 scriptPubKey
+    CScript scriptPubKey = MakeV6ScriptPubKey(witnessScript);
+
+    // Build a witness with the witnessScript as second-to-last item
+    CScriptWitness witness;
+    witness.stack.push_back(std::vector<unsigned char>(10, 0x01));  // dummy data
+    witness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));
+    witness.stack.push_back(MakeDummyDilithiumPubkey());
+
+    CScript scriptSig;
+    unsigned int flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM;
+
+    size_t sigops = CountWitnessSigOps(scriptSig, scriptPubKey, &witness, flags);
+    // OP_CHECKSIG (1) + OP_CHECKSIGVERIFY (1) = 2 sigops
+    BOOST_CHECK_EQUAL(sigops, 2U);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

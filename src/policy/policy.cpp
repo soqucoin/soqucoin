@@ -59,11 +59,14 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
     // or relayed until the corresponding soft fork activates specific
     // validation rules for that witness version.
     // Reference: BIP141 section 4 — prevents premature output creation.
-    // Exception: OP_5 (0x55) = witness v5 = USDSOQ authority operations.
-    // Witness v5 is ALWAYS_ACTIVE on stagenet and will be BIP9-gated on mainnet.
+    // Exceptions:
+    //   OP_5 (0x55) = witness v5 = USDSOQ authority operations
+    //   OP_6 (0x56) = witness v6 = P2WSH-Dilithium covenant script execution
+    // Both are ALWAYS_ACTIVE on stagenet and BIP9-gated on mainnet.
     if (scriptPubKey.size() == 34 &&
         scriptPubKey[0] >= 0x52 && scriptPubKey[0] <= 0x60 &&  // OP_2 through OP_16
         scriptPubKey[0] != 0x55 &&                              // except OP_5 (USDSOQ authority)
+        scriptPubKey[0] != 0x56 &&                              // except OP_6 (P2WSH-Dilithium)
         scriptPubKey[1] == 32) {
         return false;
     }
