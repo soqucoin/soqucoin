@@ -61,6 +61,7 @@ enum txnouttype {
     TX_WITNESS_V0_KEYHASH,
     TX_WITNESS_V1_SCRIPTHASH,
     TX_WITNESS_V5_AUTHORITY,   // SOQ-AUD2-002: USDSOQ mint/burn/freeze authority marker
+    TX_WITNESS_V6_COVENANT,    // SOQ-AUD2-009: P2WSH-Dilithium covenant script execution
 };
 
 class CNoDestination
