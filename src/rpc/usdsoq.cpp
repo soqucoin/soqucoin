@@ -92,16 +92,10 @@ static UniValue getusdsoqstatus(const JSONRPCRequest& request)
     // Supply counters
     UniValue supply(UniValue::VOBJ);
     if (state == THRESHOLD_ACTIVE) {
-        // Read from LevelDB
-        CUSDSOQSupply supplyData;
-        if (pcoinsTip) {
-            // Access the underlying CCoinsViewDB to read supply
-            // For now, report zeros — supply persistence wiring is
-            // tracked as deferred item D1.
-            supply.pushKV("total_minted", ValueFromAmount(supplyData.TotalMinted()));
-            supply.pushKV("total_burned", ValueFromAmount(supplyData.TotalBurned()));
-            supply.pushKV("outstanding", ValueFromAmount(supplyData.Outstanding()));
-        }
+        // SOQ-AUD2-002 D1: Read from global supply counter (persisted to/from LevelDB)
+        supply.pushKV("total_minted", ValueFromAmount(g_usdsoq_supply.TotalMinted()));
+        supply.pushKV("total_burned", ValueFromAmount(g_usdsoq_supply.TotalBurned()));
+        supply.pushKV("outstanding", ValueFromAmount(g_usdsoq_supply.Outstanding()));
     } else {
         supply.pushKV("total_minted", ValueFromAmount(0));
         supply.pushKV("total_burned", ValueFromAmount(0));

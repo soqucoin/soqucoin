@@ -192,6 +192,30 @@ void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry)
         UniValue o(UniValue::VOBJ);
         ScriptPubKeyToUniv(txout.scriptPubKey, o, true);
         out.pushKV("scriptPubKey", o);
+
+        // SOQ-AUD2-002 / SOQ-ARCH-001: Expose asset and visibility metadata
+        // for auditor/explorer visibility. Only emitted when non-default.
+        if (txout.nAssetType != 0x00) {
+            out.pushKV("assetType", (int)txout.nAssetType);
+            // Human-readable label
+            if (txout.nAssetType == 0x01)
+                out.pushKV("assetName", "usdsoq");
+            else
+                out.pushKV("assetName", "unknown");
+        }
+        if (txout.nVisibility != 0x00) {
+            out.pushKV("visibility", (int)txout.nVisibility);
+            // Human-readable label
+            uint8_t baseVis = txout.nVisibility & 0x7F;
+            bool isFrozen = (txout.nVisibility & 0x80) != 0;
+            std::string visLabel;
+            if (baseVis == 0x00) visLabel = "transparent";
+            else if (baseVis == 0x01) visLabel = "confidential";
+            else visLabel = "unknown";
+            if (isFrozen) visLabel += "+frozen";
+            out.pushKV("visibilityName", visLabel);
+        }
+
         vout.push_back(out);
     }
     entry.pushKV("vout", vout);

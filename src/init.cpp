@@ -17,6 +17,7 @@
 #include "checkpoints.h"
 #include "compat/sanity.h"
 #include "consensus/validation.h"
+#include "consensus/usdsoq.h"
 #include "crypto/scrypt.h" // for scrypt_detect_sse2
 #include "fs.h"
 #include "httprpc.h"
@@ -1589,6 +1590,17 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                     LogPrintf("USDSOQ: Restored authority from DB: %u-of-%u Dilithium multisig\n",
                               g_usdsoq_authority.GetThreshold(),
                               g_usdsoq_authority.GetKeyCount());
+                }
+
+                // SOQ-AUD2-002 D1: Restore USDSOQ supply counter from chainstate DB
+                CUSDSOQSupply persistedSupply;
+                if (pcoinsdbview->ReadUSDSOQSupply(persistedSupply)) {
+                    g_usdsoq_supply = persistedSupply;
+                    LogPrintf("USDSOQ: Restored supply from DB: total_minted=%d total_burned=%d outstanding=%d\n",
+                              g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
+                              g_usdsoq_supply.Outstanding());
+                } else {
+                    LogPrintf("USDSOQ: No supply data in DB (genesis or pre-activation)\n");
                 }
             }
         } while (false);

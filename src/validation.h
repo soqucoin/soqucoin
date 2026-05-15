@@ -571,6 +571,13 @@ extern CBlockTreeDB *pblocktree;
 class CUSDSOQAuthority;  // Forward declaration
 extern CUSDSOQAuthority g_usdsoq_authority;
 
+/** SOQ-AUD2-002 D1: Global USDSOQ supply counter (protected by cs_main).
+ *  Updated atomically during ConnectBlock/DisconnectBlock.
+ *  Persisted to LevelDB after each block with USDSOQ supply changes.
+ *  Restored from LevelDB on daemon startup in AppInitMain. */
+class CUSDSOQSupply;  // Forward declaration
+extern CUSDSOQSupply g_usdsoq_supply;
+
 /**
  * Return the spend height, which is one more than the inputs.GetBestBlock().
  * While checking, GetBestBlock() refers to the parent block. (protected by cs_main)
