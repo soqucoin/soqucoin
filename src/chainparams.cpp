@@ -214,6 +214,7 @@ public:
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
         consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
+        consensus.nAuxpowStartHeight = 1000; // Vanguard Window: solo mining blocks 0-999, AuxPoW from 1000
         consensus.nHeightEffective = 0;
 
         // Blocks 145000 - 371336 are Digishield without AuxPoW
@@ -406,6 +407,7 @@ public:
         consensus.fStrictChainId = false;  // Allow legacy blocks without embedded chain ID
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
+        consensus.nAuxpowStartHeight = 158100; // Match auxpowConsensus.nHeightEffective
 
         // Blocks 145000 - 157499 are Digishield without minimum difficulty on all blocks
         digishieldConsensus = consensus;
@@ -575,6 +577,7 @@ public:
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
         consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
+        consensus.nAuxpowStartHeight = 20;   // Regtest: match auxpowConsensus.nHeightEffective
 
         // Soqucoin parameters
         consensus.fSimplifiedRewards = true;
@@ -779,6 +782,7 @@ public:
         consensus.fStrictChainId = false;
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true;
+        consensus.nAuxpowStartHeight = 100;  // Stagenet Vanguard Window: solo blocks 0-99, AuxPoW from 100
 
         // Digishield from block 1
         digishieldConsensus = consensus;

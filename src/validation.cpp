@@ -3752,11 +3752,14 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         return state.DoS(100, error("%s : legacy block after auxpow start", __func__),
             REJECT_INVALID, "late-legacy-block");
 
-    // Soqucoin: Disallow AuxPow blocks before it is activated.
-    // TODO: Remove this test, as checkpoints will enforce this for us now
-    // NOTE: Previously this had its own fAllowAuxPoW flag, but that's always the opposite of fAllowLegacyBlocks
-    if (consensusParams.fAllowLegacyBlocks && block.IsAuxpow())
-        return state.DoS(100, error("%s : auxpow blocks are not allowed at height %d, parameters effective from %d", __func__, pindexPrev->nHeight + 1, consensusParams.nHeightEffective),
+    // Soqucoin: Disallow AuxPow blocks before the activation height.
+    // The "Vanguard Window" strategy gives solo miners an exclusive head start
+    // before merge-mining pools can submit AuxPoW blocks.
+    // nAuxpowStartHeight: mainnet=1000, stagenet=100, testnet=158100, regtest=20.
+    // Solo mining via getblocktemplate/submitblock is always available at all heights.
+    if (block.IsAuxpow() && nHeight < consensusParams.nAuxpowStartHeight)
+        return state.DoS(100, error("%s : auxpow block at height %d rejected, AuxPoW activates at height %d",
+            __func__, nHeight, consensusParams.nAuxpowStartHeight),
             REJECT_INVALID, "early-auxpow-block");
 
     // Check proof of work

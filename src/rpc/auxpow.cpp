@@ -48,12 +48,19 @@ void AuxMiningCheck()
         throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD,
             "Soqucoin is downloading blocks...");
 
-    /* This should never fail, since the chain is already
-       past the point of merge-mining start.  Check nevertheless.  */
+    /* Soqucoin uses Dogecoin-model dual mining: both legacy Scrypt blocks
+       AND AuxPoW blocks are accepted simultaneously (fAllowLegacyBlocks = true
+       even in the AuxPoW phase). Enforce the Vanguard Window: AuxPoW blocks
+       are not accepted before nAuxpowStartHeight (mainnet=1000, stagenet=100).
+       Solo mining via getblocktemplate/submitblock is always available.  */
     {
         LOCK(cs_main);
-        if (Params().GetConsensus(chainActive.Height() + 1).fAllowLegacyBlocks)
-            throw std::runtime_error("getauxblock method is not yet available");
+        const Consensus::Params& consensusParams = Params().GetConsensus(chainActive.Height() + 1);
+        if (chainActive.Height() + 1 < consensusParams.nAuxpowStartHeight)
+            throw std::runtime_error(
+                strprintf("AuxPoW mining is not available until block %d (current height: %d). "
+                          "Use getblocktemplate for solo mining.",
+                          consensusParams.nAuxpowStartHeight, chainActive.Height()));
     }
 }
 

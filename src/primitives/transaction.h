@@ -14,6 +14,13 @@
 
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
 
+/** Flag to deserialize CTxOut in standard Bitcoin format (without Soqucoin's
+ *  nVisibility and nAssetType extensions). Used when deserializing foreign-chain
+ *  coinbase transactions in AuxPoW merge-mining proofs, since parent chains
+ *  (LTC, DOGE) use standard Bitcoin CTxOut serialization.
+ */
+static const int SERIALIZE_TXOUT_STANDARD = 0x20000000;
+
 static const int WITNESS_SCALE_FACTOR = 4;
 
 /** An amount smaller than this is considered dust */
@@ -175,8 +182,13 @@ public:
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(nValue);
         READWRITE(*(CScriptBase*)(&scriptPubKey));
-        READWRITE(nVisibility);
-        READWRITE(nAssetType);
+        // Skip Soqucoin-specific extensions when deserializing foreign-chain
+        // transactions (e.g. LTC/DOGE coinbase in AuxPoW merge-mining proofs).
+        // Standard Bitcoin CTxOut is just nValue + scriptPubKey.
+        if (!(s.GetVersion() & SERIALIZE_TXOUT_STANDARD)) {
+            READWRITE(nVisibility);
+            READWRITE(nAssetType);
+        }
     }
 
     void SetNull()
