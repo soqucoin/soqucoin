@@ -216,37 +216,36 @@ BOOST_AUTO_TEST_CASE(get_next_work_digishield_rounding)
 BOOST_AUTO_TEST_CASE(hardfork_parameters)
 {
     SelectParams(CBaseChainParams::MAIN);
-    const Consensus::Params& initialParams = Params().GetConsensus(0);
 
-    BOOST_CHECK_EQUAL(initialParams.nPowTargetTimespan, 14400);
-    BOOST_CHECK_EQUAL(initialParams.fAllowLegacyBlocks, true);
-    BOOST_CHECK_EQUAL(initialParams.fDigishieldDifficultyCalculation, false);
+    // Block 0: genesis — pre-DigiShield, pre-AuxPoW
+    const Consensus::Params& genesisParams = Params().GetConsensus(0);
+    BOOST_CHECK_EQUAL(genesisParams.nPowTargetTimespan, 14400);
+    BOOST_CHECK_EQUAL(genesisParams.fAllowLegacyBlocks, true);
+    BOOST_CHECK_EQUAL(genesisParams.fDigishieldDifficultyCalculation, false);
 
-    const Consensus::Params& initialParamsEnd = Params().GetConsensus(144999);
-    BOOST_CHECK_EQUAL(initialParamsEnd.nPowTargetTimespan, 14400);
-    BOOST_CHECK_EQUAL(initialParamsEnd.fAllowLegacyBlocks, true);
-    BOOST_CHECK_EQUAL(initialParamsEnd.fDigishieldDifficultyCalculation, false);
-
-    const Consensus::Params& digishieldParams = Params().GetConsensus(145000);
+    // Block 1: DigiShield activates (per-block difficulty retarget)
+    const Consensus::Params& digishieldParams = Params().GetConsensus(1);
     BOOST_CHECK_EQUAL(digishieldParams.nPowTargetTimespan, 60);
     BOOST_CHECK_EQUAL(digishieldParams.fAllowLegacyBlocks, true);
     BOOST_CHECK_EQUAL(digishieldParams.fDigishieldDifficultyCalculation, true);
 
-    const Consensus::Params& digishieldParamsEnd = Params().GetConsensus(371336);
-    BOOST_CHECK_EQUAL(digishieldParamsEnd.nPowTargetTimespan, 60);
-    BOOST_CHECK_EQUAL(digishieldParamsEnd.fAllowLegacyBlocks, true);
-    BOOST_CHECK_EQUAL(digishieldParamsEnd.fDigishieldDifficultyCalculation, true);
+    // Block 999: still DigiShield, no AuxPoW yet
+    const Consensus::Params& preAuxpowParams = Params().GetConsensus(999);
+    BOOST_CHECK_EQUAL(preAuxpowParams.nPowTargetTimespan, 60);
+    BOOST_CHECK_EQUAL(preAuxpowParams.fDigishieldDifficultyCalculation, true);
 
-    const Consensus::Params& auxpowParams = Params().GetConsensus(371337);
-    BOOST_CHECK_EQUAL(auxpowParams.nHeightEffective, 371337);
+    // Block 1000: AuxPoW activates (Vanguard Window ends)
+    const Consensus::Params& auxpowParams = Params().GetConsensus(1000);
+    BOOST_CHECK_EQUAL(auxpowParams.nHeightEffective, 1000);
     BOOST_CHECK_EQUAL(auxpowParams.nPowTargetTimespan, 60);
-    BOOST_CHECK_EQUAL(auxpowParams.fAllowLegacyBlocks, false);
+    BOOST_CHECK_EQUAL(auxpowParams.fAllowLegacyBlocks, true);
     BOOST_CHECK_EQUAL(auxpowParams.fDigishieldDifficultyCalculation, true);
 
-    const Consensus::Params& auxpowHighParams = Params().GetConsensus(700000); // Arbitrary point after last hard-fork
-    BOOST_CHECK_EQUAL(auxpowHighParams.nPowTargetTimespan, 60);
-    BOOST_CHECK_EQUAL(auxpowHighParams.fAllowLegacyBlocks, false);
-    BOOST_CHECK_EQUAL(auxpowHighParams.fDigishieldDifficultyCalculation, true);
+    // Far future: all params stable
+    const Consensus::Params& futureParams = Params().GetConsensus(700000);
+    BOOST_CHECK_EQUAL(futureParams.nPowTargetTimespan, 60);
+    BOOST_CHECK_EQUAL(futureParams.fAllowLegacyBlocks, true);
+    BOOST_CHECK_EQUAL(futureParams.fDigishieldDifficultyCalculation, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

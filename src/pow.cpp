@@ -47,10 +47,17 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         return nProofOfWorkLimit;
     }
 
-    // SECURITY NOTE: Height 145000 activates per-block DigiShield difficulty
-    // adjustment (interval=1) inherited from Dogecoin Core. Before this height,
-    // the original Bitcoin-style multi-block retarget interval applies.
-    bool fNewDifficultyProtocol = (pindexLast->nHeight >= 145000);
+    // SECURITY FIX (DL-MAINNET-DIFFICULTY-TRANSITION): Use consensus params flag
+    // instead of hardcoded Dogecoin height 145000. The height-aware consensus
+    // parameter tree (GetConsensus(nHeight)) already sets fDigishieldDifficultyCalculation
+    // correctly per-network:
+    //   Mainnet:  true from block 1000 (via auxpowConsensus inheriting digishieldConsensus)
+    //   Stagenet: true from block 1 (digishieldConsensus.nHeightEffective=1)
+    //   Regtest:  true from block 10
+    // Without this fix, DigiShield per-block retargeting wouldn't activate until
+    // block 145,000 — causing a catastrophic difficulty stall when AuxPoW hashrate
+    // arrives at block 1,000 on mainnet.
+    bool fNewDifficultyProtocol = params.fDigishieldDifficultyCalculation;
     const int64_t difficultyAdjustmentInterval = fNewDifficultyProtocol ? 1 : params.DifficultyAdjustmentInterval();
     if ((pindexLast->nHeight + 1) % difficultyAdjustmentInterval != 0) {
         if (params.fPowAllowMinDifficultyBlocks) {
