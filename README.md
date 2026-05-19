@@ -167,10 +167,10 @@ make install  # optional
 ### Run a Node
 
 ```bash
-# Start daemon
-./src/soqucoind -daemon
+# Stagenet (current active network)
+./src/soqucoind -stagenet -daemon -server -rpcuser=soqucoin -rpcpassword=YOUR_PASSWORD
 
-# Stagenet (current network)
+# Mainnet (after genesis)
 ./src/soqucoind -daemon -server -rpcuser=soqucoin -rpcpassword=YOUR_PASSWORD
 
 # Regtest (local development)
@@ -179,26 +179,28 @@ make install  # optional
 
 ### ⛏️ Solo Mining
 
-The **SOQ Solo Miner** is a lightweight stratum proxy included in every release. Mine blocks directly to your wallet, zero pool fees.
+The **SOQ Solo Miner** is a lightweight stratum proxy included in `contrib/solo-miner/`. Mine blocks directly to your wallet, zero pool fees.
 
 ```bash
-# 1. Download the solo miner from the latest release
-# 2. Configure with your node RPC and wallet address
+# 1. Configure with your node RPC and wallet address
+cd contrib/solo-miner
 cp config.example.json config.json && nano config.json
 
-# 3. Run it
+# 2. Run it
 ./soq-solo-miner config.json
 
-# 4. Point your ASIC/GPU at stratum+tcp://localhost:3333
+# 3. Point your ASIC/GPU at stratum+tcp://localhost:3333
 ```
 
-📖 [Full Solo Mining Guide](https://soqu.org/docs/mining/solo-mining/)
+📖 [Full Solo Mining Guide](contrib/solo-miner/README.md)
 
 ### Network Ports
 
 | Network | P2P | RPC |
 |---------|-----|-----|
-| Stagenet | 44556 | 44555 |
+| Mainnet | 33388 | 33389 |
+| Testnet | 44556 | 44555 |
+| Stagenet | 28333 | 28332 |
 | Regtest | 18444 | 18332 |
 
 
@@ -209,11 +211,9 @@ cp config.example.json config.json && nano config.json
 | Document | Description |
 |----------|-------------|
 | [INSTALL.md](INSTALL.md) | Build instructions for all platforms |
-| [doc/getting-started.md](doc/getting-started.md) | First steps guide |
-| [doc/build-unix.md](doc/build-unix.md) | Linux/BSD build guide |
-| [doc/build-macos.md](doc/build-macos.md) | macOS build guide |
-| [doc/build-windows.md](doc/build-windows.md) | Windows build guide |
-| [doc/FAQ.md](doc/FAQ.md) | Frequently asked questions |
+| [doc/stagenet-mining-guide.md](doc/stagenet-mining-guide.md) | Stagenet mining & node setup |
+| [contrib/solo-miner/README.md](contrib/solo-miner/README.md) | Solo mining stratum proxy |
+| [doc/pat-specification.md](doc/pat-specification.md) | PAT wire format specification |
 | [Whitepaper](https://soqu.org/whitepaper/soqucoin_whitepaper.pdf) | Technical specification |
 
 ---

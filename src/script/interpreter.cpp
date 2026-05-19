@@ -1813,6 +1813,12 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
         CSHA256 ssOut;
         for (const auto& txout : txTo->vout) {
             writeLE64(ssOut, txout.nValue);
+            // SOQ-COV-012: CTV must commit to extension bytes to prevent
+            // asset-type substitution in covenant-locked UTXOs.
+            // Without this, a CTV vault locked for SOQ could be spent with
+            // USDSOQ outputs of the same value — the hash would still match.
+            ssOut.Write((const unsigned char*)&txout.nVisibility, 1);
+            ssOut.Write((const unsigned char*)&txout.nAssetType, 1);
             writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
             if (!txout.scriptPubKey.empty()) {
                 ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());

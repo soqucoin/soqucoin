@@ -570,26 +570,15 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fChe
             if (txout.nAssetType == ASSET_USDSOQ) hasUSDSOQ = true;
         }
 
-        // Asset isolation: a single transaction MUST NOT mix SOQ and USDSOQ outputs.
-        // This prevents cross-contamination in supply accounting and simplifies
-        // the per-asset balance invariant checks in ConnectBlock.
-        // Exception 1: coinbase is always SOQ-only (enforced below).
-        // Exception 2: authority transactions (witness v5 / OP_5 output) are allowed
-        // to mix assets — they create USDSOQ from SOQ fee inputs under M-of-N control.
-        if (hasSOQ && hasUSDSOQ) {
-            bool isAuthorityTx = false;
-            for (const auto& txout : tx.vout) {
-                if (txout.scriptPubKey.size() == 34 &&
-                    txout.scriptPubKey[0] == OP_5 &&
-                    txout.scriptPubKey[1] == 32) {
-                    isAuthorityTx = true;
-                    break;
-                }
-            }
-            if (!isAuthorityTx) {
-                return state.DoS(100, false, REJECT_INVALID, "bad-txns-mixed-asset-types");
-            }
-        }
+        // SOQ-ARCH-002: Per-asset conservation model.
+        // Mixed-asset transactions (SOQ + USDSOQ) are allowed at the
+        // CheckTransaction level. The real invariant — USDSOQ must be
+        // conserved (USDSOQ_in == USDSOQ_out) — is enforced in
+        // CheckTxInputs, which has UTXO access to verify input asset types.
+        // On mainnet (USDSOQ NEVER_ACTIVE), no USDSOQ UTXOs exist, so any
+        // transaction claiming USDSOQ inputs will fail in CheckTxInputs.
+        // Authority transactions (witness v5 / OP_5) are exempt from
+        // conservation as they mint/burn USDSOQ under M-of-N control.
 
         // Coinbase outputs must be native SOQ — cannot mint USDSOQ via mining
         if (tx.IsCoinBase() && hasUSDSOQ) {
@@ -771,8 +760,43 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
 
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
-        CAmount nValueOut = tx.GetValueOut();
-        CAmount nFees = nValueIn - nValueOut;
+        // SOQ-ARCH-002: Asset-aware fee computation.
+        // For multi-asset transactions, the fee is SOQ_in - SOQ_out only.
+        // USDSOQ is conserved (enforced in CheckTxInputs), so it must NOT
+        // contribute to the fee calculation.
+        CAmount nFees = 0;
+        {
+            bool hasMixedAssets = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.nAssetType != ASSET_SOQ) {
+                    hasMixedAssets = true;
+                    break;
+                }
+            }
+            if (hasMixedAssets) {
+                // Compute SOQ-only input value
+                CAmount nSOQIn = 0;
+                CAmount nSOQOut = 0;
+                for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                    const CCoins* coins = view.AccessCoins(tx.vin[i].prevout.hash);
+                    if (coins && coins->IsAvailable(tx.vin[i].prevout.n)) {
+                        if (coins->vout[tx.vin[i].prevout.n].nAssetType == ASSET_SOQ) {
+                            nSOQIn += coins->vout[tx.vin[i].prevout.n].nValue;
+                        }
+                    }
+                }
+                for (const auto& txout : tx.vout) {
+                    if (txout.nAssetType == ASSET_SOQ) {
+                        nSOQOut += txout.nValue;
+                    }
+                }
+                nFees = nSOQIn - nSOQOut;
+            } else {
+                // Single-asset SOQ tx — existing logic is correct
+                CAmount nValueOut = tx.GetValueOut();
+                nFees = nValueIn - nValueOut;
+            }
+        }
         // nModifiedFees includes any fee deltas from PrioritiseTransaction
         CAmount nModifiedFees = nFees;
         double nPriorityDummy = 0;
@@ -1466,6 +1490,39 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
     nFees += nTxFee;
     if (!MoneyRange(nFees))
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-fee-outofrange");
+
+    // SOQ-ARCH-002: Per-asset conservation enforcement.
+    // For non-authority transactions, USDSOQ must be strictly conserved:
+    //   USDSOQ_in == USDSOQ_out  (no surplus, no deficit)
+    // SOQ surplus (SOQ_in - SOQ_out) is the miner fee.
+    // This prevents cross-asset conversion while allowing SOQ fee payment
+    // alongside USDSOQ transfers.
+    // On mainnet (USDSOQ NEVER_ACTIVE): no USDSOQ UTXOs exist, so
+    // nUSDSOQIn == nUSDSOQOut == 0, and this check always passes.
+    if (!isAuthorityTx) {
+        CAmount nUSDSOQIn = 0;
+        CAmount nUSDSOQOut = 0;
+        for (unsigned int i = 0; i < tx.vin.size(); i++) {
+            const COutPoint& prevout = tx.vin[i].prevout;
+            const CCoins* coins = inputs.AccessCoins(prevout.hash);
+            assert(coins);
+            if (coins->vout[prevout.n].nAssetType == ASSET_USDSOQ) {
+                nUSDSOQIn += coins->vout[prevout.n].nValue;
+            }
+        }
+        for (const auto& txout : tx.vout) {
+            if (txout.nAssetType == ASSET_USDSOQ) {
+                nUSDSOQOut += txout.nValue;
+            }
+        }
+        if (nUSDSOQIn != nUSDSOQOut) {
+            return state.DoS(100, false, REJECT_INVALID,
+                "bad-txns-usdsoq-not-conserved", false,
+                strprintf("USDSOQ in (%s) != USDSOQ out (%s)",
+                    FormatMoney(nUSDSOQIn), FormatMoney(nUSDSOQOut)));
+        }
+    }
+
     return true;
 }
 } // namespace Consensus

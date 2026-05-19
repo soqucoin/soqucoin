@@ -18,16 +18,16 @@
 //     "port": "3333",
 //     "max_connections": 100,
 //     "connection_timeout": "120s",
-//     "pool_difficulty": 100000,
+//     "pool_difficulty": 10000,
 //     "block_signature": "SoloMiner",
 //     "merged_blockchain_order": ["soqucoin"],
 //     "blockchains": {
 //       "soqucoin": [{
 //         "name": "local",
-//         "rpc_url": "http://127.0.0.1:38332",
+//         "rpc_url": "http://127.0.0.1:28332",
 //         "rpc_username": "soqucoin",
 //         "rpc_password": "YOUR_RPC_PASSWORD",
-//         "block_notify_url": "tcp://127.0.0.1:28332",
+//         "block_notify_url": "tcp://127.0.0.1:28334",
 //         "timeout": "30s",
 //         "reward_to": "YOUR_SOQUCOIN_ADDRESS"
 //       }]

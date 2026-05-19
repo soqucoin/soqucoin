@@ -9,7 +9,7 @@ No database, no pool fees, no centralized infrastructure.
 ### 1. Start your Soqucoin node
 
 ```bash
-soqucoind -stagenet -daemon -server -rpcuser=soqucoin -rpcpassword=YOUR_PASSWORD -zmqpubhashblock=tcp://127.0.0.1:28332
+soqucoind -stagenet -daemon -server -rpcuser=soqucoin -rpcpassword=YOUR_PASSWORD -zmqpubhashblock=tcp://127.0.0.1:28334
 ```
 
 ### 2. Configure the solo miner
@@ -47,7 +47,7 @@ Worker name format: `YOUR_ADDRESS.rigname`
 | `rpc_url` | soqucoind RPC endpoint |
 | `rpc_password` | soqucoind RPC password |
 | `reward_to` | Your Soqucoin address |
-| `block_notify_url` | ZMQ notification endpoint (must match soqucoind -zmqpubhashblock) |
+| `block_notify_url` | ZMQ notification endpoint (must match soqucoind -zmqpubhashblock — use a different port than RPC) |
 
 ## Difficulty Guide
 

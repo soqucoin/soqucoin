@@ -130,8 +130,10 @@ listen=1
 server=1
 rpcuser=soqucoin
 rpcpassword=<choose_a_strong_password>
-rpcport=38332
 rpcallowip=127.0.0.1
+
+# ZMQ notifications (required for soq-solo-miner)
+zmqpubhashblock=tcp://127.0.0.1:28334
 
 # Seed nodes (Foundation-operated)
 addnode=64.23.197.144:28333
@@ -154,15 +156,27 @@ soqucoin-cli -stagenet getpeerinfo
 
 ### Solo Mining (without pool)
 
-If you prefer to mine directly to your node (no pool):
+If you prefer to mine directly to your node (no pool), use the bundled
+**soq-solo-miner** stratum proxy in `contrib/solo-miner/`:
 
 ```bash
-# Generate blocks (CPU mining — very slow, for testing):
-soqucoin-cli -stagenet generatetoaddress 1 <your_address>
+# 1. Configure the solo miner
+cd contrib/solo-miner
+cp config.example.json config.json
+# Edit config.json: set rpc_password and reward_to address
+
+# 2. Start the solo miner
+./soq-solo-miner-macos-arm64 config.json   # macOS
+./soq-solo-miner-linux-x64 config.json     # Linux
+
+# 3. Point your ASIC at stratum+tcp://localhost:3333
 ```
 
-For ASIC mining without a pool, you'd need to run your own Stratum proxy.
-The pool is recommended for most miners.
+For CPU testing (very slow, development only):
+
+```bash
+soqucoin-cli -stagenet generatetoaddress 1 <your_address>
+```
 
 ---
 
@@ -192,7 +206,7 @@ Payouts are processed every 10 minutes via PPLNS. Minimum payout: 1 SOQ.
 |-----------|-------|
 | Chain ID | `stagenet` |
 | P2P Port | 28333 |
-| RPC Port | 38332 |
+| RPC Port | 28332 |
 | Address Prefix | `ssq1p...` (bech32m, Taproot) |
 | PoW Algorithm | Scrypt |
 | AuxPoW | Enabled (merge-mining ready) |

@@ -67,6 +67,9 @@ static std::vector<unsigned char> ComputeCTVHash(const CMutableTransaction& tx, 
     CSHA256 ssOut;
     for (const auto& txout : tx.vout) {
         writeLE64(ssOut, txout.nValue);
+        // SOQ-COV-012: CTV must commit to extension bytes
+        ssOut.Write(&txout.nVisibility, 1);
+        ssOut.Write(&txout.nAssetType, 1);
         writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
         if (!txout.scriptPubKey.empty())
             ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());
@@ -212,6 +215,46 @@ BOOST_AUTO_TEST_CASE(ctv_wrong_hash_size_fails)
     MutableTransactionSignatureChecker checker(&tx, 0, 0);
     BOOST_CHECK(!EvalScript(stack, script, flags, checker, SIGVERSION_BASE, &serror));
     BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_CHECKTEMPLATEVERIFY);
+}
+
+BOOST_AUTO_TEST_CASE(ctv_asset_type_change_breaks_hash)
+{
+    // SOQ-COV-012: CTV hash must commit to nAssetType — changing asset type
+    // on an output must invalidate the template hash. Without this, a CTV
+    // vault locked for SOQ could be spent with USDSOQ outputs.
+    CMutableTransaction tx1 = MakeBaseTx(); // default: nAssetType = ASSET_SOQ (0x00)
+    CMutableTransaction tx2 = MakeBaseTx();
+    tx2.vout[0].nAssetType = 0x01; // ASSET_USDSOQ
+
+    auto hash1 = ComputeCTVHash(tx1, 0);
+    auto hash2 = ComputeCTVHash(tx2, 0);
+    BOOST_CHECK_MESSAGE(hash1 != hash2,
+        "CTV hash must differ when nAssetType changes (SOQ-COV-012)");
+
+    // tx1's hash fails when evaluated against tx2 (different asset type)
+    CScript script;
+    script << hash1 << OP_NOP4;
+
+    std::vector<std::vector<unsigned char>> stack;
+    unsigned int flags = SCRIPT_VERIFY_CTV;
+    ScriptError serror;
+    MutableTransactionSignatureChecker checker(&tx2, 0, 0);
+    BOOST_CHECK(!EvalScript(stack, script, flags, checker, SIGVERSION_BASE, &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_CHECKTEMPLATEVERIFY);
+}
+
+BOOST_AUTO_TEST_CASE(ctv_visibility_change_breaks_hash)
+{
+    // SOQ-COV-012: CTV hash must commit to nVisibility — changing visibility
+    // on an output must invalidate the template hash.
+    CMutableTransaction tx1 = MakeBaseTx(); // default: nVisibility = 0x00 (transparent)
+    CMutableTransaction tx2 = MakeBaseTx();
+    tx2.vout[0].nVisibility = 0x01; // confidential
+
+    auto hash1 = ComputeCTVHash(tx1, 0);
+    auto hash2 = ComputeCTVHash(tx2, 0);
+    BOOST_CHECK_MESSAGE(hash1 != hash2,
+        "CTV hash must differ when nVisibility changes (SOQ-COV-012)");
 }
 
 // =========================================================================
