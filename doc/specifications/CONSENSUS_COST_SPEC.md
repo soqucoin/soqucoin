@@ -1,8 +1,8 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 3.0 | **Status**: Pre-Mainnet
-> **Last Updated**: April 27, 2026
-> **Specification Tag**: Mainnet Candidate v1.0.0-rc1
+> **Version**: 4.0 | **Status**: Pre-Mainnet
+> **Last Updated**: May 20, 2026
+> **Specification Tag**: Mainnet Candidate v1.0.0-rc4
 > **Prepared For**: Halborn Security Audit (Hossam Mohamed, Alexis Fabre)
 
 ---
@@ -89,10 +89,12 @@ schedules.
 | **LatticeFold** (`OP_CHECKFOLDPROOF`) | 28 | v3 (`OP_3`) | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
 | **Lattice-BP++** (`OP_LATTICEBP_RANGEPROOF`) | 5 | v4 (`OP_4`) | NEVER_ACTIVE | NEVER_ACTIVE |
 | **USDSOQ** (`OP_USDSOQ_*`) | 6 | v5 (`OP_5`) | NEVER_ACTIVE | NEVER_ACTIVE |
+| **CTV** (`OP_CHECKTEMPLATEVERIFY`) | — | — | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
+| **L2SOQ** (2-of-2 Dilithium + CTV/CSV) | — | v6 (`OP_6`) | Not Active | Prototype |
 
 > [!NOTE]
 > **Witness version routing** in `VerifyScript()`: v0/v1 = Dilithium, v2 = PAT, v3 = LatticeFold,
-> v4 = Lattice-BP++, v5 = USDSOQ, v6-v16 = future (anyone-can-spend). Each handler pushes the witness
+> v4 = Lattice-BP++, v5 = USDSOQ, v6 = L2SOQ (Stagenet prototype), v7-v16 = future (anyone-can-spend). Each handler pushes the witness
 > stack into `EvalScript()` with the corresponding opcode. Flag gating ensures soft fork safety.
 >
 > **`NEVER_ACTIVE` features**: When the flag is not set, transactions using that witness version pass
@@ -161,6 +163,14 @@ Soqucoin is unique as a **native L1** with recursive proof composition, rather t
 
 **Key Differentiator**: Soqucoin's LatticeFold+ implementation is based on ePrint 2025/247
 and provides the first production L1 with native lattice-based recursive SNARKs.
+
+### L2SOQ Payment Channel Throughput (Stagenet Prototype, May 2026)
+
+L2SOQ off-chain state updates bypass L1 verification entirely. Crypto overhead per update is 0.436 ms
+(Dilithium sign + verify × 2), yielding 410–2,300 per-channel TPS depending on network latency. Network-wide
+throughput scales linearly with active channels: 500,000+ TPS projected at scale. Architecture uses
+ELTOO-style state supersession (no watchtowers, no penalty transactions) enabled by CTV + CSV covenant
+opcodes active from genesis. See `doc/specifications/STAGE_5_L2_SPECIFICATION.md` for full details.
 
 ---
 
@@ -398,7 +408,7 @@ Standard Bitcoin witness limits were designed for ECDSA (~72 byte signatures). D
 |-----------|-------|--------|
 | **Block Time Target** | 60 seconds | Inherited (Dogecoin) |
 | **Difficulty Adjustment** | Every block (DigiShield) | Inherited (Dogecoin) |
-| **Halving Interval** | 100,000 blocks (~80 days)¹ | Modified (Soqucoin) |
+| **Halving Interval** | 100,000 blocks (~69 days)¹ | Modified (Soqucoin) |
 | **Initial Block Reward** | 500,000 SOQ | Modified (Soqucoin) |
 | **Terminal Reward** | 10,000 SOQ (after block 600,000) | Modified (Soqucoin) |
 | **Coinbase Maturity** | 30 blocks | Modified (Soqucoin) |
@@ -456,11 +466,12 @@ These features are active from block 0 on both mainnet and stagenet:
 | Feature | Opcode/Mechanism | Witness Version | BIP9 Bit | What It Does |
 |---------|------------------|-----------------|----------|-------------|
 | **Dilithium** | Inline in `VerifyScript()` | v0, v1 | — | NIST FIPS 204 quantum-safe signatures |
-| **PAT** | `OP_CHECKPATAGG` | v2 (`OP_2`) | 3 | Merkle-based signature aggregation (up to 256 sigs) |
+| **PAT** | `OP_CHECKPATAGG` | v2 (`OP_2`) | 3 | Merkle-based signature attestation (up to 256 sigs) |
 | **LatticeFold+** | `OP_CHECKFOLDPROOF` | v3 (`OP_3`) | 28 | Recursive batch verification (512 sigs in ~0.75ms) |
 | **AuxPoW** | Merged mining | — | — | Scrypt AuxPoW with unique Chain ID `0x5351` |
 | **SegWit** | BIP141/143/147 | — | 1 | Witness data segregation |
 | **CSV** | BIP68/112/113 | — | 0 | Relative timelocks |
+| **CTV** | `OP_CHECKTEMPLATEVERIFY` (0xb3) | — | — | BIP 119 covenant hash commitment; enables L2SOQ channel settlement |
 
 ### Future Features (NEVER_ACTIVE — Pending Audit)
 
@@ -469,7 +480,8 @@ These features exist in the codebase but are gated behind `NEVER_ACTIVE` BIP9 de
 | Feature | Opcode | Witness Version | BIP9 Bit | Status | Audit Target |
 |---------|--------|-----------------|----------|--------|-------------|
 | **Lattice-BP++** | `OP_LATTICEBP_RANGEPROOF` (0xfa) | v4 (`OP_4`) | 5 | Code complete, 16/16 tests pass | July 2026 (Halborn) |
-| **USDSOQ** | `OP_USDSOQ_MINT/BURN/FREEZE` | v5 (`OP_5`) | 6 | Design complete, implementation TODO | July 2026 (Halborn) |
+| **USDSOQ** | `OP_USDSOQ_MINT/BURN/FREEZE` | v5 (`OP_5`) | 6 | Code complete, consensus tests pass | Q3–Q4 2026 (Halborn) |
+| **L2SOQ** | 2-of-2 Dilithium P2WSH + CTV/CSV | v6 (`OP_6`) | — | Prototype active (Stagenet, May 2026) | Post-L1 mainnet audit |
 
 **Lattice-BP++ (SOQ-P003)**: Verifies lattice-based range proofs (Module-LWE/SIS, n=256, q=8380417, k=4)
 proving transaction amounts ∈ [0, 2^64). Fiat-Shamir binds to sighash + pubkey_hash. Three-mode build guard
@@ -491,7 +503,8 @@ Witness v2 → PAT: OP_CHECKPATAGG via EvalScript()
 Witness v3 → LatticeFold: OP_CHECKFOLDPROOF via EvalScript()
 Witness v4 → Lattice-BP++: OP_LATTICEBP_RANGEPROOF via EvalScript()  [NEVER_ACTIVE]
 Witness v5 → USDSOQ: OP_USDSOQ_* via EvalScript()                   [NEVER_ACTIVE]
-Witness v6-v16 → Future: anyone-can-spend (BIP141 forward compatibility)
+Witness v6 → L2SOQ: 2-of-2 Dilithium P2WSH + CTV/CSV               [Prototype Active — Stagenet]
+Witness v7-v16 → Future: anyone-can-spend (BIP141 forward compatibility)
 ```
 
 Each handler pushes the witness stack into `EvalScript()` with the corresponding opcode. Flag gating
@@ -522,12 +535,12 @@ LatticeFold+ provides **recursive proof composition** for Dilithium batch verifi
 
 ## 10. Network Alignment
 
-| Network | Genesis | Chain ID | HRP | P2P Port | RPC Port | Dilithium | PAT | LatticeFold | Lattice-BP++ |
-|---------|---------|----------|-----|----------|----------|-----------|-----|-------------|-------------|
-| **Mainnet** | Q2 2026 | 0x5351 | `sq` | 33388 | 33389 | ✅ Active | ✅ Active | ✅ Active | ❌ Not Active |
-| **Stagenet** | Jan 5, 2026 | 0x5351 | `ssq` | 28333 | 28332 | ✅ Active | ✅ Active | ✅ Active | ❌ Not Active |
-| **Testnet3** | Dec 2025 | 0x5351 | `sq` | 44556 | 44555 | ✅ Active | ✅ Active | ✅ Active | ❌ Not Active |
-| **Regtest** | — | 0x5351 | `scrt` | 18444 | 18332 | ✅ Active | ✅ Active | ✅ Active | ✅ Active |
+| Network | Genesis | Chain ID | HRP | P2P Port | RPC Port | Dilithium | PAT | LatticeFold | Lattice-BP++ | L2SOQ |
+|---------|---------|----------|-----|----------|----------|-----------|-----|-------------|-------------|-------|
+| **Mainnet** | Q2–Q3 2026 | 0x5351 | `sq` | 33388 | 33389 | ✅ Active | ✅ Active | ✅ Active | ❌ Not Active | ❌ Not Active |
+| **Stagenet** | Jan 5, 2026 | 0x5351 | `ssq` | 28333 | 28332 | ✅ Active | ✅ Active | ✅ Active | ❌ Not Active | ✅ Prototype |
+| **Testnet3** | Dec 2025 | 0x5351 | `sq` | 44556 | 44555 | ✅ Active | ✅ Active | ✅ Active | ❌ Not Active | ❌ Not Active |
+| **Regtest** | — | 0x5351 | `scrt` | 18444 | 18332 | ✅ Active | ✅ Active | ✅ Active | ✅ Active | ✅ Active |
 
 > [!NOTE]
 > **Stagenet** mirrors mainnet consensus exactly (`fPowAllowMinDifficultyBlocks=false`,
@@ -642,7 +655,7 @@ All values are defined in the Soqucoin Core source code at the following paths:
 |-----------|----------|---------|--------------|----------------------|
 | **Dilithium (ML-DSA-44)** | NIST FIPS 204 | Custom (NIST reference) | NIST KAT | Constant-time implementation |
 | **Lattice-BP++** | Novel (Module-LWE/SIS) | Custom (Soqucoin) | 16/16 Soqucoin test vectors | Constant-time lattice ops |
-| **PAT Aggregation** | Novel | Custom | Soqucoin test suite | N/A (hash-based) |
+| **PAT Attestation** | Novel | Custom | Soqucoin test suite | N/A (hash-based) |
 | **LatticeFold+** | ePrint 2025/247 | Custom | Soqucoin test suite | Constant-time field ops |
 | **Scrypt PoW** | RFC 7914 | Colin Percival reference | Litecoin/Dogecoin | N/A (PoW) |
 
@@ -762,7 +775,7 @@ docker run --rm -v $(pwd):/out soqucoin-bench
 
 | Test Suite | Result |
 |------------|--------|
-| `test_soqucoin` (244 cases) | ✅ ALL PASSED |
+| `test_soqucoin` (541 cases) | ✅ ALL PASSED |
 | Univalue tests | ✅ 3/3 PASSED |
 
 > **Status**: Docker harness verified on Ubuntu 22.04 VPS (Jan 5, 2026). See [`docker/DOCKER_BUILD_GUIDE.md`](../docker/DOCKER_BUILD_GUIDE.md) for full instructions.
@@ -847,7 +860,7 @@ For Halborn audit review, verify:
 
 ---
 
-*Soqucoin Protocol Parameters Specification v3.0*
-*Updated April 27, 2026 — Reflects BIP9 activation model, Lattice-BP++ migration, and USDSOQ opcodes*
+*Soqucoin Protocol Parameters Specification v4.0*
+*Updated May 20, 2026 — Reflects BIP9 activation model, L2SOQ Stagenet prototype, CTV/CSV covenant opcodes, witness v6 allocation, and USDSOQ code completion*
 *Soqucoin Core Development Team*
 
