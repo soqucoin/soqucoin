@@ -2247,11 +2247,23 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             // USDSOQ surplus in a transaction is NOT claimable as fees — this prevents
             // cross-asset fee inflation where USDSOQ surplus inflates SOQ coinbase.
             CAmount nSOQIn = 0;
+            CAmount nTotalIn = 0; // DIAG-FEE: unfiltered total for comparison
             for (unsigned int j = 0; j < tx.vin.size(); j++) {
                 const CCoins* coins = view.AccessCoins(tx.vin[j].prevout.hash);
                 if (coins && coins->IsAvailable(tx.vin[j].prevout.n)) {
-                    if (coins->vout[tx.vin[j].prevout.n].nAssetType == ASSET_TYPE_SOQ) {
-                        nSOQIn += coins->vout[tx.vin[j].prevout.n].nValue;
+                    const CTxOut& prevOut = coins->vout[tx.vin[j].prevout.n];
+                    nTotalIn += prevOut.nValue;
+                    if (prevOut.nAssetType == ASSET_TYPE_SOQ) {
+                        nSOQIn += prevOut.nValue;
+                    } else {
+                        // DIAG-FEE: Log every input with unexpected nAssetType
+                        LogPrintf("DIAG-FEE: FILTERED INPUT tx=%s vin[%u] prevout=%s:%u "
+                            "assetType=0x%02x visibility=0x%02x value=%lld coinHeight=%d isCoinBase=%d\n",
+                            tx.GetHash().ToString(), j,
+                            tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n,
+                            (unsigned int)prevOut.nAssetType,
+                            (unsigned int)prevOut.nVisibility,
+                            prevOut.nValue, coins->nHeight, coins->fCoinBase);
                     }
                 }
             }
@@ -2262,6 +2274,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 }
             }
             nFees += nSOQIn - nSOQOut;
+
+            // DIAG-FEE: Summary if filtered fee differs from unfiltered
+            if (nSOQIn != nTotalIn) {
+                CAmount nTotalOut = tx.GetValueOut();
+                LogPrintf("DIAG-FEE: MISMATCH tx=%s inputs=%zu totalIn=%lld soqIn=%lld "
+                    "excluded=%lld totalOut=%lld soqOut=%lld unfilteredFee=%lld filteredFee=%lld\n",
+                    tx.GetHash().ToString(), tx.vin.size(),
+                    nTotalIn, nSOQIn, nTotalIn - nSOQIn,
+                    nTotalOut, nSOQOut,
+                    nTotalIn - nTotalOut, nSOQIn - nSOQOut);
+            }
 
             std::vector<CScriptCheck> vChecks;
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
