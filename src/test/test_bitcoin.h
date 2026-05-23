@@ -41,7 +41,10 @@ static inline std::vector<unsigned char> InsecureRandBytes(size_t len) { return 
 struct BasicTestingSetup {
     ECCVerifyHandle globalVerifyHandle;
 
-    BasicTestingSetup(const std::string& chainName = CBaseChainParams::MAIN);
+    // SOQUCOIN: Default to REGTEST — mainnet genesis coinbase uses legacy P2PK
+    // which fails the Dilithium-only coinbase enforcement in ContextualCheckBlock.
+    // REGTEST is exempt from that check and is standard for unit test fixtures.
+    BasicTestingSetup(const std::string& chainName = CBaseChainParams::REGTEST);
     ~BasicTestingSetup();
 };
 
@@ -55,7 +58,7 @@ struct TestingSetup: public BasicTestingSetup {
     boost::thread_group threadGroup;
     CConnman* connman;
 
-    TestingSetup(const std::string& chainName = CBaseChainParams::MAIN);
+    TestingSetup(const std::string& chainName = CBaseChainParams::REGTEST);
     ~TestingSetup();
 };
 
