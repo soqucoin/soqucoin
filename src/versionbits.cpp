@@ -50,6 +50,10 @@ const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[Consensus::MAX_VERSION
     {
         /*.name =*/"p2wsh_dilithium",
         /*.gbt_force =*/true,
+    },
+    {
+        /*.name =*/"utxo_cost",
+        /*.gbt_force =*/true,
     }};
 
 ThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex* pindexPrev, const Consensus::Params& params, ThresholdConditionCache& cache) const

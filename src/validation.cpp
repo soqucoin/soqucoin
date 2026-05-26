@@ -2189,6 +2189,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // DoS vectors eliminated by existing CScriptNum + 520-byte element limits.
     flags |= SCRIPT_VERIFY_SCRIPT_RESTORE;
 
+    // SOQ-ARCH-003: Check if consensus-enforced minimum UTXO value is active (BIP9).
+    // When active, every output must hold >= UTXO_COST_PER_BYTE × serialized_output_size.
+    // Prevents dust storm attacks that bloat the UTXO set (Cardano-style utxoCostPerByte).
+    // Mainnet: nStartTime=0 (dormant until Phase 2 audit). Stagenet/regtest: ALWAYS_ACTIVE.
+    // See DL-SOQ-FEE-ARCHITECTURE-V3.md.
+    bool fEnforceUtxoCost = (VersionBitsState(pindex->pprev, consensus,
+        Consensus::DEPLOYMENT_UTXO_COST, versionbitscache) == THRESHOLD_ACTIVE);
+
     int64_t nTime2 = GetTimeMicros();
     nTimeForks += nTime2 - nTime1;
     LogPrint("bench", "    - Fork checks: %.2fms [%.2fs]\n", 0.001 * (nTime2 - nTime1), nTimeForks * 0.000001);
@@ -2503,6 +2511,49 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             LogPrintf("USDSOQ: supply state: total_minted=%d total_burned=%d outstanding=%d\n",
                 g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
                 g_usdsoq_supply.Outstanding());
+        }
+    }
+
+    // =========================================================================
+    // SOQ-ARCH-003: Consensus-Enforced Minimum UTXO Value (BIP9-Gated)
+    // When DEPLOYMENT_UTXO_COST is active, reject outputs whose value is below
+    // UTXO_COST_PER_BYTE × serialized_output_size. This is the Cardano-style
+    // utxoCostPerByte approach adapted for Soqucoin's post-quantum UTXO model.
+    //
+    // Exemptions:
+    //   - Unspendable outputs (OP_RETURN data anchors) — not in UTXO set
+    //   - USDSOQ authority marker outputs (0-value by design, witness v5)
+    //
+    // Placement: After USDSOQ enforcement, before key-image tracking.
+    // Pattern: Same as LATTICEBP confidential output rejection (L2329-2342).
+    //
+    // Approved: Casey Wilson, May 25 2026. BIP9 bit 11.
+    // See DL-SOQ-FEE-ARCHITECTURE-V3.md, Appendix A.
+    // =========================================================================
+    if (fEnforceUtxoCost) {
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            const CTransaction& tx = *(block.vtx[i]);
+            for (size_t j = 0; j < tx.vout.size(); j++) {
+                const CTxOut& txout = tx.vout[j];
+                // Skip unspendable outputs (OP_RETURN data anchors)
+                if (txout.scriptPubKey.IsUnspendable())
+                    continue;
+                // Skip USDSOQ authority marker outputs (0-value by design, OP_5 witness v5)
+                if (txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x55)
+                    continue;
+                // Calculate minimum value based on serialized output size
+                size_t nOutputSize = ::GetSerializeSize(txout, SER_NETWORK, PROTOCOL_VERSION);
+                CAmount nMinValue = UTXO_COST_PER_BYTE * static_cast<CAmount>(nOutputSize);
+                if (txout.nValue < nMinValue) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): output %u of tx %s in block %d has value %lld < "
+                              "minimum %lld (%u bytes x %lld sat/byte)",
+                              (unsigned)j, tx.GetHash().ToString().c_str(),
+                              pindex->nHeight, txout.nValue, nMinValue,
+                              (unsigned)nOutputSize, (long long)UTXO_COST_PER_BYTE),
+                        REJECT_INVALID, "bad-txns-output-below-utxo-cost");
+                }
+            }
         }
     }
 

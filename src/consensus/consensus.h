@@ -51,6 +51,22 @@ static const unsigned int MAX_PROOF_BYTES_PER_TX = 65536; // 64 KB
 /** Maximum proof bytes per block */
 static const unsigned int MAX_PROOF_BYTES_PER_BLOCK = 262144; // 256 KB
 
+/** SOQ-ARCH-003: Minimum UTXO value per serialized output byte.
+ *  BIP9-gated via DEPLOYMENT_UTXO_COST (bit 11).
+ *  Prevents UTXO set bloat from dust storm attacks (Cardano's utxoCostPerByte).
+ *
+ *  Formula: minOutputValue = UTXO_COST_PER_BYTE × serialized_output_size
+ *
+ *  Derivation: At fee_rate 1,000 sat/vB, a Dilithium input costs ~974,000 sat
+ *  to spend. For a 50-byte output, requiring value >= spendCost/3:
+ *    minValue = 974,000 / 3 ≈ 325,000 sat
+ *    utxoCostPerByte = 325,000 / 50 = 6,500 sat/byte
+ *
+ *  Result: Standard 50-byte output → min 0.00325 SOQ (below policy 0.01 SOQ).
+ *  Approved: Casey Wilson, May 25 2026. See DL-SOQ-FEE-ARCHITECTURE-V3.md.
+ */
+static const int64_t UTXO_COST_PER_BYTE = 6500;
+
 /** Flags for nSequence and nLockTime locks */
 enum {
     /* Interpret sequence numbers as relative lock-time constraints. */

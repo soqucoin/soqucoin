@@ -1,7 +1,7 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
-> **Version**: 4.0 | **Status**: Pre-Mainnet
-> **Last Updated**: May 20, 2026
+> **Version**: 4.1 | **Status**: Pre-Mainnet
+> **Last Updated**: May 25, 2026
 > **Specification Tag**: Mainnet Candidate v1.0.0-rc4
 > **Prepared For**: Halborn Security Audit (Hossam Mohamed, Alexis Fabre)
 
@@ -370,7 +370,7 @@ PAT (Proof Aggregation Tree) demonstrates the economic benefit:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| **MAX_STANDARD_TX_WEIGHT** | 400,000 | ~100 KB effective |
+| **MAX_STANDARD_TX_WEIGHT** | 800,000 | ~200 KB effective; bumped from 400K (SOQ-ARCH-003, May 2026) to support 200-input Dilithium consolidation TXs |
 | **MAX_STANDARD_TX_SIGOPS_COST** | 16,000 | 20% of block budget |
 | **MAX_SCRIPT_SIZE** | 10,000 bytes | Script bytecode limit |
 | **MAX_SCRIPT_ELEMENT_SIZE** | 520 bytes | Stack element limit |
@@ -399,6 +399,22 @@ Standard Bitcoin witness limits were designed for ECDSA (~72 byte signatures). D
 | **DEFAULT_HARD_DUST_LIMIT** | 0.001 SOQ | Non-standard rejection |
 
 > **Note**: Fees are **policy**, not consensus. Miners may include any valid transaction regardless of fee. Fee parameters are subject to review based on mainnet economics.
+
+### UTXO Minimum Output Value (Novel — BIP9-Gated)
+
+| Parameter | Value | Type | Notes |
+|-----------|-------|------|-------|
+| **UTXO_COST_PER_BYTE** | 6,500 sat/byte | **Consensus** (BIP9 bit 11) | Cardano-style minimum output value |
+| **Minimum Standard Output** | ~0.00325 SOQ | Derived | 6,500 × 50 bytes (typical P2WPKH output) |
+
+> **SOQ-ARCH-003 (May 25, 2026)**: `UTXO_COST_PER_BYTE` enforces a minimum output value
+> proportional to the output's serialized size. This is a **consensus rule** gated by
+> `DEPLOYMENT_UTXO_COST` (BIP9 bit 11):
+> - **Mainnet**: Dormant (`nStartTime=0`) until Phase 2 audit approval
+> - **Stagenet/Testnet/Regtest**: `ALWAYS_ACTIVE`
+>
+> Exemptions: `OP_RETURN` outputs and USDSOQ authority markers (`OP_5`/`0x55`).
+> Rejection code: `bad-txns-output-below-utxo-cost`
 
 ---
 
@@ -482,6 +498,7 @@ These features exist in the codebase but are gated behind `NEVER_ACTIVE` BIP9 de
 | **Lattice-BP++** | `OP_LATTICEBP_RANGEPROOF` (0xfa) | v4 (`OP_4`) | 5 | Code complete, 16/16 tests pass | July 2026 (Halborn) |
 | **USDSOQ** | `OP_USDSOQ_MINT/BURN/FREEZE` | v5 (`OP_5`) | 6 | Code complete, consensus tests pass | Q3–Q4 2026 (Halborn) |
 | **L2SOQ** | 2-of-2 Dilithium P2WSH + CTV/CSV | v6 (`OP_6`) | — | Prototype active (Stagenet, May 2026) | Post-L1 mainnet audit |
+| **UTXO Cost** | Min output value enforcement | — (output value) | 11 | BIP9 dormant (mainnet), ALWAYS_ACTIVE (test) | Phase 2 audit |
 
 **Lattice-BP++ (SOQ-P003)**: Verifies lattice-based range proofs (Module-LWE/SIS, n=256, q=8380417, k=4)
 proving transaction amounts ∈ [0, 2^64). Fiat-Shamir binds to sighash + pubkey_hash. Three-mode build guard
@@ -565,6 +582,7 @@ LatticeFold+ provides **recursive proof composition** for Dilithium batch verifi
 | **Expensive Operations** | Per-op verification costs | Consensus |
 | **Block Size Attacks** | MAX_BLOCK_WEIGHT = 4 MB | Consensus |
 | **Dust Attacks** | DEFAULT_HARD_DUST_LIMIT | Policy |
+| **UTXO Bloat** | UTXO_COST_PER_BYTE = 6,500 (BIP9 bit 11) | Consensus (BIP9-gated) |
 
 ---
 
@@ -593,7 +611,7 @@ All values are defined in the Soqucoin Core source code at the following paths:
 | Block Verify Cost | 80,000 | **Consensus** | Novel |
 | LatticeFold per Block | 10 | **Consensus** | Novel |
 | Proof Bytes per Block | 256 KB | **Consensus** | Novel |
-| Transaction Weight | 400,000 | Policy | Inherited |
+| Transaction Weight | 800,000 | Policy | Modified (SOQ-ARCH-003) |
 | Script Size | 10,000 bytes | **Consensus** | Inherited |
 | Coinbase Maturity | 30 blocks | **Consensus** | Modified |
 | Min Relay Fee | 0.001 SOQ/kB | Policy | Modified |
@@ -681,6 +699,7 @@ All values are defined in the Soqucoin Core source code at the following paths:
 | `MAX_LATTICEFOLD_PER_BLOCK` | 10 | [`src/consensus/consensus.h:46`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L46) |
 | `MAX_PROOF_BYTES_PER_TX` | 65,536 | [`src/consensus/consensus.h:49`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L49) |
 | `MAX_PROOF_BYTES_PER_BLOCK` | 262,144 | [`src/consensus/consensus.h:52`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L52) |
+| `UTXO_COST_PER_BYTE` | 6,500 | [`src/consensus/consensus.h:54-68`](https://github.com/soqucoin/soqucoin/blob/main/src/consensus/consensus.h#L54-L68) |
 
 ### Verification Cost Weights
 

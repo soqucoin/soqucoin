@@ -30,8 +30,13 @@ static const unsigned int DEFAULT_BLOCK_PRIORITY_SIZE = 27000;
 static const unsigned int DEFAULT_BLOCK_MAX_WEIGHT = 3000000;
 /** Default for -blockmintxfee, which sets the minimum feerate for a transaction in blocks created by mining code **/
 static const unsigned int DEFAULT_BLOCK_MIN_TX_FEE = (unsigned int) RECOMMENDED_MIN_TX_FEE;
-/** The maximum weight for transactions we're willing to relay/mine */
-static const unsigned int MAX_STANDARD_TX_WEIGHT = 400000;
+/** The maximum weight for transactions we're willing to relay/mine
+ *  SOQ-ARCH-003: Bumped from 400K to 800K for Dilithium consolidation TXs.
+ *  Each Dilithium input is ~3,896 WU — at 400K, only ~100 inputs fit.
+ *  800K allows 205 inputs while capping any single TX at 20% of block space.
+ *  Approved: Casey Wilson, May 25 2026. See DL-SOQ-FEE-ARCHITECTURE-V3.md.
+ */
+static const unsigned int MAX_STANDARD_TX_WEIGHT = 800000;
 /** Maximum number of signature check operations in an IsStandard() P2SH script */
 static const unsigned int MAX_P2SH_SIGOPS = 15;
 /** The maximum number of sigops we're willing to relay/mine in a single tx */
