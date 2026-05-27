@@ -99,6 +99,8 @@ static const CRPCConvertParam vRPCConvertParams[] =
         {"signrawtransaction", 1, "prevtxs"},
         {"signrawtransaction", 2, "privkeys"},
         {"sendrawtransaction", 1, "allowhighfees"},
+        {"testmempoolaccept", 0, "rawtxs"},
+        {"testmempoolaccept", 1, "allowhighfees"},
         {"fundrawtransaction", 1, "options"},
         {"gettxout", 1, "n"},
         {"gettxout", 2, "include_mempool"},
@@ -143,6 +145,8 @@ static const CRPCConvertParam vRPCConvertParams[] =
         {"usdsoqburn", 0, "amount"},
         {"usdsoqfreeze", 1, "vout"},
         {"verifyusdsoqauthority", 1, "signatures"},
+        {"usdsoqsigntx", 1, "opcode_tag"},
+        {"usdsoqsigntx", 2, "privkeys"},
         // USDSOQ wallet RPCs
         {"mintusdsoq", 1, "amount"},
         {"burnusdsoq", 0, "amount"},

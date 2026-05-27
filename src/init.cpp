@@ -1680,6 +1680,17 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 } else {
                     LogPrintf("USDSOQ: No supply data in DB (genesis or pre-activation)\n");
                 }
+
+                // SOQ-I005: Restore USDSOQ authority UTXO outpoint from chainstate DB
+                COutPoint persistedOutpoint;
+                if (pcoinsdbview->ReadUSDSOQAuthorityOutpoint(persistedOutpoint)) {
+                    g_usdsoq_authority_outpoint = persistedOutpoint;
+                    LogPrintf("USDSOQ: Restored authority outpoint from DB: %s:%u\n",
+                              g_usdsoq_authority_outpoint.hash.ToString(),
+                              g_usdsoq_authority_outpoint.n);
+                } else {
+                    LogPrintf("USDSOQ: No authority outpoint in DB (genesis or pre-bootstrap)\n");
+                }
             }
         } while (false);
 

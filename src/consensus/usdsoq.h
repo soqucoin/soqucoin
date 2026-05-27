@@ -19,6 +19,7 @@
 
 #include "amount.h"
 #include "serialize.h"
+#include "uint256.h"
 
 #include <cstdint>
 #include <vector>
@@ -176,5 +177,23 @@ public:
         READWRITE(threshold);
     }
 };
+
+// =========================================================================
+// SOQ-I005: Witness stack extraction helpers for ConnectBlock verification
+// =========================================================================
+
+//! Extract the opcode tag (first byte of first witness item) from a USDSOQ
+//! witness stack. Returns 0x00 if the stack is empty or first item is empty.
+uint8_t GetUSDSOQWitnessTag(const std::vector<std::vector<uint8_t>>& witnessStack);
+
+//! Extract all Dilithium signatures from a USDSOQ witness stack.
+//! Layout: [tag][payload][sig0][sig1]...[sigM][authority_set]
+//! Signatures are items at indices 2..N-2 that are exactly DILITHIUM_SIG_SIZE.
+std::vector<std::vector<uint8_t>> ExtractUSDSOQWitnessSignatures(
+    const std::vector<std::vector<uint8_t>>& witnessStack);
+
+//! Compute SHA256 of the concatenated authority public keys.
+//! This is the 32-byte hash used in OP_5 <hash> authority output scripts.
+uint256 ComputeAuthorityKeyHash(const std::vector<std::vector<uint8_t>>& keys);
 
 #endif // SOQUCOIN_CONSENSUS_USDSOQ_H

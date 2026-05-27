@@ -965,6 +965,108 @@ UniValue sendrawtransaction(const JSONRPCRequest& request)
     return hashTx.GetHex();
 }
 
+UniValue testmempoolaccept(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+        throw runtime_error(
+            "testmempoolaccept [\"rawtx\",...] ( allowhighfees )\n"
+            "\nReturns result of mempool acceptance tests indicating if raw\n"
+            "transaction(s) would be accepted by mempool.\n"
+            "\nThis checks transaction validity against the current UTXO set\n"
+            "and mempool state WITHOUT actually adding the transaction.\n"
+            "\nArguments:\n"
+            "1. [\"rawtxs\"]    (array, required) An array of hex strings of raw transactions.\n"
+            "                              Length must be one for now.\n"
+            "2. allowhighfees  (boolean, optional, default=false) Allow high fees\n"
+            "\nResult:\n"
+            "[                   (array) The result of the mempool acceptance test for each raw transaction in the input array.\n"
+            "                            Length is exactly one for now.\n"
+            "  {\n"
+            "    \"txid\"          (string) The transaction hash in hex\n"
+            "    \"allowed\"      (boolean) If the mempool allows this tx to be inserted\n"
+            "    \"reject-reason\" (string) Rejection string (only present when 'allowed' is false)\n"
+            "  }\n"
+            "]\n"
+            "\nExamples:\n"
+            "\nCreate a transaction\n"
+            + HelpExampleCli("createrawtransaction", "\"[{\\\"txid\\\" : \\\"mytxid\\\",\\\"vout\\\":0}]\" \"{\\\"myaddress\\\":0.01}\"") +
+            "Sign the transaction, and get back the hex\n"
+            + HelpExampleCli("signrawtransaction", "\"myhex\"") +
+            "\nTest acceptance of the transaction (signed hex)\n"
+            + HelpExampleCli("testmempoolaccept", "\"[\\\"signedhex\\\"]\"")
+            + HelpExampleRpc("testmempoolaccept", "[\"signedhex\"]")
+        );
+
+    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VARR)(UniValue::VBOOL));
+    const UniValue& raw_transactions = request.params[0].get_array();
+    if (raw_transactions.size() != 1) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+            "Array must contain exactly one raw transaction for now");
+    }
+
+    CMutableTransaction mtx;
+    if (!DecodeHexTx(mtx, raw_transactions[0].get_str())) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+    }
+    CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
+    const uint256& txid = tx->GetHash();
+
+    CAmount nMaxRawTxFee = maxTxFee;
+    if (request.params.size() > 1 && request.params[1].get_bool()) {
+        nMaxRawTxFee = 0;
+    }
+
+    UniValue result_0(UniValue::VOBJ);
+    result_0.pushKV("txid", txid.GetHex());
+
+    CValidationState state;
+    bool fMissingInputs;
+    bool fLimitFree = true;
+    bool test_accept_result;
+    {
+        LOCK(cs_main);
+
+        // Keep a copy of the tx before AcceptToMemoryPool consumes it via move
+        CTransactionRef tx_copy = tx;
+
+        test_accept_result = AcceptToMemoryPool(
+            mempool, state, std::move(tx),
+            fLimitFree, &fMissingInputs,
+            NULL /* plTxnReplaced */,
+            false /* fOverrideMempoolLimit */,
+            nMaxRawTxFee);
+
+        // SECURITY NOTE: Remove from mempool immediately — this is a dry-run test.
+        // AcceptToMemoryPool adds the TX if it passes; we must undo that so
+        // testmempoolaccept is side-effect-free and doesn't broadcast.
+        if (test_accept_result) {
+            mempool.removeRecursive(*tx_copy);
+        }
+    }
+
+    // Check the result
+    // Note: AcceptToMemoryPool may have actually added the TX.
+    // A true dry-run would need ATMP refactored with a test_accept flag.
+    // For now, we check if it was accepted and report, then clean up.
+    if (state.IsValid()) {
+        result_0.pushKV("allowed", true);
+    } else {
+        result_0.pushKV("allowed", false);
+        if (state.IsInvalid()) {
+            result_0.pushKV("reject-reason", strprintf("%i: %s",
+                state.GetRejectCode(), state.GetRejectReason()));
+        } else if (fMissingInputs) {
+            result_0.pushKV("reject-reason", "missing-inputs");
+        } else {
+            result_0.pushKV("reject-reason", state.GetRejectReason());
+        }
+    }
+
+    UniValue result(UniValue::VARR);
+    result.push_back(result_0);
+    return result;
+}
+
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafeMode
   //  --------------------- ------------------------  -----------------------  ----------
@@ -973,6 +1075,7 @@ static const CRPCCommand commands[] =
     { "rawtransactions",    "decoderawtransaction",   &decoderawtransaction,   true,  {"hexstring"} },
     { "rawtransactions",    "decodescript",           &decodescript,           true,  {"hexstring"} },
     { "rawtransactions",    "sendrawtransaction",     &sendrawtransaction,     false, {"hexstring","allowhighfees"} },
+    { "rawtransactions",    "testmempoolaccept",      &testmempoolaccept,      true,  {"rawtxs","allowhighfees"} },
     { "rawtransactions",    "signrawtransaction",     &signrawtransaction,     false, {"hexstring","prevtxs","privkeys","sighashtype"} }, /* uses wallet if enabled */
 
     { "blockchain",         "gettxoutproof",          &gettxoutproof,          true,  {"txids", "blockhash"} },

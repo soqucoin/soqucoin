@@ -141,6 +141,7 @@ BITCOIN_TESTS =\
   test/consensus_validation_tests.cpp \
   test/latticefold_tests.cpp \
   test/usdsoq_tests.cpp \
+  test/usdsoq_authority_tests.cpp \
   test/keyimage_tests.cpp \
   test/privacy_integration_tests.cpp \
   test/block_accumulator_tests.cpp \

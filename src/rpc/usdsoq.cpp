@@ -21,6 +21,7 @@
 #include "versionbits.h"
 #include "chainparams.h"
 #include "hash.h"
+#include "script/interpreter.h"
 extern "C" {
 #include "crypto/dilithium/api.h"
 }
@@ -689,6 +690,284 @@ static UniValue usdsoqsetauthority(const JSONRPCRequest& request)
 }
 
 // =========================================================================
+// usdsoqsigntx — Sign a USDSOQ authority transaction with Dilithium keys
+// =========================================================================
+// SOQ-I005: This RPC bridges the gap between unsigned authority TXs
+// (produced by usdsoqmint/burn/freeze) and broadcast via sendrawtransaction.
+//
+// It performs the following:
+//   1. Decodes the unsigned TX
+//   2. Adds the authority input (spends the tracked authority UTXO)
+//   3. Adds a fee input (SOQ for miner fees)
+//   4. Adds the OP_5 <keyhash> authority output (continues the UTXO chain)
+//   5. Computes BIP143 sighash for the authority input
+//   6. Signs with each provided Dilithium private key
+//   7. Constructs the v5 witness stack: [tag][payload][sig0..sigM][authority_set]
+//   8. Returns the fully signed TX hex
+//
+// SECURITY: Private keys are provided as RPC parameters and are NEVER stored.
+// This RPC is intended for offline/air-gapped signing environments.
+static UniValue usdsoqsigntx(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 3 || request.params.size() > 4)
+        throw runtime_error(
+            "usdsoqsigntx \"hextx\" opcode_tag [\"privkey1\",\"privkey2\",...] ( \"fee_outpoint\" )\n"
+            "\nSign a USDSOQ authority transaction with Dilithium private keys.\n"
+            "Adds the authority input, fee input, OP_5 authority output, and\n"
+            "M-of-N Dilithium signatures to an unsigned TX produced by\n"
+            "usdsoqmint, usdsoqburn, or usdsoqfreeze.\n"
+            "\nArguments:\n"
+            "1. \"hextx\"        (string, required) Unsigned raw transaction hex from usdsoqmint/burn/freeze\n"
+            "2. opcode_tag      (numeric, required) Operation tag: 1=MINT, 2=BURN, 3=FREEZE, 4=ROTATE\n"
+            "3. \"privkeys\"     (array, required) Array of hex-encoded Dilithium ML-DSA-44 private keys (2560 bytes each)\n"
+            "4. \"fee_outpoint\" (string, optional) Fee input as \"txid:vout\" (SOQ UTXO for miner fees).\n"
+            "                    If omitted, a dummy zero-value fee input is used (for regtest/stagenet).\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"hex\": \"xxxx\",          (string) Signed raw transaction hex (ready for sendrawtransaction)\n"
+            "  \"txid\": \"xxxx\",         (string) Transaction ID\n"
+            "  \"authority_input\": n,    (numeric) Input index carrying the authority witness\n"
+            "  \"authority_output\": n,   (numeric) Output index of the new authority UTXO\n"
+            "  \"signatures\": n,         (numeric) Number of signatures applied\n"
+            "  \"sighash\": \"xxxx\",      (string) BIP143 sighash that was signed (hex)\n"
+            "  \"status\": \"signed\"\n"
+            "}\n"
+            "\nExamples:\n" +
+            HelpExampleCli("usdsoqsigntx",
+                "\"<unsigned_hex>\" 1 '[\"<privkey1_hex>\",\"<privkey2_hex>\"]' \"<txid>:0\"") +
+            HelpExampleRpc("usdsoqsigntx",
+                "\"<unsigned_hex>\", 1, [\"<privkey1_hex>\",\"<privkey2_hex>\"], \"<txid>:0\""));
+
+    LOCK(cs_main);
+
+    // Check deployment
+    const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
+    ThresholdState deployState = VersionBitsState(chainActive.Tip(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    if (deployState != THRESHOLD_ACTIVE)
+        throw JSONRPCError(RPC_MISC_ERROR,
+            "USDSOQ deployment is not active.");
+
+    if (!g_usdsoq_authority.IsInitialized())
+        throw JSONRPCError(RPC_MISC_ERROR,
+            "USDSOQ authority is not initialized. Run usdsoqsetauthority first.");
+
+    // --- Parse arguments ---
+
+    // 1. Decode the unsigned TX
+    // fTryNoWitness=true: unsigned TXs have 0 inputs, so bytes 00 01
+    // (vin_count=0, vout_count=1) are misinterpreted as BIP144 segwit
+    // marker+flag if we only try witness deserialization.
+    string hexTx = request.params[0].get_str();
+    CMutableTransaction mtx;
+    if (!DecodeHexTx(mtx, hexTx, true))
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+
+    // 2. Opcode tag
+    int opcodeTag = request.params[1].get_int();
+    if (opcodeTag < 1 || opcodeTag > 4)
+        throw JSONRPCError(RPC_INVALID_PARAMETER,
+            "opcode_tag must be 1 (MINT), 2 (BURN), 3 (FREEZE), or 4 (ROTATE)");
+
+    // 3. Parse private keys
+    const UniValue& keyArray = request.params[2].get_array();
+    if (keyArray.size() == 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "At least one private key is required");
+
+    vector<vector<uint8_t>> privkeys;
+    for (unsigned int i = 0; i < keyArray.size(); i++) {
+        string keyHex = keyArray[i].get_str();
+        if (!IsHex(keyHex))
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("Private key %u is not valid hex", i));
+        vector<uint8_t> sk = ParseHex(keyHex);
+        if (sk.size() != pqcrystals_dilithium2_SECRETKEYBYTES)
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                strprintf("Private key %u has invalid size %u (expected %u)",
+                    i, sk.size(), pqcrystals_dilithium2_SECRETKEYBYTES));
+        privkeys.push_back(sk);
+    }
+
+    // 4. Optional fee outpoint
+    COutPoint feeOutpoint;
+    bool hasFeeInput = false;
+    if (request.params.size() >= 4 && !request.params[3].isNull()) {
+        string feeStr = request.params[3].get_str();
+        // Parse "txid:vout" format
+        size_t colonPos = feeStr.find(':');
+        if (colonPos == string::npos)
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                "fee_outpoint must be in \"txid:vout\" format");
+        string feeTxid = feeStr.substr(0, colonPos);
+        int feeVout = atoi(feeStr.substr(colonPos + 1).c_str());
+        if (!IsHex(feeTxid) || feeTxid.size() != 64)
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                "Invalid txid in fee_outpoint");
+        feeOutpoint = COutPoint(uint256S(feeTxid), feeVout);
+        hasFeeInput = true;
+    }
+
+    // --- Construct the complete authority TX ---
+
+    // The authority input MUST be the first input (index 0).
+    // This spends the tracked authority UTXO and carries the witness.
+
+    // Build the authority output scriptPubKey: OP_5 <SHA256(authority_keys)>
+    uint256 authKeyHash = ComputeAuthorityKeyHash(g_usdsoq_authority.GetKeys());
+    CScript authScript;
+    authScript << OP_5;
+    authScript << std::vector<unsigned char>(authKeyHash.begin(), authKeyHash.end());
+
+    // Save existing outputs from the unsigned TX
+    vector<CTxOut> existingOutputs = mtx.vout;
+
+    // Rebuild the TX with proper structure:
+    //   Input 0: authority input (spends current authority UTXO)
+    //   Input 1: fee input (SOQ for miner fees) — if provided
+    //   Output 0: authority output (OP_5 <keyhash>) — continues the chain
+    //   Output 1+: original outputs from unsigned TX (mint dest, burn OP_RETURN, etc.)
+    mtx.vin.clear();
+    mtx.vout.clear();
+
+    // Authority input: spend the tracked authority UTXO
+    COutPoint authOutpoint = g_usdsoq_authority_outpoint;
+    if (authOutpoint.IsNull()) {
+        // No tracked outpoint yet (pre-bootstrap). Use the fee outpoint
+        // as the authority input carrier. The ConnectBlock bootstrap
+        // fallback accepts any input as the authority carrier when
+        // g_usdsoq_authority_outpoint is null.
+        if (!hasFeeInput)
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                "Bootstrap mode: fee_outpoint is required for the first authority TX "
+                "(no existing authority UTXO to spend). Provide a SOQ UTXO as fee_outpoint.");
+        authOutpoint = feeOutpoint;
+        hasFeeInput = false;  // Don't add it again as a separate input
+        LogPrintf("USDSOQ: usdsoqsigntx: No tracked authority outpoint — "
+                  "using fee outpoint %s as bootstrap authority input\n",
+                  authOutpoint.ToString());
+    }
+    CTxIn authInput(authOutpoint);
+    authInput.nSequence = 0xFFFFFFFF;
+    mtx.vin.push_back(authInput);
+
+    // Fee input (if provided)
+    if (hasFeeInput) {
+        CTxIn feeInput(feeOutpoint);
+        feeInput.nSequence = 0xFFFFFFFF;
+        mtx.vin.push_back(feeInput);
+    }
+
+    // Authority output (index 0): continues the UTXO chain
+    CTxOut authOutput(CAmount(0), authScript);
+    mtx.vout.push_back(authOutput);
+
+    // Original outputs (index 1+)
+    for (const auto& out : existingOutputs) {
+        mtx.vout.push_back(out);
+    }
+
+    // --- Compute BIP143 sighash for the authority input ---
+    CTransaction txConst(mtx);
+    PrecomputedTransactionData txdata(txConst);
+
+    // SECURITY: SIGHASH_ALL — binds the signature to ALL inputs and outputs.
+    // The authority input (index 0) scriptPubKey is the OP_5 <keyhash> script.
+    uint256 sighash = SignatureHash(
+        authScript, txConst, 0, SIGHASH_ALL,
+        CAmount(0),  // Authority UTXOs are 0-value
+        SIGVERSION_WITNESS_V0, &txdata);
+
+    // --- Sign with each Dilithium private key ---
+    vector<vector<uint8_t>> signatures;
+    for (size_t i = 0; i < privkeys.size(); i++) {
+        uint8_t sig[pqcrystals_dilithium2_BYTES];
+        size_t siglen = 0;
+
+        int ret = pqcrystals_dilithium2_ref_signature(
+            sig, &siglen,
+            sighash.begin(), 32,   // Message = sighash (32 bytes)
+            nullptr, 0,             // Empty FIPS 204 context string
+            privkeys[i].data());
+
+        if (ret != 0)
+            throw JSONRPCError(RPC_INTERNAL_ERROR,
+                strprintf("Dilithium signing failed for key %u (error %d)", i, ret));
+
+        if (siglen != DILITHIUM_SIG_SIZE)
+            throw JSONRPCError(RPC_INTERNAL_ERROR,
+                strprintf("Unexpected signature size %u (expected %u)", siglen, DILITHIUM_SIG_SIZE));
+
+        signatures.push_back(vector<uint8_t>(sig, sig + siglen));
+    }
+
+    // --- Construct the v5 witness stack ---
+    // Layout: [tag][payload][sig0][sig1]...[sigM][authority_set]
+    //
+    // tag:           1-byte opcode tag (0x01=MINT, 0x02=BURN, 0x03=FREEZE, 0x04=ROTATE)
+    // payload:       operation-specific data (amount for MINT/BURN, outpoint for FREEZE)
+    // sig0..sigM:    M Dilithium signatures (2420 bytes each)
+    // authority_set: serialized authority key set for validation
+
+    CScriptWitness& witness = mtx.vin[0].scriptWitness;
+    witness.stack.clear();
+
+    // Item 0: opcode tag
+    witness.stack.push_back(vector<uint8_t>{(uint8_t)opcodeTag});
+
+    // Item 1: payload (operation-specific)
+    // For signing purposes, we encode the sighash as the payload
+    // (the actual opcode handler in EvalScript interprets this)
+    vector<uint8_t> payload(sighash.begin(), sighash.end());
+    witness.stack.push_back(payload);
+
+    // Items 2..M+1: Dilithium signatures
+    for (const auto& sig : signatures) {
+        witness.stack.push_back(sig);
+    }
+
+    // Item M+2: authority key set (serialized for verifier reference)
+    // This allows the verifier to reconstruct which keys to check against.
+    // Format: [threshold (4 bytes LE)][N (4 bytes LE)][key0..keyN]
+    vector<uint8_t> authSet;
+    uint32_t threshold = g_usdsoq_authority.GetThreshold();
+    uint32_t keyCount = (uint32_t)g_usdsoq_authority.GetKeyCount();
+    authSet.push_back(threshold & 0xFF);
+    authSet.push_back((threshold >> 8) & 0xFF);
+    authSet.push_back((threshold >> 16) & 0xFF);
+    authSet.push_back((threshold >> 24) & 0xFF);
+    authSet.push_back(keyCount & 0xFF);
+    authSet.push_back((keyCount >> 8) & 0xFF);
+    authSet.push_back((keyCount >> 16) & 0xFF);
+    authSet.push_back((keyCount >> 24) & 0xFF);
+    for (const auto& key : g_usdsoq_authority.GetKeys()) {
+        authSet.insert(authSet.end(), key.begin(), key.end());
+    }
+    witness.stack.push_back(authSet);
+
+    // --- Build result ---
+    CTransaction signedTx(mtx);
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("hex", EncodeHexTx(signedTx));
+    result.pushKV("txid", signedTx.GetHash().GetHex());
+    result.pushKV("authority_input", 0);
+    result.pushKV("authority_output", 0);
+    result.pushKV("fee_input", hasFeeInput ? 1 : -1);
+    result.pushKV("signatures", (int)signatures.size());
+    result.pushKV("sighash", sighash.GetHex());
+    result.pushKV("sighash_type", "SIGHASH_ALL");
+    result.pushKV("status", "signed");
+    result.pushKV("next_step", "Broadcast via: soqucoin-cli sendrawtransaction \"" +
+        EncodeHexTx(signedTx).substr(0, 32) + "...\"");
+
+    LogPrintf("USDSOQ: usdsoqsigntx: TX %s signed with %u Dilithium signatures "
+              "(tag=%d, sighash=%s)\n",
+        signedTx.GetHash().ToString(), signatures.size(), opcodeTag,
+        sighash.GetHex());
+
+    return result;
+}
+
+// =========================================================================
 // RPC Command Registration
 // =========================================================================
 static const CRPCCommand commands[] =
@@ -704,6 +983,7 @@ static const CRPCCommand commands[] =
     { "usdsoq", "usdsoqrotatekeys",       &usdsoqrotatekeys,        false, {"threshold", "pubkeys"} },
     { "usdsoq", "usdsoqgenkeys",          &usdsoqgenkeys,           true,  {} },
     { "usdsoq", "usdsoqsetauthority",     &usdsoqsetauthority,      false, {"threshold", "pubkeys"} },
+    { "usdsoq", "usdsoqsigntx",           &usdsoqsigntx,            false, {"hextx", "opcode_tag", "privkeys", "fee_outpoint"} },
 };
 
 void RegisterUSDSOQRPCCommands(CRPCTable &tableRPC)

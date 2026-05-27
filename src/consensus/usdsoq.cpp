@@ -184,3 +184,42 @@ bool CUSDSOQAuthority::RotateKeys(
     threshold = new_threshold;
     return true;
 }
+
+// =========================================================================
+// SOQ-I005: Witness stack extraction helpers for ConnectBlock verification
+// =========================================================================
+
+uint8_t GetUSDSOQWitnessTag(const std::vector<std::vector<uint8_t>>& witnessStack)
+{
+    if (witnessStack.empty() || witnessStack[0].empty())
+        return 0x00;
+    return witnessStack[0][0];
+}
+
+std::vector<std::vector<uint8_t>> ExtractUSDSOQWitnessSignatures(
+    const std::vector<std::vector<uint8_t>>& witnessStack)
+{
+    std::vector<std::vector<uint8_t>> sigs;
+    // Minimum stack: [tag][payload][sig0][authority_set] = 4 items for 1 sig
+    if (witnessStack.size() < 4) return sigs;
+
+    // Signatures are items at indices 2..N-2 (between payload and authority_set).
+    // We identify them by size: exactly DILITHIUM_SIG_SIZE (2420 bytes).
+    for (size_t i = 2; i < witnessStack.size() - 1; ++i) {
+        if (witnessStack[i].size() == DILITHIUM_SIG_SIZE) {
+            sigs.push_back(witnessStack[i]);
+        }
+    }
+    return sigs;
+}
+
+uint256 ComputeAuthorityKeyHash(const std::vector<std::vector<uint8_t>>& keys)
+{
+    CSHA256 hasher;
+    for (const auto& key : keys) {
+        hasher.Write(key.data(), key.size());
+    }
+    uint256 result;
+    hasher.Finalize(result.begin());
+    return result;
+}

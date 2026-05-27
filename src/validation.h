@@ -578,6 +578,12 @@ extern CUSDSOQAuthority g_usdsoq_authority;
 class CUSDSOQSupply;  // Forward declaration
 extern CUSDSOQSupply g_usdsoq_supply;
 
+/** SOQ-I005: Tracked USDSOQ authority UTXO outpoint (protected by cs_main).
+ *  Points to the current authority UTXO that must be spent for mint/burn/freeze/rotate.
+ *  Updated in ConnectBlock (advance) and DisconnectBlock (revert).
+ *  Persisted to LevelDB for crash recovery. */
+extern COutPoint g_usdsoq_authority_outpoint;
+
 /**
  * Return the spend height, which is one more than the inputs.GetBestBlock().
  * While checking, GetBestBlock() refers to the parent block. (protected by cs_main)

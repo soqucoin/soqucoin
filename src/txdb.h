@@ -10,6 +10,7 @@
 #include "consensus/usdsoq.h"
 #include "dbwrapper.h"
 #include "chain.h"
+#include "primitives/transaction.h"
 
 #include <map>
 #include <string>
@@ -107,6 +108,13 @@ public:
 
     //! Write the USDSOQ authority key set to LevelDB.
     bool WriteUSDSOQAuthority(const CUSDSOQAuthority &authority);
+
+    // SOQ-I005: USDSOQ authority UTXO outpoint tracking
+    //! Read the current authority UTXO outpoint from LevelDB. Returns false if not set.
+    bool ReadUSDSOQAuthorityOutpoint(COutPoint &outpoint) const;
+
+    //! Write the current authority UTXO outpoint to LevelDB.
+    bool WriteUSDSOQAuthorityOutpoint(const COutPoint &outpoint);
 };
 
 /** Specialization of CCoinsViewCursor to iterate over a CCoinsViewDB */

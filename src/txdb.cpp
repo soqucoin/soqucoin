@@ -35,6 +35,11 @@ static const char DB_KEY_IMAGE = 'K';
 // SOQ-AUD2-002: USDSOQ authority key set persistence
 static const char DB_USDSOQ_AUTHORITY = 'A';
 
+// SOQ-I005: USDSOQ authority UTXO outpoint tracking
+// Key: DB_USDSOQ_AUTH_OUTPOINT (single key, no suffix)
+// Value: COutPoint — the current authority UTXO that must be spent for mint/burn/freeze/rotate
+static const char DB_USDSOQ_AUTH_OUTPOINT = 'O';
+
 CCoinsViewDB::CCoinsViewDB(size_t nCacheSize, bool fMemory, bool fWipe) : db(GetDataDir() / "chainstate", nCacheSize, fMemory, fWipe, true) 
 {
 }
@@ -149,6 +154,15 @@ bool CCoinsViewDB::ReadUSDSOQAuthority(CUSDSOQAuthority &authority) const {
 
 bool CCoinsViewDB::WriteUSDSOQAuthority(const CUSDSOQAuthority &authority) {
     return db.Write(DB_USDSOQ_AUTHORITY, authority);
+}
+
+// SOQ-I005: USDSOQ authority UTXO outpoint tracking
+bool CCoinsViewDB::ReadUSDSOQAuthorityOutpoint(COutPoint &outpoint) const {
+    return db.Read(DB_USDSOQ_AUTH_OUTPOINT, outpoint);
+}
+
+bool CCoinsViewDB::WriteUSDSOQAuthorityOutpoint(const COutPoint &outpoint) {
+    return db.Write(DB_USDSOQ_AUTH_OUTPOINT, outpoint);
 }
 
 bool CCoinsViewDBCursor::GetKey(uint256 &key) const

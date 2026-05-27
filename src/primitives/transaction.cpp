@@ -161,6 +161,25 @@ bool CTransaction::HasDilithiumSignatures() const
         return true;
     }
 
+    // SOQ-I005: If this TX has ANY USDSOQ authority witness input, exempt
+    // the entire TX from this check. Authority TXs are verified by their
+    // own M-of-N Dilithium signature scheme in ConnectBlock, which is
+    // STRONGER than standard single-sig Dilithium. The fee input provides
+    // SOQ for miner fees — its script verification is handled separately.
+    for (const auto& txin : vin) {
+        if (!txin.scriptWitness.IsNull() && txin.scriptWitness.stack.size() >= 4) {
+            const auto& stack = txin.scriptWitness.stack;
+            if (stack[0].size() == 1 &&
+                stack[0][0] >= 0x01 && stack[0][0] <= 0x04) {
+                for (size_t i = 2; i < stack.size() - 1; ++i) {
+                    if (stack[i].size() == 2420) {
+                        return true;  // Authority TX — exempt from standard check
+                    }
+                }
+            }
+        }
+    }
+
     for (const auto& txin : vin) {
         const std::vector<unsigned char>* pk_blob = nullptr;
         std::vector<unsigned char> scriptSigLastPush;

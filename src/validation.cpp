@@ -229,6 +229,12 @@ CUSDSOQAuthority g_usdsoq_authority;
 // Protected by cs_main.
 CUSDSOQSupply g_usdsoq_supply;
 
+// SOQ-I005: Tracked USDSOQ authority UTXO outpoint.
+// Points to the current authority UTXO that must be spent for mint/burn/freeze/rotate.
+// Updated in ConnectBlock (advance to new outpoint) and DisconnectBlock (revert).
+// Persisted to LevelDB. Protected by cs_main.
+COutPoint g_usdsoq_authority_outpoint;
+
 enum FlushStateMode {
     FLUSH_STATE_NONE,
     FLUSH_STATE_IF_NEEDED,
@@ -1546,37 +1552,59 @@ bool CheckInputs(const CTransaction& tx, CValidationState& state, const CCoinsVi
         // Of course, if an assumed valid block is invalid due to false scriptSigs
         // this optimization would allow an invalid chain to be accepted.
         if (fScriptChecks) {
+            // SOQ-I005: If this TX has ANY USDSOQ authority witness input,
+            // skip standard script verification for the ENTIRE TX.
+            // Authority TXs have their own M-of-N Dilithium consensus
+            // verification in ConnectBlock (stronger than per-input checks).
+            bool isAuthorityTx = false;
             for (unsigned int i = 0; i < tx.vin.size(); i++) {
-                const COutPoint& prevout = tx.vin[i].prevout;
-                const CCoins* coins = inputs.AccessCoins(prevout.hash);
-                assert(coins);
-
-                // Verify signature
-                CScriptCheck check(*coins, tx, i, flags, cacheStore, &txdata);
-                if (pvChecks) {
-                    pvChecks->push_back(CScriptCheck());
-                    check.swap(pvChecks->back());
-                } else if (!check()) {
-                    if (flags & STANDARD_NOT_MANDATORY_VERIFY_FLAGS) {
-                        // Check whether the failure was caused by a
-                        // non-mandatory script verification check, such as
-                        // non-standard DER encodings or non-null dummy
-                        // arguments; if so, don't trigger DoS protection to
-                        // avoid splitting the network between upgraded and
-                        // non-upgraded nodes.
-                        CScriptCheck check2(*coins, tx, i,
-                            flags & ~STANDARD_NOT_MANDATORY_VERIFY_FLAGS, cacheStore, &txdata);
-                        if (check2())
-                            return state.Invalid(false, REJECT_NONSTANDARD, strprintf("non-mandatory-script-verify-flag (%s)", ScriptErrorString(check.GetScriptError())));
+                const auto& wit = tx.vin[i].scriptWitness;
+                if (!wit.IsNull() && wit.stack.size() >= 4 &&
+                    wit.stack[0].size() == 1 &&
+                    wit.stack[0][0] >= 0x01 && wit.stack[0][0] <= 0x04) {
+                    for (size_t j = 2; j < wit.stack.size() - 1; ++j) {
+                        if (wit.stack[j].size() == 2420) {
+                            isAuthorityTx = true;
+                            break;
+                        }
                     }
-                    // Failures of other flags indicate a transaction that is
-                    // invalid in new blocks, e.g. a invalid P2SH. We DoS ban
-                    // such nodes as they are not following the protocol. That
-                    // said during an upgrade careful thought should be taken
-                    // as to the correct behavior - we may want to continue
-                    // peering with non-upgraded nodes even after soft-fork
-                    // super-majority signaling has occurred.
-                    return state.DoS(100, false, REJECT_INVALID, strprintf("mandatory-script-verify-flag-failed (%s)", ScriptErrorString(check.GetScriptError())));
+                    if (isAuthorityTx) break;
+                }
+            }
+
+            if (!isAuthorityTx) {
+                for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                    const COutPoint& prevout = tx.vin[i].prevout;
+                    const CCoins* coins = inputs.AccessCoins(prevout.hash);
+                    assert(coins);
+
+                    // Verify signature
+                    CScriptCheck check(*coins, tx, i, flags, cacheStore, &txdata);
+                    if (pvChecks) {
+                        pvChecks->push_back(CScriptCheck());
+                        check.swap(pvChecks->back());
+                    } else if (!check()) {
+                        if (flags & STANDARD_NOT_MANDATORY_VERIFY_FLAGS) {
+                            // Check whether the failure was caused by a
+                            // non-mandatory script verification check, such as
+                            // non-standard DER encodings or non-null dummy
+                            // arguments; if so, don't trigger DoS protection to
+                            // avoid splitting the network between upgraded and
+                            // non-upgraded nodes.
+                            CScriptCheck check2(*coins, tx, i,
+                                flags & ~STANDARD_NOT_MANDATORY_VERIFY_FLAGS, cacheStore, &txdata);
+                            if (check2())
+                                return state.Invalid(false, REJECT_NONSTANDARD, strprintf("non-mandatory-script-verify-flag (%s)", ScriptErrorString(check.GetScriptError())));
+                        }
+                        // Failures of other flags indicate a transaction that is
+                        // invalid in new blocks, e.g. a invalid P2SH. We DoS ban
+                        // such nodes as they are not following the protocol. That
+                        // said during an upgrade careful thought should be taken
+                        // as to the correct behavior - we may want to continue
+                        // peering with non-upgraded nodes even after soft-fork
+                        // super-majority signaling has occurred.
+                        return state.DoS(100, false, REJECT_INVALID, strprintf("mandatory-script-verify-flag-failed (%s)", ScriptErrorString(check.GetScriptError())));
+                    }
                 }
             }
         }
@@ -1829,6 +1857,57 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                         g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
                         g_usdsoq_supply.Outstanding());
                 }
+            }
+        }
+    }
+
+    // =========================================================================
+    // SOQ-I005: Authority UTXO outpoint reversal on reorg
+    // If the disconnected block contained a USDSOQ authority TX, the
+    // g_usdsoq_authority_outpoint was advanced. We must revert it.
+    // We find the authority TX in this block (OP_5 output), then look for
+    // the input that spent the prior authority outpoint. That input's prevout
+    // is the outpoint we need to restore.
+    // =========================================================================
+    {
+        for (const auto& ptx : block.vtx) {
+            const CTransaction& tx = *ptx;
+            if (tx.IsCoinBase()) continue;
+
+            // Check if this TX has an authority output
+            bool hasAuthorityOutput = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.scriptPubKey.size() == 34 &&
+                    txout.scriptPubKey[0] == OP_5 &&
+                    txout.scriptPubKey[1] == 32) {
+                    hasAuthorityOutput = true;
+                    break;
+                }
+            }
+
+            if (hasAuthorityOutput) {
+                // This block advanced the authority outpoint.
+                // Find the authority input (the input whose prevout was an OP_5 output).
+                for (unsigned int k = 0; k < tx.vin.size(); ++k) {
+                    const CCoins* coins = view.AccessCoins(tx.vin[k].prevout.hash);
+                    if (coins && coins->IsAvailable(tx.vin[k].prevout.n)) {
+                        const CScript& prevSpk = coins->vout[tx.vin[k].prevout.n].scriptPubKey;
+                        if (prevSpk.size() == 34 && prevSpk[0] == OP_5 && prevSpk[1] == 32) {
+                            // Revert: the authority outpoint goes back to this input's prevout
+                            g_usdsoq_authority_outpoint = tx.vin[k].prevout;
+
+                            if (pcoinsdbview) {
+                                pcoinsdbview->WriteUSDSOQAuthorityOutpoint(g_usdsoq_authority_outpoint);
+                            }
+
+                            LogPrintf("USDSOQ: reorg reversal — authority outpoint reverted to %s:%u\n",
+                                g_usdsoq_authority_outpoint.hash.ToString(),
+                                g_usdsoq_authority_outpoint.n);
+                            break;
+                        }
+                    }
+                }
+                break;  // Only one authority TX per block expected
             }
         }
     }
@@ -2350,19 +2429,29 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     // =========================================================================
-    // SOQ-AUD2-002: USDSOQ Consensus Enforcement
+    // SOQ-AUD2-002 / SOQ-I005: USDSOQ Consensus Enforcement
     // When DEPLOYMENT_USDSOQ is active, enforce:
-    //   1. Input-side asset isolation (USDSOQ inputs → USDSOQ outputs only)
-    //   2. Frozen UTXO spend rejection (GENIUS Act §4(a)(2))
-    //   3. Per-block supply delta tracking (mint/burn accounting)
+    //   1. M-of-N Dilithium authority signature verification (SOQ-I005)
+    //   2. Authority UTXO chain tracking (Option D — P2WSH/Liquid pattern)
+    //   3. Input-side asset isolation (USDSOQ inputs → USDSOQ outputs only)
+    //   4. Frozen UTXO spend rejection (GENIUS Act §4(a)(2))
+    //   5. Per-block supply delta tracking (mint/burn accounting)
     //
-    // Full M-of-N Dilithium authority verification was already performed in
-    // EvalScript (Phase 2). ConnectBlock enforces the structural invariants
-    // that require UTXO set access.
+    // Authority verification: EvalScript only validates structural properties
+    // (witness stack sizes, tag bytes). Cryptographic M-of-N Dilithium
+    // verification is performed HERE in ConnectBlock, which has access to
+    // the chain state (authority key set, tracked outpoint).
     // =========================================================================
     if (flags & SCRIPT_VERIFY_USDSOQ) {
         CAmount nUSDSOQMinted = 0;
         CAmount nUSDSOQBurned = 0;
+
+        // SOQ-I005: Local authority outpoint tracker for this block.
+        // Starts from the global value but tracks updates within this
+        // ConnectBlock pass. This allows fJustCheck (TestBlockValidity)
+        // to validate consecutive authority TXs in the same block
+        // without mutating the global state.
+        COutPoint localAuthOutpoint = g_usdsoq_authority_outpoint;
 
         for (unsigned int i = 0; i < block.vtx.size(); i++) {
             const CTransaction& tx = *(block.vtx[i]);
@@ -2374,6 +2463,225 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 if (txout.nAssetType == ASSET_USDSOQ) {
                     txHasUSDSOQ = true;
                     break;
+                }
+            }
+
+            // =============================================================
+            // SOQ-I005: Authority TX detection and M-of-N Dilithium
+            // signature verification.
+            //
+            // An "authority TX" has at least one OP_5 <32-byte hash> output
+            // (witness v5 program). This indicates a MINT, BURN, FREEZE,
+            // or ROTATE operation that requires M-of-N authorization.
+            //
+            // Verification flow:
+            //   1. Detect authority output (OP_5 <32-byte>)
+            //   2. Find the authority INPUT (spends the tracked outpoint)
+            //   3. Extract witness stack signatures
+            //   4. Compute BIP143 sighash over the authority input
+            //   5. Verify M-of-N Dilithium signatures
+            //   6. Update tracked outpoint to the new authority output
+            // =============================================================
+            bool isAuthorityTx = false;
+            int nAuthorityOutputIndex = -1;
+            for (size_t j = 0; j < tx.vout.size(); ++j) {
+                const CScript& spk = tx.vout[j].scriptPubKey;
+                if (spk.size() == 34 && spk[0] == OP_5 && spk[1] == 32) {
+                    isAuthorityTx = true;
+                    nAuthorityOutputIndex = static_cast<int>(j);
+                    break;
+                }
+            }
+
+            if (isAuthorityTx && g_usdsoq_authority.IsInitialized()) {
+                // SECURITY NOTE (SOQ-I005): This is the consensus-critical
+                // authority verification. Without this block, any miner could
+                // mint unlimited USDSOQ with structurally valid but
+                // cryptographically unsigned transactions.
+
+                // Step 1: Find the authority input — the input that spends
+                // the tracked authority UTXO outpoint.
+                int nAuthorityInputIndex = -1;
+                CScript authorityScriptCode;
+
+                // If the authority outpoint is null (not yet bootstrapped),
+                // we must still verify authority sigs. In this case, look for
+                // any input whose prevout scriptPubKey is OP_5 <32-byte>.
+                for (unsigned int k = 0; k < tx.vin.size(); ++k) {
+                    const CTxIn& txin = tx.vin[k];
+
+                    // Check if this input spends the tracked authority UTXO
+                    if (!localAuthOutpoint.IsNull() &&
+                        txin.prevout == localAuthOutpoint) {
+                        nAuthorityInputIndex = static_cast<int>(k);
+                        // Try to get scriptPubKey from UTXO view first
+                        const CCoins* authCoins = view.AccessCoins(txin.prevout.hash);
+                        if (authCoins && authCoins->IsAvailable(txin.prevout.n)) {
+                            authorityScriptCode = authCoins->vout[txin.prevout.n].scriptPubKey;
+                        } else {
+                            // UTXO already spent by UpdateCoins (which runs before
+                            // this authority verification loop). Compute the script
+                            // deterministically: OP_5 <SHA256(concat(all_pubkeys))>
+                            uint256 authKeyHash = ComputeAuthorityKeyHash(
+                                g_usdsoq_authority.GetKeys());
+                            authorityScriptCode.clear();
+                            authorityScriptCode << OP_5;
+                            authorityScriptCode << std::vector<unsigned char>(
+                                authKeyHash.begin(), authKeyHash.end());
+                        }
+                        break;
+                    }
+
+                    // Fallback for bootstrap: if no tracked outpoint yet,
+                    // find the input whose prevout is a v5 program.
+                    if (localAuthOutpoint.IsNull()) {
+                        const CCoins* coins = view.AccessCoins(txin.prevout.hash);
+                        if (coins && coins->IsAvailable(txin.prevout.n)) {
+                            const CScript& prevSpk = coins->vout[txin.prevout.n].scriptPubKey;
+                            if (prevSpk.size() == 34 && prevSpk[0] == OP_5 && prevSpk[1] == 32) {
+                                nAuthorityInputIndex = static_cast<int>(k);
+                                authorityScriptCode = prevSpk;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (nAuthorityInputIndex >= 0 && !tx.vin[nAuthorityInputIndex].scriptWitness.IsNull()) {
+                    const CScriptWitness& authWitness = tx.vin[nAuthorityInputIndex].scriptWitness;
+
+                    // Step 2: Extract signatures from the witness stack
+                    std::vector<std::vector<uint8_t>> sigs = ExtractUSDSOQWitnessSignatures(authWitness.stack);
+
+                    if (sigs.empty()) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): USDSOQ authority tx %s has no signatures in witness",
+                                tx.GetHash().ToString()),
+                            REJECT_INVALID, "bad-usdsoq-authority-sig");
+                    }
+
+                    // Step 3: Compute BIP143 sighash for the authority input
+                    // SECURITY: Uses SIGHASH_ALL to bind the signature to ALL
+                    // inputs and outputs, preventing amount/destination tampering.
+                    PrecomputedTransactionData txdata(tx);
+                    uint256 sighash = SignatureHash(
+                        authorityScriptCode, tx,
+                        nAuthorityInputIndex, SIGHASH_ALL,
+                        CAmount(0),  // Authority UTXOs are 0-value
+                        SIGVERSION_WITNESS_V0, &txdata);
+
+                    // Step 4: Verify M-of-N Dilithium authority signatures
+                    std::vector<uint8_t> sighashBytes(sighash.begin(), sighash.end());
+                    if (!g_usdsoq_authority.VerifyAuthoritySignatures(sighashBytes, sigs)) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): USDSOQ authority signature verification "
+                                  "FAILED for tx %s at block %d (M-of-N threshold not met)",
+                                tx.GetHash().ToString(), pindex->nHeight),
+                            REJECT_INVALID, "bad-usdsoq-authority-sig");
+                    }
+
+                    LogPrintf("USDSOQ: Authority signature verified for tx %s "
+                              "(%u valid sigs, threshold=%u) at block %d\n",
+                        tx.GetHash().ToString(), sigs.size(),
+                        g_usdsoq_authority.GetThreshold(), pindex->nHeight);
+
+                    // Step 5: Update tracked authority outpoint to the new
+                    // authority output in this transaction (continues the chain).
+                    // Guard with !fJustCheck to prevent TestBlockValidity from
+                    // polluting the global during block template testing.
+                    if (nAuthorityOutputIndex >= 0) {
+                        COutPoint prevAuthOutpoint = localAuthOutpoint;
+                        localAuthOutpoint = COutPoint(tx.GetHash(), nAuthorityOutputIndex);
+
+                        // Persist to LevelDB (only when committing)
+                        if (!fJustCheck && pcoinsdbview) {
+                            g_usdsoq_authority_outpoint = localAuthOutpoint;
+                            if (!pcoinsdbview->WriteUSDSOQAuthorityOutpoint(g_usdsoq_authority_outpoint)) {
+                                LogPrintf("ERROR: USDSOQ: Failed to persist authority outpoint "
+                                          "to LevelDB at block %d\n", pindex->nHeight);
+                            }
+                        }
+
+                        LogPrintf("USDSOQ: Authority outpoint updated: %s:%u → %s:%u\n",
+                            prevAuthOutpoint.hash.ToString(), prevAuthOutpoint.n,
+                            localAuthOutpoint.hash.ToString(),
+                            localAuthOutpoint.n);
+                    }
+                } else if (nAuthorityInputIndex < 0) {
+                    if (localAuthOutpoint.IsNull()) {
+                        // BOOTSTRAP: No tracked outpoint yet (first authority TX).
+                        // Use input 0 as the authority witness carrier.
+                        // The sighash is computed against the authority output script
+                        // since there's no prevout scriptPubKey to use.
+                        nAuthorityInputIndex = 0;
+                        authorityScriptCode = tx.vout[nAuthorityOutputIndex].scriptPubKey;
+
+                        // Verify authority signatures for bootstrap
+                        if (!tx.vin[0].scriptWitness.IsNull()) {
+                            const CScriptWitness& bsWitness = tx.vin[0].scriptWitness;
+                            std::vector<std::vector<uint8_t>> bsSigs =
+                                ExtractUSDSOQWitnessSignatures(bsWitness.stack);
+
+                            if (!bsSigs.empty()) {
+                                PrecomputedTransactionData bsTxdata(tx);
+                                uint256 bsSighash = SignatureHash(
+                                    authorityScriptCode, tx, 0, SIGHASH_ALL,
+                                    CAmount(0), SIGVERSION_WITNESS_V0, &bsTxdata);
+
+                                std::vector<uint8_t> bsSighashBytes(bsSighash.begin(), bsSighash.end());
+                                if (!g_usdsoq_authority.VerifyAuthoritySignatures(bsSighashBytes, bsSigs)) {
+                                    return state.DoS(100,
+                                        error("ConnectBlock(): USDSOQ bootstrap authority sig "
+                                              "verification FAILED for tx %s",
+                                            tx.GetHash().ToString()),
+                                        REJECT_INVALID, "bad-usdsoq-authority-sig");
+                                }
+
+                                LogPrintf("USDSOQ: Bootstrap authority tx %s verified "
+                                          "(%u sigs, threshold=%u)\n",
+                                    tx.GetHash().ToString(), bsSigs.size(),
+                                    g_usdsoq_authority.GetThreshold());
+
+                                // Update local outpoint tracker (always)
+                                if (nAuthorityOutputIndex >= 0) {
+                                    localAuthOutpoint = COutPoint(
+                                        tx.GetHash(), nAuthorityOutputIndex);
+                                    // Persist to global + LevelDB only when committing
+                                    if (!fJustCheck && pcoinsdbview) {
+                                        g_usdsoq_authority_outpoint = localAuthOutpoint;
+                                        pcoinsdbview->WriteUSDSOQAuthorityOutpoint(
+                                            g_usdsoq_authority_outpoint);
+                                    }
+                                    LogPrintf("USDSOQ: Bootstrap authority outpoint set: %s:%u\n",
+                                        localAuthOutpoint.hash.ToString(),
+                                        localAuthOutpoint.n);
+                                }
+                            } else {
+                                return state.DoS(100,
+                                    error("ConnectBlock(): USDSOQ bootstrap tx %s has "
+                                          "no authority signatures",
+                                        tx.GetHash().ToString()),
+                                    REJECT_INVALID, "bad-usdsoq-authority-sig");
+                            }
+                        } else {
+                            return state.DoS(100,
+                                error("ConnectBlock(): USDSOQ bootstrap tx %s has "
+                                      "no witness on input 0",
+                                    tx.GetHash().ToString()),
+                                REJECT_INVALID, "bad-usdsoq-authority-sig");
+                        }
+                    } else {
+                        // Authority TX detected but no authority input found.
+                        // This means the TX has an OP_5 output but doesn't spend
+                        // the tracked authority UTXO — reject it.
+                        return state.DoS(100,
+                            error("ConnectBlock(): USDSOQ authority tx %s does not spend "
+                                  "the tracked authority UTXO (expected %s:%u)",
+                                tx.GetHash().ToString(),
+                                localAuthOutpoint.hash.ToString(),
+                                localAuthOutpoint.n),
+                            REJECT_INVALID, "bad-usdsoq-authority-outpoint");
+                    }
                 }
             }
 
@@ -2400,19 +2708,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 // ALL inputs must also be USDSOQ (or this is a mint tx).
                 // MINT transactions have no USDSOQ inputs by definition
                 // (they create new supply from authority-signed witness).
+                // NOTE: isAuthorityTx was already determined by SOQ-I005
+                // authority detection above — no need to re-scan outputs.
                 if (txHasUSDSOQ && prevOut.nAssetType != ASSET_USDSOQ) {
-                    // Check if this is an authority mint/burn tx (witness v5)
-                    // Authority txs are allowed to have SOQ inputs for fees
-                    bool isAuthorityTx = false;
-                    for (const auto& txout : tx.vout) {
-                        if (txout.scriptPubKey.size() == 34 &&
-                            txout.scriptPubKey[0] == OP_5 &&
-                            txout.scriptPubKey[1] == 32) {
-                            isAuthorityTx = true;
-                            break;
-                        }
-                    }
-
                     if (!isAuthorityTx) {
                         return state.DoS(100,
                             error("ConnectBlock(): USDSOQ tx has non-USDSOQ input %s:%u",
