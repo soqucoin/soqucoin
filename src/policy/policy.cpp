@@ -130,6 +130,25 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
             reason = "dust";
             return false;
         }
+
+        // SOQ-ARCH-003: Relay-policy enforcement of UTXO_COST_PER_BYTE.
+        // Rejects outputs whose value < UTXO_COST_PER_BYTE × serialized_size
+        // at the mempool level, preventing "mempool poison" TXs that pass the
+        // dust limit but fail ConnectBlock's consensus UTXO cost enforcement.
+        // Without this, such TXs sit in the mempool forever — every block
+        // template includes them, every block attempt fails, and mining stalls.
+        // Exemptions mirror ConnectBlock (validation.cpp L2836-2841):
+        //   - Unspendable outputs (OP_RETURN) — not in UTXO set
+        //   - USDSOQ authority markers (OP_5, 0-value by design)
+        if (!txout.scriptPubKey.IsUnspendable() &&
+            !(txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x55)) {
+            size_t nOutputSize = ::GetSerializeSize(txout, SER_NETWORK, PROTOCOL_VERSION);
+            CAmount nMinUtxoValue = UTXO_COST_PER_BYTE * static_cast<CAmount>(nOutputSize);
+            if (txout.nValue < nMinUtxoValue) {
+                reason = "utxo-cost-per-byte";
+                return false;
+            }
+        }
     }
 
     // only one OP_RETURN txout is permitted
