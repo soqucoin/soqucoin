@@ -110,6 +110,30 @@ struct Params {
      *  OP_USDSOQ_ROTATE_AUTHORITY. Empty = no authority (mainnet at genesis). */
     std::vector<std::string> usdsoqAuthorityKeys;
     uint32_t usdsoqAuthorityThreshold = 0;
+
+    /** SOQ-I005-STAGENET: USDSOQ authority signature enforcement height.
+     *  Before this height, USDSOQ authority TXs (bootstrap or chain) are
+     *  accepted WITHOUT authority signature verification. This exempts
+     *  pre-authority test mints on stagenet (blocks 0–37200).
+     *
+     *  MAINNET: Set to 0 — authority signatures enforced from BIP9 activation.
+     *  No unsigned USDSOQ TX can exist before BIP9 activates USDSOQ, so the
+     *  enforcement height is irrelevant (there are no blocks to exempt).
+     *
+     *  STAGENET: Set to 37201 — blocks 0-37200 exempt (pre-authority test mints).
+     *  Authority signature verification required from block 37201 onward.
+     *
+     *  See SECURITY_ISSUE_REGISTRY.md SOQ-I005-STAGENET for full rationale. */
+    int32_t nUSDSOQAuthorityEnforcementHeight = 0;
+
+    /** SOQ-I007-STAGENET: UTXO cost minimum enforcement height.
+     *  Before this height, the UTXO_COST_PER_BYTE minimum is not enforced
+     *  even if DEPLOYMENT_UTXO_COST is ALWAYS_ACTIVE. This exempts
+     *  pre-UTXO-cost blocks on stagenet.
+     *
+     *  MAINNET: Set to 0 — enforced from BIP9 activation.
+     *  STAGENET: Set to 37201 — blocks 0-37200 exempt. */
+    int32_t nUtxoCostEnforcementHeight = 0;
 };
 } // namespace Consensus
 

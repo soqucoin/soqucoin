@@ -1556,13 +1556,17 @@ bool CheckInputs(const CTransaction& tx, CValidationState& state, const CCoinsVi
             // skip standard script verification for the ENTIRE TX.
             // Authority TXs have their own M-of-N Dilithium consensus
             // verification in ConnectBlock (stronger than per-input checks).
+            //
+            // Authority witness layout (appended to fee input's standard witness):
+            //   [0] payout_sig+hashtype  [1] payout_pk  [2] auth_tag (0x55)
+            //   [3] auth_payload  [4..N-1] auth_sigs  [N] authority_set
             bool isAuthorityTx = false;
             for (unsigned int i = 0; i < tx.vin.size(); i++) {
                 const auto& wit = tx.vin[i].scriptWitness;
-                if (!wit.IsNull() && wit.stack.size() >= 4 &&
-                    wit.stack[0].size() == 1 &&
-                    wit.stack[0][0] >= 0x01 && wit.stack[0][0] <= 0x04) {
-                    for (size_t j = 2; j < wit.stack.size() - 1; ++j) {
+                if (!wit.IsNull() && wit.stack.size() >= 6 &&
+                    wit.stack[2].size() == 1 &&
+                    wit.stack[2][0] == 0x55) {
+                    for (size_t j = 4; j < wit.stack.size() - 1; ++j) {
                         if (wit.stack[j].size() == 2420) {
                             isAuthorityTx = true;
                             break;
@@ -2494,6 +2498,41 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
 
             if (isAuthorityTx && g_usdsoq_authority.IsInitialized()) {
+                // SOQ-I005-STAGENET: Height-gated authority enforcement.
+                // Before nUSDSOQAuthorityEnforcementHeight, authority TXs are
+                // accepted without signature verification (pre-authority test mints).
+                // After the height, full M-of-N Dilithium verification is required.
+                //
+                // MAINNET: nUSDSOQAuthorityEnforcementHeight=0, so this gate is
+                // always open (signatures always required). No unsigned USDSOQ TX
+                // can exist before BIP9 activates USDSOQ, making this safe.
+                //
+                // STAGENET: nUSDSOQAuthorityEnforcementHeight=37201, exempting
+                // blocks 0-37200 which contain pre-authority CLI test mints.
+                if (pindex->nHeight < consensus.nUSDSOQAuthorityEnforcementHeight) {
+                    LogPrintf("USDSOQ: Pre-enforcement height %d < %d — "
+                              "skipping authority sig verification for tx %s "
+                              "(SOQ-I005-STAGENET exemption)\n",
+                        pindex->nHeight,
+                        consensus.nUSDSOQAuthorityEnforcementHeight,
+                        tx.GetHash().ToString());
+
+                    // Still track the authority outpoint for chain continuity.
+                    // When the enforcement height is reached, the next authority
+                    // TX must spend the outpoint established by these exempt TXs.
+                    if (nAuthorityOutputIndex >= 0) {
+                        localAuthOutpoint = COutPoint(
+                            tx.GetHash(), nAuthorityOutputIndex);
+                        if (!fJustCheck && pcoinsdbview) {
+                            g_usdsoq_authority_outpoint = localAuthOutpoint;
+                            pcoinsdbview->WriteUSDSOQAuthorityOutpoint(
+                                g_usdsoq_authority_outpoint);
+                        }
+                        LogPrintf("USDSOQ: Pre-enforcement outpoint set: %s:%u\n",
+                            localAuthOutpoint.hash.ToString(),
+                            localAuthOutpoint.n);
+                    }
+                } else {
                 // SECURITY NOTE (SOQ-I005): This is the consensus-critical
                 // authority verification. Without this block, any miner could
                 // mint unlimited USDSOQ with structurally valid but
@@ -2682,7 +2721,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                 localAuthOutpoint.n),
                             REJECT_INVALID, "bad-usdsoq-authority-outpoint");
                     }
-                }
+                    }
+                } // end height gate else
             }
 
             // Input-side validation for non-coinbase transactions
@@ -2829,6 +2869,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // See DL-SOQ-FEE-ARCHITECTURE-V3.md, Appendix A.
     // =========================================================================
     if (fEnforceUtxoCost) {
+        // SOQ-I007-STAGENET: Height gate for UTXO cost enforcement.
+        // Before nUtxoCostEnforcementHeight, skip minimum value check.
+        // MAINNET: nUtxoCostEnforcementHeight=0 → always enforced from BIP9 activation.
+        // STAGENET: nUtxoCostEnforcementHeight=37201 → blocks 0-37200 exempt.
+        if (pindex->nHeight < consensus.nUtxoCostEnforcementHeight) {
+            LogPrintf("UTXO_COST: Pre-enforcement height %d < %d — "
+                      "skipping minimum value check (SOQ-I007-STAGENET)\n",
+                pindex->nHeight, consensus.nUtxoCostEnforcementHeight);
+        } else {
         for (unsigned int i = 0; i < block.vtx.size(); i++) {
             const CTransaction& tx = *(block.vtx[i]);
             for (size_t j = 0; j < tx.vout.size(); j++) {
@@ -2853,6 +2902,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 }
             }
         }
+        } // end UTXO cost height gate else
     }
 
     // =========================================================================

@@ -187,25 +187,34 @@ bool CUSDSOQAuthority::RotateKeys(
 
 // =========================================================================
 // SOQ-I005: Witness stack extraction helpers for ConnectBlock verification
+//
+// Extended witness layout (authority data appended to fee input's standard witness):
+//   [0] payout_sig+hashtype (2421 bytes — standard Dilithium)
+//   [1] 0x00+payout_pk      (1313 bytes — standard Dilithium pubkey)
+//   [2] auth_tag             (1 byte — 0x55 = OP_5 authority marker)
+//   [3] auth_payload         (32 bytes — PK hash)
+//   [4..N-1] auth_sig_i     (2420 bytes each — Dilithium authority sigs)
+//   [N] authority_set        (N, bitvector, pk0, pk1, ...)
 // =========================================================================
 
 uint8_t GetUSDSOQWitnessTag(const std::vector<std::vector<uint8_t>>& witnessStack)
 {
-    if (witnessStack.empty() || witnessStack[0].empty())
+    // Authority tag is at index 2 (after payout sig + payout pk)
+    if (witnessStack.size() < 3 || witnessStack[2].empty())
         return 0x00;
-    return witnessStack[0][0];
+    return witnessStack[2][0];
 }
 
 std::vector<std::vector<uint8_t>> ExtractUSDSOQWitnessSignatures(
     const std::vector<std::vector<uint8_t>>& witnessStack)
 {
     std::vector<std::vector<uint8_t>> sigs;
-    // Minimum stack: [tag][payload][sig0][authority_set] = 4 items for 1 sig
-    if (witnessStack.size() < 4) return sigs;
+    // Minimum stack: [payout_sig][payout_pk][tag][payload][sig0][authority_set] = 6 items
+    if (witnessStack.size() < 6) return sigs;
 
-    // Signatures are items at indices 2..N-2 (between payload and authority_set).
+    // Signatures are items at indices 4..N-2 (between auth_payload and authority_set).
     // We identify them by size: exactly DILITHIUM_SIG_SIZE (2420 bytes).
-    for (size_t i = 2; i < witnessStack.size() - 1; ++i) {
+    for (size_t i = 4; i < witnessStack.size() - 1; ++i) {
         if (witnessStack[i].size() == DILITHIUM_SIG_SIZE) {
             sigs.push_back(witnessStack[i]);
         }

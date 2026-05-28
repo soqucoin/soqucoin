@@ -166,12 +166,21 @@ bool CTransaction::HasDilithiumSignatures() const
     // own M-of-N Dilithium signature scheme in ConnectBlock, which is
     // STRONGER than standard single-sig Dilithium. The fee input provides
     // SOQ for miner fees — its script verification is handled separately.
+    //
+    // Authority witness layout (appended to fee input's standard witness):
+    //   [0] payout_sig+hashtype (2421 bytes — standard Dilithium)
+    //   [1] 0x00+payout_pk      (1313 bytes — standard Dilithium pubkey)
+    //   [2] auth_tag             (1 byte — 0x55 = OP_5 authority marker)
+    //   [3] auth_payload         (32 bytes — PK hash)
+    //   [4..N-1] auth_sig_i     (2420 bytes each — Dilithium authority sigs)
+    //   [N] authority_set        (N, bitvector, pk0, pk1, ...)
     for (const auto& txin : vin) {
-        if (!txin.scriptWitness.IsNull() && txin.scriptWitness.stack.size() >= 4) {
+        if (!txin.scriptWitness.IsNull() && txin.scriptWitness.stack.size() >= 6) {
             const auto& stack = txin.scriptWitness.stack;
-            if (stack[0].size() == 1 &&
-                stack[0][0] >= 0x01 && stack[0][0] <= 0x04) {
-                for (size_t i = 2; i < stack.size() - 1; ++i) {
+            // Authority tag is at stack[2] (after payout sig + payout pk)
+            if (stack[2].size() == 1 && stack[2][0] == 0x55) {
+                // Verify at least one 2420-byte Dilithium authority signature exists
+                for (size_t i = 4; i < stack.size() - 1; ++i) {
                     if (stack[i].size() == 2420) {
                         return true;  // Authority TX — exempt from standard check
                     }
