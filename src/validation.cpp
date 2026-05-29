@@ -4287,7 +4287,14 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
         nLockTimeFlags |= LOCKTIME_MEDIAN_TIME_PAST;
     }
 
-    int64_t nLockTimeCutoff = (nLockTimeFlags & LOCKTIME_MEDIAN_TIME_PAST) ? pindexPrev->GetMedianTimePast() : block.GetBlockTime();
+    // SOQ-REINDEX-001: Guard against NULL pindexPrev when CSV is ALWAYS_ACTIVE.
+    // During -reindex, the genesis block (pindexPrev=NULL) reaches this code with
+    // LOCKTIME_MEDIAN_TIME_PAST set because VersionBitsState returns ACTIVE for
+    // ALWAYS_ACTIVE deployments regardless of pindexPrev. Fallback to 0 is safe —
+    // the genesis block has no parent, so median time past is undefined.
+    int64_t nLockTimeCutoff = (nLockTimeFlags & LOCKTIME_MEDIAN_TIME_PAST)
+        ? (pindexPrev ? pindexPrev->GetMedianTimePast() : 0)
+        : block.GetBlockTime();
 
     // Check that all transactions are finalized
     for (const auto& tx : block.vtx) {
@@ -4307,7 +4314,10 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
 
     // Enforce strict Dilithium coinbase output (OP_1 <32-byte hash>)
     // Reject any coinbase output that is not Dilithium bech32m v1 (or OP_RETURN for witness commitment)
-    if (chainParams.NetworkIDString() != CBaseChainParams::REGTEST) {
+    // SOQ-REINDEX-001: Exempt genesis block (nHeight == 0) — it uses a legacy P2PK output
+    // created by CreateGenesisBlock(). During normal sync, genesis bypasses this check
+    // via InitBlockIndex(), but -reindex routes through AcceptBlock → ContextualCheckBlock.
+    if (nHeight > 0 && chainParams.NetworkIDString() != CBaseChainParams::REGTEST) {
         for (const auto& txout : block.vtx[0]->vout) {
             const CScript& scriptPubKey = txout.scriptPubKey;
             // Dilithium P2WPKH-equivalent: OP_1 <32-byte hash>
