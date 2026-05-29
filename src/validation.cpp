@@ -2517,18 +2517,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         consensus.nUSDSOQAuthorityEnforcementHeight,
                         tx.GetHash().ToString());
 
-                    // Still track the authority outpoint for chain continuity.
-                    // When the enforcement height is reached, the next authority
-                    // TX must spend the outpoint established by these exempt TXs.
+                    // SOQ-REINDEX-002: Track outpoint locally within the block only.
+                    // Do NOT persist to g_usdsoq_authority_outpoint or LevelDB.
+                    // The original chain was built with binaries that did not track
+                    // outpoints during pre-enforcement, so the outpoint was null at
+                    // the enforcement boundary (height 37201). Persisting here would
+                    // create a phantom state causing the first post-enforcement TX
+                    // to fail validation (it used the bootstrap path, not spend path).
                     if (nAuthorityOutputIndex >= 0) {
                         localAuthOutpoint = COutPoint(
                             tx.GetHash(), nAuthorityOutputIndex);
-                        if (!fJustCheck && pcoinsdbview) {
-                            g_usdsoq_authority_outpoint = localAuthOutpoint;
-                            pcoinsdbview->WriteUSDSOQAuthorityOutpoint(
-                                g_usdsoq_authority_outpoint);
-                        }
-                        LogPrintf("USDSOQ: Pre-enforcement outpoint set: %s:%u\n",
+                        LogPrintf("USDSOQ: Pre-enforcement outpoint tracked (local only): %s:%u\n",
                             localAuthOutpoint.hash.ToString(),
                             localAuthOutpoint.n);
                     }
