@@ -885,9 +885,7 @@ if test x$use_pkgconfig = xyes; then
       if test "x$use_zmq" = "xyes"; then
         PKG_CHECK_MODULES([ZMQ],[libzmq >= 4],
           [AC_DEFINE([ENABLE_ZMQ],[1],[Define to 1 to enable ZMQ functions])],
-          [AC_DEFINE([ENABLE_ZMQ],[0],[Define to 1 to enable ZMQ functions])
-           AC_MSG_WARN([libzmq version 4.x or greater not found, disabling])
-           use_zmq=no])
+          [AC_MSG_ERROR([libzmq version 4.x or greater not found. ZMQ is REQUIRED for pool mining nodes. Install libzmq3-dev or use --disable-zmq to explicitly opt out.])])
       else
           AC_DEFINE_UNQUOTED([ENABLE_ZMQ],[0],[Define to 1 to enable ZMQ functions])
       fi
@@ -911,13 +909,9 @@ else
   if test "x$use_zmq" = "xyes"; then
      AC_CHECK_HEADER([zmq.h],
        [AC_DEFINE([ENABLE_ZMQ],[1],[Define to 1 to enable ZMQ functions])],
-       [AC_MSG_WARN([zmq.h not found, disabling zmq support])
-        use_zmq=no
-        AC_DEFINE([ENABLE_ZMQ],[0],[Define to 1 to enable ZMQ functions])])
+       [AC_MSG_ERROR([zmq.h not found. ZMQ is REQUIRED for pool mining nodes. Install libzmq3-dev or use --disable-zmq to explicitly opt out.])])
      AC_CHECK_LIB([zmq],[zmq_ctx_shutdown],ZMQ_LIBS=-lzmq,
-       [AC_MSG_WARN([libzmq >= 4.0 not found, disabling zmq support])
-        use_zmq=no
-        AC_DEFINE([ENABLE_ZMQ],[0],[Define to 1 to enable ZMQ functions])])
+       [AC_MSG_ERROR([libzmq >= 4.0 not found. ZMQ is REQUIRED for pool mining nodes. Install libzmq3-dev or use --disable-zmq to explicitly opt out.])])
   else
     AC_DEFINE_UNQUOTED([ENABLE_ZMQ],[0],[Define to 1 to enable ZMQ functions])
   fi
