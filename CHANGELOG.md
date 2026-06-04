@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-06-04
+
+First PQC-pure release. Complete removal of the secp256k1 classical ECC library
+eliminates the last classical crypto dependency. All cryptographic operations —
+signing, verification, key generation — use ML-DSA-44 (Dilithium, FIPS 204)
+exclusively. 507 test cases passing.
+
 ### Removed
 - **SOQ-SECP-001: secp256k1 classical crypto library** — Deleted 345 files (43MB) of dead code that was compiled and linked into all binaries but had zero active function calls. All cryptographic operations use ML-DSA-44 (Dilithium, FIPS 204) exclusively. This eliminates the last classical ECC dependency from the codebase and resolves external PQC compliance scanner findings.
   - Build system: Removed `LIBSECP256K1` from `Makefile.am`, `configure.ac`, `autogen.sh`
@@ -17,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `key.h` comment block now documents ML-DSA-44 key sizes (2560/1312/2420 bytes) instead of stale secp256k1 sizes (279/65/72 bytes)
 - `validation.h`, `validation.cpp`, `pubkey.cpp` comments updated to remove "ECDSA" terminology from signature operation descriptions
+
+### Fixed
+- **Test binary link failure** — Resolved pre-existing duplicate symbol error (`StartShutdown`, `ShutdownRequested`, `g_connman`) between `test_bitcoin.cpp` stubs and `init.cpp` by adding `-Wl,--allow-multiple-definition` to test LDFLAGS. The test binary (`test_soqucoin`) now builds and runs successfully on all platforms.
+
+### Test Coverage
+- 507 test cases, all passing (up from 503 in v1.1.0)
 
 ## [1.1.0] — 2026-06-03
 
