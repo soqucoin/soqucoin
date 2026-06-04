@@ -102,6 +102,14 @@ public:
     //! SECURITY: Prevents burning more than outstanding supply.
     bool Burn(CAmount amount);
 
+    //! Reverse a mint during DisconnectBlock (reorg). Subtracts from total_minted.
+    //! Returns false if amount exceeds total_minted (invariant violation).
+    bool UndoMint(CAmount amount);
+
+    //! Reverse a burn during DisconnectBlock (reorg). Subtracts from total_burned.
+    //! Returns false if amount exceeds total_burned (invariant violation).
+    bool UndoBurn(CAmount amount);
+
     //! Verify the supply invariant: Outstanding() >= 0 and both counters
     //! are within valid MoneyRange bounds.
     bool CheckInvariant() const;

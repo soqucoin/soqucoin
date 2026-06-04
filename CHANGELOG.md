@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-06-03
+
+Security-focused release fixing 2 critical and 3 high-severity USDSOQ consensus
+bugs discovered during internal pre-Halborn audit. Required for stagenet stability
+and SoquShield wallet integration.
+
+### Security Fixes
+- **C1 (CRITICAL)**: DisconnectBlock supply reversal was circular/no-op — read already-updated LevelDB instead of computing deltas. Supply counter now double-counted mints after reorgs.
+- **C2 (CRITICAL)**: Reversed burn count always zero — DisconnectBlock never iterated inputs, so burn reversals were silently ignored during reorgs.
+- **H1 (HIGH)**: Authority TX script verification skip was forgeable — witness stack heuristics (0x55 tag, 2420-byte sigs) could be crafted by non-authority TXs to bypass script checks. Now requires OP_5 output.
+- **H2 (HIGH)**: Authority bootstrap path had no re-entry guard — if authority outpoint was reset (corruption), bootstrap re-opened. Now checks LevelDB for existing outpoint.
+- **H3 (HIGH)**: Frozen UTXO guard applied to ALL asset types — a SOQ output with frozen bit would become permanently unspendable. Now scoped to USDSOQ only.
+
+### Added
+- `CUSDSOQSupply::UndoMint()` and `CUSDSOQSupply::UndoBurn()` — checked-arithmetic inverse operations for supply counter reversal during reorgs
+- 7 new unit tests for supply counter undo operations (roundtrip, excess rejection, invariant enforcement, full reorg scenario)
+
+### Test Coverage
+- 503 test cases, all passing (up from 496)
+- New test suite: supply counter undo operations with full reorg simulation
+
 ## [1.0.0-rc2] — 2026-04-19
 
 Second release candidate incorporating mining stability fixes, consensus wiring,

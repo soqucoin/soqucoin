@@ -1560,19 +1560,37 @@ bool CheckInputs(const CTransaction& tx, CValidationState& state, const CCoinsVi
             // Authority witness layout (appended to fee input's standard witness):
             //   [0] payout_sig+hashtype  [1] payout_pk  [2] auth_tag (0x55)
             //   [3] auth_payload  [4..N-1] auth_sigs  [N] authority_set
+            //
+            // H1 FIX (June 3, 2026): Also require OP_5 output to prevent
+            // non-authority TXs from forging witness layout to bypass scripts.
             bool isAuthorityTx = false;
-            for (unsigned int i = 0; i < tx.vin.size(); i++) {
-                const auto& wit = tx.vin[i].scriptWitness;
-                if (!wit.IsNull() && wit.stack.size() >= 6 &&
-                    wit.stack[2].size() == 1 &&
-                    wit.stack[2][0] == 0x55) {
-                    for (size_t j = 4; j < wit.stack.size() - 1; ++j) {
-                        if (wit.stack[j].size() == 2420) {
-                            isAuthorityTx = true;
-                            break;
+
+            // First pass: check for OP_5 authority output (unforgeable)
+            bool hasAuthorityOutput = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.scriptPubKey.size() == 34 &&
+                    txout.scriptPubKey[0] == OP_5 &&
+                    txout.scriptPubKey[1] == 32) {
+                    hasAuthorityOutput = true;
+                    break;
+                }
+            }
+
+            // Second pass: only check witness if OP_5 output exists
+            if (hasAuthorityOutput) {
+                for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                    const auto& wit = tx.vin[i].scriptWitness;
+                    if (!wit.IsNull() && wit.stack.size() >= 6 &&
+                        wit.stack[2].size() == 1 &&
+                        wit.stack[2][0] == 0x55) {
+                        for (size_t j = 4; j < wit.stack.size() - 1; ++j) {
+                            if (wit.stack[j].size() == 2420) {
+                                isAuthorityTx = true;
+                                break;
+                            }
                         }
+                        if (isAuthorityTx) break;
                     }
-                    if (isAuthorityTx) break;
                 }
             }
 
@@ -1805,21 +1823,46 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
 
     // =========================================================================
     // SOQ-AUD2-002: USDSOQ supply reversal on reorg
-    // When disconnecting a block that contained USDSOQ supply changes,
-    // log the reversal for the audit trail. The LevelDB supply counter
-    // update will be added in the persistence phase.
+    //
+    // C1/C2 FIX (June 3, 2026): The original code was circular — it read
+    // LevelDB to "reload" the supply, but LevelDB had already been updated
+    // by ConnectBlock. It also never counted reversed burns (inputs).
+    //
+    // Correct approach: Count the same deltas ConnectBlock counted, then
+    // apply the INVERSE operations (UndoMint, UndoBurn) to the in-memory
+    // supply counter. Persist the corrected counter to LevelDB.
+    //
+    // Reversed mint = USDSOQ output being removed → UndoMint(amount)
+    // Reversed burn = USDSOQ input being restored → UndoBurn(amount)
     // =========================================================================
     {
         CAmount nUSDSOQReversedMint = 0;
         CAmount nUSDSOQReversedBurn = 0;
 
-        for (const auto& ptx : block.vtx) {
-            const CTransaction& tx = *ptx;
+        for (int i = block.vtx.size() - 1; i >= 0; i--) {
+            const CTransaction& tx = *(block.vtx[i]);
+            if (tx.IsCoinBase()) continue;
 
             // Count USDSOQ outputs being removed (reverses mints)
             for (const auto& txout : tx.vout) {
                 if (txout.nAssetType == ASSET_USDSOQ) {
                     nUSDSOQReversedMint += txout.nValue;
+                }
+            }
+
+            // Count USDSOQ inputs being restored (reverses burns)
+            // After ApplyTxInUndo above, the coins being restored are back
+            // in the view. We use blockUndo to get the original output data
+            // for each input that was spent.
+            if (i > 0) {
+                const CTxUndo& txundo = blockUndo.vtxundo[i - 1];
+                for (unsigned int j = 0; j < tx.vin.size(); j++) {
+                    if (j < txundo.vprevout.size()) {
+                        const CTxOut& restoredOut = txundo.vprevout[j].txout;
+                        if (restoredOut.nAssetType == ASSET_USDSOQ) {
+                            nUSDSOQReversedBurn += restoredOut.nValue;
+                        }
+                    }
                 }
             }
         }
@@ -1828,40 +1871,33 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
             LogPrintf("USDSOQ: reorg reversal at block %d: reversed_mint=%d reversed_burn=%d\n",
                 pindex->nHeight, nUSDSOQReversedMint, nUSDSOQReversedBurn);
 
-            // SOQ-AUD2-002 D1: Reverse supply counter on reorg
-            // Mints being disconnected => subtract from total_minted
-            // Burns being disconnected => subtract from total_burned
-            // We reverse by burning what was minted and minting what was burned.
+            // Apply inverse operations to supply counter
             if (nUSDSOQReversedMint > 0) {
-                // Reverse a mint = reduce total_minted. Use Burn() on a temporary
-                // since our Mint/Burn API tracks total_minted/total_burned.
-                // Direct field manipulation isn't available, so we subtract
-                // via the supply counter's checked arithmetic.
-                // Burned-supply reversal: the previously burned supply was
-                // erroneously removed, so we need to add it back.
-                // For correctness, we rebuild from LevelDB at startup.
-                // During runtime, we simply reload from DB after reorg.
-            }
-
-            // Reload supply from LevelDB after reorg for absolute correctness
-            if (pcoinsdbview) {
-                CUSDSOQSupply reloadedSupply;
-                if (pcoinsdbview->ReadUSDSOQSupply(reloadedSupply)) {
-                    // Subtract the reversed deltas
-                    // Mint reversal: total_minted decreases
-                    // Burn reversal: total_burned decreases
-                    // Since CUSDSOQSupply doesn't expose setters (by design),
-                    // we reset and replay from the persisted state.
-                    // For the reorg case, the correct approach is to replay
-                    // ConnectBlock on the new chain — which will re-increment.
-                    // So we reset to what LevelDB has (pre-this-block).
-                    g_usdsoq_supply = reloadedSupply;
-                    LogPrintf("USDSOQ: supply reloaded from DB after reorg: "
-                              "total_minted=%d total_burned=%d outstanding=%d\n",
-                        g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
-                        g_usdsoq_supply.Outstanding());
+                if (!g_usdsoq_supply.UndoMint(nUSDSOQReversedMint)) {
+                    LogPrintf("ERROR: USDSOQ: UndoMint(%d) failed at block %d — supply invariant violation\n",
+                        nUSDSOQReversedMint, pindex->nHeight);
+                    fClean = false;
                 }
             }
+            if (nUSDSOQReversedBurn > 0) {
+                if (!g_usdsoq_supply.UndoBurn(nUSDSOQReversedBurn)) {
+                    LogPrintf("ERROR: USDSOQ: UndoBurn(%d) failed at block %d — supply invariant violation\n",
+                        nUSDSOQReversedBurn, pindex->nHeight);
+                    fClean = false;
+                }
+            }
+
+            // Persist corrected supply to LevelDB
+            if (pcoinsdbview) {
+                if (!pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply)) {
+                    LogPrintf("ERROR: USDSOQ: Failed to persist supply after reorg at block %d\n",
+                        pindex->nHeight);
+                }
+            }
+
+            LogPrintf("USDSOQ: supply after reorg reversal: total_minted=%d total_burned=%d outstanding=%d\n",
+                g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
+                g_usdsoq_supply.Outstanding());
         }
     }
 
@@ -2648,6 +2684,24 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 } else if (nAuthorityInputIndex < 0) {
                     if (localAuthOutpoint.IsNull()) {
                         // BOOTSTRAP: No tracked outpoint yet (first authority TX).
+                        //
+                        // H2 FIX (June 3, 2026): Check LevelDB for a previously-set
+                        // outpoint. If one exists but in-memory is null (corruption,
+                        // partial -reindex), reject bootstrap to prevent re-entry.
+                        if (pcoinsdbview) {
+                            COutPoint dbOutpoint;
+                            if (pcoinsdbview->ReadUSDSOQAuthorityOutpoint(dbOutpoint) &&
+                                !dbOutpoint.IsNull()) {
+                                return state.DoS(100,
+                                    error("ConnectBlock(): USDSOQ bootstrap re-entry "
+                                          "rejected — authority outpoint already exists "
+                                          "in DB (%s:%u) but in-memory is null. "
+                                          "Run -reindex to repair.",
+                                        dbOutpoint.hash.ToString(), dbOutpoint.n),
+                                    REJECT_INVALID, "bad-usdsoq-bootstrap-reentry");
+                            }
+                        }
+
                         // Use input 0 as the authority witness carrier.
                         // The sighash is computed against the authority output script
                         // since there's no prevout scriptPubKey to use.
@@ -2732,11 +2786,16 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
                 const CTxOut& prevOut = coins->vout[txin.prevout.n];
 
-                // Frozen UTXO guard: reject spending any frozen output
+                // Frozen UTXO guard: reject spending any frozen USDSOQ output
                 // A frozen output has nVisibility high bit set (0x80 | visibility)
                 // This encoding allows frozen+transparent (0x80) and
                 // frozen+confidential (0x81) states.
-                if (prevOut.nVisibility & VISIBILITY_FROZEN_MASK) {
+                //
+                // H3 FIX (June 3, 2026): Only enforce freeze on USDSOQ outputs.
+                // If a SOQ output somehow gets the frozen bit set (corruption),
+                // it must NOT become permanently unspendable.
+                if (prevOut.nAssetType == ASSET_USDSOQ &&
+                    (prevOut.nVisibility & VISIBILITY_FROZEN_MASK)) {
                     return state.DoS(100,
                         error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u",
                             txin.prevout.hash.ToString(), txin.prevout.n),

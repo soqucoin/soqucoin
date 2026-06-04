@@ -78,6 +78,46 @@ bool CUSDSOQSupply::CheckInvariant() const
     return true;
 }
 
+bool CUSDSOQSupply::UndoMint(CAmount amount)
+{
+    // SECURITY: Reject non-positive amounts
+    if (amount <= 0) return false;
+
+    // SECURITY: Cannot undo more than was minted
+    if (amount > total_minted) return false;
+
+    CAmount new_minted = total_minted - amount;
+
+    // SECURITY: Verify resulting outstanding is still valid
+    // (new_minted must be >= total_burned)
+    if (new_minted < total_burned) return false;
+
+    if (!MoneyRange(new_minted)) return false;
+
+    total_minted = new_minted;
+    return true;
+}
+
+bool CUSDSOQSupply::UndoBurn(CAmount amount)
+{
+    // SECURITY: Reject non-positive amounts
+    if (amount <= 0) return false;
+
+    // SECURITY: Cannot undo more than was burned
+    if (amount > total_burned) return false;
+
+    CAmount new_burned = total_burned - amount;
+
+    if (!MoneyRange(new_burned)) return false;
+
+    // SECURITY: Verify outstanding is still valid
+    CAmount new_outstanding = total_minted - new_burned;
+    if (!MoneyRange(new_outstanding)) return false;
+
+    total_burned = new_burned;
+    return true;
+}
+
 // =========================================================================
 // CUSDSOQAuthority — M-of-N Dilithium key management
 // =========================================================================

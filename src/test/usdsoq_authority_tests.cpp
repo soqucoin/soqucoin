@@ -300,56 +300,68 @@ BOOST_AUTO_TEST_CASE(reject_uninitialized_authority)
 BOOST_AUTO_TEST_CASE(witness_tag_extraction)
 {
     // Test GetUSDSOQWitnessTag
+    // Witness layout: [0]=payout_sig, [1]=payout_pk, [2]=auth_tag, ...
     std::vector<std::vector<uint8_t>> stack;
 
     // Empty stack
     BOOST_CHECK_EQUAL(GetUSDSOQWitnessTag(stack), 0x00);
 
-    // Empty first item
+    // Only 1 item (need at least 3 for tag at index 2)
     stack.push_back({});
     BOOST_CHECK_EQUAL(GetUSDSOQWitnessTag(stack), 0x00);
 
-    // MINT tag
-    stack[0] = {0x01};
+    // 2 items — still too few
+    stack.push_back({});
+    BOOST_CHECK_EQUAL(GetUSDSOQWitnessTag(stack), 0x00);
+
+    // 3 items, but tag slot [2] is empty
+    stack.push_back({});
+    BOOST_CHECK_EQUAL(GetUSDSOQWitnessTag(stack), 0x00);
+
+    // MINT tag at index 2
+    stack[2] = {0x01};
     BOOST_CHECK_EQUAL(GetUSDSOQWitnessTag(stack), 0x01);
 
     // BURN tag
-    stack[0] = {0x02};
+    stack[2] = {0x02};
     BOOST_CHECK_EQUAL(GetUSDSOQWitnessTag(stack), 0x02);
 
     // FREEZE tag
-    stack[0] = {0x03};
+    stack[2] = {0x03};
     BOOST_CHECK_EQUAL(GetUSDSOQWitnessTag(stack), 0x03);
 
     // ROTATE tag
-    stack[0] = {0x04};
+    stack[2] = {0x04};
     BOOST_CHECK_EQUAL(GetUSDSOQWitnessTag(stack), 0x04);
 }
 
 BOOST_AUTO_TEST_CASE(witness_sig_extraction)
 {
     // Test ExtractUSDSOQWitnessSignatures
-    // Layout: [tag][payload][sig0][sig1][authority_set]
+    // Layout: [payout_sig(2421B)][payout_pk(1313B)][tag(1B)][payload(32B)][sig0..N(2420B)][authority_set]
+    // Minimum 6 items required.
 
     std::vector<std::vector<uint8_t>> stack;
 
-    // Too few items (need at least 4)
-    stack.push_back({0x01});                              // tag
-    stack.push_back(std::vector<uint8_t>(32, 0xAA));      // payload
-    stack.push_back(FakeSignature(0xBB));                  // sig0
-    // Missing authority_set → only 3 items
+    // Too few items (need at least 6)
+    stack.push_back(std::vector<uint8_t>(2421, 0x00));     // [0] payout_sig
+    stack.push_back(std::vector<uint8_t>(1313, 0x00));     // [1] payout_pk
+    stack.push_back({0x01});                                // [2] tag (MINT)
+    stack.push_back(std::vector<uint8_t>(32, 0xAA));       // [3] payload
+    stack.push_back(FakeSignature(0xBB));                   // [4] sig0
+    // Only 5 items — missing authority_set → too few
     auto sigs = ExtractUSDSOQWitnessSignatures(stack);
     BOOST_CHECK(sigs.empty());
 
-    // Add authority_set → now 4 items
-    stack.push_back(std::vector<uint8_t>(100, 0xCC));      // authority_set
+    // Add authority_set → now 6 items (minimum)
+    stack.push_back(std::vector<uint8_t>(100, 0xCC));      // [5] authority_set
     sigs = ExtractUSDSOQWitnessSignatures(stack);
     BOOST_CHECK_EQUAL(sigs.size(), 1u);
     BOOST_CHECK_EQUAL(sigs[0].size(), DILITHIUM_SIG_SIZE);
 
-    // Add second signature → 5 items
-    // Insert before authority_set
-    stack.insert(stack.begin() + 3, FakeSignature(0xDD));
+    // Add second signature → 7 items
+    // Insert before authority_set (index 5)
+    stack.insert(stack.begin() + 5, FakeSignature(0xDD));  // [5] sig1, [6] authority_set
     sigs = ExtractUSDSOQWitnessSignatures(stack);
     BOOST_CHECK_EQUAL(sigs.size(), 2u);
 }
@@ -359,11 +371,13 @@ BOOST_AUTO_TEST_CASE(witness_sig_extraction_non_sig_items_ignored)
     // Items between payload and authority_set that are NOT 2420 bytes
     // should be silently skipped
     std::vector<std::vector<uint8_t>> stack;
-    stack.push_back({0x01});                              // tag
-    stack.push_back(std::vector<uint8_t>(32, 0xAA));      // payload
-    stack.push_back(std::vector<uint8_t>(100, 0xBB));      // NOT a sig (wrong size)
-    stack.push_back(FakeSignature(0xCC));                  // valid sig size
-    stack.push_back(std::vector<uint8_t>(200, 0xDD));      // authority_set
+    stack.push_back(std::vector<uint8_t>(2421, 0x00));     // [0] payout_sig
+    stack.push_back(std::vector<uint8_t>(1313, 0x00));     // [1] payout_pk
+    stack.push_back({0x01});                                // [2] tag
+    stack.push_back(std::vector<uint8_t>(32, 0xAA));       // [3] payload
+    stack.push_back(std::vector<uint8_t>(100, 0xBB));      // [4] NOT a sig (wrong size)
+    stack.push_back(FakeSignature(0xCC));                   // [5] valid sig size
+    stack.push_back(std::vector<uint8_t>(200, 0xDD));      // [6] authority_set
 
     auto sigs = ExtractUSDSOQWitnessSignatures(stack);
     BOOST_CHECK_EQUAL(sigs.size(), 1u);  // Only the 2420-byte item
@@ -702,6 +716,138 @@ BOOST_AUTO_TEST_CASE(reject_sigs_from_non_authority_keys)
 
     // These are valid Dilithium signatures, but from the WRONG keys
     BOOST_CHECK(!auth.VerifyAuthoritySignatures(msg, {aSig0, aSig1}));
+}
+
+// =========================================================================
+// 19. SUPPLY COUNTER: UNDO MINT / UNDO BURN (C1/C2 FIX)
+// =========================================================================
+
+BOOST_AUTO_TEST_CASE(supply_mint_undo_roundtrip)
+{
+    CUSDSOQSupply supply;
+
+    // Mint 1000 USDSOQ
+    BOOST_CHECK(supply.Mint(1000));
+    BOOST_CHECK_EQUAL(supply.TotalMinted(), 1000);
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 1000);
+
+    // Undo the mint (reorg)
+    BOOST_CHECK(supply.UndoMint(1000));
+    BOOST_CHECK_EQUAL(supply.TotalMinted(), 0);
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 0);
+}
+
+BOOST_AUTO_TEST_CASE(supply_burn_undo_roundtrip)
+{
+    CUSDSOQSupply supply;
+
+    // Mint then burn
+    BOOST_CHECK(supply.Mint(1000));
+    BOOST_CHECK(supply.Burn(300));
+    BOOST_CHECK_EQUAL(supply.TotalMinted(), 1000);
+    BOOST_CHECK_EQUAL(supply.TotalBurned(), 300);
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 700);
+
+    // Undo the burn (reorg)
+    BOOST_CHECK(supply.UndoBurn(300));
+    BOOST_CHECK_EQUAL(supply.TotalBurned(), 0);
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 1000);
+}
+
+BOOST_AUTO_TEST_CASE(supply_undo_mint_rejects_excess)
+{
+    CUSDSOQSupply supply;
+
+    // Mint 500
+    BOOST_CHECK(supply.Mint(500));
+
+    // Try to undo 600 — more than was minted
+    BOOST_CHECK(!supply.UndoMint(600));
+
+    // Original state unchanged
+    BOOST_CHECK_EQUAL(supply.TotalMinted(), 500);
+}
+
+BOOST_AUTO_TEST_CASE(supply_undo_burn_rejects_excess)
+{
+    CUSDSOQSupply supply;
+
+    // Mint 500, burn 200
+    BOOST_CHECK(supply.Mint(500));
+    BOOST_CHECK(supply.Burn(200));
+
+    // Try to undo 300 burn — more than was burned
+    BOOST_CHECK(!supply.UndoBurn(300));
+
+    // Original state unchanged
+    BOOST_CHECK_EQUAL(supply.TotalBurned(), 200);
+}
+
+BOOST_AUTO_TEST_CASE(supply_undo_mint_respects_outstanding_invariant)
+{
+    CUSDSOQSupply supply;
+
+    // Mint 500, burn 400 → outstanding 100
+    BOOST_CHECK(supply.Mint(500));
+    BOOST_CHECK(supply.Burn(400));
+
+    // Try to undo 200 of the mint — would make minted=300, burned=400
+    // which violates minted >= burned
+    BOOST_CHECK(!supply.UndoMint(200));
+
+    // State unchanged
+    BOOST_CHECK_EQUAL(supply.TotalMinted(), 500);
+    BOOST_CHECK_EQUAL(supply.TotalBurned(), 400);
+}
+
+BOOST_AUTO_TEST_CASE(supply_undo_rejects_zero_amount)
+{
+    CUSDSOQSupply supply;
+    BOOST_CHECK(supply.Mint(1000));
+    BOOST_CHECK(supply.Burn(500));
+
+    // Zero amounts rejected
+    BOOST_CHECK(!supply.UndoMint(0));
+    BOOST_CHECK(!supply.UndoBurn(0));
+
+    // Negative amounts rejected (CAmount is int64_t)
+    BOOST_CHECK(!supply.UndoMint(-100));
+    BOOST_CHECK(!supply.UndoBurn(-100));
+}
+
+BOOST_AUTO_TEST_CASE(supply_full_reorg_scenario)
+{
+    // Simulates a full ConnectBlock → DisconnectBlock cycle
+    CUSDSOQSupply supply;
+
+    // Block 100: authority mints 10000 USDSOQ
+    BOOST_CHECK(supply.Mint(10000));
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 10000);
+
+    // Block 101: user burns 2000 USDSOQ
+    BOOST_CHECK(supply.Burn(2000));
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 8000);
+
+    // Block 102: another mint of 5000
+    BOOST_CHECK(supply.Mint(5000));
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 13000);
+
+    // REORG: disconnect block 102 (undo mint of 5000)
+    BOOST_CHECK(supply.UndoMint(5000));
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 8000);
+
+    // REORG: disconnect block 101 (undo burn of 2000)
+    BOOST_CHECK(supply.UndoBurn(2000));
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 10000);
+
+    // REORG: disconnect block 100 (undo mint of 10000)
+    BOOST_CHECK(supply.UndoMint(10000));
+    BOOST_CHECK_EQUAL(supply.Outstanding(), 0);
+    BOOST_CHECK_EQUAL(supply.TotalMinted(), 0);
+    BOOST_CHECK_EQUAL(supply.TotalBurned(), 0);
+
+    // Supply invariant still holds
+    BOOST_CHECK(supply.CheckInvariant());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
