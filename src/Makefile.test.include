@@ -186,8 +186,8 @@ if ENABLE_WALLET
 test_test_soqucoin_LDADD += $(LIBSOQUCOIN_WALLET)
 endif
 
-test_test_soqucoin_LDADD += $(LIBSOQUCOIN_CONSENSUS) $(LIBSOQUCOIN_CRYPTO) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(LIBSECP256K1)
-test_test_soqucoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static
+test_test_soqucoin_LDADD += $(LIBSOQUCOIN_CONSENSUS) $(LIBSOQUCOIN_CRYPTO) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS)
+test_test_soqucoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static -Wl,--allow-multiple-definition
 
 if ENABLE_ZMQ
 test_test_soqucoin_LDADD += $(LIBSOQUCOIN_ZMQ) $(ZMQ_LIBS)
@@ -208,7 +208,7 @@ test_test_soqucoin_fuzzy_LDADD = \
   $(LIBSOQUCOIN_CONSENSUS) \
   $(LIBSOQUCOIN_CRYPTO)
 
-test_test_soqucoin_fuzzy_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS) $(LIBSECP256K1)
+test_test_soqucoin_fuzzy_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 #
 
 nodist_test_test_soqucoin_SOURCES = $(GENERATED_TEST_FILES)
@@ -271,8 +271,7 @@ wallet_pqwallet_pqwallet_test_LDADD = \
   $(LIBSOQUCOIN_CRYPTO) \
   $(BOOST_LIBS) \
   $(CRYPTO_LIBS) \
-  $(BDB_LIBS) \
-  $(LIBSECP256K1)
+  $(BDB_LIBS)
 
 # HD Derivation test binary (requires wallet)
 noinst_PROGRAMS += test/pqderive-test
@@ -288,8 +287,7 @@ test_pqderive_test_LDADD = \
   $(LIBSOQUCOIN_CRYPTO) \
   $(BOOST_LIBS) \
   $(CRYPTO_LIBS) \
-  $(BDB_LIBS) \
-  $(LIBSECP256K1)
+  $(BDB_LIBS)
 endif
 
 # Fuzz binary (requires wallet for pqwallet fuzz targets)
@@ -316,6 +314,5 @@ test_fuzz_fuzz_LDADD = \
   $(LIBSOQUCOIN_CRYPTO) \
   $(BOOST_LIBS) \
   $(CRYPTO_LIBS) \
-  $(BDB_LIBS) \
-  $(LIBSECP256K1)
+  $(BDB_LIBS)
 endif
