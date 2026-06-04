@@ -1,0 +1,371 @@
+# =============================================================================
+# Prometheus Alert Rules — Soqucoin Sentinel Watchdog
+# Design ref: DL-SENTINEL-WATCHDOG.md §Threat Detection Modules
+# =============================================================================
+#
+# Install: /etc/prometheus/rules/sentinel.yml
+# Validate: promtool check rules prometheus-rules.yml
+#
+# Metrics prefixes:
+#   sentinel_*   — From sentinel-analyzer (:9200)
+#   soqucoin_*   — From soq-exporter (:9332)
+# =============================================================================
+
+groups:
+  # =========================================================================
+  # P0 — CRITICAL — Wake the operator (Telegram + Slack)
+  # =========================================================================
+  - name: sentinel_p0_critical
+    interval: 15s
+    rules:
+      # Deep chain reorg (≥3 blocks)
+      - alert: DeepReorg
+        expr: sentinel_reorg_depth_max_24h >= 3
+        for: 0s
+        labels:
+          severity: P0
+        annotations:
+          summary: "Deep chain reorg detected — {{ $value }} blocks deep"
+          description: "A chain reorganization of {{ $value }} blocks was detected. This may indicate a 51% attack or severe network partition."
+
+      # Double-spend attempt detected
+      - alert: DoubleSpendAttempt
+        expr: sentinel_mempool_conflicts_total > 0
+        for: 0s
+        labels:
+          severity: P0
+        annotations:
+          summary: "Double-spend attempt detected — {{ $value }} conflicting transactions"
+          description: "Mempool contains transactions with conflicting inputs (same UTXO spent twice)."
+
+      # Eclipse attack — ASN entropy collapsed
+      - alert: EclipseAttackASNEntropy
+        expr: sentinel_peer_asn_entropy < 1.5
+        for: 2m
+        labels:
+          severity: P0
+        annotations:
+          summary: "Eclipse risk — ASN entropy {{ $value | printf \"%.2f\" }} bits (critical: <1.5)"
+          description: "Peer ASN distribution entropy has collapsed. Network may be eclipsed by a single autonomous system."
+
+      # Eclipse attack — no outbound peers
+      - alert: EclipseNoOutbound
+        expr: soqucoin_peers_outbound == 0
+        for: 2m
+        labels:
+          severity: P0
+        annotations:
+          summary: "No outbound peer connections — possible eclipse attack"
+          description: "soqucoind has zero outbound connections. This is a classic eclipse attack indicator."
+
+      # Eclipse attack — inbound-only trap
+      - alert: EclipseInboundOnlyTrap
+        expr: soqucoin_peers_outbound == 0 and soqucoin_peers_inbound > 5
+        for: 2m
+        labels:
+          severity: P0
+        annotations:
+          summary: "Inbound-only trap — 0 outbound, {{ $value }} inbound peers"
+          description: "Classic eclipse pattern: all connections are attacker-controlled inbound peers."
+
+      # Cross-node tip disagreement persisting >2 blocks
+      - alert: PersistentTipDisagreement
+        expr: sentinel_consensus_agreement < 1.0
+        for: 5m
+        labels:
+          severity: P0
+        annotations:
+          summary: "Persistent cross-node tip disagreement — consensus score {{ $value | printf \"%.2f\" }}"
+          description: "Fleet nodes have different chain tips for more than 5 minutes. Possible chain split."
+
+      # Multiple fleet nodes unreachable
+      - alert: MultipleNodesDown
+        expr: count(sentinel_node_reachable == 0) >= 2
+        for: 2m
+        labels:
+          severity: P0
+        annotations:
+          summary: "{{ $value }} fleet nodes unreachable — infrastructure crisis"
+          description: "Two or more fleet soqucoind nodes are not responding to RPC. Possible coordinated attack or infrastructure failure."
+
+      # Parent chain reorg detected
+      - alert: ParentChainReorg
+        expr: sentinel_auxpow_ltc_height < sentinel_auxpow_ltc_height offset 5m
+        for: 0s
+        labels:
+          severity: P0
+        annotations:
+          summary: "Parent chain (LTC) reorg detected — height decreased"
+          description: "Litecoin parent chain height has decreased, indicating a reorg that could affect AuxPoW security."
+
+      # Sentinel analyzer down
+      - alert: SentinelAnalyzerDown
+        expr: up{job="sentinel-analyzer"} == 0
+        for: 5m
+        labels:
+          severity: P0
+        annotations:
+          summary: "Sentinel analyzer is down"
+          description: "The sentinel-analyzer process has been unreachable for 5 minutes. No threat detection active."
+
+  # =========================================================================
+  # P1 — HIGH — Investigate within hours (Slack #soqucoin-alerts)
+  # =========================================================================
+  - name: sentinel_p1_high
+    interval: 30s
+    rules:
+      # Sybil cluster detected
+      - alert: SybilClusterDetected
+        expr: sentinel_peer_sybil_score > 0.6
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Sybil cluster detected — score {{ $value | printf \"%.2f\" }}"
+          description: "Over 40% of peers share the same ASN or /24 subnet, indicating possible Sybil attack."
+
+      # High stale block rate
+      - alert: HighStaleBlockRate
+        expr: sentinel_stale_blocks_24h > 5
+        for: 10m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Elevated stale block rate — {{ $value }} in 24h"
+          description: "Stale block count exceeds normal baseline. May indicate selfish mining or network propagation issues."
+
+      # Selfish mining signal
+      - alert: SelfishMiningSignal
+        expr: sentinel_consecutive_same_miner >= 3
+        for: 0s
+        labels:
+          severity: P1
+        annotations:
+          summary: "{{ $value }} consecutive blocks from same miner (non-pool)"
+          description: "Multiple consecutive blocks with the same coinbase address may indicate selfish mining."
+
+      # Block propagation delay
+      - alert: BlockPropagationDelay
+        expr: sentinel_block_propagation_delay > 30
+        for: 10m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Block propagation delay {{ $value | printf \"%.1f\" }}s (threshold: 30s)"
+          description: "Median block propagation delay exceeds 30 seconds. May indicate network-level attack or connectivity issues."
+
+      # Mempool spike
+      - alert: MempoolSpike
+        expr: soqucoin_mempool_size > 1000
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Mempool spike — {{ $value }} transactions"
+          description: "Mempool size has spiked well above normal. May indicate spam/flood attack."
+
+      # Mempool cross-node divergence
+      - alert: MempoolDivergence
+        expr: sentinel_mempool_divergence > 50
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Mempool divergence {{ $value | printf \"%.0f\" }}% across fleet"
+          description: "Fleet nodes have significantly different mempool sizes, indicating possible network partition."
+
+      # AuxPoW parent chain stall
+      - alert: ParentChainStall
+        expr: changes(sentinel_auxpow_ltc_height[15m]) == 0
+        for: 15m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Parent chain (LTC) height stalled for >15 minutes"
+          description: "No new Litecoin blocks seen. Merge-mining security degraded."
+
+      # Pool hashrate drop
+      - alert: PoolHashrateDrop
+        expr: sentinel_pool_network_share < 0.25
+        for: 30m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Pool network share dropped to {{ $value | printf \"%.1f%%\" }}"
+          description: "Soqupool's share of network hashrate has dropped significantly."
+
+      # Geographic isolation
+      - alert: GeographicIsolation
+        expr: sentinel_peer_country_count < 3
+        for: 10m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Geographic isolation — only {{ $value }} countries in peer set"
+          description: "Peer diversity has collapsed geographically. Possible targeted eclipse via regional BGP manipulation."
+
+      # Cloud provider dominance
+      - alert: CloudProviderDominance
+        expr: sentinel_peer_cloud_provider_pct > 60
+        for: 10m
+        labels:
+          severity: P1
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }}% of peers from cloud providers"
+          description: "Excessive concentration of peers in known cloud provider ASNs. Easy to spoof with VPS farms."
+
+      # Single fleet node unreachable
+      - alert: FleetNodeDown
+        expr: sentinel_node_reachable == 0
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Fleet node {{ $labels.node }} is unreachable"
+          description: "RPC connection to fleet node {{ $labels.node }} has been down for 5 minutes."
+
+      # Height drift between nodes
+      - alert: HeightDrift
+        expr: max(sentinel_node_height) - min(sentinel_node_height) > 2
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Fleet node height drift — {{ $value }} blocks"
+          description: "Fleet soqucoind nodes differ by more than 2 blocks in height."
+
+      # soq-signer health
+      - alert: SoqSignerDown
+        expr: sentinel_soq_signer_healthy == 0
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "soq-signer is unhealthy"
+          description: "The soq-signer on the Broadcast VPS is not responding. Payout pipeline at risk."
+
+      # Pool API health
+      - alert: PoolAPIDown
+        expr: sentinel_pool_api_healthy == 0
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "Pool API is unhealthy"
+          description: "The Soqupool API on Hillsboro is not responding."
+
+      # Connection churn
+      - alert: HighConnectionChurn
+        expr: sentinel_peer_churn_rate_5m > 20
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "High peer connection churn — {{ $value | printf \"%.0f\" }} events/5min"
+          description: "Rapid connect/disconnect cycles may indicate probing or eclipse attempt preparation."
+
+      # ASN entropy warning
+      - alert: ASNEntropyWarning
+        expr: sentinel_peer_asn_entropy < 2.0 and sentinel_peer_asn_entropy >= 1.5
+        for: 10m
+        labels:
+          severity: P1
+        annotations:
+          summary: "ASN entropy warning — {{ $value | printf \"%.2f\" }} bits"
+          description: "Peer ASN diversity is low but not yet critical. Monitor for further degradation."
+
+      # soq-exporter down
+      - alert: SoqExporterDown
+        expr: up{job="soq-exporter"} == 0
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "soq-exporter is down — no soqucoind metrics"
+          description: "The Prometheus RPC exporter has been unreachable for 5 minutes."
+
+  # =========================================================================
+  # P2 — INFO — Trend monitoring (Slack #soqucoin-monitoring)
+  # =========================================================================
+  - name: sentinel_p2_info
+    interval: 60s
+    rules:
+      # Version anomaly
+      - alert: PeerVersionAnomaly
+        expr: sentinel_peers_suspicious > 0
+        for: 15m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $value }} suspicious peers detected"
+          description: "Peers with unknown or anomalous user agents or protocol behavior."
+
+      # Fee spike
+      - alert: MempoolFeeSpike
+        expr: soqucoin_mempool_min_fee > 0.001
+        for: 15m
+        labels:
+          severity: P2
+        annotations:
+          summary: "Mempool minimum fee elevated — {{ $value }}"
+          description: "Mempool fee floor has risen, indicating congestion or fee manipulation."
+
+      # Block time variance
+      - alert: BlockTimeVariance
+        expr: sentinel_interblock_time_stddev > 300
+        for: 30m
+        labels:
+          severity: P2
+        annotations:
+          summary: "Inter-block time variance elevated — σ={{ $value | printf \"%.0f\" }}s"
+          description: "Block timing variance exceeds normal range. May indicate hashrate instability."
+
+      # Banscore elevation
+      - alert: BanscoreElevation
+        expr: soqucoin_peer_ban_count > 5
+        for: 30m
+        labels:
+          severity: P2
+        annotations:
+          summary: "{{ $value }} peers banned"
+          description: "Multiple peers have been banned, indicating possible attack probing."
+
+      # ADDR flood
+      - alert: AddrFlood
+        expr: sentinel_addr_rate_limited_total > 100
+        for: 10m
+        labels:
+          severity: P2
+        annotations:
+          summary: "ADDR message rate limiting active — {{ $value }} messages"
+          description: "High rate of ADDR messages may indicate network mapping attempt."
+
+      # Disk usage warning
+      - alert: ChainDiskUsageHigh
+        expr: soqucoin_size_on_disk_bytes > 200e9
+        for: 1h
+        labels:
+          severity: P2
+        annotations:
+          summary: "Chain data size {{ $value | humanize1024 }}B on disk"
+          description: "Blockchain data is growing large. Consider pruning or disk upgrade."
+
+      # Module error rate
+      - alert: SentinelModuleErrors
+        expr: rate(sentinel_module_errors_total[15m]) > 0.1
+        for: 15m
+        labels:
+          severity: P2
+        annotations:
+          summary: "Sentinel module {{ $labels.module }} error rate elevated"
+          description: "Detection module {{ $labels.module }} is experiencing frequent errors."
+
+      # Sentinel in initial block download
+      - alert: InitialBlockDownload
+        expr: soqucoin_initial_block_download == 1
+        for: 10m
+        labels:
+          severity: P2
+        annotations:
+          summary: "soqucoind-sentinel is in initial block download"
+          description: "Sentinel node is syncing the blockchain. Detection accuracy reduced until sync completes."

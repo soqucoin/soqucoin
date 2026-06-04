@@ -1,0 +1,11 @@
+{
+  "checkpoint-recovery": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 /Users/caseymacmini/soqucoin-build/.agents/scripts/checkpoint-recovery-hook.py",
+        "timeout": 5
+      }
+    ]
+  }
+}

@@ -193,3 +193,7 @@ src/wallet/pqwallet/pqwallet-test
 
 # Agent workflows
 .agent/
+
+# Build artifacts
+*.o.tmp
+configure~
