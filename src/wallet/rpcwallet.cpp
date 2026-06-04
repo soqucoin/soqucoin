@@ -363,7 +363,7 @@ static void SendMoney(const CTxDestination& address, CAmount nValue, bool fSubtr
 
     // Confidential Transaction Logic (v1)
     if (fConfidential) {
-        // SOQ-INFRA-016 Phase 2: Classical secp256k1-zkp confidential TX removed.
+        // SOQ-INFRA-016 Phase 2: Classical ECC confidential TX removed. secp256k1 fully removed (SOQ-SECP-001).
         // Lattice-BP++ confidential transactions are available via witness v4
         // (OP_4 routing in VerifyScript) but require BIP9 activation on mainnet.
         // Wallet-layer CT generation will be implemented post-activation.

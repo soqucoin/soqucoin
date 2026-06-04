@@ -13,7 +13,7 @@ SOQUCOIN_CLI="${BUILD_DIR}/src/soqucoin-cli"
 TEST_BITCOIN="${BUILD_DIR}/src/test/test_soqucoin"
 
 # Fix library path for macOS
-export DYLD_LIBRARY_PATH="${BUILD_DIR}/src/secp256k1/.libs:${DYLD_LIBRARY_PATH}"
+export DYLD_LIBRARY_PATH="${BUILD_DIR}/src:${DYLD_LIBRARY_PATH}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -135,7 +135,7 @@ run_leaks_analysis() {
     log_info "Checking binary execution..."
     if ! "${SOQUCOIND}" --version 2>/dev/null; then
         log_error "Binary cannot execute. Check library paths."
-        log_info "Try: DYLD_LIBRARY_PATH=${BUILD_DIR}/src/secp256k1/.libs ./src/soqucoind --version"
+        log_info "Try: ./src/soqucoind --version"
         return 1
     fi
     

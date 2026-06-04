@@ -60,7 +60,6 @@ $CXX $CXXFLAGS $LDFLAGS \
     libsoqucoin_util.a \
     libsoqucoin_consensus.a \
     crypto/libsoqucoin_crypto.a \
-    secp256k1/.libs/libsecp256k1.a \
     univalue/.libs/libunivalue.a \
     leveldb/libleveldb.a \
     leveldb/libmemenv.a \

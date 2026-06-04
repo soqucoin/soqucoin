@@ -8,7 +8,7 @@
 
 #include <string.h>
 
-// Post-quantum: Dilithium verification replaces secp256k1 ECDSA
+// ML-DSA-44 (FIPS 204) Dilithium signature verification
 
 bool CPubKey::Verify(const uint256& hash, const std::vector<unsigned char>& vchSig) const
 {
@@ -67,7 +67,7 @@ bool CPubKey::Decompress()
 bool CPubKey::Derive(CPubKey& pubkeyChild, ChainCode& ccChild, unsigned int nChild, const ChainCode& cc) const
 {
     // Post-quantum: BIP32 derivation not supported for Dilithium
-    // Dilithium does not have additive properties like secp256k1
+    // Dilithium does not have additive properties like ECC curves
     return false;
 }
 
@@ -113,12 +113,12 @@ bool CExtPubKey::Derive(CExtPubKey& out, unsigned int _nChild) const
 
 ECCVerifyHandle::ECCVerifyHandle()
 {
-    // Post-quantum: No secp256k1 context needed for Dilithium
+    // Post-quantum: No ECC context needed for Dilithium
     refcount++;
 }
 
 ECCVerifyHandle::~ECCVerifyHandle()
 {
-    // Post-quantum: No secp256k1 context cleanup needed for Dilithium
+    // Post-quantum: No ECC context cleanup needed for Dilithium
     refcount--;
 }

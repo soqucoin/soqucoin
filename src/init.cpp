@@ -1240,7 +1240,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
 
     InitSignatureCache();
 
-    // SOQ-INFRA-016 Phase 2: Classical secp256k1-zkp range proof init removed.
+    // SOQ-INFRA-016 Phase 2: Classical ECC range proof init removed. secp256k1 library fully removed (SOQ-SECP-001).
     // Lattice-BP++ range proofs are compiled into the node and require no
     // separate context initialization — they use Ring-LWE, not ECC curves.
     LogPrintf("Range proofs: Lattice-BP++ (post-quantum) — no legacy context needed\n");

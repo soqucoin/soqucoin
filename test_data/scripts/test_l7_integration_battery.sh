@@ -12,7 +12,7 @@ set -e
 DATADIR="/tmp/soqu_l7_battery"
 CLI="./src/soqucoin-cli -regtest -rpcuser=miner -rpcpassword=soqu -rpcport=18443"
 DAEMON="./src/soqucoind -regtest -rpcuser=miner -rpcpassword=soqu -rpcport=18443 -datadir=$DATADIR"
-DYLD_LIBRARY_PATH="$(pwd)/src/secp256k1/.libs:$DYLD_LIBRARY_PATH"
+DYLD_LIBRARY_PATH="$(pwd)/src:$DYLD_LIBRARY_PATH"
 export DYLD_LIBRARY_PATH
 
 # Test parameters

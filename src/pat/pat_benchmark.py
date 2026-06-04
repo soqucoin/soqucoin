@@ -10,6 +10,10 @@ Manual optimization notes (2024):
 
 Benchmarks post-quantum signature aggregation for Dogecoin transactions.
 Compares ECDSA, Dilithium, and PAT aggregation strategies.
+
+NOTE: ECDSA/secp256k1 is used ONLY as a classical comparison baseline
+in this benchmark. Soqucoin consensus uses ML-DSA-44 exclusively.
+The secp256k1 C library has been removed from the codebase (SOQ-SECP-001).
 """
 
 import sys

@@ -6,7 +6,7 @@
 #include "interpreter.h"
 
 // SOQ-I002: #include "crypto/binius/verifier.h" removed — OP_RESERVED_BATCHSIG deprecated
-// SOQ-INFRA-016: #include "zk/bulletproofs.h" removed — dead secp256k1 BP handler deprecated
+// SOQ-INFRA-016: #include "zk/bulletproofs.h" removed — classical ECC Bulletproofs deprecated. secp256k1 fully removed (SOQ-SECP-001).
 
 #include "hash.h"
 #include "primitives/transaction.h"
@@ -1539,11 +1539,11 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
     if (is_op_return) {
         // SOQ-INFRA-016: OP_RETURN outputs are data-carrying and always valid.
-        // The inline secp256k1 Bulletproofs range proof handler was removed because:
-        //   1. secp256k1_ctx_rangeproof was NEVER initialized (0 callers)
+        // The inline classical Bulletproofs range proof handler was removed because:
+        //   1. The ECC rangeproof context was NEVER initialized (0 callers)
         //   2. All VerifyRangeProof() calls always returned false
         //   3. Zero OP_RETURN confidential transactions exist on testnet3
-        //   4. secp256k1 ECC contradicts PQC mission
+        //   4. Classical ECC contradicts PQC mission — secp256k1 fully removed (SOQ-SECP-001)
         //   5. Classical BP++ formally deprecated March 2026
         // Future privacy layer (Stage 3 Lattice-BP++) will use witness v4,
         // not OP_RETURN. See SECURITY_ISSUE_REGISTRY.md SOQ-INFRA-016.

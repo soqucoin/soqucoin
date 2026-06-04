@@ -35230,21 +35230,11 @@ fi
         # Put the nasty error message in config.log where it belongs
         echo "$ZMQ_PKG_ERRORS" >&5
 
-
-printf "%s\n" "#define ENABLE_ZMQ 0" >>confdefs.h
-
-           { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: libzmq version 4.x or greater not found, disabling" >&5
-printf "%s\n" "$as_me: WARNING: libzmq version 4.x or greater not found, disabling" >&2;}
-           use_zmq=no
+        as_fn_error $? "libzmq version 4.x or greater not found. ZMQ is REQUIRED for pool mining nodes. Install libzmq3-dev or use --disable-zmq to explicitly opt out." "$LINENO" 5
 elif test $pkg_failed = untried; then
         { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
 printf "%s\n" "no" >&6; }
-
-printf "%s\n" "#define ENABLE_ZMQ 0" >>confdefs.h
-
-           { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: libzmq version 4.x or greater not found, disabling" >&5
-printf "%s\n" "$as_me: WARNING: libzmq version 4.x or greater not found, disabling" >&2;}
-           use_zmq=no
+        as_fn_error $? "libzmq version 4.x or greater not found. ZMQ is REQUIRED for pool mining nodes. Install libzmq3-dev or use --disable-zmq to explicitly opt out." "$LINENO" 5
 else
         ZMQ_CFLAGS=$pkg_cv_ZMQ_CFLAGS
         ZMQ_LIBS=$pkg_cv_ZMQ_LIBS
@@ -35480,12 +35470,7 @@ then :
 printf "%s\n" "#define ENABLE_ZMQ 1" >>confdefs.h
 
 else case e in #(
-  e) { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: zmq.h not found, disabling zmq support" >&5
-printf "%s\n" "$as_me: WARNING: zmq.h not found, disabling zmq support" >&2;}
-        use_zmq=no
-
-printf "%s\n" "#define ENABLE_ZMQ 0" >>confdefs.h
- ;;
+  e) as_fn_error $? "zmq.h not found. ZMQ is REQUIRED for pool mining nodes. Install libzmq3-dev or use --disable-zmq to explicitly opt out." "$LINENO" 5 ;;
 esac
 fi
 
@@ -35529,12 +35514,7 @@ if test "x$ac_cv_lib_zmq_zmq_ctx_shutdown" = xyes
 then :
   ZMQ_LIBS=-lzmq
 else case e in #(
-  e) { printf "%s\n" "$as_me:${as_lineno-$LINENO}: WARNING: libzmq >= 4.0 not found, disabling zmq support" >&5
-printf "%s\n" "$as_me: WARNING: libzmq >= 4.0 not found, disabling zmq support" >&2;}
-        use_zmq=no
-
-printf "%s\n" "#define ENABLE_ZMQ 0" >>confdefs.h
- ;;
+  e) as_fn_error $? "libzmq >= 4.0 not found. ZMQ is REQUIRED for pool mining nodes. Install libzmq3-dev or use --disable-zmq to explicitly opt out." "$LINENO" 5 ;;
 esac
 fi
 

@@ -17,13 +17,13 @@
 
 
 /**
- * secp256k1:
- * const unsigned int PRIVATE_KEY_SIZE = 279;
- * const unsigned int PUBLIC_KEY_SIZE  = 65;
- * const unsigned int SIGNATURE_SIZE   = 72;
+ * ML-DSA-44 (Dilithium Level 2, FIPS 204):
+ * const unsigned int PRIVATE_KEY_SIZE = 2560;
+ * const unsigned int PUBLIC_KEY_SIZE  = 1312;
+ * const unsigned int SIGNATURE_SIZE   = 2420;
  *
- * see www.keylength.com
- * script supports up to 75 for single byte push
+ * Post-quantum lattice-based digital signatures.
+ * secp256k1/ECDSA removed — see SOQ-SECP-001 (June 2026).
  */
 
 /**

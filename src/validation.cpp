@@ -1543,7 +1543,7 @@ bool CheckInputs(const CTransaction& tx, CValidationState& state, const CCoinsVi
             pvChecks->reserve(tx.vin.size());
 
         // The first loop above does all the inexpensive checks.
-        // Only if ALL inputs pass do we perform expensive ECDSA signature checks.
+        // Only if ALL inputs pass do we perform expensive signature checks.
         // Helps prevent CPU exhaustion attacks.
 
         // Skip script verification when connecting blocks under the

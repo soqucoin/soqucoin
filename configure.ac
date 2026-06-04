@@ -1238,7 +1238,7 @@ AC_CONFIG_FILES([contrib/devtools/split-debug.sh],[chmod +x contrib/devtools/spl
 AC_CONFIG_LINKS([qa/pull-tester/rpc-tests.py:qa/pull-tester/rpc-tests.py])
 
 dnl boost's m4 checks do something really nasty: they export these vars. As a
-dnl result, they leak into secp256k1's configure and crazy things happen.
+dnl result, they leak into sub-project configure scripts and crazy things happen.
 dnl Until this is fixed upstream and we've synced, we'll just un-export them.
 CPPFLAGS_TEMP="$CPPFLAGS"
 unset CPPFLAGS
@@ -1264,9 +1264,8 @@ if test x$need_bundled_univalue = xyes; then
   AC_CONFIG_SUBDIRS([src/univalue])
 fi
 
-ac_configure_args="${ac_configure_args} --disable-shared --with-pic --with-bignum=no --enable-module-recovery --enable-module-generator --enable-module-rangeproof --enable-experimental"
-
-AC_CONFIG_SUBDIRS([src/secp256k1])
+dnl secp256k1 REMOVED (June 2026) — all crypto uses ML-DSA-44 (Dilithium)
+dnl See SOQ-SECP-001 in SECURITY_ISSUE_REGISTRY.md
 
 
 AC_OUTPUT

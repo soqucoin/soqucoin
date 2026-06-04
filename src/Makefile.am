@@ -2,7 +2,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-DIST_SUBDIRS = univalue secp256k1
+DIST_SUBDIRS = univalue
 
 AM_LDFLAGS = $(PTHREAD_CFLAGS) $(LIBTOOL_LDFLAGS) $(HARDENED_LDFLAGS)
 AM_CXXFLAGS = $(HARDENED_CXXFLAGS) $(ERROR_CXXFLAGS)
@@ -19,10 +19,8 @@ else
 LIBUNIVALUE = $(UNIVALUE_LIBS)
 endif
 
-LIBSECP256K1 = secp256k1/libsecp256k1.la
-
-$(LIBSECP256K1): $(wildcard secp256k1/src/*) $(wildcard secp256k1/include/*)
-	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C $(@D) $(@F)
+# secp256k1 REMOVED (June 2026) — all crypto uses ML-DSA-44 (Dilithium)
+# See SOQ-SECP-001 in SECURITY_ISSUE_REGISTRY.md
 
 BITCOIN_CONFIG_INCLUDES=-I$(builddir)/config
 BITCOIN_INCLUDES=-I$(builddir) -I$(builddir)/obj $(BDB_CPPFLAGS) $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS) $(SSL_CFLAGS)
@@ -334,7 +332,7 @@ crypto_libsoqucoin_crypto_a_SOURCES += crypto/scrypt-sse2.cpp
 endif
 
 # consensus: shared between all executables that validate any consensus rules.
-libsoqucoin_consensus_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -DSECP256K1_STATIC
+libsoqucoin_consensus_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libsoqucoin_consensus_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libsoqucoin_consensus_a_SOURCES = \
   amount.h \
@@ -480,7 +478,7 @@ soqucoind_LDADD = \
   $(LIBLEVELDB_SSE42) \
   $(LIBMEMENV)
 
-soqucoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS) $(LIBSECP256K1)
+soqucoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
 
 # bitcoin-cli binary #
 soqucoin_cli_SOURCES = bitcoin-cli.cpp
@@ -498,7 +496,7 @@ soqucoin_cli_LDADD = \
   $(LIBSOQUCOIN_UTIL) \
   $(LIBSOQUCOIN_CRYPTO)
 
-soqucoin_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS) $(LIBSECP256K1)
+soqucoin_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
 #
 
 # bitcoin-tx binary #
@@ -518,7 +516,7 @@ soqucoin_tx_LDADD = \
   $(LIBSOQUCOIN_UTIL) \
   $(LIBSOQUCOIN_CRYPTO)
 
-soqucoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS) $(LIBSECP256K1)
+soqucoin_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
 #
 
 # bitcoinconsensus library #
@@ -531,8 +529,8 @@ if GLIBC_BACK_COMPAT
 endif
 
 libsoqucoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
-libsoqucoinconsensus_la_LIBADD = $(LIBSECP256K1)
-libsoqucoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/obj -DBUILD_BITCOIN_INTERNAL -DSECP256K1_STATIC
+libsoqucoinconsensus_la_LIBADD =
+libsoqucoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/obj -DBUILD_BITCOIN_INTERNAL
 libsoqucoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
 endif
