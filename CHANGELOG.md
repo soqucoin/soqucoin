@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **SOQ-SECP-001: secp256k1 classical crypto library** — Deleted 345 files (43MB) of dead code that was compiled and linked into all binaries but had zero active function calls. All cryptographic operations use ML-DSA-44 (Dilithium, FIPS 204) exclusively. This eliminates the last classical ECC dependency from the codebase and resolves external PQC compliance scanner findings.
+  - Build system: Removed `LIBSECP256K1` from `Makefile.am`, `configure.ac`, `autogen.sh`
+  - Source comments: Replaced stale secp256k1/ECDSA references with Dilithium constants
+  - Scripts: Removed secp256k1 DYLD/library paths from test harnesses and fuzz linker
+  - **Impact**: Zero consensus behavior change — dead code removal only (−116,610 lines)
+
+### Changed
+- `key.h` comment block now documents ML-DSA-44 key sizes (2560/1312/2420 bytes) instead of stale secp256k1 sizes (279/65/72 bytes)
+- `validation.h`, `validation.cpp`, `pubkey.cpp` comments updated to remove "ECDSA" terminology from signature operation descriptions
+
 ## [1.1.0] — 2026-06-03
 
 Security-focused release fixing 2 critical and 3 high-severity USDSOQ consensus
