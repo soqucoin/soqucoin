@@ -130,6 +130,7 @@ jobs:
 
       - name: Verify binary architecture
         run: |
+          file src/.libs/soqucoind 2>/dev/null | grep -q "aarch64" && echo "✅ soqucoind is ARM64" || \
           file src/soqucoind | grep -q "aarch64" && echo "✅ soqucoind is ARM64" || (echo "❌ Wrong architecture" && exit 1)
 
   # ============================================
