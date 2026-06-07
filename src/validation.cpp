@@ -767,41 +767,37 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
         // SOQ-ARCH-002: Asset-aware fee computation.
-        // For multi-asset transactions, the fee is SOQ_in - SOQ_out only.
-        // USDSOQ is conserved (enforced in CheckTxInputs), so it must NOT
-        // contribute to the fee calculation.
+        // SOQ-ARCH-003 FIX: Always compute fee using SOQ-only inputs and outputs.
+        // This matches ConnectBlock's per-asset fee computation exactly.
+        //
+        // Previous bug: hasMixedAssets only checked outputs, missing the case
+        // where USDSOQ inputs exist but outputs are all SOQ (e.g., burn TXs
+        // with OP_RETURN outputs). This caused the mempool to store the full
+        // input sum as fee, inflating the miner's coinbase claim and triggering
+        // TestBlockValidity → bad-cb-amount.
+        //
+        // The SOQ-filtered path is always correct:
+        //   - Pure SOQ TX: nSOQIn == nValueIn, nSOQOut == nValueOut → same result
+        //   - Mixed TX: correctly excludes USDSOQ from fee
+        //   - Burn TX: USDSOQ input excluded, fee = SOQ fee input only
         CAmount nFees = 0;
         {
-            bool hasMixedAssets = false;
+            CAmount nSOQIn = 0;
+            CAmount nSOQOut = 0;
+            for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                const CCoins* coins = view.AccessCoins(tx.vin[i].prevout.hash);
+                if (coins && coins->IsAvailable(tx.vin[i].prevout.n)) {
+                    if (coins->vout[tx.vin[i].prevout.n].nAssetType == ASSET_SOQ) {
+                        nSOQIn += coins->vout[tx.vin[i].prevout.n].nValue;
+                    }
+                }
+            }
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType != ASSET_SOQ) {
-                    hasMixedAssets = true;
-                    break;
+                if (txout.nAssetType == ASSET_SOQ) {
+                    nSOQOut += txout.nValue;
                 }
             }
-            if (hasMixedAssets) {
-                // Compute SOQ-only input value
-                CAmount nSOQIn = 0;
-                CAmount nSOQOut = 0;
-                for (unsigned int i = 0; i < tx.vin.size(); i++) {
-                    const CCoins* coins = view.AccessCoins(tx.vin[i].prevout.hash);
-                    if (coins && coins->IsAvailable(tx.vin[i].prevout.n)) {
-                        if (coins->vout[tx.vin[i].prevout.n].nAssetType == ASSET_SOQ) {
-                            nSOQIn += coins->vout[tx.vin[i].prevout.n].nValue;
-                        }
-                    }
-                }
-                for (const auto& txout : tx.vout) {
-                    if (txout.nAssetType == ASSET_SOQ) {
-                        nSOQOut += txout.nValue;
-                    }
-                }
-                nFees = nSOQIn - nSOQOut;
-            } else {
-                // Single-asset SOQ tx — existing logic is correct
-                CAmount nValueOut = tx.GetValueOut();
-                nFees = nValueIn - nValueOut;
-            }
+            nFees = nSOQIn - nSOQOut;
         }
         // nModifiedFees includes any fee deltas from PrioritiseTransaction
         CAmount nModifiedFees = nFees;
@@ -1481,6 +1477,22 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
         for (const auto& txout : tx.vout) {
             if (txout.nAssetType == ASSET_SOQ) {
                 nValueOut += txout.nValue;
+            }
+        }
+        // SOQ-HOTFIX-001: Also recompute input value counting only SOQ inputs.
+        // Without this, USDSOQ input values are counted as fee surplus,
+        // inflating the miner's coinbase claim and causing:
+        //   ERROR: ConnectBlock(): coinbase pays too much
+        // This halted block production on all SOQUPOOL nodes for 5.5 hours
+        // on June 7, 2026. See fleet_health_report_june7.md.
+        nValueIn = 0;
+        for (unsigned int i = 0; i < tx.vin.size(); i++) {
+            const COutPoint& prevout = tx.vin[i].prevout;
+            const CCoins* coins = inputs.AccessCoins(prevout.hash);
+            if (coins && coins->IsAvailable(prevout.n)) {
+                if (coins->vout[prevout.n].nAssetType == ASSET_SOQ) {
+                    nValueIn += coins->vout[prevout.n].nValue;
+                }
             }
         }
     }
@@ -2822,33 +2834,75 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             for (const auto& txout : tx.vout) {
                 if (txout.nAssetType == ASSET_USDSOQ) {
                     // =========================================================
-                    // SOQ-AUD2-002 Phase 3: USDSOQ Visibility Enforcement
+                    // SOQ-ARCH-004: Confidential Compliant USDSOQ
                     //
-                    // USDSOQ outputs MUST be transparent (nVisibility == 0x00).
-                    // Confidential USDSOQ is a consensus violation because:
-                    //   1. GENIUS Act §4(a)(2): stablecoin supply must be
-                    //      publicly auditable (no hidden mints/burns)
-                    //   2. OP_USDSOQ_FREEZE requires visible output values
-                    //      for law enforcement cooperation
-                    //   3. Reserve proof-of-reserves audits need verifiable
-                    //      on-chain supply counts
+                    // Design (founder-approved 2026-06-07):
+                    //   - Authority TXs (mint/burn/freeze/rotate): MUST be
+                    //     transparent. Supply auditability (GENIUS Act §4(a)(2))
+                    //     requires visible mint/burn amounts.
+                    //   - User-to-user transfers: MAY be confidential IF the
+                    //     LATTICEBP privacy layer is active (BIP9). Range proofs
+                    //     ensure no inflation; supply doesn't change on transfers.
+                    //   - Frozen+confidential (0x81): valid — authority can freeze
+                    //     confidential UTXOs via outpoint. ViewKeyData enables
+                    //     auditor disclosure if amount is needed.
+                    //
+                    // Adversarial analysis:
+                    //   - Inflation attack: Range proofs prevent value >2^64
+                    //   - Hidden mint: Authority TX transparency blocks stealth inflation
+                    //   - Hidden burn: Authority TX transparency blocks stealth deflation
+                    //   - Freeze evasion: OP_USDSOQ_FREEZE targets by outpoint, not value
+                    //
+                    // Previous rule (SOQ-AUD2-002 Phase 3): Blanket rejection of
+                    // ALL confidential USDSOQ. This was a safety measure during
+                    // privacy layer development. Now refined to allow user transfers.
                     //
                     // The VISIBILITY_FROZEN_MASK (0x80) is still allowed on
-                    // USDSOQ outputs — a frozen-transparent UTXO has
-                    // nVisibility == 0x80 which satisfies this check because
-                    // we mask off the frozen bit before comparing.
+                    // USDSOQ outputs in both transparent and confidential modes:
+                    //   0x00 = transparent (user or authority)
+                    //   0x01 = confidential (user only, privacy layer required)
+                    //   0x80 = frozen-transparent (authority freeze)
+                    //   0x81 = frozen-confidential (authority freeze on private UTXO)
                     // =========================================================
                     uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
-                    if (baseVisibility != VISIBILITY_TRANSPARENT) {
+
+                    if (isAuthorityTx && baseVisibility != VISIBILITY_TRANSPARENT) {
+                        // Authority operations MUST be transparent for supply auditability.
+                        // Mint/burn/freeze/rotate TXs create the supply boundary —
+                        // if these are hidden, the supply invariant breaks.
                         return state.DoS(100,
-                            error("ConnectBlock(): USDSOQ output %s:%u has non-transparent "
-                                  "visibility 0x%02x — confidential USDSOQ is not permitted",
+                            error("ConnectBlock(): USDSOQ authority output %s:%u has non-transparent "
+                                  "visibility 0x%02x — authority TXs must be transparent "
+                                  "(GENIUS Act §4(a)(2), SOQ-ARCH-004)",
                                 tx.GetHash().ToString(), (&txout - &tx.vout[0]),
                                 (int)txout.nVisibility),
-                            REJECT_INVALID, "bad-txns-usdsoq-confidential");
+                            REJECT_INVALID, "bad-txns-usdsoq-authority-must-be-transparent");
                     }
 
-                    nUSDSOQMinted += txout.nValue;
+                    if (!isAuthorityTx && baseVisibility == VISIBILITY_CONFIDENTIAL) {
+                        // User-to-user confidential USDSOQ transfer — allowed IF:
+                        //   1. LATTICEBP privacy layer is active (BIP9)
+                        //   2. Range proofs are valid (checked in LATTICEBP section below)
+                        //   3. Commitment balance is preserved (sum_in == sum_out)
+                        if (!(flags & SCRIPT_VERIFY_LATTICEBP)) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): USDSOQ confidential output %s:%u before "
+                                      "LATTICEBP activation — privacy layer required (SOQ-ARCH-004)",
+                                    tx.GetHash().ToString(), (&txout - &tx.vout[0])),
+                                REJECT_INVALID, "bad-txns-usdsoq-confidential-not-active");
+                        }
+                        // Confidential USDSOQ user transfer: accepted.
+                        // Range proofs verified in LATTICEBP section below.
+                        // Supply invariant maintained: transfers don't change total supply.
+                    }
+
+                    // Only count transparent USDSOQ outputs toward minted supply.
+                    // Confidential outputs don't change total supply (transfers only).
+                    if (baseVisibility == VISIBILITY_TRANSPARENT) {
+                        nUSDSOQMinted += txout.nValue;
+                    }
+                    // Confidential outputs: value is hidden in commitment.
+                    // Supply tracking relies on transparent mint/burn boundary only.
                 }
             }
 
@@ -4289,10 +4343,9 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         return state.DoS(100, error("%s : legacy block after auxpow start", __func__),
             REJECT_INVALID, "late-legacy-block");
 
-    // Soqucoin: Disallow AuxPow blocks before the activation height.
-    // The "Vanguard Window" strategy gives solo miners an exclusive head start
-    // before merge-mining pools can submit AuxPoW blocks.
-    // nAuxpowStartHeight: mainnet=1000, stagenet=100, testnet=158100, regtest=20.
+    // AuxPoW height enforcement: reject AuxPoW blocks before the activation
+    // height. On mainnet, nAuxpowStartHeight=0 (AuxPoW from genesis).
+    // nAuxpowStartHeight: mainnet=0, stagenet=100, testnet=158100, regtest=20.
     // Solo mining via getblocktemplate/submitblock is always available at all heights.
     if (block.IsAuxpow() && nHeight < consensusParams.nAuxpowStartHeight)
         return state.DoS(100, error("%s : auxpow block at height %d rejected, AuxPoW activates at height %d",
