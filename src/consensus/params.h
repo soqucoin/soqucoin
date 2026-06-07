@@ -8,6 +8,7 @@
 #define BITCOIN_CONSENSUS_PARAMS_H
 
 #include "uint256.h"
+#include <array>
 #include <limits>
 #include <map>
 #include <string>
@@ -95,7 +96,7 @@ struct Params {
     int32_t nAuxpowChainId;
     bool fStrictChainId;
     bool fAllowLegacyBlocks;
-    int32_t nAuxpowStartHeight = 0;  // Height at which AuxPoW blocks become valid (Vanguard Window)
+    int32_t nAuxpowStartHeight = 0;  // Height at which AuxPoW blocks become valid (mainnet: 0 = from genesis)
 
     /** Height-aware consensus parameters */
     uint32_t nHeightEffective;       // When these parameters come into use
@@ -134,6 +135,14 @@ struct Params {
      *  MAINNET: Set to 0 — enforced from BIP9 activation.
      *  STAGENET: Set to 37201 — blocks 0-37200 exempt. */
     int32_t nUtxoCostEnforcementHeight = 0;
+
+    /** SOQ-H3: Lattice-BP++ privacy system consensus seed.
+     *  Deterministically generates matrix A for Ring-LWE Pedersen commitments.
+     *  Derived via HKDF-SHA256(genesis_hash, domain, lattice_params).
+     *  "Nothing up my sleeve": genesis hash predates privacy implementation.
+     *  Different per-network: mainnet, stagenet, regtest each get unique A.
+     *  MUST match between soqucoind and soq-privacy-signer for proof verification. */
+    std::array<uint8_t, 32> latticeBPSeed = {};
 };
 } // namespace Consensus
 

@@ -20,6 +20,48 @@ void memory_cleanse(void* ptr, size_t len);
 #include "../../crypto/hmac_sha256.h"
 #include "../../random.h"
 #include "../../support/cleanse.h"
+
+// HKDF-SHA256 (RFC 5869) using soqucoind's CHMAC_SHA256
+// Provides the same interface as standalone_shim.cpp but backed by
+// soqucoind's audited crypto primitives.
+static void HKDF_SHA256(const uint8_t* ikm, size_t ikm_len,
+                         const uint8_t* salt, size_t salt_len,
+                         const uint8_t* info, size_t info_len,
+                         uint8_t* okm, size_t okm_len)
+{
+    // Extract: PRK = HMAC-SHA256(salt, ikm)
+    uint8_t prk[CHMAC_SHA256::OUTPUT_SIZE];
+    if (salt && salt_len > 0) {
+        CHMAC_SHA256(salt, salt_len).Write(ikm, ikm_len).Finalize(prk);
+    } else {
+        uint8_t zero_salt[32] = {};
+        CHMAC_SHA256(zero_salt, 32).Write(ikm, ikm_len).Finalize(prk);
+    }
+
+    // Expand: T(i) = HMAC-SHA256(PRK, T(i-1) || info || i)
+    uint8_t t[CHMAC_SHA256::OUTPUT_SIZE] = {};
+    size_t t_len = 0;
+    uint8_t counter = 1;
+    size_t pos = 0;
+
+    while (pos < okm_len) {
+        CHMAC_SHA256 expander(prk, sizeof(prk));
+        if (t_len > 0) expander.Write(t, t_len);
+        if (info && info_len > 0) expander.Write(info, info_len);
+        expander.Write(&counter, 1);
+        expander.Finalize(t);
+        t_len = sizeof(t);
+
+        size_t copy = okm_len - pos;
+        if (copy > sizeof(t)) copy = sizeof(t);
+        std::memcpy(okm + pos, t, copy);
+        pos += copy;
+        counter++;
+    }
+
+    memory_cleanse(prk, sizeof(prk));
+    memory_cleanse(t, sizeof(t));
+}
 #endif
 
 namespace latticebp

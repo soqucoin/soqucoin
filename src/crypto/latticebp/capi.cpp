@@ -14,6 +14,13 @@
 #include <vector>
 #include <array>
 
+// LatticeFold verifier and SHA256 — must be included OUTSIDE extern "C"
+// because verifier.h includes uint256.h which uses C++ templates.
+#ifndef LATTICEBP_STANDALONE
+#include "crypto/latticefold/verifier.h"
+#include "crypto/sha256.h"
+#endif
+
 // Global consensus parameters (initialized by lbp_init)
 static latticebp::LatticeCommitment::PublicParams g_params;
 static latticebp::RangeProofParams g_rp_params;
@@ -501,8 +508,8 @@ int lbp_sample_randomness(uint8_t* randomness_out, size_t len) {
 
 #ifndef LATTICEBP_STANDALONE
 
-#include "crypto/latticefold/verifier.h"
-#include "crypto/sha256.h"
+// verifier.h and sha256.h are included at file top (outside extern "C")
+// to avoid C-linkage template errors from uint256.h.
 
 // Folded proof wire format (output of accumulate):
 //  [4 bytes]  version = 0x01
@@ -532,14 +539,9 @@ static void EnsureAccumMatrixInitialized() {
     }
 }
 
-// Write a 64-bit LE value to buffer
-static void WriteLE64(uint8_t* dst, uint64_t val) {
-    for (int i = 0; i < 8; i++) {
-        dst[i] = (val >> (i * 8)) & 0xff;
-    }
-}
+// WriteLE64 and WriteLE32 are provided by crypto/common.h (via uint256.h)
+// ReadLE variants are kept as _local to avoid name collisions with crypto/common.h
 
-// Read a 64-bit LE value from buffer
 static uint64_t ReadLE64_local(const uint8_t* src) {
     uint64_t val = 0;
     for (int i = 0; i < 8; i++) {
@@ -548,15 +550,6 @@ static uint64_t ReadLE64_local(const uint8_t* src) {
     return val;
 }
 
-// Write a 32-bit LE value to buffer
-static void WriteLE32(uint8_t* dst, uint32_t val) {
-    dst[0] = val & 0xff;
-    dst[1] = (val >> 8) & 0xff;
-    dst[2] = (val >> 16) & 0xff;
-    dst[3] = (val >> 24) & 0xff;
-}
-
-// Read a 32-bit LE value from buffer
 static uint32_t ReadLE32_local(const uint8_t* src) {
     return (uint32_t)src[0] | ((uint32_t)src[1] << 8) |
            ((uint32_t)src[2] << 16) | ((uint32_t)src[3] << 24);
@@ -774,41 +767,41 @@ int lbp_latticefold_accumulate(
 
         // t_coeffs (128 bytes)
         for (int i = 0; i < 8; i++) {
-            WriteLE64(out, instance.t_coeffs[i].lo());
-            WriteLE64(out + 8, instance.t_coeffs[i].hi());
+            WriteLE64(out, instance.t_coeffs[i].limbs[0]);
+            WriteLE64(out + 8, instance.t_coeffs[i].limbs[1]);
             out += 16;
         }
 
         // c (16 bytes)
-        WriteLE64(out, instance.c.lo());
-        WriteLE64(out + 8, instance.c.hi());
+        WriteLE64(out, instance.c.limbs[0]);
+        WriteLE64(out + 8, instance.c.limbs[1]);
         out += 16;
 
         // Sumcheck proof (8192 bytes)
         for (size_t i = 0; i < 512; i++) {
-            WriteLE64(out, proof.sumcheck_proof[i].lo());
-            WriteLE64(out + 8, proof.sumcheck_proof[i].hi());
+            WriteLE64(out, proof.sumcheck_proof[i].limbs[0]);
+            WriteLE64(out + 8, proof.sumcheck_proof[i].limbs[1]);
             out += 16;
         }
 
         // Range openings (256 bytes)
         for (int i = 0; i < 16; i++) {
-            WriteLE64(out, proof.range_openings[i].lo());
-            WriteLE64(out + 8, proof.range_openings[i].hi());
+            WriteLE64(out, proof.range_openings[i].limbs[0]);
+            WriteLE64(out + 8, proof.range_openings[i].limbs[1]);
             out += 16;
         }
 
         // Folded commitment (128 bytes)
         for (int i = 0; i < 8; i++) {
-            WriteLE64(out, proof.folded_commitment[i].lo());
-            WriteLE64(out + 8, proof.folded_commitment[i].hi());
+            WriteLE64(out, proof.folded_commitment[i].limbs[0]);
+            WriteLE64(out + 8, proof.folded_commitment[i].limbs[1]);
             out += 16;
         }
 
         // Double openings (64 bytes)
         for (int i = 0; i < 4; i++) {
-            WriteLE64(out, proof.double_openings[i].lo());
-            WriteLE64(out + 8, proof.double_openings[i].hi());
+            WriteLE64(out, proof.double_openings[i].limbs[0]);
+            WriteLE64(out + 8, proof.double_openings[i].limbs[1]);
             out += 16;
         }
 

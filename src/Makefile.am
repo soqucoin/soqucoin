@@ -252,6 +252,10 @@ libsoqucoin_server_a_SOURCES = \
   validation.cpp \
   validationinterface.cpp \
   versionbits.cpp \
+  crypto/latticebp/stealth_address.cpp \
+  crypto/latticebp/stealth_address.h \
+  crypto/latticebp/capi.cpp \
+  crypto/latticebp/capi.h \
   $(BITCOIN_CORE_H)
 
 if ENABLE_ZMQ

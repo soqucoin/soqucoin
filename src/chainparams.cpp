@@ -9,13 +9,54 @@
 
 #include "tinyformat.h"
 #include "utilstrencodings.h"
+#include "crypto/hmac_sha256.h"
 
 #include <assert.h>
+#include <cstring>
 
 #include <boost/assign/list_of.hpp>
 
 
 #include "chainparamsseeds.h"
+
+/**
+ * SOQ-H3: Derive Lattice-BP++ consensus seed from genesis block hash.
+ *
+ * Uses HKDF-SHA256 (RFC 5869) with:
+ *   IKM  = genesis_block_hash (32 bytes)
+ *   salt = domain separator string
+ *   info = lattice parameter binding string
+ *
+ * This gives "nothing up my sleeve" assurance:
+ *   - Genesis hash is public and predates privacy implementation
+ *   - Different chains (mainnet, stagenet, regtest) get different A matrices
+ *   - Lattice parameters (N, Q, K) are bound into the derivation
+ *   - Version suffix allows future migration without breaking existing proofs
+ */
+static std::array<uint8_t, 32> ComputeLatticeBPSeed(
+    const uint256& genesisHash,
+    const char* domain,
+    const char* info)
+{
+    // HKDF-Extract: PRK = HMAC-SHA256(salt=domain, IKM=genesis_hash)
+    unsigned char prk[32];
+    CHMAC_SHA256 extract(
+        reinterpret_cast<const unsigned char*>(domain), strlen(domain));
+    extract.Write(genesisHash.begin(), 32);
+    extract.Finalize(prk);
+
+    // HKDF-Expand: OKM = HMAC-SHA256(key=PRK, info || 0x01)
+    // For 32-byte output, only one HMAC round is needed.
+    std::array<uint8_t, 32> seed;
+    CHMAC_SHA256 expand(prk, 32);
+    expand.Write(
+        reinterpret_cast<const unsigned char*>(info), strlen(info));
+    unsigned char one = 0x01;
+    expand.Write(&one, 1);
+    expand.Finalize(seed.data());
+
+    return seed;
+}
 
 static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
@@ -222,16 +263,18 @@ public:
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
         consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
-        consensus.nAuxpowStartHeight = 1000; // Vanguard Window: solo mining blocks 0-999, AuxPoW from 1000
+        consensus.nAuxpowStartHeight = 0;    // AuxPoW from genesis — merge mining available from block 0
         consensus.nHeightEffective = 0;
 
         // CONSENSUS FIX (DL-MAINNET-DIFFICULTY-TRANSITION):
         // DigiShield per-block difficulty adjustment from block 1 (matching stagenet).
         // Soqucoin launches from its own genesis — Dogecoin's 145000 is meaningless here.
-        // Without this, the binary search tree makes auxpowConsensus (nHeightEffective=1000)
-        // unreachable, and DigiShield wouldn't activate until block 145,000. When AuxPoW
-        // hashrate arrives at block 1000, the chain would be stuck on 240-block retarget
-        // intervals, causing a catastrophic difficulty stall.
+        // DigiShield must activate early so the chain can handle AuxPoW hashrate
+        // without being stuck on 240-block retarget intervals.
+        //
+        // Since AuxPoW is allowed from block 0 (nAuxpowStartHeight=0), and DigiShield
+        // activates at block 1, we merge them into a single consensus tier at height 1.
+        // Block 0 (genesis) uses base consensus; block 1+ uses DigiShield + AuxPoW.
         digishieldConsensus = consensus;
         digishieldConsensus.nHeightEffective = 1;
         digishieldConsensus.fSimplifiedRewards = true;
@@ -239,27 +282,20 @@ public:
         digishieldConsensus.nPowTargetTimespan = 60; // post-digishield: 1 minute
         digishieldConsensus.nCoinbaseMaturity = 240;
 
-        // Blocks 1000+ are AuxPoW — "Vanguard Window" strategy
-        // First 1000 blocks (~16.7 hours) are direct-mining only, rewarding
-        // Day 1 miners before merge mining opens the chain to the global
-        // Scrypt ecosystem. See DL-MERGE-MINING-POOL.md and
-        // auxpow_activation_analysis.md for security analysis.
-        //
-        // fAllowLegacyBlocks = true enables Dogecoin-model dual mining:
-        // both standalone Scrypt blocks (from solo miners) and AuxPoW
-        // blocks (from merge-mining pools) are accepted. Solo miners
-        // using soq-solo-miner can still submit blocks via submitblock,
-        // while pools use createauxblock/submitauxblock for merge mining.
-        // In practice, AuxPoW blocks dominate due to LTC hashrate, but
-        // solo mining remains viable during high-emission early months.
+        // AuxPoW + DigiShield from block 1 (merged tier).
+        // Both standalone Scrypt blocks (solo miners) and AuxPoW blocks
+        // (merge-mining pools) accepted. fAllowLegacyBlocks = true enables
+        // Dogecoin-model dual mining. nAuxpowStartHeight=0 on base consensus
+        // means AuxPoW blocks are valid from genesis, but the DigiShield
+        // difficulty adjustment kicks in at block 1 via this tier.
         auxpowConsensus = digishieldConsensus;
-        auxpowConsensus.nHeightEffective = 1000;
+        auxpowConsensus.nHeightEffective = 1; // Same tier as DigiShield — BST valid
         auxpowConsensus.fAllowLegacyBlocks = true;
 
         // Assemble the binary search tree of consensus parameters
-        pConsensusRoot = &digishieldConsensus;
-        digishieldConsensus.pLeft = &consensus;
-        digishieldConsensus.pRight = &auxpowConsensus;
+        // Simple two-node tree: genesis (left) and block 1+ (right)
+        pConsensusRoot = &consensus;
+        consensus.pRight = &auxpowConsensus;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -282,6 +318,14 @@ public:
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         // Genesis hash assertion deferred — nonce needs re-mining for mainnet launch
+
+        // SOQ-H3: Lattice-BP++ consensus seed — derived from genesis hash
+        consensus.latticeBPSeed = ComputeLatticeBPSeed(
+            consensus.hashGenesisBlock,
+            "soqucoin-latticebp-params-v1",
+            "N=256,Q=8380417,K=4,range=64");
+        digishieldConsensus.latticeBPSeed = consensus.latticeBPSeed;
+        auxpowConsensus.latticeBPSeed = consensus.latticeBPSeed;
 
         // Soqucoin mainnet DNS seeds — DNS-only (grey cloud) A records in Cloudflare
         // These resolve to SOQUPOOL geo-distributed mining mesh nodes
@@ -482,6 +526,15 @@ public:
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         // Genesis hash assertion deferred — testnet3 is being retired
 
+        // SOQ-H3: Lattice-BP++ consensus seed
+        consensus.latticeBPSeed = ComputeLatticeBPSeed(
+            consensus.hashGenesisBlock,
+            "soqucoin-latticebp-params-v1",
+            "N=256,Q=8380417,K=4,range=64");
+        digishieldConsensus.latticeBPSeed = consensus.latticeBPSeed;
+        minDifficultyConsensus.latticeBPSeed = consensus.latticeBPSeed;
+        auxpowConsensus.latticeBPSeed = consensus.latticeBPSeed;
+
         // Clear all Dogecoin seeds - Soqucoin testnet is isolated
         vSeeds.clear();
         // Soqucoin DNS seed nodes - January 2026
@@ -640,6 +693,14 @@ public:
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         assert(consensus.hashGenesisBlock == uint256S("0x22ad706761265b8c05cbc33ff212c1ad7c049afc4e15fc8c04f7e6824da9630f"));
+
+        // SOQ-H3: Lattice-BP++ consensus seed
+        consensus.latticeBPSeed = ComputeLatticeBPSeed(
+            consensus.hashGenesisBlock,
+            "soqucoin-latticebp-params-v1",
+            "N=256,Q=8380417,K=4,range=64");
+        digishieldConsensus.latticeBPSeed = consensus.latticeBPSeed;
+        auxpowConsensus.latticeBPSeed = consensus.latticeBPSeed;
         assert(genesis.hashMerkleRoot == uint256S("0xef6d97da4c49ec2be1f68b1608b62e15645237767a8a5f6e16747ede9b114920"));
 
         vFixedSeeds.clear(); //!< Regtest mode doesn't have any fixed seeds.
@@ -865,6 +926,14 @@ public:
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         assert(consensus.hashGenesisBlock == uint256S("0x073812fa10d3c23358db3a96365ec4afe6a1d674e87a505b31aca2c032554ec0"));
+
+        // SOQ-H3: Lattice-BP++ consensus seed
+        consensus.latticeBPSeed = ComputeLatticeBPSeed(
+            consensus.hashGenesisBlock,
+            "soqucoin-latticebp-params-v1",
+            "N=256,Q=8380417,K=4,range=64");
+        digishieldConsensus.latticeBPSeed = consensus.latticeBPSeed;
+        auxpowConsensus.latticeBPSeed = consensus.latticeBPSeed;
         assert(genesis.hashMerkleRoot == uint256S("0x9abbf4b3788c188d54f03437f8cfecdfd92ee5406159931146d86cb32cee10b5"));
 
         vSeeds.clear();
