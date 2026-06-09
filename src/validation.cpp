@@ -764,6 +764,47 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         if (tx.HasWitness() && fRequireStandard && !IsWitnessStandard(tx, view))
             return state.DoS(0, false, REJECT_NONSTANDARD, "bad-witness-nonstandard", true);
 
+        // SOQ-I005-MEMPOOL: Reject authority TXs that don't spend the tracked
+        // authority outpoint. This prevents mempool-poison attacks where a TX
+        // passes relay validation but fails ConnectBlock's authority outpoint
+        // check, causing CreateNewBlock/TestBlockValidity to abort and halting
+        // block production network-wide.
+        //
+        // This check mirrors ConnectBlock L2777-2787 but runs at mempool
+        // acceptance time, preventing the poison TX from ever entering.
+        {
+            bool hasAuthorityOutput = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.scriptPubKey.size() == 34 &&
+                    txout.scriptPubKey[0] == OP_5 &&
+                    txout.scriptPubKey[1] == 0x20) {
+                    hasAuthorityOutput = true;
+                    break;
+                }
+            }
+
+            if (hasAuthorityOutput && !g_usdsoq_authority_outpoint.IsNull()) {
+                // Non-bootstrap: TX must spend the tracked authority outpoint
+                bool spendsAuthorityOutpoint = false;
+                for (const auto& txin : tx.vin) {
+                    if (txin.prevout == g_usdsoq_authority_outpoint) {
+                        spendsAuthorityOutpoint = true;
+                        break;
+                    }
+                }
+                if (!spendsAuthorityOutpoint) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-usdsoq-authority-outpoint-mempool",
+                        false,
+                        strprintf("USDSOQ authority TX %s rejected from mempool: "
+                            "does not spend tracked authority UTXO %s:%u",
+                            hash.ToString(),
+                            g_usdsoq_authority_outpoint.hash.ToString(),
+                            g_usdsoq_authority_outpoint.n));
+                }
+            }
+        }
+
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
         // SOQ-ARCH-002: Asset-aware fee computation.
@@ -2777,14 +2818,39 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     } else {
                         // Authority TX detected but no authority input found.
                         // This means the TX has an OP_5 output but doesn't spend
-                        // the tracked authority UTXO — reject it.
-                        return state.DoS(100,
-                            error("ConnectBlock(): USDSOQ authority tx %s does not spend "
-                                  "the tracked authority UTXO (expected %s:%u)",
-                                tx.GetHash().ToString(),
+                        // the tracked authority UTXO.
+                        //
+                        // HEIGHT GATE: Only enforce strict authority-input-spending
+                        // for blocks AFTER the deployment height. Blocks before this
+                        // height were mined under old rules where authority TXs could
+                        // bootstrap without spending a previous authority UTXO.
+                        // Without this gate, nodes replaying from genesis get stuck
+                        // at the first post-bootstrap authority TX (BUG-16).
+                        static const int AUTHORITY_INPUT_ENFORCEMENT_HEIGHT = 54300;
+                        if (pindex->nHeight >= AUTHORITY_INPUT_ENFORCEMENT_HEIGHT) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): USDSOQ authority tx %s does not spend "
+                                      "the tracked authority UTXO (expected %s:%u)",
+                                    tx.GetHash().ToString(),
+                                    localAuthOutpoint.hash.ToString(),
+                                    localAuthOutpoint.n),
+                                REJECT_INVALID, "bad-usdsoq-authority-outpoint");
+                        }
+                        // Pre-enforcement: update the authority outpoint from the
+                        // OP_5 output to keep the chain tracking consistent.
+                        if (nAuthorityOutputIndex >= 0) {
+                            localAuthOutpoint = COutPoint(
+                                tx.GetHash(), nAuthorityOutputIndex);
+                            if (!fJustCheck && pcoinsdbview) {
+                                g_usdsoq_authority_outpoint = localAuthOutpoint;
+                                pcoinsdbview->WriteUSDSOQAuthorityOutpoint(
+                                    g_usdsoq_authority_outpoint);
+                            }
+                            LogPrintf("USDSOQ: Pre-enforcement authority outpoint "
+                                      "updated: %s:%u (height %d)\n",
                                 localAuthOutpoint.hash.ToString(),
-                                localAuthOutpoint.n),
-                            REJECT_INVALID, "bad-usdsoq-authority-outpoint");
+                                localAuthOutpoint.n, pindex->nHeight);
+                        }
                     }
                     }
                 } // end height gate else
