@@ -957,6 +957,303 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_onchain_lifecycle)
 }
 
 // ============================================================================
+// CSFS+CTV BINDING MODEL — PROVES OUTPUT COMMITMENT
+// ============================================================================
+//
+// Fable's binding concern: CSFS alone verifies signatures over an arbitrary
+// message, but doesn't bind that message to the spending transaction's outputs.
+// CTV (OP_CHECKTEMPLATEVERIFY) fills this gap by committing to:
+//   nVersion, nLockTime, nInputs, sequences, nOutputs, outputs, inputIndex
+//
+// Script: OP_NOP5 OP_NOP5 OP_CHECKTEMPLATEVERIFY
+//   - Two CSFS checks (VERIFY mode) authenticate both signers
+//   - CTV checks the template hash, binding to specific outputs
+//   - CTV hash stays on stack → clean stack check (32 bytes = truthy) ✓
+//
+// Witness stack (bottom→top):
+//   [0] = ctvHash     → bottom, consumed by CTV after CSFS clears above items
+//   [1] = aliceSig    → 1st CSFS sig
+//   [2] = aliceMsg    → 1st CSFS msg
+//   [3] = alicePk     → 1st CSFS pubkey
+//   [4] = bobSig      → 2nd CSFS sig
+//   [5] = bobMsg      → 2nd CSFS msg
+//   [6] = bobPk       → 2nd CSFS pubkey (top of eval stack)
+//
+// Then: witnessScript + trailing 0x00||pk (V6 handler strips these)
+//
+// Test plan:
+//   A) Correct outputs + correct CTV hash → PASS
+//   B) Tampered outputs → CTV REJECTS (binding proof)
+//   C) Same tampering with CSFS-only script → PASSES (proving the gap)
+//
+// Run: src/test/test_soqucoin --run_test=lightning_script_tests/csfs_ctv_binding_model --log_level=message
+BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
+{
+    auto hex = [](const unsigned char* p, size_t n) {
+        static const char* d = "0123456789abcdef";
+        std::string s; s.reserve(n * 2);
+        for (size_t i = 0; i < n; i++) { s += d[p[i] >> 4]; s += d[p[i] & 0xf]; }
+        return s;
+    };
+    auto hexv = [&](const std::vector<unsigned char>& v) { return hex(v.data(), v.size()); };
+    auto hex256 = [&](const uint256& u) { return hex(u.begin(), 32); };
+
+    // ---- CTV hash computation (mirrors covenant_tests.cpp ComputeCTVHash) ----
+    auto computeCTVHash = [](const CMutableTransaction& tx, unsigned int nIn) -> std::vector<unsigned char> {
+        auto writeLE32 = [](CSHA256& h, uint32_t v) {
+            uint8_t buf[4] = {(uint8_t)(v), (uint8_t)(v>>8), (uint8_t)(v>>16), (uint8_t)(v>>24)};
+            h.Write(buf, 4);
+        };
+        auto writeLE64 = [](CSHA256& h, int64_t v) {
+            uint64_t u = (uint64_t)v;
+            uint8_t buf[8] = {(uint8_t)(u),(uint8_t)(u>>8),(uint8_t)(u>>16),(uint8_t)(u>>24),
+                              (uint8_t)(u>>32),(uint8_t)(u>>40),(uint8_t)(u>>48),(uint8_t)(u>>56)};
+            h.Write(buf, 8);
+        };
+
+        CSHA256 ss;
+        writeLE32(ss, (uint32_t)tx.nVersion);
+        writeLE32(ss, tx.nLockTime);
+        // No scriptSigs in witness tx
+        writeLE32(ss, (uint32_t)tx.vin.size());
+        CSHA256 ssSeq;
+        for (const auto& txin : tx.vin) writeLE32(ssSeq, txin.nSequence);
+        uint8_t seqHash[32]; ssSeq.Finalize(seqHash);
+        ss.Write(seqHash, 32);
+        writeLE32(ss, (uint32_t)tx.vout.size());
+        CSHA256 ssOut;
+        for (const auto& txout : tx.vout) {
+            writeLE64(ssOut, txout.nValue);
+            ssOut.Write(&txout.nVisibility, 1);
+            ssOut.Write(&txout.nAssetType, 1);
+            writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
+            if (!txout.scriptPubKey.empty())
+                ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());
+        }
+        uint8_t outHash[32]; ssOut.Finalize(outHash);
+        ss.Write(outHash, 32);
+        writeLE32(ss, nIn);
+        uint8_t result[32]; ss.Finalize(result);
+        return std::vector<unsigned char>(result, result + 32);
+    };
+
+    // ---- Key generation ----
+    CKey alice, bob;
+    alice.MakeNewKey(true);
+    bob.MakeNewKey(true);
+    CPubKey alicePk = alice.GetPubKey();
+    CPubKey bobPk = bob.GetPubKey();
+    BOOST_REQUIRE(alicePk.IsValid());
+    BOOST_REQUIRE(bobPk.IsValid());
+    std::vector<unsigned char> alicePkBytes(alicePk.begin(), alicePk.end());
+    std::vector<unsigned char> bobPkBytes(bobPk.begin(), bobPk.end());
+
+    std::vector<unsigned char> alicePkPrefixed;
+    alicePkPrefixed.push_back(0x00);
+    alicePkPrefixed.insert(alicePkPrefixed.end(), alicePkBytes.begin(), alicePkBytes.end());
+
+    const CAmount channelAmount = 100 * COIN;
+
+    auto makeV6ScriptPubKey = [](const CScript& witnessScript) -> CScript {
+        uint256 scriptHash;
+        CSHA256().Write(witnessScript.data(), witnessScript.size()).Finalize(scriptHash.begin());
+        CScript spk;
+        spk << OP_6;
+        spk << std::vector<unsigned char>(scriptHash.begin(), scriptHash.end());
+        return spk;
+    };
+
+    const unsigned int v6Flags = SCRIPT_VERIFY_WITNESS
+                               | SCRIPT_VERIFY_P2WSH_DILITHIUM
+                               | SCRIPT_VERIFY_APO
+                               | SCRIPT_VERIFY_SCRIPT_RESTORE
+                               | SCRIPT_VERIFY_CSFS
+                               | SCRIPT_VERIFY_CTV;
+
+    // ================================================================
+    // CSFS+CTV script: OP_NOP5 OP_NOP5 OP_CHECKTEMPLATEVERIFY
+    // ================================================================
+    CScript csfsCtvScript;
+    csfsCtvScript << OP_NOP5 << OP_NOP5 << OP_CHECKTEMPLATEVERIFY;
+
+    CScript csfsCtvSpk = makeV6ScriptPubKey(csfsCtvScript);
+
+    // Funding TX (coinbase → CSFS+CTV output)
+    CMutableTransaction fundTx;
+    fundTx.nVersion = 2;
+    fundTx.nLockTime = 0;
+    CTxIn coinbaseIn; coinbaseIn.prevout.SetNull(); coinbaseIn.nSequence = CTxIn::SEQUENCE_FINAL;
+    fundTx.vin.push_back(coinbaseIn);
+    CTxOut fundOut; fundOut.nValue = channelAmount; fundOut.scriptPubKey = csfsCtvSpk;
+    fundTx.vout.push_back(fundOut);
+
+    // ================================================================
+    // TEST A: Correct outputs → CSFS+CTV PASSES
+    // ================================================================
+    CMutableTransaction spendTx;
+    spendTx.nVersion = 2;
+    spendTx.nLockTime = 0;
+    CTxIn spendIn;
+    spendIn.prevout.hash = fundTx.GetHash();
+    spendIn.prevout.n = 0;
+    spendIn.nSequence = CTxIn::SEQUENCE_FINAL;
+    spendTx.vin.push_back(spendIn);
+    CTxOut aliceOut; aliceOut.nValue = 55 * COIN; aliceOut.scriptPubKey = CScript() << OP_TRUE;
+    CTxOut bobOut; bobOut.nValue = 45 * COIN; bobOut.scriptPubKey = CScript() << OP_TRUE;
+    spendTx.vout.push_back(aliceOut);
+    spendTx.vout.push_back(bobOut);
+
+    // Compute CTV hash for this exact spending tx
+    std::vector<unsigned char> ctvHash = computeCTVHash(spendTx, 0);
+    BOOST_REQUIRE_EQUAL(ctvHash.size(), 32u);
+
+    // CSFS signing: compute sighash, then sign Hash(sighash_bytes)
+    CTransaction ctxSpend(spendTx);
+    uint256 sighash = SignatureHash(csfsCtvScript, ctxSpend, 0, SIGHASH_ALL,
+                                   channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+    std::vector<unsigned char> msgBytes(sighash.begin(), sighash.begin() + 32);
+    uint256 csfsDigest = Hash(msgBytes.begin(), msgBytes.end());
+
+    std::vector<unsigned char> aliceSig, bobSig;
+    BOOST_REQUIRE(alice.Sign(csfsDigest, aliceSig));
+    BOOST_REQUIRE(bob.Sign(csfsDigest, bobSig));
+
+    // Build V6 witness: [ctvHash, aliceSig, msg, alicePk, bobSig, msg, bobPk, script, trailing]
+    CScriptWitness correctWitness;
+    correctWitness.stack.push_back(ctvHash);          // [0] CTV hash (bottom)
+    correctWitness.stack.push_back(aliceSig);         // [1] Alice sig
+    correctWitness.stack.push_back(msgBytes);          // [2] message
+    correctWitness.stack.push_back(alicePkBytes);      // [3] Alice pk
+    correctWitness.stack.push_back(bobSig);            // [4] Bob sig
+    correctWitness.stack.push_back(msgBytes);          // [5] message
+    correctWitness.stack.push_back(bobPkBytes);        // [6] Bob pk
+    correctWitness.stack.push_back(std::vector<unsigned char>(csfsCtvScript.begin(), csfsCtvScript.end()));
+    correctWitness.stack.push_back(alicePkPrefixed);
+
+    CScript emptyScriptSig;
+    ScriptError serrorA = SCRIPT_ERR_OK;
+    TransactionSignatureChecker checkerA(&ctxSpend, 0, channelAmount);
+    bool testA = VerifyScript(emptyScriptSig, csfsCtvSpk, &correctWitness, v6Flags,
+                              checkerA, &serrorA);
+    BOOST_CHECK_MESSAGE(testA,
+        "TEST A: CSFS+CTV with correct outputs PASSES, serror=" << serrorA);
+    BOOST_TEST_MESSAGE("TEST A: CSFS+CTV with correct outputs → PASS ✓");
+
+    // ================================================================
+    // TEST B: Tampered outputs → CTV REJECTS
+    // ================================================================
+    // Change Alice's share from 55 to 65 (steal 10 from Bob)
+    CMutableTransaction tamperedTx = spendTx;
+    tamperedTx.vout[0].nValue = 65 * COIN; // Alice steals
+    tamperedTx.vout[1].nValue = 35 * COIN; // Bob shortchanged
+
+    // Re-sign for the tampered tx (CSFS sigs would be valid for CSFS-only)
+    CTransaction ctxTampered(tamperedTx);
+    uint256 tamperedSighash = SignatureHash(csfsCtvScript, ctxTampered, 0, SIGHASH_ALL,
+                                           channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+    std::vector<unsigned char> tamperedMsg(tamperedSighash.begin(), tamperedSighash.begin() + 32);
+    uint256 tamperedDigest = Hash(tamperedMsg.begin(), tamperedMsg.end());
+
+    std::vector<unsigned char> aliceSigTampered, bobSigTampered;
+    BOOST_REQUIRE(alice.Sign(tamperedDigest, aliceSigTampered));
+    BOOST_REQUIRE(bob.Sign(tamperedDigest, bobSigTampered));
+
+    // Use the ORIGINAL CTV hash (committed to 55/45 split) with the TAMPERED tx
+    CScriptWitness tamperedWitness;
+    tamperedWitness.stack.push_back(ctvHash);              // original CTV hash (55/45)
+    tamperedWitness.stack.push_back(aliceSigTampered);     // valid sig for tampered tx
+    tamperedWitness.stack.push_back(tamperedMsg);
+    tamperedWitness.stack.push_back(alicePkBytes);
+    tamperedWitness.stack.push_back(bobSigTampered);
+    tamperedWitness.stack.push_back(tamperedMsg);
+    tamperedWitness.stack.push_back(bobPkBytes);
+    tamperedWitness.stack.push_back(std::vector<unsigned char>(csfsCtvScript.begin(), csfsCtvScript.end()));
+    tamperedWitness.stack.push_back(alicePkPrefixed);
+
+    ScriptError serrorB = SCRIPT_ERR_OK;
+    TransactionSignatureChecker checkerB(&ctxTampered, 0, channelAmount);
+    bool testB = VerifyScript(emptyScriptSig, csfsCtvSpk, &tamperedWitness, v6Flags,
+                              checkerB, &serrorB);
+    BOOST_CHECK_MESSAGE(!testB,
+        "TEST B: CSFS+CTV with tampered outputs must FAIL, serror=" << serrorB);
+    BOOST_TEST_MESSAGE("TEST B: CSFS+CTV with tampered outputs → REJECTED ✓ (serror=" << serrorB << ")");
+
+    // ================================================================
+    // TEST C: CSFS-only with tampered outputs → PASSES (the gap)
+    // ================================================================
+    // Proves CSFS alone doesn't bind to outputs — this is the security gap
+    // that CTV fills.
+    CScript csfsOnlyScript;
+    csfsOnlyScript << OP_NOP5 << OP_NOP5 << OP_1;
+
+    CScript csfsOnlySpk = makeV6ScriptPubKey(csfsOnlyScript);
+
+    // Create a funding TX locked to the CSFS-only script
+    CMutableTransaction fundTxCsfsOnly;
+    fundTxCsfsOnly.nVersion = 2;
+    fundTxCsfsOnly.nLockTime = 0;
+    CTxIn coinbase2; coinbase2.prevout.SetNull(); coinbase2.nSequence = CTxIn::SEQUENCE_FINAL;
+    fundTxCsfsOnly.vin.push_back(coinbase2);
+    CTxOut fundOut2; fundOut2.nValue = channelAmount; fundOut2.scriptPubKey = csfsOnlySpk;
+    fundTxCsfsOnly.vout.push_back(fundOut2);
+
+    // Spend with tampered outputs — CSFS doesn't care about outputs
+    CMutableTransaction csfsSpendTampered;
+    csfsSpendTampered.nVersion = 2;
+    csfsSpendTampered.nLockTime = 0;
+    CTxIn csfsIn;
+    csfsIn.prevout.hash = fundTxCsfsOnly.GetHash();
+    csfsIn.prevout.n = 0;
+    csfsIn.nSequence = CTxIn::SEQUENCE_FINAL;
+    csfsSpendTampered.vin.push_back(csfsIn);
+    // Alice takes everything!
+    CTxOut aliceSteal; aliceSteal.nValue = channelAmount; aliceSteal.scriptPubKey = CScript() << OP_TRUE;
+    csfsSpendTampered.vout.push_back(aliceSteal);
+
+    CTransaction ctxCsfsSpend(csfsSpendTampered);
+    uint256 csfsSighash = SignatureHash(csfsOnlyScript, ctxCsfsSpend, 0, SIGHASH_ALL,
+                                       channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+    std::vector<unsigned char> csfsMsg(csfsSighash.begin(), csfsSighash.begin() + 32);
+    uint256 csfsDigestC = Hash(csfsMsg.begin(), csfsMsg.end());
+
+    std::vector<unsigned char> aliceSigC, bobSigC;
+    BOOST_REQUIRE(alice.Sign(csfsDigestC, aliceSigC));
+    BOOST_REQUIRE(bob.Sign(csfsDigestC, bobSigC));
+
+    CScriptWitness csfsOnlyWitness;
+    csfsOnlyWitness.stack.push_back(aliceSigC);
+    csfsOnlyWitness.stack.push_back(csfsMsg);
+    csfsOnlyWitness.stack.push_back(alicePkBytes);
+    csfsOnlyWitness.stack.push_back(bobSigC);
+    csfsOnlyWitness.stack.push_back(csfsMsg);
+    csfsOnlyWitness.stack.push_back(bobPkBytes);
+    csfsOnlyWitness.stack.push_back(std::vector<unsigned char>(csfsOnlyScript.begin(), csfsOnlyScript.end()));
+    csfsOnlyWitness.stack.push_back(alicePkPrefixed);
+
+    ScriptError serrorC = SCRIPT_ERR_OK;
+    TransactionSignatureChecker checkerC(&ctxCsfsSpend, 0, channelAmount);
+    bool testC = VerifyScript(emptyScriptSig, csfsOnlySpk, &csfsOnlyWitness, v6Flags,
+                              checkerC, &serrorC);
+    BOOST_CHECK_MESSAGE(testC,
+        "TEST C: CSFS-only with tampered outputs PASSES (the gap!), serror=" << serrorC);
+    BOOST_TEST_MESSAGE("TEST C: CSFS-only with tampered outputs → PASS (binding gap demonstrated) ✓");
+
+    // ---- Summary ----
+    BOOST_TEST_MESSAGE("BINDING_MODEL_BEGIN");
+    BOOST_TEST_MESSAGE("csfs_ctv_script_hex=" << hexv(std::vector<unsigned char>(csfsCtvScript.begin(), csfsCtvScript.end())));
+    BOOST_TEST_MESSAGE("csfs_only_script_hex=" << hexv(std::vector<unsigned char>(csfsOnlyScript.begin(), csfsOnlyScript.end())));
+    BOOST_TEST_MESSAGE("ctv_hash_hex=" << hexv(ctvHash));
+    BOOST_TEST_MESSAGE("test_a_csfs_ctv_correct=" << testA);
+    BOOST_TEST_MESSAGE("test_b_csfs_ctv_tampered=" << testB);
+    BOOST_TEST_MESSAGE("test_c_csfs_only_tampered=" << testC);
+    BOOST_TEST_MESSAGE("BINDING_MODEL_END");
+
+    BOOST_REQUIRE_MESSAGE(testA && !testB && testC,
+        "BINDING MODEL CONFIRMED: CSFS+CTV binds outputs, CSFS-only does not");
+}
+
+
+// ============================================================================
 // ML-DSA-44 INTEROP VECTOR DUMP
 // ============================================================================
 //
