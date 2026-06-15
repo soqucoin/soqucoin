@@ -30,7 +30,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Check trailing whitespace
         run: |
           if git diff --check HEAD~1 2>/dev/null; then
@@ -47,7 +47,7 @@ jobs:
     name: Linux x86_64
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install dependencies
         run: |
@@ -59,7 +59,7 @@ jobs:
             libzmq3-dev libsqlite3-dev libdb++-dev ccache
 
       - name: CCache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.ccache
           key: linux-x64-ccache-${{ hashFiles('**/configure.ac') }}
@@ -80,7 +80,7 @@ jobs:
     name: Linux ARM64
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up ARM64 multiarch
         run: |
@@ -140,7 +140,7 @@ jobs:
     name: Windows x64
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install dependencies
         run: |
@@ -173,7 +173,7 @@ jobs:
     name: macOS ARM64
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install dependencies
         run: |
