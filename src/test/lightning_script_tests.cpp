@@ -1252,6 +1252,337 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
         "BINDING MODEL CONFIRMED: CSFS+CTV binds outputs, CSFS-only does not");
 }
 
+// ============================================================================
+// CSFS+CTV SUBSTITUTION ATTACK (Scenarios D + E)
+// ============================================================================
+//
+// Fable's insight: when ctv_hash is a free witness item, Alice can substitute
+// BOTH the ctv_hash AND the outputs while reusing Bob's valid CSFS signatures.
+// CSFS verifies "agreed" (the old sighash), CTV verifies ctvH' (the attacker's
+// template) — they're decoupled.
+//
+// Scenario D: Substitution attack on witness-based CTV hash → PASSES (the bug)
+// Scenario E: Same attack on in-script CTV hash → FAILS (the fix)
+//
+// The fix: commit ctv_hash IN the witnessScript itself:
+//   OP_NOP5 OP_NOP5 <32-byte ctv_hash> OP_NOP4
+//   (b4 b4 20<hash> b3)
+// The hash lives in scriptPubKey = SHA256(witnessScript), so the spender can't
+// change it without changing the UTXO's address.
+//
+// Run: test_soqucoin --run_test=lightning_script_tests/csfs_ctv_substitution_attack --log_level=message
+BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
+{
+    auto hex = [](const unsigned char* p, size_t n) {
+        static const char* d = "0123456789abcdef";
+        std::string s; s.reserve(n * 2);
+        for (size_t i = 0; i < n; i++) { s += d[p[i] >> 4]; s += d[p[i] & 0xf]; }
+        return s;
+    };
+    auto hexv = [&](const std::vector<unsigned char>& v) { return hex(v.data(), v.size()); };
+
+    // ---- CTV hash computation ----
+    auto computeCTVHash = [](const CMutableTransaction& tx, unsigned int nIn) -> std::vector<unsigned char> {
+        auto writeLE32 = [](CSHA256& h, uint32_t v) {
+            uint8_t buf[4] = {(uint8_t)(v), (uint8_t)(v>>8), (uint8_t)(v>>16), (uint8_t)(v>>24)};
+            h.Write(buf, 4);
+        };
+        auto writeLE64 = [](CSHA256& h, int64_t v) {
+            uint64_t u = (uint64_t)v;
+            uint8_t buf[8] = {(uint8_t)(u),(uint8_t)(u>>8),(uint8_t)(u>>16),(uint8_t)(u>>24),
+                              (uint8_t)(u>>32),(uint8_t)(u>>40),(uint8_t)(u>>48),(uint8_t)(u>>56)};
+            h.Write(buf, 8);
+        };
+        CSHA256 ss;
+        writeLE32(ss, (uint32_t)tx.nVersion);
+        writeLE32(ss, tx.nLockTime);
+        writeLE32(ss, (uint32_t)tx.vin.size());
+        CSHA256 ssSeq;
+        for (const auto& txin : tx.vin) writeLE32(ssSeq, txin.nSequence);
+        uint8_t seqHash[32]; ssSeq.Finalize(seqHash);
+        ss.Write(seqHash, 32);
+        writeLE32(ss, (uint32_t)tx.vout.size());
+        CSHA256 ssOut;
+        for (const auto& txout : tx.vout) {
+            writeLE64(ssOut, txout.nValue);
+            ssOut.Write(&txout.nVisibility, 1);
+            ssOut.Write(&txout.nAssetType, 1);
+            writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
+            if (!txout.scriptPubKey.empty())
+                ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());
+        }
+        uint8_t outHash[32]; ssOut.Finalize(outHash);
+        ss.Write(outHash, 32);
+        writeLE32(ss, nIn);
+        uint8_t result[32]; ss.Finalize(result);
+        return std::vector<unsigned char>(result, result + 32);
+    };
+
+    // ---- Key generation ----
+    CKey alice, bob;
+    alice.MakeNewKey(true);
+    bob.MakeNewKey(true);
+    CPubKey alicePk = alice.GetPubKey();
+    CPubKey bobPk = bob.GetPubKey();
+    BOOST_REQUIRE(alicePk.IsValid());
+    BOOST_REQUIRE(bobPk.IsValid());
+    std::vector<unsigned char> alicePkBytes(alicePk.begin(), alicePk.end());
+    std::vector<unsigned char> bobPkBytes(bobPk.begin(), bobPk.end());
+
+    std::vector<unsigned char> alicePkPrefixed;
+    alicePkPrefixed.push_back(0x00);
+    alicePkPrefixed.insert(alicePkPrefixed.end(), alicePkBytes.begin(), alicePkBytes.end());
+
+    const CAmount channelAmount = 100 * COIN;
+
+    auto makeV6ScriptPubKey = [](const CScript& witnessScript) -> CScript {
+        uint256 scriptHash;
+        CSHA256().Write(witnessScript.data(), witnessScript.size()).Finalize(scriptHash.begin());
+        CScript spk;
+        spk << OP_6;
+        spk << std::vector<unsigned char>(scriptHash.begin(), scriptHash.end());
+        return spk;
+    };
+
+    const unsigned int v6Flags = SCRIPT_VERIFY_WITNESS
+                               | SCRIPT_VERIFY_P2WSH_DILITHIUM
+                               | SCRIPT_VERIFY_APO
+                               | SCRIPT_VERIFY_SCRIPT_RESTORE
+                               | SCRIPT_VERIFY_CSFS
+                               | SCRIPT_VERIFY_CTV;
+
+    // ================================================================
+    // Setup: the "agreed" settlement (55/45 split)
+    // ================================================================
+
+    // Witness-based CTV script (the VULNERABLE variant)
+    CScript vulnScript;
+    vulnScript << OP_NOP5 << OP_NOP5 << OP_CHECKTEMPLATEVERIFY;
+    CScript vulnSpk = makeV6ScriptPubKey(vulnScript);
+
+    // Funding TX → CSFS+CTV (witness-based hash)
+    CMutableTransaction fundTx;
+    fundTx.nVersion = 2; fundTx.nLockTime = 0;
+    CTxIn coinbaseIn; coinbaseIn.prevout.SetNull(); coinbaseIn.nSequence = CTxIn::SEQUENCE_FINAL;
+    fundTx.vin.push_back(coinbaseIn);
+    CTxOut fundOut; fundOut.nValue = channelAmount; fundOut.scriptPubKey = vulnSpk;
+    fundTx.vout.push_back(fundOut);
+
+    // The AGREED settlement TX (55 Alice / 45 Bob)
+    CMutableTransaction agreedTx;
+    agreedTx.nVersion = 2; agreedTx.nLockTime = 0;
+    CTxIn agreedIn;
+    agreedIn.prevout.hash = fundTx.GetHash();
+    agreedIn.prevout.n = 0;
+    agreedIn.nSequence = CTxIn::SEQUENCE_FINAL;
+    agreedTx.vin.push_back(agreedIn);
+    CTxOut aOut; aOut.nValue = 55 * COIN; aOut.scriptPubKey = CScript() << OP_TRUE;
+    CTxOut bOut; bOut.nValue = 45 * COIN; bOut.scriptPubKey = CScript() << OP_TRUE;
+    agreedTx.vout.push_back(aOut);
+    agreedTx.vout.push_back(bOut);
+
+    std::vector<unsigned char> agreedCtvHash = computeCTVHash(agreedTx, 0);
+
+    // Sign the AGREED sighash — both Alice and Bob authorize this settlement
+    CTransaction ctxAgreed(agreedTx);
+    uint256 agreedSighash = SignatureHash(vulnScript, ctxAgreed, 0, SIGHASH_ALL,
+                                         channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+    std::vector<unsigned char> agreedMsg(agreedSighash.begin(), agreedSighash.begin() + 32);
+    uint256 agreedDigest = Hash(agreedMsg.begin(), agreedMsg.end());
+
+    std::vector<unsigned char> aliceSigAgreed, bobSigAgreed;
+    BOOST_REQUIRE(alice.Sign(agreedDigest, aliceSigAgreed));
+    BOOST_REQUIRE(bob.Sign(agreedDigest, bobSigAgreed));
+
+    // ================================================================
+    // SCENARIO D: Substitution attack on witness-based CTV hash
+    // Alice reuses Bob's valid sig over "agreed" but substitutes the
+    // CTV hash and outputs to steal everything.
+    // Expected: PASSES (the bug!)
+    // ================================================================
+
+    // Alice's theft TX: she takes 100%, Bob gets 0
+    CMutableTransaction theftTx;
+    theftTx.nVersion = 2; theftTx.nLockTime = 0;
+    CTxIn theftIn;
+    theftIn.prevout.hash = fundTx.GetHash();
+    theftIn.prevout.n = 0;
+    theftIn.nSequence = CTxIn::SEQUENCE_FINAL;
+    theftTx.vin.push_back(theftIn);
+    CTxOut stealOut; stealOut.nValue = channelAmount; stealOut.scriptPubKey = CScript() << OP_TRUE;
+    theftTx.vout.push_back(stealOut); // Alice takes 100%
+
+    // Compute CTV hash for the THEFT tx
+    std::vector<unsigned char> theftCtvHash = computeCTVHash(theftTx, 0);
+    BOOST_REQUIRE(theftCtvHash != agreedCtvHash); // sanity: different templates
+
+    // Build attack witness:
+    //   - CTV hash = theftCtvHash (attacker-chosen, matches theft tx)
+    //   - CSFS sigs = valid sigs over "agreed" (Bob's real sig reused!)
+    CScriptWitness attackWitness;
+    attackWitness.stack.push_back(theftCtvHash);      // [0] attacker's CTV hash
+    attackWitness.stack.push_back(aliceSigAgreed);    // [1] Alice's sig over agreed
+    attackWitness.stack.push_back(agreedMsg);           // [2] agreed message
+    attackWitness.stack.push_back(alicePkBytes);       // [3] Alice pk
+    attackWitness.stack.push_back(bobSigAgreed);       // [4] Bob's sig over agreed (REUSED!)
+    attackWitness.stack.push_back(agreedMsg);           // [5] agreed message
+    attackWitness.stack.push_back(bobPkBytes);          // [6] Bob pk
+    attackWitness.stack.push_back(std::vector<unsigned char>(vulnScript.begin(), vulnScript.end()));
+    attackWitness.stack.push_back(alicePkPrefixed);
+
+    CScript emptyScriptSig;
+    CTransaction ctxTheft(theftTx);
+    ScriptError serrorD = SCRIPT_ERR_OK;
+    TransactionSignatureChecker checkerD(&ctxTheft, 0, channelAmount);
+    bool testD = VerifyScript(emptyScriptSig, vulnSpk, &attackWitness, v6Flags,
+                              checkerD, &serrorD);
+
+    BOOST_CHECK_MESSAGE(testD,
+        "SCENARIO D: Substitution attack on witness-based CTV hash should PASS (the bug!), serror=" << serrorD);
+    BOOST_TEST_MESSAGE("SCENARIO D: Witness-based CTV hash — substitution attack → "
+        << (testD ? "PASS (BUG CONFIRMED ⚠️)" : "FAIL (unexpected)") << " serror=" << serrorD);
+
+    // ================================================================
+    // SCENARIO E: In-script CTV hash blocks the attack
+    // Script: OP_NOP5 OP_NOP5 <agreedCtvHash> OP_CHECKTEMPLATEVERIFY
+    //         (b4 b4 20<32 bytes> b3)
+    // The hash is committed in witnessScript → scriptPubKey → can't be swapped.
+    // Expected: FAILS (the fix!)
+    // ================================================================
+
+    // Build in-script CTV variant: b4 b4 20<hash> b3
+    CScript secureScript;
+    secureScript << OP_NOP5 << OP_NOP5;
+    secureScript << agreedCtvHash;  // 0x20 followed by 32 bytes (push opcode)
+    secureScript << OP_CHECKTEMPLATEVERIFY;
+
+    CScript secureSpk = makeV6ScriptPubKey(secureScript);
+
+    BOOST_TEST_MESSAGE("secure_script_hex=" << hexv(std::vector<unsigned char>(secureScript.begin(), secureScript.end())));
+
+    // Funding TX → in-script CTV (the SECURE variant)
+    CMutableTransaction fundTxSecure;
+    fundTxSecure.nVersion = 2; fundTxSecure.nLockTime = 0;
+    CTxIn coinbase2; coinbase2.prevout.SetNull(); coinbase2.nSequence = CTxIn::SEQUENCE_FINAL;
+    fundTxSecure.vin.push_back(coinbase2);
+    CTxOut fundOut2; fundOut2.nValue = channelAmount; fundOut2.scriptPubKey = secureSpk;
+    fundTxSecure.vout.push_back(fundOut2);
+
+    // Alice tries the same theft against the SECURE funding output
+    CMutableTransaction theftTxE;
+    theftTxE.nVersion = 2; theftTxE.nLockTime = 0;
+    CTxIn theftInE;
+    theftInE.prevout.hash = fundTxSecure.GetHash();
+    theftInE.prevout.n = 0;
+    theftInE.nSequence = CTxIn::SEQUENCE_FINAL;
+    theftTxE.vin.push_back(theftInE);
+    CTxOut stealOutE; stealOutE.nValue = channelAmount; stealOutE.scriptPubKey = CScript() << OP_TRUE;
+    theftTxE.vout.push_back(stealOutE); // Alice tries to take 100%
+
+    // Sign CSFS over "agreed" for the secure script
+    CTransaction ctxTheftE(theftTxE);
+    // NOTE: Alice signs the agreed sighash (computed with secureScript as scriptCode)
+    // In a real channel, Alice would have Bob's sig from the agreed state.
+    // The attack is: reuse those valid sigs, but the in-script CTV hash
+    // is committed to the AGREED template, not Alice's theft template.
+    uint256 agreedSighashE = SignatureHash(secureScript, ctxAgreed, 0, SIGHASH_ALL,
+                                          channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+    std::vector<unsigned char> agreedMsgE(agreedSighashE.begin(), agreedSighashE.begin() + 32);
+    uint256 agreedDigestE = Hash(agreedMsgE.begin(), agreedMsgE.end());
+
+    std::vector<unsigned char> aliceSigE, bobSigE;
+    BOOST_REQUIRE(alice.Sign(agreedDigestE, aliceSigE));
+    BOOST_REQUIRE(bob.Sign(agreedDigestE, bobSigE));
+
+    // Witness for in-script variant: NO ctvHash in witness (it's in the script)
+    // Just the 6 CSFS items + script + trailing pk
+    CScriptWitness secureAttackWitness;
+    secureAttackWitness.stack.push_back(aliceSigE);        // [0] Alice sig over agreed
+    secureAttackWitness.stack.push_back(agreedMsgE);       // [1] agreed message
+    secureAttackWitness.stack.push_back(alicePkBytes);     // [2] Alice pk
+    secureAttackWitness.stack.push_back(bobSigE);          // [3] Bob sig over agreed
+    secureAttackWitness.stack.push_back(agreedMsgE);       // [4] agreed message
+    secureAttackWitness.stack.push_back(bobPkBytes);       // [5] Bob pk
+    secureAttackWitness.stack.push_back(std::vector<unsigned char>(secureScript.begin(), secureScript.end()));
+    secureAttackWitness.stack.push_back(alicePkPrefixed);
+
+    ScriptError serrorE = SCRIPT_ERR_OK;
+    TransactionSignatureChecker checkerE(&ctxTheftE, 0, channelAmount);
+    bool testE = VerifyScript(emptyScriptSig, secureSpk, &secureAttackWitness, v6Flags,
+                              checkerE, &serrorE);
+
+    BOOST_CHECK_MESSAGE(!testE,
+        "SCENARIO E: In-script CTV hash should REJECT theft tx, serror=" << serrorE);
+    BOOST_TEST_MESSAGE("SCENARIO E: In-script CTV hash — substitution attack → "
+        << (testE ? "PASS (unexpected!)" : "FAIL (THEFT BLOCKED ✅)") << " serror=" << serrorE);
+
+    // ================================================================
+    // Scenario E-sanity: in-script CTV with the CORRECT (agreed) tx → PASSES
+    // ================================================================
+    // Prove the secure script works when used honestly (agreed 55/45 split)
+    CMutableTransaction agreedTxE;
+    agreedTxE.nVersion = 2; agreedTxE.nLockTime = 0;
+    CTxIn agreedInE;
+    agreedInE.prevout.hash = fundTxSecure.GetHash();
+    agreedInE.prevout.n = 0;
+    agreedInE.nSequence = CTxIn::SEQUENCE_FINAL;
+    agreedTxE.vin.push_back(agreedInE);
+    CTxOut aOutE; aOutE.nValue = 55 * COIN; aOutE.scriptPubKey = CScript() << OP_TRUE;
+    CTxOut bOutE; bOutE.nValue = 45 * COIN; bOutE.scriptPubKey = CScript() << OP_TRUE;
+    agreedTxE.vout.push_back(aOutE);
+    agreedTxE.vout.push_back(bOutE);
+
+    // Verify CTV hash matches
+    std::vector<unsigned char> agreedCtvHashE = computeCTVHash(agreedTxE, 0);
+    BOOST_REQUIRE_MESSAGE(agreedCtvHashE == agreedCtvHash,
+        "Sanity: CTV hash for agreed outputs should match (same template)");
+
+    CTransaction ctxAgreedE(agreedTxE);
+    uint256 agreedSighashE2 = SignatureHash(secureScript, ctxAgreedE, 0, SIGHASH_ALL,
+                                           channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+    std::vector<unsigned char> agreedMsgE2(agreedSighashE2.begin(), agreedSighashE2.begin() + 32);
+    uint256 agreedDigestE2 = Hash(agreedMsgE2.begin(), agreedMsgE2.end());
+
+    std::vector<unsigned char> aliceSigE2, bobSigE2;
+    BOOST_REQUIRE(alice.Sign(agreedDigestE2, aliceSigE2));
+    BOOST_REQUIRE(bob.Sign(agreedDigestE2, bobSigE2));
+
+    CScriptWitness secureHonestWitness;
+    secureHonestWitness.stack.push_back(aliceSigE2);
+    secureHonestWitness.stack.push_back(agreedMsgE2);
+    secureHonestWitness.stack.push_back(alicePkBytes);
+    secureHonestWitness.stack.push_back(bobSigE2);
+    secureHonestWitness.stack.push_back(agreedMsgE2);
+    secureHonestWitness.stack.push_back(bobPkBytes);
+    secureHonestWitness.stack.push_back(std::vector<unsigned char>(secureScript.begin(), secureScript.end()));
+    secureHonestWitness.stack.push_back(alicePkPrefixed);
+
+    ScriptError serrorES = SCRIPT_ERR_OK;
+    TransactionSignatureChecker checkerES(&ctxAgreedE, 0, channelAmount);
+    bool testES = VerifyScript(emptyScriptSig, secureSpk, &secureHonestWitness, v6Flags,
+                               checkerES, &serrorES);
+
+    BOOST_CHECK_MESSAGE(testES,
+        "SCENARIO E-sanity: In-script CTV with agreed tx should PASS, serror=" << serrorES);
+    BOOST_TEST_MESSAGE("SCENARIO E-sanity: In-script CTV with honest spend → "
+        << (testES ? "PASS ✅" : "FAIL (unexpected)") << " serror=" << serrorES);
+
+    // ---- Summary ----
+    BOOST_TEST_MESSAGE("SUBSTITUTION_ATTACK_BEGIN");
+    BOOST_TEST_MESSAGE("vuln_script_hex=" << hexv(std::vector<unsigned char>(vulnScript.begin(), vulnScript.end())));
+    BOOST_TEST_MESSAGE("secure_script_hex=" << hexv(std::vector<unsigned char>(secureScript.begin(), secureScript.end())));
+    BOOST_TEST_MESSAGE("agreed_ctv_hash=" << hexv(agreedCtvHash));
+    BOOST_TEST_MESSAGE("theft_ctv_hash=" << hexv(theftCtvHash));
+    BOOST_TEST_MESSAGE("test_d_vuln_substitution=" << testD);
+    BOOST_TEST_MESSAGE("test_e_secure_blocked=" << testE);
+    BOOST_TEST_MESSAGE("test_es_secure_honest=" << testES);
+    BOOST_TEST_MESSAGE("SUBSTITUTION_ATTACK_END");
+
+    BOOST_REQUIRE_MESSAGE(testD && !testE && testES,
+        "SUBSTITUTION ATTACK: D=PASS(bug), E=FAIL(fix works), ES=PASS(honest works) — "
+        "IN-SCRIPT CTV HASH IS THE ONLY SECURE VARIANT");
+}
+
 
 // ============================================================================
 // ML-DSA-44 INTEROP VECTOR DUMP
