@@ -1,17 +1,17 @@
-# pSOQ ↔ SOQ Bridge Architecture
+# pSOQ ↔ SOQ Gateway Architecture
 
-> **Status:** Tentative Decisions — Pending Board Approval  
+> **Status:** Shipped to Devnet/Stagenet  
 > **Target Activation:** Q3 2026 (after block 100,000 / 5B SOQ mined)  
-> **Last Updated:** February 2, 2026  
-> **Audit Requirement:** Third-party audit mandatory before activation
+> **Last Updated:** June 15, 2026  
+> **Audit Requirement:** Halborn Phase 2 Audit in progress  
 
 ---
 
 ## Overview
 
-This document specifies the planned bridge architecture for converting between pSOQ (Solana SPL token) and native SOQ. We're publishing this early to address legitimate questions from miners and developers about the bridge's technical design and trust model.
+This document specifies the gateway architecture for converting between pSOQ (Solana SPL token) and native SOQ. We are publishing this to document the technical design and trust model of the SOQ-TEC cross-chain gateway.
 
-**Bottom line up front:** The bridge uses a standard lock-and-mint / burn-and-release pattern. It's not novel cryptography—it's proven infrastructure adapted for our PQ context. The hard part isn't the mechanism; it's the oracle trust assumption and the audit process.
+**Bottom line up front:** The gateway uses a standard lock-and-mint / burn-and-release pattern. It is built for cryptographic longevity in a post-quantum environment, utilizing Dilithium attestations and XMSS-Lite revolving vault custody.
 
 ---
 
@@ -21,13 +21,13 @@ This document specifies the planned bridge architecture for converting between p
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           SOQ → pSOQ (Minting)                              │
+│                           SOQ → pSOQ (Deposit)                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│   User sends SOQ ──► Vault (Dilithium multi-sig) ──► Oracle attestation     │
+│   User sends SOQ ──► Dilithium L1 Vault ──► Relayer committee attestation   │
 │                                                            │                │
 │                                                            ▼                │
-│                                              pSOQ minted on Solana          │
+│                                              pSOQ minted to XMSS Vault      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -35,44 +35,47 @@ This document specifies the planned bridge architecture for converting between p
 │                           pSOQ → SOQ (Redemption)                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│   User burns pSOQ on Solana ──► Oracle observes burn ──► Vault releases SOQ │
-│                                                                             │
+│   User burns pSOQ on Solana ──► Relayers detect burn ──► Quantum Express    │
+│                                                            │                │
+│                                                            ▼                │
+│                                                   SOQ released from L1 Vault│
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Components
 
-#### 1. Vault Contract (Soqucoin L1)
+#### 1. Dilithium L1 Vault (Soqucoin L1)
 
 - **Location:** Native Soqucoin script
-- **Security:** Dilithium ML-DSA-44 multi-signature (3-of-5 threshold recommended)
+- **Security:** Dilithium ML-DSA-44 multi-signature (3-of-5 threshold)
 - **Function:** Holds locked SOQ backing all circulating pSOQ
 - **Audit scope:** Script correctness, signature verification, replay protection
 
-The vault is the critical component. It's secured by the same post-quantum signatures that protect all Soqucoin transactions. Unlike the pSOQ side, this component benefits from Soqucoin's quantum resistance.
+The vault is the critical L1 component. It is secured by the same post-quantum signatures that protect all Soqucoin transactions.
 
-#### 2. pSOQ Token Contract (Solana)
+#### 2. pSOQ Token Contract & XMSS Vault (Solana)
 
-- **Standard:** SPL Token
-- **Mint Authority:** Bridge program (controlled by oracle consensus)
-- **Security:** Ed25519 (classical—NOT quantum-safe)
+- **Standard:** SPL Token & Anchor program
+- **Mint Authority:** Gateway program (controlled by relayer consensus)
+- **Solana Fees:** Ed25519 (required by Solana for gas fees, but keys never touch the network for bridge signatures)
+- **Custody:** XMSS Revolving Door (WOTS+ key hashes)
 
-This is inherited Solana infrastructure. We're not reinventing the wheel here. The trade-off is explicit: pSOQ holders accept Solana's security model in exchange for pre-mainnet liquidity access.
+This component resides on Solana. The trade-off is explicit: pSOQ holders use Solana's runtime for liquidity while securing their assets inside an offline-signer XMSS vault.
 
-#### 3. Oracle Network
+#### 3. Dilithium Relayer Network (3-of-5 Committee)
 
 - **Function:** Observes lock/burn events, attests to state changes
-- **Options under evaluation:**
-  - Wormhole Guardians (established, but external dependency)
-  - Custom validator set (more control, more development overhead)
-  - Threshold signature scheme (distributed trust)
+- **Mechanism:**
+  - 3-of-5 Dilithium attestation relayer committee
+  - Independent validator nodes running on-chain verification
+  - Quantum Express optimistic release for rapid redemptions (under 30 seconds)
 
-**Honest assessment:** This is where the trust assumptions live. The oracle network is the bridge's weakest link. A compromised oracle set could:
+**Honest assessment:** The relayer committee is the trust anchor of the gateway. A compromised relayer set could:
 - Mint unbacked pSOQ (inflation attack)
 - Fail to release locked SOQ (liveness failure)
 - Censor specific redemption requests
 
-We're evaluating options with explicit trust/complexity trade-offs. The final design will be published with a threat model before deployment.
+We mitigate this through multi-signature threshold requirements and active monitoring.
 
 ---
 
@@ -83,17 +86,17 @@ We're evaluating options with explicit trust/complexity trade-offs. The final de
 | Component | Protection Level |
 |-----------|-----------------|
 | Locked SOQ in vault | Dilithium ML-DSA-44 (NIST Level 2 PQ) |
-| Vault script logic | Consensus-enforced on Soqucoin L1 |
+| L1 Vault script logic | Consensus-enforced on Soqucoin L1 |
+| Solana Asset Custody | XMSS Revolving Door (WOTS+ key hashes) |
 
 ### What is NOT Protected
 
 | Component | Vulnerability |
 |-----------|--------------|
-| pSOQ holdings on Solana | Ed25519 (vulnerable to Shor's algorithm) |
-| Oracle attestations | Trust in oracle operator set |
-| Bridge liveness | Dependent on oracle uptime |
+| Solana gas fee signatures | Ed25519 (vulnerable to Shor's algorithm) |
+| Relayer uptime | Dependent on relayer committee stability |
 
-**For miners considering pSOQ:** If your threat model includes quantum adversaries, pSOQ is not the right vehicle. It's a liquidity bridge, not a long-term store of value. Mine native SOQ post-mainnet for actual PQ protection.
+**For miners considering pSOQ:** If your threat model includes quantum adversaries on the Solana network, pSOQ is not the right vehicle. It is a liquidity gateway, not a long-term store of value. Mine native SOQ post-mainnet for actual PQ protection.
 
 ---
 
@@ -102,77 +105,67 @@ We're evaluating options with explicit trust/complexity trade-offs. The final de
 ### Peg Maintenance
 
 The 1:1 peg is maintained through arbitrage:
-- If pSOQ trades below SOQ: Arbitrageurs buy pSOQ, redeem for SOQ, sell SOQ
-- If pSOQ trades above SOQ: Arbitrageurs buy SOQ, lock for pSOQ, sell pSOQ
+- If pSOQ trades below SOQ: Arbitrageurs buy pSOQ, redeem for SOQ, and sell SOQ.
+- If pSOQ trades above SOQ: Arbitrageurs buy SOQ, lock for pSOQ, and sell pSOQ.
 
 This assumes:
-1. Bridge is operational
+1. Gateway is operational
 2. Liquidity exists on both sides
-3. Transaction costs don't exceed the spread
+3. Transaction costs do not exceed the spread
 
-### Liquidity Risk Post-Mainnet
+### Backing Model
 
-Solana DEX liquidity for pSOQ will likely decline after native SOQ trading begins. We're exploring:
-- Liquidity incentive programs for pSOQ LPs
-- Gradual migration path with clear timelines
-- Potential sunset date for the bridge
-
-We'll communicate this clearly. No one should be caught off-guard by liquidity changes.
+The gateway is designed for full 1:1 backing. Foundation mining rewards fund reserve pools post-Phase-2 audit to ensure senior priority redemption for the public float.
 
 ---
 
-## Implementation Timeline (Updated)
+## Implementation Timeline
 
 | Phase | Target | Deliverable |
 |-------|--------|-------------|
 | Design | Q2 2026 ✅ | This document, threat model |
-| Development | Q2 2026 | Wormhole integration, vault contract |
-| Audit | Q2-Q3 2026 | Third-party bridge audit (Halborn Phase 2) |
-| Testnet | Q2-Q3 2026 | Integration testing (after block 100,000) |
-| Mainnet | **Q3 2026** | Production activation (when 5B SOQ mined) |
+| Development | Q2 2026 ✅ | Custom Dilithium relayer, XMSS Vault |
+| Audit | Q2-Q3 2026 | Halborn Phase 2 audit (in progress) |
+| Testnet | Q2-Q3 2026 | Integration testing on devnet and stagenet |
+| Mainnet | Q3 2026 | Production gateway activation |
 
 > [!NOTE]
-> **Timeline Updated (Feb 2026)**: Previously Q4 2026. Using Wormhole (vs custom oracle) accelerates timeline by ~3 months. Activation gated by 5B SOQ circulation threshold.
-
-**No activation without audit.** This is non-negotiable. We've seen too many bridges exploited due to rushed deployments.
+> **Gateway Design Choice**: The team pivoted from third-party oracle providers to a custom post-quantum relayer committee to ensure native signature compatibility and eliminate third-party oracle risks.
 
 ---
 
 ## Risk Disclosure
 
-### The Bridge May Never Activate
+### The Gateway May Never Activate
 
-We're being explicit: **the 1:1 bridge is aspirational, not guaranteed**. Reasons it might not ship:
+We are being explicit: **the 1:1 gateway activation is contingent on audit completion**. Reasons it might not activate:
 
-1. **Audit findings:** Critical vulnerabilities that can't be remediated
-2. **Regulatory uncertainty:** Legal advice indicating bridge creates unacceptable risk
-3. **Technical blockers:** Oracle infrastructure proves infeasible
-4. **Community governance:** Token holders vote against activation
+1. **Audit findings:** Critical vulnerabilities that cannot be remediated
+2. **Regulatory uncertainty:** Legal advice indicating the gateway creates unacceptable risk
+3. **Technical blockers:** L1 script limitations or Solana runtime issues
 
-If the bridge doesn't activate, pSOQ becomes an independent Solana token with no guaranteed backing. This is a real risk that participants should price in.
+If the gateway does not activate, pSOQ remains an independent Solana token. This is a real risk that participants should price in.
 
-### Oracle Compromise Scenarios
+### Relayer Compromise Scenarios
 
 | Scenario | Impact | Mitigation |
 |----------|--------|------------|
-| Oracle set colludes | Unbacked pSOQ minted | Threshold signatures, time-locked withdrawals |
-| Oracle keys compromised | Same as above | Key rotation, hardware security modules |
-| Oracle set goes offline | Bridge halts, no new mints/redeems | Fallback oracle set, emergency governance |
+| Relayer set colludes | Unbacked pSOQ minted | Threshold signatures, time-locked withdrawals |
+| Relayer keys compromised | Same as above | Key rotation, hardware security modules |
+| Relayer set goes offline | Gateway halts, no new mints or redeems | Fallback relayer set, emergency governance |
 
-We're designing for these threats, but no system is invulnerable. The bridge adds trust assumptions that native SOQ doesn't have.
+We are designing for these threats, but no system is invulnerable. The gateway adds trust assumptions that native SOQ does not have.
 
 ---
 
 ## For Miners: Practical Guidance
 
-If you're evaluating participation in Soqucoin, here's our honest recommendation:
+If you are evaluating participation in Soqucoin, here is our honest recommendation:
 
-1. **pSOQ is for pre-mainnet exposure only.** It's a speculation vehicle, not the product.
-2. **Mining native SOQ post-mainnet gives you actual PQ protection.** That's the thesis.
-3. **Don't over-allocate to pSOQ based on bridge assumptions.** Price in the possibility that it doesn't happen.
-4. **Watch for audit announcements.** We'll publish results transparently.
-
-We're building this in public. If you see design flaws, open an issue. If you want to contribute to the bridge implementation, reach out on Discord (#dev channel).
+1. **pSOQ is for pre-mainnet exposure only.** It is a speculation vehicle, not the ultimate store of value.
+2. **Mining native SOQ post-mainnet gives you actual PQ protection.** That is the core thesis.
+3. **Do not over-allocate to pSOQ based on gateway assumptions.** Price in the possibility that it does not happen.
+4. **Watch for audit announcements.** We will publish results transparently.
 
 ---
 
@@ -184,5 +177,5 @@ We're building this in public. If you see design flaws, open an issue. If you wa
 
 ---
 
-*Last updated: January 13, 2026*  
+*Last updated: June 15, 2026*  
 *Document maintainer: Soqucoin Core Team*

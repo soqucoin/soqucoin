@@ -9,7 +9,7 @@
 
 ## Reporting a Vulnerability
 
-Soqucoin Core is the first production cryptocurrency with native Dilithium batching and recursive LatticeFold+ verification deployed on `main`. Security is therefore non-negotiable.
+Soqucoin Core is the first post-quantum cryptocurrency with native Dilithium batching and recursive LatticeFold+ verification deployed on `main`. Security is therefore non-negotiable.
 
 To report a security vulnerability, please send a PGP-encrypted email to:
 
@@ -77,5 +77,5 @@ For cryptographic specifications, see `doc/wallet/WALLET_CRYPTOGRAPHIC_SPEC.md`.
 
 Thank you for helping keep the first quantum-resistant PoW chain unbreakable.
 
-— Casey Wilson, Soqucoin Founder   
+- Casey Wilson, Soqucoin Founder   
 February 2026
