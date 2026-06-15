@@ -1550,6 +1550,135 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                     }
                 }
 
+                // =============================================================
+                // SOQ-HOTFIX-002: USDSOQ state restoration MUST happen BEFORE
+                // VerifyDB(). VerifyDB calls DisconnectBlock on the last N
+                // blocks, which triggers UndoMint/UndoBurn on g_usdsoq_supply.
+                // If the supply counter is still {0,0} (default), UndoMint
+                // always fails (amount > total_minted), causing a false
+                // "Corrupted block database" abort and a crash loop.
+                //
+                // Root cause of the June 15, 2026 Broadcast VPS crash:
+                //   - g_usdsoq_supply loaded AFTER VerifyDB → UndoMint(35.18 SOQ)
+                //     against total_minted=0 → invariant violation → crash
+                //   - 360 restart cycles over ~3 hours
+                //
+                // The authority, supply, and outpoint all need to be restored
+                // before any block disconnection can occur.
+                // =============================================================
+
+                // SOQ-AUD2-002: Restore USDSOQ authority key set from chainstate DB
+                if (pcoinsdbview) {
+                    CUSDSOQAuthority persistedAuthority;
+                    if (pcoinsdbview->ReadUSDSOQAuthority(persistedAuthority) &&
+                        persistedAuthority.IsInitialized()) {
+                        g_usdsoq_authority = persistedAuthority;
+                        LogPrintf("USDSOQ: Restored authority from DB: %u-of-%u Dilithium multisig\n",
+                                  g_usdsoq_authority.GetThreshold(),
+                                  g_usdsoq_authority.GetKeyCount());
+                    }
+
+                    // =========================================================
+                    // SOQ-AUD2-002 D5: Authority Source-of-Truth Reconciliation
+                    //
+                    // DESIGN RATIONALE (Auditor-Facing):
+                    //   On MAINNET, the on-chain state is canonical. Authority
+                    //   rotations via OP_USDSOQ_ROTATE are consensus-validated
+                    //   and persisted to LevelDB. Chainparams provides only
+                    //   the GENESIS authority set. LevelDB MUST take precedence
+                    //   to preserve on-chain rotation state across restarts.
+                    //
+                    //   On NON-MAINNET (stagenet, regtest), no real on-chain
+                    //   rotations occur. The binary (chainparams) is the
+                    //   authority. Stale LevelDB entries from prior binary
+                    //   versions or usdsoqsetauthority RPC calls must NOT
+                    //   override new chainparams keys. This ensures binary
+                    //   upgrades with updated authority keys take effect
+                    //   without manual reindex-chainstate on every node.
+                    //
+                    // SECURITY INVARIANT:
+                    //   Mainnet on-chain rotation is NEVER overridden by
+                    //   chainparams. Only non-mainnet networks use this
+                    //   override path.
+                    // =========================================================
+                    const std::string& networkId = chainparams.NetworkIDString();
+                    const Consensus::Params& consensus = chainparams.GetConsensus(0);
+
+                    if (networkId != "main" &&
+                        g_usdsoq_authority.IsInitialized() &&
+                        !consensus.usdsoqAuthorityKeys.empty()) {
+
+                        // Parse chainparams authority keys for comparison
+                        std::vector<std::vector<uint8_t>> cpKeys;
+                        for (const auto& hexKey : consensus.usdsoqAuthorityKeys) {
+                            std::vector<uint8_t> key = ParseHex(hexKey);
+                            if (key.size() == DILITHIUM_PUBKEY_SIZE) {
+                                cpKeys.push_back(key);
+                            }
+                        }
+
+                        // Compare persisted authority against chainparams
+                        const auto& dbKeys = g_usdsoq_authority.GetKeys();
+                        bool keysMismatch = (dbKeys.size() != cpKeys.size() ||
+                                             g_usdsoq_authority.GetThreshold() != consensus.usdsoqAuthorityThreshold);
+                        if (!keysMismatch) {
+                            for (size_t i = 0; i < dbKeys.size(); ++i) {
+                                if (dbKeys[i] != cpKeys[i]) {
+                                    keysMismatch = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (keysMismatch) {
+                            // SECURITY NOTE: This override is ONLY applied on
+                            // non-mainnet networks. On mainnet, this code path
+                            // is unreachable due to the networkId != "main" guard.
+                            LogPrintf("USDSOQ: WARNING: %s LevelDB authority differs from "
+                                      "chainparams — overriding with chainparams "
+                                      "(binary is authoritative on non-mainnet)\n",
+                                      networkId);
+
+                            CUSDSOQAuthority freshAuthority;
+                            if (freshAuthority.Initialize(cpKeys, consensus.usdsoqAuthorityThreshold)) {
+                                g_usdsoq_authority = freshAuthority;
+                                pcoinsdbview->WriteUSDSOQAuthority(g_usdsoq_authority);
+                                LogPrintf("USDSOQ: Authority reset to chainparams: "
+                                          "%u-of-%u Dilithium multisig (%zu keys)\n",
+                                          consensus.usdsoqAuthorityThreshold,
+                                          cpKeys.size(), cpKeys.size());
+                            } else {
+                                LogPrintf("USDSOQ: ERROR: Failed to initialize authority "
+                                          "from chainparams during reconciliation\n");
+                            }
+                        } else {
+                            LogPrintf("USDSOQ: Authority matches chainparams (consistent)\n");
+                        }
+                    }
+
+                    // SOQ-AUD2-002 D1: Restore USDSOQ supply counter from chainstate DB
+                    CUSDSOQSupply persistedSupply;
+                    if (pcoinsdbview->ReadUSDSOQSupply(persistedSupply)) {
+                        g_usdsoq_supply = persistedSupply;
+                        LogPrintf("USDSOQ: Restored supply from DB: total_minted=%d total_burned=%d outstanding=%d\n",
+                                  g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
+                                  g_usdsoq_supply.Outstanding());
+                    } else {
+                        LogPrintf("USDSOQ: No supply data in DB (genesis or pre-activation)\n");
+                    }
+
+                    // SOQ-I005: Restore USDSOQ authority UTXO outpoint from chainstate DB
+                    COutPoint persistedOutpoint;
+                    if (pcoinsdbview->ReadUSDSOQAuthorityOutpoint(persistedOutpoint)) {
+                        g_usdsoq_authority_outpoint = persistedOutpoint;
+                        LogPrintf("USDSOQ: Restored authority outpoint from DB: %s:%u\n",
+                                  g_usdsoq_authority_outpoint.hash.ToString(),
+                                  g_usdsoq_authority_outpoint.n);
+                    } else {
+                        LogPrintf("USDSOQ: No authority outpoint in DB (genesis or pre-bootstrap)\n");
+                    }
+                }
+
                 uiInterface.InitMessage(_("Verifying blocks..."));
                 if (fHavePruned && GetArg("-checkblocks", DEFAULT_CHECKBLOCKS) > MIN_BLOCKS_TO_KEEP) {
                     LogPrintf("Prune: pruned datadir may not have more than %d blocks; only checking available blocks",
@@ -1580,118 +1709,6 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
             }
 
             fLoaded = true;
-
-            // SOQ-AUD2-002: Restore USDSOQ authority key set from chainstate DB
-            if (pcoinsdbview) {
-                CUSDSOQAuthority persistedAuthority;
-                if (pcoinsdbview->ReadUSDSOQAuthority(persistedAuthority) &&
-                    persistedAuthority.IsInitialized()) {
-                    g_usdsoq_authority = persistedAuthority;
-                    LogPrintf("USDSOQ: Restored authority from DB: %u-of-%u Dilithium multisig\n",
-                              g_usdsoq_authority.GetThreshold(),
-                              g_usdsoq_authority.GetKeyCount());
-                }
-
-                // =========================================================
-                // SOQ-AUD2-002 D5: Authority Source-of-Truth Reconciliation
-                //
-                // DESIGN RATIONALE (Auditor-Facing):
-                //   On MAINNET, the on-chain state is canonical. Authority
-                //   rotations via OP_USDSOQ_ROTATE are consensus-validated
-                //   and persisted to LevelDB. Chainparams provides only
-                //   the GENESIS authority set. LevelDB MUST take precedence
-                //   to preserve on-chain rotation state across restarts.
-                //
-                //   On NON-MAINNET (stagenet, regtest), no real on-chain
-                //   rotations occur. The binary (chainparams) is the
-                //   authority. Stale LevelDB entries from prior binary
-                //   versions or usdsoqsetauthority RPC calls must NOT
-                //   override new chainparams keys. This ensures binary
-                //   upgrades with updated authority keys take effect
-                //   without manual reindex-chainstate on every node.
-                //
-                // SECURITY INVARIANT:
-                //   Mainnet on-chain rotation is NEVER overridden by
-                //   chainparams. Only non-mainnet networks use this
-                //   override path.
-                // =========================================================
-                const std::string& networkId = chainparams.NetworkIDString();
-                const Consensus::Params& consensus = chainparams.GetConsensus(0);
-
-                if (networkId != "main" &&
-                    g_usdsoq_authority.IsInitialized() &&
-                    !consensus.usdsoqAuthorityKeys.empty()) {
-
-                    // Parse chainparams authority keys for comparison
-                    std::vector<std::vector<uint8_t>> cpKeys;
-                    for (const auto& hexKey : consensus.usdsoqAuthorityKeys) {
-                        std::vector<uint8_t> key = ParseHex(hexKey);
-                        if (key.size() == DILITHIUM_PUBKEY_SIZE) {
-                            cpKeys.push_back(key);
-                        }
-                    }
-
-                    // Compare persisted authority against chainparams
-                    const auto& dbKeys = g_usdsoq_authority.GetKeys();
-                    bool keysMismatch = (dbKeys.size() != cpKeys.size() ||
-                                         g_usdsoq_authority.GetThreshold() != consensus.usdsoqAuthorityThreshold);
-                    if (!keysMismatch) {
-                        for (size_t i = 0; i < dbKeys.size(); ++i) {
-                            if (dbKeys[i] != cpKeys[i]) {
-                                keysMismatch = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (keysMismatch) {
-                        // SECURITY NOTE: This override is ONLY applied on
-                        // non-mainnet networks. On mainnet, this code path
-                        // is unreachable due to the networkId != "main" guard.
-                        LogPrintf("USDSOQ: WARNING: %s LevelDB authority differs from "
-                                  "chainparams — overriding with chainparams "
-                                  "(binary is authoritative on non-mainnet)\n",
-                                  networkId);
-
-                        CUSDSOQAuthority freshAuthority;
-                        if (freshAuthority.Initialize(cpKeys, consensus.usdsoqAuthorityThreshold)) {
-                            g_usdsoq_authority = freshAuthority;
-                            pcoinsdbview->WriteUSDSOQAuthority(g_usdsoq_authority);
-                            LogPrintf("USDSOQ: Authority reset to chainparams: "
-                                      "%u-of-%u Dilithium multisig (%zu keys)\n",
-                                      consensus.usdsoqAuthorityThreshold,
-                                      cpKeys.size(), cpKeys.size());
-                        } else {
-                            LogPrintf("USDSOQ: ERROR: Failed to initialize authority "
-                                      "from chainparams during reconciliation\n");
-                        }
-                    } else {
-                        LogPrintf("USDSOQ: Authority matches chainparams (consistent)\n");
-                    }
-                }
-
-                // SOQ-AUD2-002 D1: Restore USDSOQ supply counter from chainstate DB
-                CUSDSOQSupply persistedSupply;
-                if (pcoinsdbview->ReadUSDSOQSupply(persistedSupply)) {
-                    g_usdsoq_supply = persistedSupply;
-                    LogPrintf("USDSOQ: Restored supply from DB: total_minted=%d total_burned=%d outstanding=%d\n",
-                              g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
-                              g_usdsoq_supply.Outstanding());
-                } else {
-                    LogPrintf("USDSOQ: No supply data in DB (genesis or pre-activation)\n");
-                }
-
-                // SOQ-I005: Restore USDSOQ authority UTXO outpoint from chainstate DB
-                COutPoint persistedOutpoint;
-                if (pcoinsdbview->ReadUSDSOQAuthorityOutpoint(persistedOutpoint)) {
-                    g_usdsoq_authority_outpoint = persistedOutpoint;
-                    LogPrintf("USDSOQ: Restored authority outpoint from DB: %s:%u\n",
-                              g_usdsoq_authority_outpoint.hash.ToString(),
-                              g_usdsoq_authority_outpoint.n);
-                } else {
-                    LogPrintf("USDSOQ: No authority outpoint in DB (genesis or pre-bootstrap)\n");
-                }
-            }
         } while (false);
 
         if (!fLoaded) {
