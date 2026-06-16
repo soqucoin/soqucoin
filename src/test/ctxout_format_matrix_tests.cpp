@@ -75,17 +75,22 @@ BOOST_AUTO_TEST_CASE(ctxout_extended_vs_standard_relationship)
     BOOST_CHECK_EQUAL(extended[extended.size() - 2], o.nVisibility);
     BOOST_CHECK_EQUAL(extended[extended.size() - 1], o.nAssetType);
 
-    // Emit for pinning (copy into EXPECT_* on first green run).
     BOOST_TEST_MESSAGE("CTXOUT_MATRIX_BEGIN");
     BOOST_TEST_MESSAGE("extended_hex=" << HexStr(extended.begin(), extended.end()));
     BOOST_TEST_MESSAGE("standard_hex=" << HexStr(standard.begin(), standard.end()));
     BOOST_TEST_MESSAGE("CTXOUT_MATRIX_END");
 
-    // Pinned golden baseline — uncomment + fill from the emitted hexes to lock it:
-    // const std::string EXPECT_EXTENDED = "...";
-    // const std::string EXPECT_STANDARD = "...";
-    // BOOST_CHECK_EQUAL(HexStr(extended.begin(), extended.end()), EXPECT_EXTENDED);
-    // BOOST_CHECK_EQUAL(HexStr(standard.begin(), standard.end()), EXPECT_STANDARD);
+    // PINNED golden baseline — the shared cross-reimpl vector. The extended form is
+    // confirmed byte-exact by the TS SDK (soq-lightning-sdk test/ctxout_matrix.test.mjs),
+    // which is itself node-pinned via the envelope vector → this IS the node's CTxOut bytes.
+    // standard = extended minus the trailing {vis, asset}. If C++ disagrees with this, that's
+    // a real node↔reimpl serialization mismatch — exactly what the matrix exists to catch.
+    // (Phase-4 note: when the 2 bytes are removed, EXPECT_EXTENDED becomes EXPECT_STANDARD —
+    // an explicit, reviewed diff.)
+    const std::string EXPECT_EXTENDED = "4e61bc000000000001510101";
+    const std::string EXPECT_STANDARD = "4e61bc00000000000151";
+    BOOST_CHECK_EQUAL(HexStr(extended.begin(), extended.end()), EXPECT_EXTENDED);
+    BOOST_CHECK_EQUAL(HexStr(standard.begin(), standard.end()), EXPECT_STANDARD);
 }
 
 // ---------------------------------------------------------------------------
