@@ -48,6 +48,18 @@ static constexpr uint8_t VISIBILITY_FROZEN_MASK   = 0x80;
 // Maximum valid visibility mode (excluding frozen flag)
 static constexpr uint8_t VISIBILITY_MAX          = 0x01;
 
+// =========================================================================
+// SOQ-FREEZE (CTxOut migration Phase 1): freeze-registry op encoding.
+// The OP_USDSOQ_FREEZE authority op carries an OP_RETURN payload:
+//   [op:1][txid:32][vout:4 LE]  — single outpoint, named as data (not spent).
+// op selects freeze vs unfreeze; consensus adds/removes the outpoint from the
+// DB-backed frozen set (txdb DB_USDSOQ_FROZEN), replacing the overloaded
+// nVisibility 0x80 bit. See design-log/DL-FREEZE-REGISTRY-DESIGN.md.
+// =========================================================================
+static constexpr uint8_t FREEZE_OP_FREEZE   = 0x00;  // add outpoint to frozen set
+static constexpr uint8_t FREEZE_OP_UNFREEZE = 0x01;  // remove outpoint from frozen set
+static constexpr size_t  FREEZE_OP_PAYLOAD_LEN = 1 + 32 + 4;  // op + txid + vout
+
 // Short aliases for validation.cpp/ConnectBlock readability
 static constexpr uint8_t ASSET_SOQ    = ASSET_TYPE_SOQ;
 static constexpr uint8_t ASSET_USDSOQ = ASSET_TYPE_USDSOQ;
