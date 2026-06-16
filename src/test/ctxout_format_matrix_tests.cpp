@@ -125,4 +125,36 @@ BOOST_AUTO_TEST_CASE(ctxout_roundtrip_symmetry)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2: IsConfidential() is derived from witness-v4, NOT the nVisibility byte.
+// Proves the migration actually happened (confidentiality follows the witness version,
+// which is what the range-proof prover uses) AND the equivalence on existing data
+// (v4 output with nVisibility==0x01 is still confidential).
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(isconfidential_is_v4_derived)
+{
+    CScript v4spk; v4spk << OP_4 << std::vector<unsigned char>(32, 0xab);  // OP_4 <32-byte> = v4 confidential
+    CScript v1spk; v1spk << OP_1 << std::vector<unsigned char>(32, 0xcd);  // OP_1 <32-byte> = v1 Dilithium
+    BOOST_REQUIRE_EQUAL(v4spk.size(), 34u);
+    BOOST_REQUIRE_EQUAL(v1spk.size(), 34u);
+
+    auto mk = [](const CScript& spk, uint8_t vis) {
+        CTxOut o; o.nValue = 1000; o.scriptPubKey = spk; o.nVisibility = vis; o.nAssetType = 0;
+        return o;
+    };
+
+    // v4 output is confidential REGARDLESS of the nVisibility byte (v4 is the determinant).
+    BOOST_CHECK(mk(v4spk, 0x00).IsConfidential());   // byte says transparent — v4 still wins
+    BOOST_CHECK(mk(v4spk, 0x01).IsConfidential());   // existing-data case (both agree)
+    BOOST_CHECK(!mk(v4spk, 0x00).IsTransparent());
+
+    // Non-v4 output is NOT confidential even if the legacy byte is set (byte is ignored now).
+    BOOST_CHECK(!mk(v1spk, 0x01).IsConfidential());  // stray byte on a v1 output — not confidential
+    BOOST_CHECK(!mk(v1spk, 0x00).IsConfidential());
+    BOOST_CHECK(mk(v1spk, 0x01).IsTransparent());
+
+    // IsTransparent() is exactly the complement of IsConfidential().
+    BOOST_CHECK_EQUAL(mk(v4spk, 0x01).IsTransparent(), !mk(v4spk, 0x01).IsConfidential());
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -2579,8 +2579,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         for (unsigned int i = 0; i < block.vtx.size(); i++) {
             const CTransaction& tx = *(block.vtx[i]);
             for (const auto& txout : tx.vout) {
-                uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;  // PHASE-4-REMOVE
-                if (baseVisibility != VISIBILITY_TRANSPARENT) {
+                // Phase 2: confidentiality ⟺ witness-v4 (IsConfidential). Reject creating a
+                // confidential (v4) output before the LATTICEBP privacy layer is active. This
+                // subsumes the old "nVisibility on a non-v4 output" defense-in-depth, since
+                // IsConfidential() is true only for genuine v4 outputs.
+                if (txout.IsConfidential()) {
                     return state.DoS(100,
                         error("ConnectBlock(): confidential output in block %d before LATTICEBP activation",
                               pindex->nHeight),
@@ -3061,22 +3064,22 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     //   0x80 = frozen-transparent (authority freeze)
                     //   0x81 = frozen-confidential (authority freeze on private UTXO)
                     // =========================================================
-                    uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;  // PHASE-4-REMOVE
-
-                    if (isAuthorityTx && baseVisibility != VISIBILITY_TRANSPARENT) {
+                    // Phase 2: confidentiality ⟺ witness-v4 (IsConfidential/IsTransparent),
+                    // not the nVisibility byte. (Freeze state lives in DB_USDSOQ_FROZEN as of
+                    // Phase 1; the nVisibility byte is vestigial, removed in Phase 4.)
+                    if (isAuthorityTx && txout.IsConfidential()) {
                         // Authority operations MUST be transparent for supply auditability.
                         // Mint/burn/freeze/rotate TXs create the supply boundary —
                         // if these are hidden, the supply invariant breaks.
                         return state.DoS(100,
-                            error("ConnectBlock(): USDSOQ authority output %s:%u has non-transparent "
-                                  "visibility 0x%02x — authority TXs must be transparent "
+                            error("ConnectBlock(): USDSOQ authority output %s:%u is confidential "
+                                  "(v4) — authority TXs must be transparent "
                                   "(GENIUS Act §4(a)(2), SOQ-ARCH-004)",
-                                tx.GetHash().ToString(), (&txout - &tx.vout[0]),
-                                (int)txout.nVisibility),
+                                tx.GetHash().ToString(), (&txout - &tx.vout[0])),
                             REJECT_INVALID, "bad-txns-usdsoq-authority-must-be-transparent");
                     }
 
-                    if (!isAuthorityTx && baseVisibility == VISIBILITY_CONFIDENTIAL) {
+                    if (!isAuthorityTx && txout.IsConfidential()) {
                         // User-to-user confidential USDSOQ transfer — allowed IF:
                         //   1. LATTICEBP privacy layer is active (BIP9)
                         //   2. Range proofs are valid (checked in LATTICEBP section below)
@@ -3095,7 +3098,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
                     // Only count transparent USDSOQ outputs toward minted supply.
                     // Confidential outputs don't change total supply (transfers only).
-                    if (baseVisibility == VISIBILITY_TRANSPARENT) {
+                    if (txout.IsTransparent()) {
                         nUSDSOQMinted += txout.nValue;
                     }
                     // Confidential outputs: value is hidden in commitment.
