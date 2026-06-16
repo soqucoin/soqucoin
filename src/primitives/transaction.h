@@ -204,11 +204,22 @@ public:
         return (nValue == -1);
     }
 
-    //! Returns true if this output carries native SOQ
-    bool IsNativeSOQ() const { return nAssetType == 0x00; }
+    //! Returns true if this output is a v7 USDSOQ holding (OP_7 <SHA256(pubkey)>).
+    //! Phase 3: the witness version is the asset discriminator for USDSOQ value holdings,
+    //! spent via the (audited) v1 single-key Dilithium path. v5 = USDSOQ *authority* output.
+    bool IsV7USDSOQHolding() const {
+        return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_7 && scriptPubKey[1] == 32;
+    }
 
-    //! Returns true if this output carries USDSOQ
-    bool IsUSDSOQ() const { return nAssetType == 0x01; }
+    //! Returns true if this output carries USDSOQ.
+    //! Phase 3 transition: a v7 holding OR the legacy nAssetType byte. Existing holdings on the
+    //! pre-reset chain are v1+nAssetType, so the byte path is required for equivalence until the
+    //! genesis reset mints USDSOQ as v7 only — at which point the byte path (and v5 byte-vs-version
+    //! authority classification) is finalized in Phase 4.
+    bool IsUSDSOQ() const { return IsV7USDSOQHolding() || nAssetType == 0x01; }  // nAssetType: PHASE-4-REMOVE
+
+    //! Returns true if this output carries native SOQ (i.e. not USDSOQ).
+    bool IsNativeSOQ() const { return !IsUSDSOQ(); }
 
     //! Returns true if this output is confidential (hidden amount).
     //! CTxOut migration Phase 2: confidentiality ⟺ witness-v4 (Lattice-BP++).

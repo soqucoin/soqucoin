@@ -572,8 +572,8 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fChe
                 return state.DoS(100, false, REJECT_INVALID, "bad-txns-unknown-asset-type");
             }
 
-            if (txout.nAssetType == ASSET_SOQ) hasSOQ = true;
-            if (txout.nAssetType == ASSET_USDSOQ) hasUSDSOQ = true;
+            if (txout.IsNativeSOQ()) hasSOQ = true;   // Phase 3: asset by version (v7) or legacy byte
+            if (txout.IsUSDSOQ()) hasUSDSOQ = true;
         }
 
         // SOQ-ARCH-002: Per-asset conservation model.
@@ -828,13 +828,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             for (unsigned int i = 0; i < tx.vin.size(); i++) {
                 const CCoins* coins = view.AccessCoins(tx.vin[i].prevout.hash);
                 if (coins && coins->IsAvailable(tx.vin[i].prevout.n)) {
-                    if (coins->vout[tx.vin[i].prevout.n].nAssetType == ASSET_SOQ) {
+                    if (coins->vout[tx.vin[i].prevout.n].IsNativeSOQ()) {
                         nSOQIn += coins->vout[tx.vin[i].prevout.n].nValue;
                     }
                 }
             }
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_SOQ) {
+                if (txout.IsNativeSOQ()) {
                     nSOQOut += txout.nValue;
                 }
             }
@@ -1516,7 +1516,7 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
         // Recompute output value counting only SOQ outputs
         nValueOut = 0;
         for (const auto& txout : tx.vout) {
-            if (txout.nAssetType == ASSET_SOQ) {
+            if (txout.IsNativeSOQ()) {
                 nValueOut += txout.nValue;
             }
         }
@@ -1531,7 +1531,7 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             const COutPoint& prevout = tx.vin[i].prevout;
             const CCoins* coins = inputs.AccessCoins(prevout.hash);
             if (coins && coins->IsAvailable(prevout.n)) {
-                if (coins->vout[prevout.n].nAssetType == ASSET_SOQ) {
+                if (coins->vout[prevout.n].IsNativeSOQ()) {
                     nValueIn += coins->vout[prevout.n].nValue;
                 }
             }
@@ -1565,12 +1565,12 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             const COutPoint& prevout = tx.vin[i].prevout;
             const CCoins* coins = inputs.AccessCoins(prevout.hash);
             assert(coins);
-            if (coins->vout[prevout.n].nAssetType == ASSET_USDSOQ) {
+            if (coins->vout[prevout.n].IsUSDSOQ()) {
                 nUSDSOQIn += coins->vout[prevout.n].nValue;
             }
         }
         for (const auto& txout : tx.vout) {
-            if (txout.nAssetType == ASSET_USDSOQ) {
+            if (txout.IsUSDSOQ()) {
                 nUSDSOQOut += txout.nValue;
             }
         }
@@ -1898,7 +1898,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
 
             // Count USDSOQ outputs being removed (reverses mints)
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_USDSOQ) {
+                if (txout.IsUSDSOQ()) {
                     nUSDSOQReversedMint += txout.nValue;
                 }
             }
@@ -1912,7 +1912,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                 for (unsigned int j = 0; j < tx.vin.size(); j++) {
                     if (j < txundo.vprevout.size()) {
                         const CTxOut& restoredOut = txundo.vprevout[j].txout;
-                        if (restoredOut.nAssetType == ASSET_USDSOQ) {
+                        if (restoredOut.IsUSDSOQ()) {
                             nUSDSOQReversedBurn += restoredOut.nValue;
                         }
                     }
@@ -2502,7 +2502,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 if (coins && coins->IsAvailable(tx.vin[j].prevout.n)) {
                     const CTxOut& prevOut = coins->vout[tx.vin[j].prevout.n];
                     nTotalIn += prevOut.nValue;
-                    if (prevOut.nAssetType == ASSET_TYPE_SOQ) {
+                    if (prevOut.IsNativeSOQ()) {   // Phase 3: per-asset fee filter — v7 USDSOQ never counts as SOQ
                         nSOQIn += prevOut.nValue;
                     } else {
                         // DIAG-FEE: Log every input with unexpected nAssetType
@@ -2518,7 +2518,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
             CAmount nSOQOut = 0;
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_TYPE_SOQ) {
+                if (txout.IsNativeSOQ()) {
                     nSOQOut += txout.nValue;
                 }
             }
@@ -2625,7 +2625,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             // Determine if this tx has USDSOQ outputs
             bool txHasUSDSOQ = false;
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_USDSOQ) {
+                if (txout.IsUSDSOQ()) {
                     txHasUSDSOQ = true;
                     break;
                 }
@@ -2948,7 +2948,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         // block — the authority TX itself is valid).
                         const CCoins* targetCoins = view.AccessCoins(freezeTarget.hash);
                         if (!targetCoins || !targetCoins->IsAvailable(freezeTarget.n) ||
-                            targetCoins->vout[freezeTarget.n].nAssetType != ASSET_USDSOQ) {
+                            !targetCoins->vout[freezeTarget.n].IsUSDSOQ()) {
                             LogPrintf("USDSOQ: FREEZE target %s:%u is not a live USDSOQ "
                                       "UTXO at block %d — skipping (defense-in-depth)\n",
                                 freezeTarget.hash.ToString(), freezeTarget.n,
@@ -3000,7 +3000,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 // H3 FIX (June 3, 2026): Only enforce freeze on USDSOQ outputs.
                 // If a SOQ output somehow gets the frozen bit set (corruption),
                 // it must NOT become permanently unspendable.
-                if (prevOut.nAssetType == ASSET_USDSOQ) {
+                if (prevOut.IsUSDSOQ()) {
                     bool frozenByBit = (prevOut.nVisibility & VISIBILITY_FROZEN_MASK) != 0;  // PHASE-4-REMOVE
                     bool frozenByRegistry = pcoinsdbview &&
                         pcoinsdbview->IsFrozenOutpoint(txin.prevout);
@@ -3020,7 +3020,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 // (they create new supply from authority-signed witness).
                 // NOTE: isAuthorityTx was already determined by SOQ-I005
                 // authority detection above — no need to re-scan outputs.
-                if (txHasUSDSOQ && prevOut.nAssetType != ASSET_USDSOQ) {
+                if (txHasUSDSOQ && !prevOut.IsUSDSOQ()) {
                     if (!isAuthorityTx) {
                         return state.DoS(100,
                             error("ConnectBlock(): USDSOQ tx has non-USDSOQ input %s:%u",
@@ -3032,7 +3032,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
             // Track supply deltas for USDSOQ outputs in this block
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_USDSOQ) {
+                if (txout.IsUSDSOQ()) {
                     // =========================================================
                     // SOQ-ARCH-004: Confidential Compliant USDSOQ
                     //
@@ -3112,7 +3112,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 if (!coins || !coins->IsAvailable(txin.prevout.n))
                     continue;
                 const CTxOut& prevOut = coins->vout[txin.prevout.n];
-                if (prevOut.nAssetType == ASSET_USDSOQ) {
+                if (prevOut.IsUSDSOQ()) {
                     // Defense-in-depth: reject confidential USDSOQ inputs
                     // If consensus worked correctly, no confidential USDSOQ
                     // should ever exist. But check anyway to catch corruption.
