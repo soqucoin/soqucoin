@@ -2355,6 +2355,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
     }
 
+    // OP_CHECKDILITHIUMKEYHASH: Key-committed Dilithium signature verification
+    // When active, OP_NOP7 (0xb6) enforces SHA256(pubkey)==keyhash + Dilithium sig verify.
+    // Enables eLTOO 2-of-2 multisig for L2SOQ Lightning with oversized Dilithium pubkeys.
+    // See DL-OP-CHECKDILITHIUMKEYHASH.md for design.
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_DILITHIUM_KEYHASH, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
+    }
+
     // SATOSHI SCRIPT RESTORATION: Always-active on Soqucoin (genesis-active).
     // AND/OR/XOR/MUL/DIV/MOD/SUBSTR/LEFT/RIGHT re-enabled with BCH-style bounds.
     // No BIP9 gate needed — these are genesis-active like OP_CAT.

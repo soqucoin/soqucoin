@@ -44,6 +44,8 @@ const char* ScriptErrorString(const ScriptError serror)
         return "OP_CHECKTEMPLATEVERIFY hash mismatch";
     case SCRIPT_ERR_CHECKSIGFROMSTACK:
         return "OP_CHECKSIGFROMSTACK signature verification failed";
+    case SCRIPT_ERR_CHECKDILITHIUMKEYHASH:
+        return "OP_CHECKDILITHIUMKEYHASH verification failed (keyhash mismatch or bad signature)";
     case SCRIPT_ERR_DIV_BY_ZERO:
         return "Division by zero";
     case SCRIPT_ERR_INVALID_SPLIT_RANGE:

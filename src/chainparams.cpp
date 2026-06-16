@@ -249,6 +249,14 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = 0;    // Not yet scheduled
 
+        // OP_CHECKDILITHIUMKEYHASH — NOT ACTIVE on mainnet (pending Phase 2 audit)
+        // Key-committed Dilithium signature verification for eLTOO 2-of-2 multisig.
+        // Enables L2SOQ Lightning channels with Dilithium pubkeys > MAX_SCRIPT_ELEMENT_SIZE.
+        // BIP9 activation post-audit: set nStartTime, miners signal bit 12.
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = 0;    // Not yet scheduled
+
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
@@ -461,6 +469,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // OP_CHECKDILITHIUMKEYHASH — ALWAYS_ACTIVE on testnet for integration testing
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
 
@@ -647,6 +660,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].bit = 11;
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // OP_CHECKDILITHIUMKEYHASH — ALWAYS_ACTIVE for regtest
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -857,6 +875,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].bit = 11;
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // OP_CHECKDILITHIUMKEYHASH — ALWAYS_ACTIVE on stagenet for eLTOO testing
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // USDSOQ Authority Keys - 2-of-3 ML-DSA-44 multisig (FIPS 204)
         // Keys control USDSOQ mint/burn/freeze. Generated 2026-05-27T04:46:27Z
