@@ -73,7 +73,8 @@ BOOST_FIXTURE_TEST_SUITE(usdsoq_v7_holding_tests, BasicTestingSetup)
 BOOST_AUTO_TEST_CASE(v7_holding_valid_spend)
 {
     CKey owner; owner.MakeNewKey(true);
-    std::vector<unsigned char> pk(owner.GetPubKey().begin(), owner.GetPubKey().end());
+    CPubKey pubkey = owner.GetPubKey();
+    std::vector<unsigned char> pk(pubkey.begin(), pubkey.end());
     BOOST_REQUIRE_EQUAL(pk.size(), 1312u);
 
     CScript spk = MakeV7Spk(pk);
@@ -99,8 +100,10 @@ BOOST_AUTO_TEST_CASE(v7_holding_valid_spend)
 BOOST_AUTO_TEST_CASE(v7_holding_wrong_key_rejected)
 {
     CKey owner, mallory; owner.MakeNewKey(true); mallory.MakeNewKey(true);
-    std::vector<unsigned char> ownerPk(owner.GetPubKey().begin(), owner.GetPubKey().end());
-    std::vector<unsigned char> malloryPk(mallory.GetPubKey().begin(), mallory.GetPubKey().end());
+    CPubKey ownerPub = owner.GetPubKey();
+    CPubKey malloryPub = mallory.GetPubKey();
+    std::vector<unsigned char> ownerPk(ownerPub.begin(), ownerPub.end());
+    std::vector<unsigned char> malloryPk(malloryPub.begin(), malloryPub.end());
 
     CScript spk = MakeV7Spk(ownerPk);   // locked to owner
     const CAmount amount = 50 * COIN;
@@ -123,7 +126,8 @@ BOOST_AUTO_TEST_CASE(v7_holding_wrong_key_rejected)
 BOOST_AUTO_TEST_CASE(v7_holding_anyone_can_spend_when_inactive)
 {
     CKey owner; owner.MakeNewKey(true);
-    std::vector<unsigned char> pk(owner.GetPubKey().begin(), owner.GetPubKey().end());
+    CPubKey pubkey = owner.GetPubKey();
+    std::vector<unsigned char> pk(pubkey.begin(), pubkey.end());
     CScript spk = MakeV7Spk(pk);
     CMutableTransaction spend = SpendTx();
     CTransaction ctx(spend);
@@ -143,7 +147,8 @@ BOOST_AUTO_TEST_CASE(v7_holding_anyone_can_spend_when_inactive)
 BOOST_AUTO_TEST_CASE(v7_isusdsoq_by_version)
 {
     CKey k; k.MakeNewKey(true);
-    std::vector<unsigned char> pk(k.GetPubKey().begin(), k.GetPubKey().end());
+    CPubKey pubkey = k.GetPubKey();
+    std::vector<unsigned char> pk(pubkey.begin(), pubkey.end());
 
     CTxOut v7; v7.nValue = 1000; v7.scriptPubKey = MakeV7Spk(pk); v7.nVisibility = 0; v7.nAssetType = 0;
     BOOST_CHECK(v7.IsV7USDSOQHolding());

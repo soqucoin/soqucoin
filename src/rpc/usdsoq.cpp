@@ -323,9 +323,19 @@ static UniValue usdsoqmint(const JSONRPCRequest& request)
     // For the unsigned TX template, we leave vin empty — the authority
     // adds their input(s) and signs offline.
 
-    // Destination output: standard witness v1 with nAssetType=0x01
+    // Destination output: USDSOQ holding = witness v7 (OP_7 <SHA256(pubkey)>), spent via the
+    // audited v1 single-key Dilithium path. Phase 3: the v7 version is the canonical asset
+    // discriminator; nAssetType=0x01 is kept as a TRANSITION dual-signal (byte AND version both
+    // say USDSOQ, so version-aware and byte-aware readers agree) until the genesis reset mints
+    // USDSOQ as v7 only — after which the byte is removed (Phase 4).
     CScript destScript = GetScriptForDestination(dest);
-    CTxOut mintOutput(amount, destScript, 0x00 /* TRANSPARENT */, 0x01 /* USDSOQ */);
+    if (destScript.size() != 34 || destScript[0] != OP_1 || destScript[1] != 32)
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
+            "USDSOQ mint destination must be a Dilithium (witness v1) address");
+    CScript v7Script;
+    v7Script << OP_7;
+    v7Script << std::vector<unsigned char>(destScript.begin() + 2, destScript.end());  // 32-byte pubkey hash
+    CTxOut mintOutput(amount, v7Script, 0x00 /* TRANSPARENT */, 0x01 /* USDSOQ byte: PHASE-4-REMOVE */);
     mtx.vout.push_back(mintOutput);
 
     // Serialize the unsigned TX
@@ -334,7 +344,8 @@ static UniValue usdsoqmint(const JSONRPCRequest& request)
     result.pushKV("amount", ValueFromAmount(amount));
     result.pushKV("destination", destination);
     result.pushKV("opcode_tag", "0x01 (OP_USDSOQ_MINT)");
-    result.pushKV("witness_version", 5);
+    result.pushKV("authority_witness_version", 5);     // OP_5 authority output (added by usdsoqsigntx)
+    result.pushKV("destination_witness_version", 7);   // OP_7 USDSOQ holding (Phase 3)
     result.pushKV("status", "unsigned");
     result.pushKV("next_step", "Sign with M-of-N Dilithium authority keys, then broadcast via sendrawtransaction");
 
