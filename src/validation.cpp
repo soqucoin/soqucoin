@@ -558,8 +558,8 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fChe
         for (const auto& txout : tx.vout) {
             // Reject unknown visibility values (excluding frozen flag in high bit)
             // Valid base modes: VISIBILITY_TRANSPARENT (0x00), VISIBILITY_CONFIDENTIAL (0x01)
-            // The VISIBILITY_FROZEN_MASK (0x80) is allowed — enforcement in ConnectBlock
-            uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
+            // The VISIBILITY_FROZEN_MASK (0x80) is allowed — enforcement in ConnectBlock  // PHASE-4-REMOVE
+            uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;  // PHASE-4-REMOVE
             if (baseVisibility != VISIBILITY_TRANSPARENT &&
                 baseVisibility != VISIBILITY_CONFIDENTIAL) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-txns-unknown-visibility");
@@ -2056,12 +2056,39 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // re-parse the tx's OP_RETURN, then invert the operation.
     //   ConnectBlock FREEZE  → DisconnectBlock ERASE  (undo the freeze)
     //   ConnectBlock UNFREEZE → DisconnectBlock WRITE  (re-freeze)
+    //
+    // R1 FIX (Fable review, 2026-06-16): Mirror ConnectBlock apply's guards.
+    // Only reverse freeze ops for txs that are authority txs (have OP_5 <32>
+    // output) AND are at/after nUSDSOQAuthorityEnforcementHeight. Without
+    // these guards, an attacker can craft a non-authority tx with a FREEZE
+    // OP_RETURN, get it into a block that reorgs out, and the reverse would
+    // erase a legitimate freeze (bypass) or write a phantom freeze (griefing).
+    // Key-image reverse doesn't need this because key-images aren't
+    // plaintext-forgeable; freeze ops are.
     // =========================================================================
     if (pcoinsdbview) {
+        const Consensus::Params& disconnectConsensus = Params().GetConsensus(pindex->nHeight);
         unsigned int nReversedFreezeOps = 0;
         for (const auto& ptx : block.vtx) {
             const CTransaction& tx = *ptx;
             if (tx.IsCoinBase()) continue;
+
+            // R1 Guard 1: Height gate — mirror ConnectBlock apply.
+            // Pre-enforcement blocks never had freeze ops applied.
+            if (pindex->nHeight < disconnectConsensus.nUSDSOQAuthorityEnforcementHeight)
+                continue;
+
+            // R1 Guard 2: Authority gate — only authority txs can apply freeze ops.
+            // An authority tx has at least one OP_5 <32-byte> output.
+            bool isAuthorityTx = false;
+            for (const auto& o : tx.vout) {
+                if (o.scriptPubKey.size() == 34 &&
+                    o.scriptPubKey[0] == OP_5 && o.scriptPubKey[1] == 32) {
+                    isAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isAuthorityTx) continue;
 
             uint8_t freezeOp = 0;
             COutPoint freezeTarget;
@@ -2552,7 +2579,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         for (unsigned int i = 0; i < block.vtx.size(); i++) {
             const CTransaction& tx = *(block.vtx[i]);
             for (const auto& txout : tx.vout) {
-                uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
+                uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;  // PHASE-4-REMOVE
                 if (baseVisibility != VISIBILITY_TRANSPARENT) {
                     return state.DoS(100,
                         error("ConnectBlock(): confidential output in block %d before LATTICEBP activation",
@@ -2913,7 +2940,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 COutPoint freezeTarget;
                 if (ParseUSDSOQFreezeOp(tx, freezeOp, freezeTarget)) {
                     if (freezeOp == FREEZE_OP_FREEZE) {
-                        if (!pcoinsdbview->WriteFrozenOutpoint(freezeTarget)) {
+                        // Q3: Defense-in-depth — require target to be a live
+                        // USDSOQ UTXO. Skip + log if not (don't reject the
+                        // block — the authority TX itself is valid).
+                        const CCoins* targetCoins = view.AccessCoins(freezeTarget.hash);
+                        if (!targetCoins || !targetCoins->IsAvailable(freezeTarget.n) ||
+                            targetCoins->vout[freezeTarget.n].nAssetType != ASSET_USDSOQ) {
+                            LogPrintf("USDSOQ: FREEZE target %s:%u is not a live USDSOQ "
+                                      "UTXO at block %d — skipping (defense-in-depth)\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        } else if (!pcoinsdbview->WriteFrozenOutpoint(freezeTarget)) {
                             LogPrintf("ERROR: USDSOQ: Failed to write frozen outpoint "
                                       "%s:%u at block %d\n",
                                 freezeTarget.hash.ToString(), freezeTarget.n,
@@ -2961,7 +2998,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 // If a SOQ output somehow gets the frozen bit set (corruption),
                 // it must NOT become permanently unspendable.
                 if (prevOut.nAssetType == ASSET_USDSOQ) {
-                    bool frozenByBit = (prevOut.nVisibility & VISIBILITY_FROZEN_MASK) != 0;
+                    bool frozenByBit = (prevOut.nVisibility & VISIBILITY_FROZEN_MASK) != 0;  // PHASE-4-REMOVE
                     bool frozenByRegistry = pcoinsdbview &&
                         pcoinsdbview->IsFrozenOutpoint(txin.prevout);
                     if (frozenByBit || frozenByRegistry) {
@@ -3024,7 +3061,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     //   0x80 = frozen-transparent (authority freeze)
                     //   0x81 = frozen-confidential (authority freeze on private UTXO)
                     // =========================================================
-                    uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
+                    uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;  // PHASE-4-REMOVE
 
                     if (isAuthorityTx && baseVisibility != VISIBILITY_TRANSPARENT) {
                         // Authority operations MUST be transparent for supply auditability.
@@ -3076,7 +3113,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     // Defense-in-depth: reject confidential USDSOQ inputs
                     // If consensus worked correctly, no confidential USDSOQ
                     // should ever exist. But check anyway to catch corruption.
-                    uint8_t baseVis = prevOut.nVisibility & ~VISIBILITY_FROZEN_MASK;
+                    uint8_t baseVis = prevOut.nVisibility & ~VISIBILITY_FROZEN_MASK;  // PHASE-4-REMOVE
                     if (baseVis != VISIBILITY_TRANSPARENT) {
                         return state.DoS(100,
                             error("ConnectBlock(): spending confidential USDSOQ input %s:%u "

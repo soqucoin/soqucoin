@@ -43,7 +43,7 @@ static constexpr uint8_t VISIBILITY_CONFIDENTIAL = 0x01;  // Lattice-BP++ hidden
 // This allows frozen+transparent (0x80) and frozen+confidential (0x81).
 // The low bits still indicate the visibility mode.
 // GENIUS Act §4(a)(2) compliance: stablecoin issuers must be able to freeze.
-static constexpr uint8_t VISIBILITY_FROZEN_MASK   = 0x80;
+static constexpr uint8_t VISIBILITY_FROZEN_MASK   = 0x80;  // PHASE-4-REMOVE
 
 // Maximum valid visibility mode (excluding frozen flag)
 static constexpr uint8_t VISIBILITY_MAX          = 0x01;
