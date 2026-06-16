@@ -216,4 +216,18 @@ std::vector<std::vector<uint8_t>> ExtractUSDSOQWitnessSignatures(
 //! This is the 32-byte hash used in OP_5 <hash> authority output scripts.
 uint256 ComputeAuthorityKeyHash(const std::vector<std::vector<uint8_t>>& keys);
 
+// =========================================================================
+// SOQ-FREEZE: Freeze-op parser for ConnectBlock/DisconnectBlock
+// =========================================================================
+
+class CTransaction;
+class COutPoint;
+
+//! Parse a USDSOQ freeze/unfreeze op from a transaction's OP_RETURN outputs.
+//! Returns true if a well-formed freeze op is found (exactly one per tx).
+//! On success, fills `op` (FREEZE_OP_FREEZE or FREEZE_OP_UNFREEZE) and `target`.
+//! Strict: rejects duplicate freeze OP_RETURNs (single-action invariant).
+//! Pure function — no state, safe to unit-test.
+bool ParseUSDSOQFreezeOp(const CTransaction& tx, uint8_t& op, COutPoint& target);
+
 #endif // SOQUCOIN_CONSENSUS_USDSOQ_H

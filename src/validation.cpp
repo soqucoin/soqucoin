@@ -2049,6 +2049,40 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
         }
     }
 
+    // =========================================================================
+    // SOQ-FREEZE: Freeze-Registry Reversal on Reorg
+    // When disconnecting a block, reverse all freeze/unfreeze ops that were
+    // applied during ConnectBlock. This mirrors the key-image erasure pattern:
+    // re-parse the tx's OP_RETURN, then invert the operation.
+    //   ConnectBlock FREEZE  → DisconnectBlock ERASE  (undo the freeze)
+    //   ConnectBlock UNFREEZE → DisconnectBlock WRITE  (re-freeze)
+    // =========================================================================
+    if (pcoinsdbview) {
+        unsigned int nReversedFreezeOps = 0;
+        for (const auto& ptx : block.vtx) {
+            const CTransaction& tx = *ptx;
+            if (tx.IsCoinBase()) continue;
+
+            uint8_t freezeOp = 0;
+            COutPoint freezeTarget;
+            if (ParseUSDSOQFreezeOp(tx, freezeOp, freezeTarget)) {
+                if (freezeOp == FREEZE_OP_FREEZE) {
+                    // ConnectBlock added this to the frozen set → remove it
+                    pcoinsdbview->EraseFrozenOutpoint(freezeTarget);
+                } else if (freezeOp == FREEZE_OP_UNFREEZE) {
+                    // ConnectBlock removed this from the frozen set → re-add it
+                    pcoinsdbview->WriteFrozenOutpoint(freezeTarget);
+                }
+                nReversedFreezeOps++;
+            }
+        }
+
+        if (nReversedFreezeOps > 0) {
+            LogPrintf("USDSOQ: reorg at block %d reversed %u freeze-registry ops\n",
+                pindex->nHeight, nReversedFreezeOps);
+        }
+    }
+
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
@@ -2864,6 +2898,48 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 } // end height gate else
             }
 
+            // =============================================================
+            // SOQ-FREEZE: Apply freeze/unfreeze op from authority TX.
+            // After authority signature verification succeeds, parse the
+            // OP_RETURN for a freeze-registry payload and update the
+            // DB-backed frozen set.
+            // Guard: only when committing (!fJustCheck), authority is
+            // initialized, and we are past the enforcement height.
+            // =============================================================
+            if (isAuthorityTx && !fJustCheck && pcoinsdbview &&
+                g_usdsoq_authority.IsInitialized() &&
+                pindex->nHeight >= consensus.nUSDSOQAuthorityEnforcementHeight) {
+                uint8_t freezeOp = 0;
+                COutPoint freezeTarget;
+                if (ParseUSDSOQFreezeOp(tx, freezeOp, freezeTarget)) {
+                    if (freezeOp == FREEZE_OP_FREEZE) {
+                        if (!pcoinsdbview->WriteFrozenOutpoint(freezeTarget)) {
+                            LogPrintf("ERROR: USDSOQ: Failed to write frozen outpoint "
+                                      "%s:%u at block %d\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        } else {
+                            LogPrintf("USDSOQ: FREEZE applied — outpoint %s:%u "
+                                      "added to frozen set at block %d\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        }
+                    } else if (freezeOp == FREEZE_OP_UNFREEZE) {
+                        if (!pcoinsdbview->EraseFrozenOutpoint(freezeTarget)) {
+                            LogPrintf("ERROR: USDSOQ: Failed to erase frozen outpoint "
+                                      "%s:%u at block %d\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        } else {
+                            LogPrintf("USDSOQ: UNFREEZE applied — outpoint %s:%u "
+                                      "removed from frozen set at block %d\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        }
+                    }
+                }
+            }
+
             // Input-side validation for non-coinbase transactions
             for (const auto& txin : tx.vin) {
                 const CCoins* coins = view.AccessCoins(txin.prevout.hash);
@@ -2872,20 +2948,30 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
                 const CTxOut& prevOut = coins->vout[txin.prevout.n];
 
-                // Frozen UTXO guard: reject spending any frozen USDSOQ output
-                // A frozen output has nVisibility high bit set (0x80 | visibility)
-                // This encoding allows frozen+transparent (0x80) and
-                // frozen+confidential (0x81) states.
+                // Frozen UTXO guard: reject spending any frozen USDSOQ output.
+                // Checks BOTH:
+                //   1. Legacy: nVisibility high-bit (0x80) — existing chain data
+                //   2. Registry: DB_USDSOQ_FROZEN set — new freeze-registry ops
+                //
+                // Both paths remain active during migration. Once all legacy
+                // frozen UTXOs are re-frozen via the registry (Phase 2),
+                // the nVisibility check can be removed.
                 //
                 // H3 FIX (June 3, 2026): Only enforce freeze on USDSOQ outputs.
                 // If a SOQ output somehow gets the frozen bit set (corruption),
                 // it must NOT become permanently unspendable.
-                if (prevOut.nAssetType == ASSET_USDSOQ &&
-                    (prevOut.nVisibility & VISIBILITY_FROZEN_MASK)) {
-                    return state.DoS(100,
-                        error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u",
-                            txin.prevout.hash.ToString(), txin.prevout.n),
-                        REJECT_INVALID, "bad-txns-spend-frozen-usdsoq");
+                if (prevOut.nAssetType == ASSET_USDSOQ) {
+                    bool frozenByBit = (prevOut.nVisibility & VISIBILITY_FROZEN_MASK) != 0;
+                    bool frozenByRegistry = pcoinsdbview &&
+                        pcoinsdbview->IsFrozenOutpoint(txin.prevout);
+                    if (frozenByBit || frozenByRegistry) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u"
+                                  " (bit=%d, registry=%d)",
+                                txin.prevout.hash.ToString(), txin.prevout.n,
+                                frozenByBit, frozenByRegistry),
+                            REJECT_INVALID, "bad-txns-spend-frozen-usdsoq");
+                    }
                 }
 
                 // Asset isolation on inputs: if ANY output is USDSOQ,
