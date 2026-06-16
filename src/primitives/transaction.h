@@ -210,11 +210,18 @@ public:
     //! Returns true if this output carries USDSOQ
     bool IsUSDSOQ() const { return nAssetType == 0x01; }
 
-    //! Returns true if this output is transparent (cleartext amount)
-    bool IsTransparent() const { return nVisibility == 0x00; }
+    //! Returns true if this output is confidential (hidden amount).
+    //! CTxOut migration Phase 2: confidentiality ⟺ witness-v4 (Lattice-BP++).
+    //! The witness version is the determinant the range-proof verifier already uses
+    //! (interpreter.cpp:1406/1510, OP_4); the nVisibility byte is a redundant marker
+    //! (removed in Phase 4). Equivalent to the legacy nVisibility==0x01 for every existing
+    //! UTXO (consensus cross-enforces v4⟺0x01), so this is NOT a behavior change on real data.
+    bool IsConfidential() const {
+        return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_4 && scriptPubKey[1] == 32;
+    }
 
-    //! Returns true if this output is confidential (hidden amount)
-    bool IsConfidential() const { return nVisibility == 0x01; }
+    //! Returns true if this output is transparent (cleartext amount) — i.e. not v4-confidential.
+    bool IsTransparent() const { return !IsConfidential(); }
 
     // Soqucoin: allow comparison against different dustlimit parameters
     bool IsDust(const CAmount dustLimit) const
