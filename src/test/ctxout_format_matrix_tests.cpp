@@ -40,6 +40,20 @@ static CTxOut FixtureTxOut()
     return o;
 }
 
+// A v7 USDSOQ-holding output (CTxOut migration Phase 3): OP_7 <32×0xAA>, transparent,
+// nAssetType=0x01 as the transition dual-signal (PHASE-4-REMOVE). Must serialize
+// byte-identically to the Go signer fixture (soq-signer v7_holding_test.go).
+static CTxOut V7HoldingFixture()
+{
+    CTxOut o;
+    o.nValue = 12345678;
+    CScript spk; spk << OP_7 << std::vector<unsigned char>(32, 0xaa);  // OP_7 <32> = v7 USDSOQ holding
+    o.scriptPubKey = spk;
+    o.nVisibility = 0x00;   // USDSOQ is always transparent
+    o.nAssetType  = 0x01;   // transition dual-signal; PHASE-4-REMOVE
+    return o;
+}
+
 static std::vector<unsigned char> Ser(const CTxOut& o, int extraFlags)
 {
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION | extraFlags);
@@ -155,6 +169,46 @@ BOOST_AUTO_TEST_CASE(isconfidential_is_v4_derived)
 
     // IsTransparent() is exactly the complement of IsConfidential().
     BOOST_CHECK_EQUAL(mk(v4spk, 0x01).IsTransparent(), !mk(v4spk, 0x01).IsConfidential());
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: v7 USDSOQ-holding serialization cross-pin. A v7 output is just a CTxOut
+// with an OP_7 script, so the SAME extended/standard relationship holds — and the
+// bytes must match the Go signer's golden (soq-signer v7_holding_test.go), which is
+// the value-mover that builds these. Also asserts asset classification follows the
+// witness version (IsUSDSOQ true with the byte present as a dual-signal).
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(ctxout_v7_holding_cross_pin)
+{
+    const CTxOut o = V7HoldingFixture();
+
+    std::vector<unsigned char> extended = Ser(o, 0);
+    std::vector<unsigned char> standard = Ser(o, SERIALIZE_TXOUT_STANDARD);
+
+    // Same load-bearing relationship as the base fixture: native = foreign + {vis, asset}.
+    BOOST_CHECK_EQUAL(extended.size(), standard.size() + 2);
+    BOOST_CHECK(std::equal(standard.begin(), standard.end(), extended.begin()));
+    BOOST_CHECK_EQUAL(extended[extended.size() - 2], o.nVisibility);
+    BOOST_CHECK_EQUAL(extended[extended.size() - 1], o.nAssetType);
+
+    BOOST_TEST_MESSAGE("CTXOUT_V7_MATRIX_BEGIN");
+    BOOST_TEST_MESSAGE("v7_extended_hex=" << HexStr(extended.begin(), extended.end()));
+    BOOST_TEST_MESSAGE("v7_standard_hex=" << HexStr(standard.begin(), standard.end()));
+    BOOST_TEST_MESSAGE("CTXOUT_V7_MATRIX_END");
+
+    // Cross-pin to the Go signer golden (python-verified, byte-exact). If C++ disagrees,
+    // that's a real node↔signer serialization mismatch on the new v7 type.
+    const std::string EXPECT_EXTENDED =
+        "4e61bc0000000000225720aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0001";
+    const std::string EXPECT_STANDARD =
+        "4e61bc0000000000225720aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    BOOST_CHECK_EQUAL(HexStr(extended.begin(), extended.end()), EXPECT_EXTENDED);
+    BOOST_CHECK_EQUAL(HexStr(standard.begin(), standard.end()), EXPECT_STANDARD);
+
+    // Asset classification follows the witness version: a v7 output is USDSOQ.
+    BOOST_CHECK(o.IsV7USDSOQHolding());
+    BOOST_CHECK(o.IsUSDSOQ());
+    BOOST_CHECK(!o.IsNativeSOQ());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
