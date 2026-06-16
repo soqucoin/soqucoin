@@ -148,6 +148,8 @@ BITCOIN_TESTS =\
   test/binius64_field_tests.cpp \
   test/consensus_arch_tests.cpp \
   test/freeze_registry_tests.cpp \
+  test/freeze_registry_harness_tests.cpp \
+  test/ctxout_format_matrix_tests.cpp \
   test/covenant_tests.cpp \
   test/lightning_script_tests.cpp \
   test/dilithium_keyhash_tests.cpp \
