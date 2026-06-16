@@ -1423,14 +1423,22 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                                scriptPubKey[0] == OP_6 &&
                                scriptPubKey[1] == 32);
 
-    // Future witness versions (v7-v16): anyone-can-spend until soft fork
-    // NOTE: v6 is carved out above for P2WSH-Dilithium.
+    // CTxOut migration Phase 3: USDSOQ holding (witness v7). A v7 output holds USDSOQ value
+    // and is spent via the SAME audited v1 single-key Dilithium path (below); the witness
+    // version is the asset discriminator (CTxOut::IsUSDSOQ). Gated by SCRIPT_VERIFY_USDSOQ
+    // (soft-fork safe — anyone-can-spend until active).
+    bool is_usdsoq_holding = (scriptPubKey.size() == 34 &&
+                              scriptPubKey[0] == OP_7 &&
+                              scriptPubKey[1] == 32);
+
+    // Future witness versions (v8-v16): anyone-can-spend until soft fork.
+    // NOTE: v6 (P2WSH-Dilithium) and v7 (USDSOQ holding) are carved out above.
     bool is_future_witness = (scriptPubKey.size() == 34 &&
-                              scriptPubKey[0] >= OP_7 &&
+                              scriptPubKey[0] >= OP_8 &&
                               scriptPubKey[0] <= OP_16 &&
                               scriptPubKey[1] == 32);
 
-    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium) {
+    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium && !is_usdsoq_holding) {
         return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
@@ -1644,6 +1652,17 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // Future witness versions (v7-v16): consensus-valid, no validation performed.
     // SECURITY NOTE: Coins sent to these outputs are anyone-can-spend at
     // the consensus layer until a soft fork adds validation rules.
+    // CTxOut migration Phase 3: USDSOQ holding (witness v7).
+    if (is_usdsoq_holding) {
+        if (!(flags & SCRIPT_VERIFY_USDSOQ)) {
+            return set_success(serror);  // Not active yet — anyone-can-spend (soft-fork safe)
+        }
+        // Active: a v7 USDSOQ holding spends EXACTLY like a v1 single-key Dilithium output —
+        // witness [sig, pubkey], SHA256(pubkey) == the 32-byte program, CheckSig over scriptPubKey.
+        // Fall through to the Dilithium verification below (no duplicate crypto). The asset type
+        // (USDSOQ) is carried by the v7 version itself (IsUSDSOQ) and enforced in ConnectBlock.
+    }
+
     if (is_future_witness) {
         return set_success(serror);
     }
