@@ -46,6 +46,8 @@ const char* GetTxnOutputType(txnouttype t)
         return "witness_v5_authority";
     case TX_WITNESS_V6_COVENANT:
         return "witness_v6_covenant";
+    case TX_WITNESS_V7_USDSOQ:
+        return "witness_v7_usdsoq";
     }
     return NULL;
 }
@@ -106,6 +108,12 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
         // SOQ-AUD2-009: witness v6 = P2WSH-Dilithium covenant (OP_6 + 32-byte hash)
         if (witnessversion == 6 && witnessprogram.size() == 32) {
             typeRet = TX_WITNESS_V6_COVENANT;
+            vSolutionsRet.push_back(witnessprogram);
+            return true;
+        }
+        // CTxOut Phase 4: witness v7 = USDSOQ holding (OP_7 + 32-byte hash), spent via the v1 path
+        if (witnessversion == 7 && witnessprogram.size() == 32) {
+            typeRet = TX_WITNESS_V7_USDSOQ;
             vSolutionsRet.push_back(witnessprogram);
             return true;
         }
