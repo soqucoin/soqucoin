@@ -30,6 +30,7 @@
 #include "primitives/transaction.h"
 #include "script/interpreter.h"
 #include "script/script.h"
+#include "coins.h"
 #include "txdb.h"
 #include "uint256.h"
 #include "validation.h"
@@ -178,6 +179,75 @@ struct V7ConservationChainSetup : public TestingSetup {
         tx.vin[0].scriptWitness.stack.push_back(Prefixed(coinbasePkBytes));
         return tx;
     }
+
+    // Seed a mature, spendable v7 USDSOQ coin (OP_7 <SHA256(coinbasePk)>) directly into
+    // the UTXO set, owned by coinbaseKey. assetByte=0x00 ON PURPOSE: a pure-version
+    // holding, so whatever classifies it as USDSOQ does so by the witness version alone
+    // (the Phase-3 chokepoint), NOT the legacy byte. (No usdsoqmint authority infra needed
+    // — direct coins-view seeding, like coins_tests.cpp uses ModifyCoins.)
+    COutPoint SeedV7Coin(CAmount value, uint8_t assetByte = 0x00)
+    {
+        uint256 txid = uint256S("0000000000000000000000000000000000000000000000000000000000007c01");
+        {
+            LOCK(cs_main);
+            CCoinsViewCache view(pcoinsTip);
+            CCoinsModifier c = view.ModifyCoins(txid);
+            c->Clear();
+            c->fCoinBase = false;
+            c->nHeight   = 1;          // mature, non-coinbase
+            c->nVersion  = 2;
+            c->vout.resize(1);
+            c->vout[0].nValue       = value;
+            c->vout[0].scriptPubKey = MakeV7Spk(coinbasePkBytes);
+            c->vout[0].nVisibility  = 0x00;
+            c->vout[0].nAssetType   = assetByte;
+            view.Flush();
+        }
+        return COutPoint(txid, 0);
+    }
+
+    // Sign one input (BIP143 witness-v0) with coinbaseKey over scriptCode.
+    void SignInput(CMutableTransaction& tx, unsigned int idx, const CScript& scriptCode, CAmount amount)
+    {
+        CTransaction ctxForSign(tx);
+        uint256 sighash = SignatureHash(scriptCode, ctxForSign, idx, SIGHASH_ALL,
+                                         amount, SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<unsigned char> sig;
+        BOOST_REQUIRE(coinbaseKey.Sign(sighash, sig));
+        sig.push_back((unsigned char)SIGHASH_ALL);
+        tx.vin[idx].scriptWitness.stack.clear();
+        tx.vin[idx].scriptWitness.stack.push_back(sig);
+        tx.vin[idx].scriptWitness.stack.push_back(Prefixed(coinbasePkBytes));
+    }
+
+    // v7 USDSOQ input (FULL value preserved) + a coinbase SOQ fee input → v7 output
+    // (same USDSOQ value) + SOQ change. USDSOQ in == USDSOQ out exactly; fee paid in SOQ.
+    CMutableTransaction BuildV7ToV7Send(const COutPoint& v7op, CAmount v7Val,
+                                        const CTransaction& feeCoinbase, const CScript& v7DestSpk)
+    {
+        const CAmount feeVal = feeCoinbase.vout[0].nValue;
+        CMutableTransaction tx; tx.nVersion = 2;
+
+        CTxIn vin0; vin0.prevout = v7op; vin0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin0);
+        CTxIn vin1; vin1.prevout = COutPoint(feeCoinbase.GetHash(), 0); vin1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin1);
+
+        CTxOut o0; o0.nValue = v7Val;          o0.scriptPubKey = v7DestSpk;  tx.vout.push_back(o0); // USDSOQ out (full)
+        CTxOut o1; o1.nValue = feeVal - 10000; o1.scriptPubKey = coinbaseSpk; tx.vout.push_back(o1); // SOQ change
+
+        SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);  // v7 USDSOQ input
+        SignInput(tx, 1, coinbaseSpk, feeVal);                // SOQ fee input
+        return tx;
+    }
+
+    // v7 USDSOQ input → v1 SOQ output (no USDSOQ out): converting USDSOQ→SOQ, must be rejected.
+    CMutableTransaction BuildV7ToSoq(const COutPoint& v7op, CAmount v7Val, const CScript& soqDestSpk)
+    {
+        CMutableTransaction tx; tx.nVersion = 2;
+        CTxIn in; in.prevout = v7op; in.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(in);
+        CTxOut o; o.nValue = v7Val - 10000; o.scriptPubKey = soqDestSpk; tx.vout.push_back(o);
+        SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);
+        return tx;
+    }
 };
 
 BOOST_FIXTURE_TEST_SUITE(usdsoq_v7_conservation_harness_tests, V7ConservationChainSetup)
@@ -226,6 +296,47 @@ BOOST_AUTO_TEST_CASE(soq_to_soq_spend_connects)
     BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B.GetHash(),
         "a conserving SOQ→SOQ spend must connect — confirms the v7 rejection is the asset rule, "
         "not a harness artifact");
+}
+
+// ---------------------------------------------------------------------------
+// SEND path (Phase-4 prerequisite): a v7 USDSOQ input (legacy byte CLEAR) + a SOQ
+// fee input → v7 USDSOQ output (full value) + SOQ change. USDSOQ in==out exactly,
+// fee in SOQ → conserves → connects. Proves a v7 INPUT is counted as USDSOQ-in by the
+// witness VERSION alone (byte=0), which is what makes a v7→v7 transfer valid post-Phase-4.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(v7_to_v7_send_conserves)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);          // byte CLEAR — version-only USDSOQ
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);       // a v7 holding (send to self)
+
+    CMutableTransaction send = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[0], v7Dest);
+    std::vector<CMutableTransaction> txns{send};
+    CBlock B = CreateAndProcessBlock(txns, coinbaseSpk);
+
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B.GetHash(),
+        "a v7→v7 USDSOQ send (USDSOQ in==out, fee in SOQ) must connect — the v7 input must be "
+        "counted USDSOQ-in by version (byte=0); if it's rejected, input classification ignores v7");
+}
+
+// ---------------------------------------------------------------------------
+// Mirror: a v7 USDSOQ input → v1 SOQ output (no USDSOQ out) is converting USDSOQ to SOQ
+// and MUST be rejected by conservation (nUSDSOQIn>0 != nUSDSOQOut=0). The v7 input's
+// legacy byte is CLEAR, so a pass here would mean v7 inputs aren't classified by version.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(v7_input_to_soq_output_rejected)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript soqDest; soqDest << OP_1 << std::vector<unsigned char>(32, 0x44);  // v1 SOQ
+
+    CMutableTransaction bad = BuildV7ToSoq(v7op, v7Val, soqDest);
+    std::vector<CMutableTransaction> txns{bad};
+    CBlock B = CreateAndProcessBlock(txns, coinbaseSpk);
+
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() != B.GetHash(),
+        "a v7-USDSOQ-input → SOQ-output tx must be rejected by conservation (can't convert "
+        "USDSOQ→SOQ); if it connects, the v7 input isn't classified USDSOQ by version");
 }
 
 BOOST_AUTO_TEST_SUITE_END()
