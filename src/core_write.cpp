@@ -195,13 +195,16 @@ void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry)
 
         // SOQ-AUD2-002 / SOQ-ARCH-001: Expose asset and visibility metadata
         // for auditor/explorer visibility. Only emitted when non-default.
-        if (txout.nAssetType != 0x00) {
+        // Version-aware (CTxOut migration Phase 3): USDSOQ is determined by
+        // CTxOut::IsUSDSOQ() (v7 holding OR the legacy nAssetType byte), NOT the raw
+        // byte — so a v7 holding reports USDSOQ even with the byte clear, and still does
+        // after Phase 4 removes the byte. Any other non-zero byte falls through to "unknown".
+        if (txout.IsUSDSOQ()) {
+            out.pushKV("assetType", 1);
+            out.pushKV("assetName", "usdsoq");
+        } else if (txout.nAssetType != 0x00) {
             out.pushKV("assetType", (int)txout.nAssetType);
-            // Human-readable label
-            if (txout.nAssetType == 0x01)
-                out.pushKV("assetName", "usdsoq");
-            else
-                out.pushKV("assetName", "unknown");
+            out.pushKV("assetName", "unknown");
         }
         if (txout.nVisibility != 0x00) {
             out.pushKV("visibility", (int)txout.nVisibility);
