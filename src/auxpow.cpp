@@ -94,12 +94,11 @@ bool CAuxPow::check(const uint256& hashAuxBlock, int nChainId, const Consensus::
     std::reverse(vchRootHash.begin(), vchRootHash.end()); // correct endian
 
     // Check that we are in the parent block merkle tree.
-    // IMPORTANT: The coinbase tx came from a foreign chain (LTC/DOGE) where CTxOut
-    // does NOT have nVisibility/nAssetType. We must hash the coinbase using standard
-    // Bitcoin serialization (SERIALIZE_TXOUT_STANDARD) to match the parent block's
-    // merkle root, which was computed without those Soqucoin-specific fields.
+    // Phase 4: CTxOut is now standard Bitcoin (no nVisibility/nAssetType), so the parent
+    // (LTC/DOGE) coinbase and our own CTxOut serialize identically — no SERIALIZE_TXOUT_STANDARD
+    // flag needed (it was removed). This is the AuxPoW seam collapsing: one format everywhere.
     const uint256 coinbaseHash = SerializeHash(*tx, SER_GETHASH,
-        SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_TXOUT_STANDARD);
+        SERIALIZE_TRANSACTION_NO_WITNESS);
     if (CheckMerkleBranch(coinbaseHash, vMerkleBranch, nIndex) != parentBlock.hashMerkleRoot)
         return error("Aux POW merkle root incorrect");
 

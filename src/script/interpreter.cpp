@@ -1950,12 +1950,11 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
         CSHA256 ssOut;
         for (const auto& txout : txTo->vout) {
             writeLE64(ssOut, txout.nValue);
-            // SOQ-COV-012: CTV must commit to extension bytes to prevent
-            // asset-type substitution in covenant-locked UTXOs.
-            // Without this, a CTV vault locked for SOQ could be spent with
-            // USDSOQ outputs of the same value — the hash would still match.
-            ssOut.Write((const unsigned char*)&txout.nVisibility, 1);
-            ssOut.Write((const unsigned char*)&txout.nAssetType, 1);
+            // CTxOut migration Phase 4: the nVisibility/nAssetType bytes were removed from the
+            // CTV output commitment. SOQ-COV-012's asset-substitution protection is preserved by
+            // the scriptPubKey itself being committed below — asset is now the witness version
+            // (SOQ=v1, USDSOQ=v7, confidential=v4), so a different asset = a different script =
+            // a different hash. (Must match the byte-less reimpl serTxOutCtv.)
             writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
             if (!txout.scriptPubKey.empty()) {
                 ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());

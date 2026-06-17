@@ -14,12 +14,10 @@
 
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
 
-/** Flag to deserialize CTxOut in standard Bitcoin format (without Soqucoin's
- *  nVisibility and nAssetType extensions). Used when deserializing foreign-chain
- *  coinbase transactions in AuxPoW merge-mining proofs, since parent chains
- *  (LTC, DOGE) use standard Bitcoin CTxOut serialization.
- */
-static const int SERIALIZE_TXOUT_STANDARD = 0x20000000;
+// CTxOut migration Phase 4: SERIALIZE_TXOUT_STANDARD (0x20000000) was REMOVED. CTxOut no
+// longer carries the nVisibility/nAssetType extension bytes, so native == standard Bitcoin
+// CTxOut and the dual-format flag is unnecessary (AuxPoW parent coinbases deserialize with
+// the same single format). Bit 0x20000000 is now free.
 
 static const int WITNESS_SCALE_FACTOR = 4;
 
@@ -180,15 +178,12 @@ public:
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
+        // CTxOut migration Phase 4: the nVisibility/nAssetType extension bytes were
+        // REMOVED. CTxOut is now standard Bitcoin (nValue + scriptPubKey) — identical to
+        // the foreign/AuxPoW-parent encoding, so the SERIALIZE_TXOUT_STANDARD dual-format
+        // seam is gone. Asset/visibility follow the witness version (USDSOQ=v7, confidential=v4).
         READWRITE(nValue);
         READWRITE(*(CScriptBase*)(&scriptPubKey));
-        // Skip Soqucoin-specific extensions when deserializing foreign-chain
-        // transactions (e.g. LTC/DOGE coinbase in AuxPoW merge-mining proofs).
-        // Standard Bitcoin CTxOut is just nValue + scriptPubKey.
-        if (!(s.GetVersion() & SERIALIZE_TXOUT_STANDARD)) {
-            READWRITE(nVisibility);
-            READWRITE(nAssetType);
-        }
     }
 
     void SetNull()
@@ -216,7 +211,8 @@ public:
     //! pre-reset chain are v1+nAssetType, so the byte path is required for equivalence until the
     //! genesis reset mints USDSOQ as v7 only — at which point the byte path (and v5 byte-vs-version
     //! authority classification) is finalized in Phase 4.
-    bool IsUSDSOQ() const { return IsV7USDSOQHolding() || nAssetType == 0x01; }  // nAssetType: PHASE-4-REMOVE
+    //! Phase 4: USDSOQ is the witness version (v7) — the nAssetType byte is gone.
+    bool IsUSDSOQ() const { return IsV7USDSOQHolding(); }
 
     //! Returns true if this output carries native SOQ (i.e. not USDSOQ).
     bool IsNativeSOQ() const { return !IsUSDSOQ(); }
