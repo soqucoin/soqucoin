@@ -86,7 +86,8 @@ struct LatticeKeyImageHash
 //   2. Verify the commitment matches: Commit(amount, blinding) == C
 //   3. Report compliance without being able to spend
 //
-// Wire format (variable-length, only present when nVisibility == 0x01):
+// Wire format (variable-length; present for witness-v4 (OP_4) confidential outputs — CTxOut
+// migration Phase 4: the nVisibility byte was removed, confidentiality follows the witness version):
 //   [1 byte]   version (0x01 = v1)
 //   [32 bytes] tx_public_key (sender's ephemeral DH key)
 //   [N bytes]  encrypted_amount (AEAD-sealed under shared secret)
