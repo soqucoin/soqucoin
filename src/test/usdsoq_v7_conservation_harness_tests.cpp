@@ -185,13 +185,17 @@ struct V7ConservationChainSetup : public TestingSetup {
     // holding, so whatever classifies it as USDSOQ does so by the witness version alone
     // (the Phase-3 chokepoint), NOT the legacy byte. (No usdsoqmint authority infra needed
     // — direct coins-view seeding, like coins_tests.cpp uses ModifyCoins.)
+    //
+    // NOTE: We modify pcoinsTip directly (no intermediate CCoinsViewCache) to avoid
+    // corrupting pcoinsTip's hashBlock. An intermediate view's Flush() would pass its
+    // (unset/null) hashBlock into pcoinsTip->BatchWrite, overwriting the tip's bestblock
+    // and causing ConnectBlock's assertion to fire.
     COutPoint SeedV7Coin(CAmount value, uint8_t assetByte = 0x00)
     {
         uint256 txid = uint256S("0000000000000000000000000000000000000000000000000000000000007c01");
         {
             LOCK(cs_main);
-            CCoinsViewCache view(pcoinsTip);
-            CCoinsModifier c = view.ModifyCoins(txid);
+            CCoinsModifier c = pcoinsTip->ModifyCoins(txid);
             c->Clear();
             c->fCoinBase = false;
             c->nHeight   = 1;          // mature, non-coinbase
@@ -201,7 +205,6 @@ struct V7ConservationChainSetup : public TestingSetup {
             c->vout[0].scriptPubKey = MakeV7Spk(coinbasePkBytes);
             c->vout[0].nVisibility  = 0x00;
             c->vout[0].nAssetType   = assetByte;
-            view.Flush();
         }
         return COutPoint(txid, 0);
     }
