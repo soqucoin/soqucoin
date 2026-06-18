@@ -62,11 +62,13 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
     // Exceptions:
     //   OP_5 (0x55) = witness v5 = USDSOQ authority operations
     //   OP_6 (0x56) = witness v6 = P2WSH-Dilithium covenant script execution
-    // Both are ALWAYS_ACTIVE on stagenet and BIP9-gated on mainnet.
+    //   OP_7 (0x57) = witness v7 = USDSOQ holding (CTxOut Phase 4; spent via the v1 path)
+    // All ALWAYS_ACTIVE on stagenet and BIP9-gated on mainnet.
     if (scriptPubKey.size() == 34 &&
         scriptPubKey[0] >= 0x52 && scriptPubKey[0] <= 0x60 &&  // OP_2 through OP_16
         scriptPubKey[0] != 0x55 &&                              // except OP_5 (USDSOQ authority)
         scriptPubKey[0] != 0x56 &&                              // except OP_6 (P2WSH-Dilithium)
+        scriptPubKey[0] != 0x57 &&                              // except OP_7 (USDSOQ holding)
         scriptPubKey[1] == 32) {
         return false;
     }

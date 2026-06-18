@@ -29,6 +29,7 @@ enum DeploymentPos {
     DEPLOYMENT_CSFS,       // BIP 348: OP_CHECKSIGFROMSTACK (bit 9) — oracle contracts, bridge attestation
     DEPLOYMENT_P2WSH_DILITHIUM, // Witness v6: P2WSH with Dilithium (bit 10) — covenant script execution, L2SOQ Lightning
     DEPLOYMENT_UTXO_COST,       // SOQ-ARCH-003: Consensus-enforced minimum UTXO value (bit 11) — Cardano-style utxoCostPerByte
+    DEPLOYMENT_DILITHIUM_KEYHASH, // OP_CHECKDILITHIUMKEYHASH (bit 12) — key-committed Dilithium sig verify, eLTOO 2-of-2 multisig
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };

@@ -67,9 +67,7 @@ static std::vector<unsigned char> ComputeCTVHash(const CMutableTransaction& tx, 
     CSHA256 ssOut;
     for (const auto& txout : tx.vout) {
         writeLE64(ssOut, txout.nValue);
-        // SOQ-COV-012: CTV must commit to extension bytes
-        ssOut.Write(&txout.nVisibility, 1);
-        ssOut.Write(&txout.nAssetType, 1);
+        // Phase 4: nVisibility/nAssetType bytes removed; classification lives in scriptPubKey
         writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
         if (!txout.scriptPubKey.empty())
             ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());
@@ -219,19 +217,21 @@ BOOST_AUTO_TEST_CASE(ctv_wrong_hash_size_fails)
 
 BOOST_AUTO_TEST_CASE(ctv_asset_type_change_breaks_hash)
 {
-    // SOQ-COV-012: CTV hash must commit to nAssetType — changing asset type
-    // on an output must invalidate the template hash. Without this, a CTV
-    // vault locked for SOQ could be spent with USDSOQ outputs.
-    CMutableTransaction tx1 = MakeBaseTx(); // default: nAssetType = ASSET_SOQ (0x00)
+    // SOQ-COV-012 (Phase 4): CTV hash commits to scriptPubKey. Changing the
+    // script (e.g., from P2PKH to v7 witness = USDSOQ) changes the hash.
+    CMutableTransaction tx1 = MakeBaseTx(); // default: OP_RETURN script
     CMutableTransaction tx2 = MakeBaseTx();
-    tx2.vout[0].nAssetType = 0x01; // ASSET_USDSOQ
+    // Change output to a v7 witness script (USDSOQ classification)
+    CScript v7;
+    v7 << OP_7 << std::vector<unsigned char>(32, 0xab);
+    tx2.vout[0].scriptPubKey = v7;
 
     auto hash1 = ComputeCTVHash(tx1, 0);
     auto hash2 = ComputeCTVHash(tx2, 0);
     BOOST_CHECK_MESSAGE(hash1 != hash2,
-        "CTV hash must differ when nAssetType changes (SOQ-COV-012)");
+        "CTV hash must differ when scriptPubKey changes (SOQ-COV-012 Phase 4)");
 
-    // tx1's hash fails when evaluated against tx2 (different asset type)
+    // tx1's hash fails when evaluated against tx2 (different script)
     CScript script;
     script << hash1 << OP_NOP4;
 
@@ -245,16 +245,19 @@ BOOST_AUTO_TEST_CASE(ctv_asset_type_change_breaks_hash)
 
 BOOST_AUTO_TEST_CASE(ctv_visibility_change_breaks_hash)
 {
-    // SOQ-COV-012: CTV hash must commit to nVisibility — changing visibility
-    // on an output must invalidate the template hash.
-    CMutableTransaction tx1 = MakeBaseTx(); // default: nVisibility = 0x00 (transparent)
+    // SOQ-COV-012 (Phase 4): Changing from transparent (P2PKH) to confidential
+    // (v4 witness) changes the scriptPubKey, which changes the CTV hash.
+    CMutableTransaction tx1 = MakeBaseTx(); // default: OP_RETURN
     CMutableTransaction tx2 = MakeBaseTx();
-    tx2.vout[0].nVisibility = 0x01; // confidential
+    // Change output to a v4 witness script (confidential classification)
+    CScript v4;
+    v4 << OP_4 << std::vector<unsigned char>(32, 0xab);
+    tx2.vout[0].scriptPubKey = v4;
 
     auto hash1 = ComputeCTVHash(tx1, 0);
     auto hash2 = ComputeCTVHash(tx2, 0);
     BOOST_CHECK_MESSAGE(hash1 != hash2,
-        "CTV hash must differ when nVisibility changes (SOQ-COV-012)");
+        "CTV hash must differ when visibility changes via scriptPubKey (SOQ-COV-012 Phase 4)");
 }
 
 // =========================================================================

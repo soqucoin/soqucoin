@@ -115,6 +115,20 @@ public:
 
     //! Write the current authority UTXO outpoint to LevelDB.
     bool WriteUSDSOQAuthorityOutpoint(const COutPoint &outpoint);
+
+    // SOQ-FREEZE (CTxOut migration Phase 1): USDSOQ frozen-outpoint set.
+    // Replaces the overloaded nVisibility 0x80 freeze bit (consensus/usdsoq.h) with an
+    // authority-maintained set keyed by outpoint — presence == frozen. Modelled on the
+    // key-image set above (pure DB, no in-memory cache → no reorg-coherence bug class).
+    // GENIUS Act §4(a)(2): stablecoin issuers must be able to freeze.
+    //! True if the outpoint is currently frozen.
+    bool IsFrozenOutpoint(const COutPoint &outpoint) const;
+
+    //! Mark an outpoint frozen (authority FREEZE op applied at ConnectBlock).
+    bool WriteFrozenOutpoint(const COutPoint &outpoint);
+
+    //! Unfreeze an outpoint (authority UNFREEZE op, or DisconnectBlock reversal of a FREEZE).
+    bool EraseFrozenOutpoint(const COutPoint &outpoint);
 };
 
 /** Specialization of CCoinsViewCursor to iterate over a CCoinsViewDB */

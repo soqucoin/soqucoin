@@ -549,42 +549,14 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fChe
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-requires-dilithium");
     }
 
-    // SOQ-AUD2-002: Validate nVisibility and nAssetType fields
-    // These are always-present from genesis (defaults: 0x00/0x00).
+    // Phase 4: Validate asset classification via witness-version predicates.
+    // No nVisibility/nAssetType bytes exist; classification is structural.
     {
-        bool hasSOQ = false;
         bool hasUSDSOQ = false;
 
         for (const auto& txout : tx.vout) {
-            // Reject unknown visibility values (excluding frozen flag in high bit)
-            // Valid base modes: VISIBILITY_TRANSPARENT (0x00), VISIBILITY_CONFIDENTIAL (0x01)
-            // The VISIBILITY_FROZEN_MASK (0x80) is allowed — enforcement in ConnectBlock
-            uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
-            if (baseVisibility != VISIBILITY_TRANSPARENT &&
-                baseVisibility != VISIBILITY_CONFIDENTIAL) {
-                return state.DoS(100, false, REJECT_INVALID, "bad-txns-unknown-visibility");
-            }
-
-            // Reject unknown asset types
-            // Valid: ASSET_SOQ (0x00), ASSET_USDSOQ (0x01)
-            if (txout.nAssetType != ASSET_SOQ &&
-                txout.nAssetType != ASSET_USDSOQ) {
-                return state.DoS(100, false, REJECT_INVALID, "bad-txns-unknown-asset-type");
-            }
-
-            if (txout.nAssetType == ASSET_SOQ) hasSOQ = true;
-            if (txout.nAssetType == ASSET_USDSOQ) hasUSDSOQ = true;
+            if (txout.IsUSDSOQ()) hasUSDSOQ = true;
         }
-
-        // SOQ-ARCH-002: Per-asset conservation model.
-        // Mixed-asset transactions (SOQ + USDSOQ) are allowed at the
-        // CheckTransaction level. The real invariant — USDSOQ must be
-        // conserved (USDSOQ_in == USDSOQ_out) — is enforced in
-        // CheckTxInputs, which has UTXO access to verify input asset types.
-        // On mainnet (USDSOQ NEVER_ACTIVE), no USDSOQ UTXOs exist, so any
-        // transaction claiming USDSOQ inputs will fail in CheckTxInputs.
-        // Authority transactions (witness v5 / OP_5) are exempt from
-        // conservation as they mint/burn USDSOQ under M-of-N control.
 
         // Coinbase outputs must be native SOQ — cannot mint USDSOQ via mining
         if (tx.IsCoinBase() && hasUSDSOQ) {
@@ -828,13 +800,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             for (unsigned int i = 0; i < tx.vin.size(); i++) {
                 const CCoins* coins = view.AccessCoins(tx.vin[i].prevout.hash);
                 if (coins && coins->IsAvailable(tx.vin[i].prevout.n)) {
-                    if (coins->vout[tx.vin[i].prevout.n].nAssetType == ASSET_SOQ) {
+                    if (coins->vout[tx.vin[i].prevout.n].IsNativeSOQ()) {
                         nSOQIn += coins->vout[tx.vin[i].prevout.n].nValue;
                     }
                 }
             }
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_SOQ) {
+                if (txout.IsNativeSOQ()) {
                     nSOQOut += txout.nValue;
                 }
             }
@@ -1516,7 +1488,7 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
         // Recompute output value counting only SOQ outputs
         nValueOut = 0;
         for (const auto& txout : tx.vout) {
-            if (txout.nAssetType == ASSET_SOQ) {
+            if (txout.IsNativeSOQ()) {
                 nValueOut += txout.nValue;
             }
         }
@@ -1531,7 +1503,7 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             const COutPoint& prevout = tx.vin[i].prevout;
             const CCoins* coins = inputs.AccessCoins(prevout.hash);
             if (coins && coins->IsAvailable(prevout.n)) {
-                if (coins->vout[prevout.n].nAssetType == ASSET_SOQ) {
+                if (coins->vout[prevout.n].IsNativeSOQ()) {
                     nValueIn += coins->vout[prevout.n].nValue;
                 }
             }
@@ -1565,12 +1537,12 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             const COutPoint& prevout = tx.vin[i].prevout;
             const CCoins* coins = inputs.AccessCoins(prevout.hash);
             assert(coins);
-            if (coins->vout[prevout.n].nAssetType == ASSET_USDSOQ) {
+            if (coins->vout[prevout.n].IsUSDSOQ()) {
                 nUSDSOQIn += coins->vout[prevout.n].nValue;
             }
         }
         for (const auto& txout : tx.vout) {
-            if (txout.nAssetType == ASSET_USDSOQ) {
+            if (txout.IsUSDSOQ()) {
                 nUSDSOQOut += txout.nValue;
             }
         }
@@ -1898,7 +1870,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
 
             // Count USDSOQ outputs being removed (reverses mints)
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_USDSOQ) {
+                if (txout.IsUSDSOQ()) {
                     nUSDSOQReversedMint += txout.nValue;
                 }
             }
@@ -1912,7 +1884,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                 for (unsigned int j = 0; j < tx.vin.size(); j++) {
                     if (j < txundo.vprevout.size()) {
                         const CTxOut& restoredOut = txundo.vprevout[j].txout;
-                        if (restoredOut.nAssetType == ASSET_USDSOQ) {
+                        if (restoredOut.IsUSDSOQ()) {
                             nUSDSOQReversedBurn += restoredOut.nValue;
                         }
                     }
@@ -2046,6 +2018,67 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
         if (nErasedKeyImages > 0) {
             LogPrintf("PRIVACY: reorg at block %d erased %u key-images\n",
                 pindex->nHeight, nErasedKeyImages);
+        }
+    }
+
+    // =========================================================================
+    // SOQ-FREEZE: Freeze-Registry Reversal on Reorg
+    // When disconnecting a block, reverse all freeze/unfreeze ops that were
+    // applied during ConnectBlock. This mirrors the key-image erasure pattern:
+    // re-parse the tx's OP_RETURN, then invert the operation.
+    //   ConnectBlock FREEZE  → DisconnectBlock ERASE  (undo the freeze)
+    //   ConnectBlock UNFREEZE → DisconnectBlock WRITE  (re-freeze)
+    //
+    // R1 FIX (Fable review, 2026-06-16): Mirror ConnectBlock apply's guards.
+    // Only reverse freeze ops for txs that are authority txs (have OP_5 <32>
+    // output) AND are at/after nUSDSOQAuthorityEnforcementHeight. Without
+    // these guards, an attacker can craft a non-authority tx with a FREEZE
+    // OP_RETURN, get it into a block that reorgs out, and the reverse would
+    // erase a legitimate freeze (bypass) or write a phantom freeze (griefing).
+    // Key-image reverse doesn't need this because key-images aren't
+    // plaintext-forgeable; freeze ops are.
+    // =========================================================================
+    if (pcoinsdbview) {
+        const Consensus::Params& disconnectConsensus = Params().GetConsensus(pindex->nHeight);
+        unsigned int nReversedFreezeOps = 0;
+        for (const auto& ptx : block.vtx) {
+            const CTransaction& tx = *ptx;
+            if (tx.IsCoinBase()) continue;
+
+            // R1 Guard 1: Height gate — mirror ConnectBlock apply.
+            // Pre-enforcement blocks never had freeze ops applied.
+            if (pindex->nHeight < disconnectConsensus.nUSDSOQAuthorityEnforcementHeight)
+                continue;
+
+            // R1 Guard 2: Authority gate — only authority txs can apply freeze ops.
+            // An authority tx has at least one OP_5 <32-byte> output.
+            bool isAuthorityTx = false;
+            for (const auto& o : tx.vout) {
+                if (o.scriptPubKey.size() == 34 &&
+                    o.scriptPubKey[0] == OP_5 && o.scriptPubKey[1] == 32) {
+                    isAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isAuthorityTx) continue;
+
+            uint8_t freezeOp = 0;
+            COutPoint freezeTarget;
+            if (ParseUSDSOQFreezeOp(tx, freezeOp, freezeTarget)) {
+                if (freezeOp == FREEZE_OP_FREEZE) {
+                    // ConnectBlock added this to the frozen set → remove it
+                    pcoinsdbview->EraseFrozenOutpoint(freezeTarget);
+                } else if (freezeOp == FREEZE_OP_UNFREEZE) {
+                    // ConnectBlock removed this from the frozen set → re-add it
+                    pcoinsdbview->WriteFrozenOutpoint(freezeTarget);
+                }
+                nReversedFreezeOps++;
+            }
+        }
+
+        if (nReversedFreezeOps > 0) {
+            LogPrintf("USDSOQ: reorg at block %d reversed %u freeze-registry ops\n",
+                pindex->nHeight, nReversedFreezeOps);
         }
     }
 
@@ -2355,6 +2388,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
     }
 
+    // OP_CHECKDILITHIUMKEYHASH: Key-committed Dilithium signature verification
+    // When active, OP_NOP7 (0xb6) enforces SHA256(pubkey)==keyhash + Dilithium sig verify.
+    // Enables eLTOO 2-of-2 multisig for L2SOQ Lightning with oversized Dilithium pubkeys.
+    // See DL-OP-CHECKDILITHIUMKEYHASH.md for design.
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_DILITHIUM_KEYHASH, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
+    }
+
     // SATOSHI SCRIPT RESTORATION: Always-active on Soqucoin (genesis-active).
     // AND/OR/XOR/MUL/DIV/MOD/SUBSTR/LEFT/RIGHT re-enabled with BCH-style bounds.
     // No BIP9 gate needed — these are genesis-active like OP_CAT.
@@ -2433,23 +2474,23 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 if (coins && coins->IsAvailable(tx.vin[j].prevout.n)) {
                     const CTxOut& prevOut = coins->vout[tx.vin[j].prevout.n];
                     nTotalIn += prevOut.nValue;
-                    if (prevOut.nAssetType == ASSET_TYPE_SOQ) {
+                    if (prevOut.IsNativeSOQ()) {   // Phase 3: per-asset fee filter — v7 USDSOQ never counts as SOQ
                         nSOQIn += prevOut.nValue;
                     } else {
-                        // DIAG-FEE: Log every input with unexpected nAssetType
+                        // DIAG-FEE: Log every non-SOQ input filtered from fee
                         LogPrintf("DIAG-FEE: FILTERED INPUT tx=%s vin[%u] prevout=%s:%u "
-                            "assetType=0x%02x visibility=0x%02x value=%lld coinHeight=%d isCoinBase=%d\n",
+                            "isUSDSOQ=%d isConfidential=%d value=%lld coinHeight=%d isCoinBase=%d\n",
                             tx.GetHash().ToString(), j,
                             tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n,
-                            (unsigned int)prevOut.nAssetType,
-                            (unsigned int)prevOut.nVisibility,
+                            prevOut.IsUSDSOQ(),
+                            prevOut.IsConfidential(),
                             prevOut.nValue, coins->nHeight, coins->fCoinBase);
                     }
                 }
             }
             CAmount nSOQOut = 0;
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_TYPE_SOQ) {
+                if (txout.IsNativeSOQ()) {
                     nSOQOut += txout.nValue;
                 }
             }
@@ -2510,8 +2551,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         for (unsigned int i = 0; i < block.vtx.size(); i++) {
             const CTransaction& tx = *(block.vtx[i]);
             for (const auto& txout : tx.vout) {
-                uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
-                if (baseVisibility != VISIBILITY_TRANSPARENT) {
+                // Phase 2: confidentiality ⟺ witness-v4 (IsConfidential). Reject creating a
+                // confidential (v4) output before the LATTICEBP privacy layer is active. This
+                // subsumes the old "nVisibility on a non-v4 output" defense-in-depth, since
+                // IsConfidential() is true only for genuine v4 outputs.
+                if (txout.IsConfidential()) {
                     return state.DoS(100,
                         error("ConnectBlock(): confidential output in block %d before LATTICEBP activation",
                               pindex->nHeight),
@@ -2553,7 +2597,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             // Determine if this tx has USDSOQ outputs
             bool txHasUSDSOQ = false;
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_USDSOQ) {
+                if (txout.IsUSDSOQ()) {
                     txHasUSDSOQ = true;
                     break;
                 }
@@ -2856,6 +2900,58 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 } // end height gate else
             }
 
+            // =============================================================
+            // SOQ-FREEZE: Apply freeze/unfreeze op from authority TX.
+            // After authority signature verification succeeds, parse the
+            // OP_RETURN for a freeze-registry payload and update the
+            // DB-backed frozen set.
+            // Guard: only when committing (!fJustCheck), authority is
+            // initialized, and we are past the enforcement height.
+            // =============================================================
+            if (isAuthorityTx && !fJustCheck && pcoinsdbview &&
+                g_usdsoq_authority.IsInitialized() &&
+                pindex->nHeight >= consensus.nUSDSOQAuthorityEnforcementHeight) {
+                uint8_t freezeOp = 0;
+                COutPoint freezeTarget;
+                if (ParseUSDSOQFreezeOp(tx, freezeOp, freezeTarget)) {
+                    if (freezeOp == FREEZE_OP_FREEZE) {
+                        // Q3: Defense-in-depth — require target to be a live
+                        // USDSOQ UTXO. Skip + log if not (don't reject the
+                        // block — the authority TX itself is valid).
+                        const CCoins* targetCoins = view.AccessCoins(freezeTarget.hash);
+                        if (!targetCoins || !targetCoins->IsAvailable(freezeTarget.n) ||
+                            !targetCoins->vout[freezeTarget.n].IsUSDSOQ()) {
+                            LogPrintf("USDSOQ: FREEZE target %s:%u is not a live USDSOQ "
+                                      "UTXO at block %d — skipping (defense-in-depth)\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        } else if (!pcoinsdbview->WriteFrozenOutpoint(freezeTarget)) {
+                            LogPrintf("ERROR: USDSOQ: Failed to write frozen outpoint "
+                                      "%s:%u at block %d\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        } else {
+                            LogPrintf("USDSOQ: FREEZE applied — outpoint %s:%u "
+                                      "added to frozen set at block %d\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        }
+                    } else if (freezeOp == FREEZE_OP_UNFREEZE) {
+                        if (!pcoinsdbview->EraseFrozenOutpoint(freezeTarget)) {
+                            LogPrintf("ERROR: USDSOQ: Failed to erase frozen outpoint "
+                                      "%s:%u at block %d\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        } else {
+                            LogPrintf("USDSOQ: UNFREEZE applied — outpoint %s:%u "
+                                      "removed from frozen set at block %d\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        }
+                    }
+                }
+            }
+
             // Input-side validation for non-coinbase transactions
             for (const auto& txin : tx.vin) {
                 const CCoins* coins = view.AccessCoins(txin.prevout.hash);
@@ -2864,20 +2960,29 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
                 const CTxOut& prevOut = coins->vout[txin.prevout.n];
 
-                // Frozen UTXO guard: reject spending any frozen USDSOQ output
-                // A frozen output has nVisibility high bit set (0x80 | visibility)
-                // This encoding allows frozen+transparent (0x80) and
-                // frozen+confidential (0x81) states.
+                // Frozen UTXO guard: reject spending any frozen USDSOQ output.
+                // Checks BOTH:
+                //   1. Legacy: nVisibility high-bit (0x80) — existing chain data
+                //   2. Registry: DB_USDSOQ_FROZEN set — new freeze-registry ops
+                //
+                // Both paths remain active during migration. Once all legacy
+                // frozen UTXOs are re-frozen via the registry (Phase 2),
+                // the nVisibility check can be removed.
                 //
                 // H3 FIX (June 3, 2026): Only enforce freeze on USDSOQ outputs.
                 // If a SOQ output somehow gets the frozen bit set (corruption),
                 // it must NOT become permanently unspendable.
-                if (prevOut.nAssetType == ASSET_USDSOQ &&
-                    (prevOut.nVisibility & VISIBILITY_FROZEN_MASK)) {
-                    return state.DoS(100,
-                        error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u",
-                            txin.prevout.hash.ToString(), txin.prevout.n),
-                        REJECT_INVALID, "bad-txns-spend-frozen-usdsoq");
+                if (prevOut.IsUSDSOQ()) {
+                    // Phase 4: freeze enforcement via registry only (nVisibility bit removed)
+                    bool frozenByRegistry = pcoinsdbview &&
+                        pcoinsdbview->IsFrozenOutpoint(txin.prevout);
+                    if (frozenByRegistry) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u"
+                                  " (registry)",
+                                txin.prevout.hash.ToString(), txin.prevout.n),
+                            REJECT_INVALID, "bad-txns-spend-frozen-usdsoq");
+                    }
                 }
 
                 // Asset isolation on inputs: if ANY output is USDSOQ,
@@ -2886,7 +2991,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 // (they create new supply from authority-signed witness).
                 // NOTE: isAuthorityTx was already determined by SOQ-I005
                 // authority detection above — no need to re-scan outputs.
-                if (txHasUSDSOQ && prevOut.nAssetType != ASSET_USDSOQ) {
+                if (txHasUSDSOQ && !prevOut.IsUSDSOQ()) {
                     if (!isAuthorityTx) {
                         return state.DoS(100,
                             error("ConnectBlock(): USDSOQ tx has non-USDSOQ input %s:%u",
@@ -2898,7 +3003,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
             // Track supply deltas for USDSOQ outputs in this block
             for (const auto& txout : tx.vout) {
-                if (txout.nAssetType == ASSET_USDSOQ) {
+                if (txout.IsUSDSOQ()) {
                     // =========================================================
                     // SOQ-ARCH-004: Confidential Compliant USDSOQ
                     //
@@ -2930,22 +3035,22 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     //   0x80 = frozen-transparent (authority freeze)
                     //   0x81 = frozen-confidential (authority freeze on private UTXO)
                     // =========================================================
-                    uint8_t baseVisibility = txout.nVisibility & ~VISIBILITY_FROZEN_MASK;
-
-                    if (isAuthorityTx && baseVisibility != VISIBILITY_TRANSPARENT) {
+                    // Phase 2: confidentiality ⟺ witness-v4 (IsConfidential/IsTransparent),
+                    // not the nVisibility byte. (Freeze state lives in DB_USDSOQ_FROZEN as of
+                    // Phase 1; the nVisibility byte is vestigial, removed in Phase 4.)
+                    if (isAuthorityTx && txout.IsConfidential()) {
                         // Authority operations MUST be transparent for supply auditability.
                         // Mint/burn/freeze/rotate TXs create the supply boundary —
                         // if these are hidden, the supply invariant breaks.
                         return state.DoS(100,
-                            error("ConnectBlock(): USDSOQ authority output %s:%u has non-transparent "
-                                  "visibility 0x%02x — authority TXs must be transparent "
+                            error("ConnectBlock(): USDSOQ authority output %s:%u is confidential "
+                                  "(v4) — authority TXs must be transparent "
                                   "(GENIUS Act §4(a)(2), SOQ-ARCH-004)",
-                                tx.GetHash().ToString(), (&txout - &tx.vout[0]),
-                                (int)txout.nVisibility),
+                                tx.GetHash().ToString(), (&txout - &tx.vout[0])),
                             REJECT_INVALID, "bad-txns-usdsoq-authority-must-be-transparent");
                     }
 
-                    if (!isAuthorityTx && baseVisibility == VISIBILITY_CONFIDENTIAL) {
+                    if (!isAuthorityTx && txout.IsConfidential()) {
                         // User-to-user confidential USDSOQ transfer — allowed IF:
                         //   1. LATTICEBP privacy layer is active (BIP9)
                         //   2. Range proofs are valid (checked in LATTICEBP section below)
@@ -2964,7 +3069,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
                     // Only count transparent USDSOQ outputs toward minted supply.
                     // Confidential outputs don't change total supply (transfers only).
-                    if (baseVisibility == VISIBILITY_TRANSPARENT) {
+                    if (txout.IsTransparent()) {
                         nUSDSOQMinted += txout.nValue;
                     }
                     // Confidential outputs: value is hidden in commitment.
@@ -2978,17 +3083,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 if (!coins || !coins->IsAvailable(txin.prevout.n))
                     continue;
                 const CTxOut& prevOut = coins->vout[txin.prevout.n];
-                if (prevOut.nAssetType == ASSET_USDSOQ) {
+                if (prevOut.IsUSDSOQ()) {
                     // Defense-in-depth: reject confidential USDSOQ inputs
-                    // If consensus worked correctly, no confidential USDSOQ
-                    // should ever exist. But check anyway to catch corruption.
-                    uint8_t baseVis = prevOut.nVisibility & ~VISIBILITY_FROZEN_MASK;
-                    if (baseVis != VISIBILITY_TRANSPARENT) {
+                    // Phase 4: use IsConfidential() predicate (v4 witness version)
+                    if (prevOut.IsConfidential()) {
                         return state.DoS(100,
-                            error("ConnectBlock(): spending confidential USDSOQ input %s:%u "
-                                  "(visibility 0x%02x) — should not exist",
-                                txin.prevout.hash.ToString(), txin.prevout.n,
-                                (int)prevOut.nVisibility),
+                            error("ConnectBlock(): spending confidential USDSOQ input %s:%u"
+                                  " — should not exist",
+                                txin.prevout.hash.ToString(), txin.prevout.n),
                             REJECT_INVALID, "bad-txns-usdsoq-conf-input");
                     }
                     nUSDSOQBurned += prevOut.nValue;

@@ -145,10 +145,10 @@ bool DecodeAuxPow(CAuxPow& auxpow, const std::string& strHexAuxPow)
 
     std::vector<unsigned char> auxData(ParseHex(strHexAuxPow));
 
-    // Use SERIALIZE_TXOUT_STANDARD to deserialize the parent-chain coinbase
-    // with standard Bitcoin CTxOut format (no nVisibility/nAssetType).
-    // Foreign chains (LTC, DOGE) don't have Soqucoin's CTxOut extensions.
-    CDataStream ssAuxPow(auxData, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TXOUT_STANDARD);
+    // Phase 4: CTxOut is now standard Bitcoin (no nVisibility/nAssetType), matching foreign
+    // chains (LTC, DOGE) — so the parent-chain coinbase deserializes with the single format;
+    // the SERIALIZE_TXOUT_STANDARD flag was removed.
+    CDataStream ssAuxPow(auxData, SER_NETWORK, PROTOCOL_VERSION);
     try {
         ssAuxPow >> auxpow;
     }

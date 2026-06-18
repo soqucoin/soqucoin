@@ -272,3 +272,80 @@ uint256 ComputeAuthorityKeyHash(const std::vector<std::vector<uint8_t>>& keys)
     hasher.Finalize(result.begin());
     return result;
 }
+
+// =========================================================================
+// SOQ-FREEZE: Parse freeze/unfreeze op from authority OP_RETURN
+//
+// Expected OP_RETURN script layout:
+//   OP_RETURN <"FREEZE"> <freeze_payload>
+// Where freeze_payload is:
+//   [op:1][txid:32][vout:4 LE]  (= FREEZE_OP_PAYLOAD_LEN = 37 bytes)
+//
+// The "FREEZE" marker tag (6 bytes) must be the first OP_RETURN data push.
+// The freeze_payload must be the second data push, exactly 37 bytes.
+// =========================================================================
+
+#include "primitives/transaction.h"
+#include "script/script.h"
+
+bool ParseUSDSOQFreezeOp(const CTransaction& tx, uint8_t& op, COutPoint& target)
+{
+    static const std::vector<uint8_t> FREEZE_TAG = {'F','R','E','E','Z','E'};
+
+    bool found = false;
+
+    for (const auto& txout : tx.vout) {
+        const CScript& script = txout.scriptPubKey;
+
+        // Must start with OP_RETURN
+        if (script.size() < 2 || script[0] != OP_RETURN)
+            continue;
+
+        // Parse the OP_RETURN data pushes using CScript::const_iterator.
+        // We need exactly: push0 = "FREEZE" (6 bytes), push1 = payload (37 bytes).
+        CScript::const_iterator pc = script.begin();
+        opcodetype opcode;
+        std::vector<uint8_t> push0, push1;
+
+        // Skip OP_RETURN itself
+        ++pc;
+
+        // Read first push (should be "FREEZE" tag)
+        if (!script.GetOp(pc, opcode, push0))
+            continue;
+        if (push0 != FREEZE_TAG)
+            continue;
+
+        // Read second push (should be the freeze payload)
+        if (!script.GetOp(pc, opcode, push1))
+            continue;
+        if (push1.size() != FREEZE_OP_PAYLOAD_LEN)
+            continue;
+
+        // Single-action invariant: reject if we already found one
+        if (found)
+            return false;
+
+        // Parse payload: [op:1][txid:32][vout:4 LE]
+        uint8_t freezeOp = push1[0];
+        if (freezeOp != FREEZE_OP_FREEZE && freezeOp != FREEZE_OP_UNFREEZE)
+            continue;  // unknown op — skip (not a valid freeze)
+
+        // txid: 32 bytes at offset 1, internal byte order
+        uint256 txid;
+        memcpy(txid.begin(), &push1[1], 32);
+
+        // vout: 4 bytes LE at offset 33
+        uint32_t vout = 0;
+        vout |= (uint32_t)push1[33];
+        vout |= (uint32_t)push1[34] << 8;
+        vout |= (uint32_t)push1[35] << 16;
+        vout |= (uint32_t)push1[36] << 24;
+
+        op = freezeOp;
+        target = COutPoint(txid, vout);
+        found = true;
+    }
+
+    return found;
+}

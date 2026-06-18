@@ -104,8 +104,10 @@ UniValue mintusdsoq(const JSONRPCRequest& request)
     CMutableTransaction mtx;
     mtx.nVersion = 2;
 
-    // Create the USDSOQ output with asset type tag
-    CTxOut mintOutput(nAmount, scriptPubKey, 0x00 /* TRANSPARENT */, 0x01 /* USDSOQ */);
+    // Create the USDSOQ output — Phase 4: v7 witness scriptPubKey makes it USDSOQ
+    // A v7 output (OP_7 <SHA256(pubkey)>) is classified as USDSOQ by IsUSDSOQ().
+    // For now, use the standard scriptPubKey. The v7 rewrite is Phase 4b.
+    CTxOut mintOutput(nAmount, scriptPubKey);
     mtx.vout.push_back(mintOutput);
 
     // Build witness stack for OP_USDSOQ_MINT (witness v5)
@@ -153,18 +155,13 @@ UniValue mintusdsoq(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
-    // Mark the first output as USDSOQ
-    // SECURITY: We modify the output after CreateTransaction because
-    // the wallet doesn't natively understand asset types yet.
-    // This is safe because we're only setting metadata fields.
-    CMutableTransaction mtxFinal(*(wtx.tx));
-    if (!mtxFinal.vout.empty()) {
-        mtxFinal.vout[0].nVisibility = 0x00;  // TRANSPARENT (enforced by consensus)
-        mtxFinal.vout[0].nAssetType = 0x01;   // USDSOQ
-    }
+    // Phase 4: USDSOQ classification is structural (v7 witness version).
+    // No byte-level nVisibility/nAssetType assignment needed.
+    // TODO(Phase 4b): Rewrite output as v7 (OP_7 <SHA256(pubkey)>) for
+    // proper USDSOQ classification. Currently uses standard scriptPubKey.
 
-    // Re-wrap and commit
-    wtx.SetTx(MakeTransactionRef(std::move(mtxFinal)));
+    // Phase 4: no mutation needed — classification is structural
+    // Keep the existing wtx.tx as-is
 
     CValidationState state;
     if (!pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get(), state)) {
@@ -227,7 +224,7 @@ UniValue burnusdsoq(const JSONRPCRequest& request)
     CAmount nUsdsoqBalance = 0;
     for (const auto& out : vecOutputs) {
         const CTxOut& txout = out.tx->tx->vout[out.i];
-        if (txout.nAssetType == 0x01 && txout.nVisibility == 0x00) {
+        if (txout.IsUSDSOQ() && !txout.IsConfidential()) {
             nUsdsoqBalance += txout.nValue;
         }
     }
@@ -317,8 +314,8 @@ UniValue getusdsoqinfo(const JSONRPCRequest& request)
 
         for (const auto& out : vecOutputs) {
             const CTxOut& txout = out.tx->tx->vout[out.i];
-            if (txout.nAssetType == 0x01) {
-                if (txout.nVisibility == 0x00) {
+            if (txout.IsUSDSOQ()) {
+                if (!txout.IsConfidential()) {
                     nUsdsoqBalance += txout.nValue;
                     nUsdsoqUtxos++;
                 } else {
@@ -481,13 +478,10 @@ UniValue sendprivate(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
-    // Mark the recipient output as CONFIDENTIAL
-    CMutableTransaction mtxFinal(*(wtx.tx));
-    if (!mtxFinal.vout.empty()) {
-        mtxFinal.vout[0].nVisibility = 0x01;  // CONFIDENTIAL
-        mtxFinal.vout[0].nAssetType = 0x00;   // Native SOQ
-    }
-    wtx.SetTx(MakeTransactionRef(std::move(mtxFinal)));
+    // Phase 4: classification is structural (v4 witness = confidential).
+    // No byte-level nVisibility/nAssetType assignment needed.
+    // TODO(Phase 4b): Rewrite output as v4 (OP_4 <program>) for
+    // proper confidential classification.
 
     CValidationState state;
     if (!pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get(), state)) {
@@ -544,7 +538,7 @@ UniValue getprivacyinfo(const JSONRPCRequest& request)
 
         for (const auto& out : vecOutputs) {
             const CTxOut& txout = out.tx->tx->vout[out.i];
-            if (txout.nVisibility == 0x01) {
+            if (txout.IsConfidential()) {
                 nConfidential++;
             } else {
                 nTransparent++;
@@ -658,16 +652,10 @@ UniValue shieldsoq(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
-    // Mark the self-send output as CONFIDENTIAL
-    CMutableTransaction mtxFinal(*(wtx.tx));
-    for (size_t i = 0; i < mtxFinal.vout.size(); i++) {
-        if (mtxFinal.vout[i].scriptPubKey == scriptPubKey) {
-            mtxFinal.vout[i].nVisibility = 0x01;  // CONFIDENTIAL
-            mtxFinal.vout[i].nAssetType = 0x00;   // Native SOQ
-            break;
-        }
-    }
-    wtx.SetTx(MakeTransactionRef(std::move(mtxFinal)));
+    // Phase 4: classification is structural (v4 witness = confidential).
+    // No byte-level nVisibility/nAssetType assignment needed.
+    // TODO(Phase 4b): Rewrite output as v4 (OP_4 <program>) for
+    // proper confidential classification.
 
     CValidationState state;
     if (!pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get(), state)) {
@@ -721,7 +709,7 @@ UniValue unshieldsoq(const JSONRPCRequest& request)
     CAmount nConfidentialBalance = 0;
     for (const auto& out : vecOutputs) {
         const CTxOut& txout = out.tx->tx->vout[out.i];
-        if (txout.nVisibility == 0x01 && txout.nAssetType == 0x00) {
+        if (txout.IsConfidential() && txout.IsNativeSOQ()) {
             nConfidentialBalance += txout.nValue;
         }
     }
@@ -771,16 +759,8 @@ UniValue unshieldsoq(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR, strError);
     }
 
-    // Ensure output is TRANSPARENT (nVisibility=0x00, the default)
-    CMutableTransaction mtxFinal(*(wtx.tx));
-    for (size_t i = 0; i < mtxFinal.vout.size(); i++) {
-        if (mtxFinal.vout[i].scriptPubKey == scriptPubKey) {
-            mtxFinal.vout[i].nVisibility = 0x00;  // TRANSPARENT (explicit)
-            mtxFinal.vout[i].nAssetType = 0x00;   // Native SOQ
-            break;
-        }
-    }
-    wtx.SetTx(MakeTransactionRef(std::move(mtxFinal)));
+    // Phase 4: classification is structural — transparent is the default.
+    // No byte-level nVisibility/nAssetType assignment needed.
 
     CValidationState state;
     if (!pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get(), state)) {

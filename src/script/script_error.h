@@ -44,6 +44,9 @@ typedef enum ScriptError_t {
     /* BIP 348: OP_CHECKSIGFROMSTACK */
     SCRIPT_ERR_CHECKSIGFROMSTACK,
 
+    /* OP_CHECKDILITHIUMKEYHASH: key-committed Dilithium sig verify */
+    SCRIPT_ERR_CHECKDILITHIUMKEYHASH,
+
     /* Satoshi Restoration: arithmetic guards */
     SCRIPT_ERR_DIV_BY_ZERO,
     SCRIPT_ERR_INVALID_SPLIT_RANGE,

@@ -5,6 +5,9 @@
 // SOQ-ARCH-001 Phase 2/3: Privacy Integration Tests
 // Design Log: DL-PRIVACY-INTEGRATION-ARCHITECTURE.md
 //
+// Phase 4: Refactored to use structural classification (v4 witness = confidential,
+// v7 witness = USDSOQ) instead of removed nVisibility/nAssetType byte tags.
+//
 // Covers:
 //   1. Mixed-mode transactions (transparent + confidential outputs)
 //   2. USDSOQ visibility enforcement at the data structure level
@@ -32,15 +35,37 @@
 BOOST_FIXTURE_TEST_SUITE(privacy_integration_tests, BasicTestingSetup)
 
 // =========================================================================
-// Helper: Create a test CTxOut with given visibility/asset fields
+// Helper: Create a test CTxOut with given visibility/asset semantics
+// Phase 4: Uses structural classification via witness version, not byte tags.
+//   - confidential=true  → OP_4 <32-byte> (v4 witness = confidential)
+//   - usdsoq=true        → OP_7 <32-byte> (v7 witness = USDSOQ)
+//   - default             → P2PKH (transparent native SOQ)
 // =========================================================================
-static CTxOut MakeTestOutput(CAmount value, uint8_t visibility, uint8_t assetType)
+static CTxOut MakeTestOutput(CAmount value, bool confidential, bool usdsoq)
 {
     CScript script;
-    script << OP_DUP << OP_HASH160
-           << std::vector<unsigned char>(20, 0xab)
-           << OP_EQUALVERIFY << OP_CHECKSIG;
-    return CTxOut(value, script, visibility, assetType);
+    if (usdsoq) {
+        // v7 witness = USDSOQ classification
+        script << OP_7 << std::vector<unsigned char>(32, 0xab);
+    } else if (confidential) {
+        // v4 witness = confidential classification
+        script << OP_4 << std::vector<unsigned char>(32, 0xab);
+    } else {
+        // Standard P2PKH = transparent native SOQ
+        script << OP_DUP << OP_HASH160
+               << std::vector<unsigned char>(20, 0xab)
+               << OP_EQUALVERIFY << OP_CHECKSIG;
+    }
+    return CTxOut(value, script);
+}
+
+// Legacy-compatible helper: interprets old visibility/asset byte semantics
+// Maps: visibility==0x01 → confidential, assetType==0x01 → USDSOQ
+static CTxOut MakeTestOutputLegacy(CAmount value, uint8_t visibility, uint8_t assetType)
+{
+    bool confidential = (visibility & ~VISIBILITY_FROZEN_MASK) == VISIBILITY_CONFIDENTIAL;
+    bool usdsoq = (assetType == ASSET_TYPE_USDSOQ);
+    return MakeTestOutput(value, confidential, usdsoq);
 }
 
 // =========================================================================
@@ -51,9 +76,9 @@ BOOST_AUTO_TEST_CASE(mixed_mode_tx_transparent_and_confidential_outputs)
 {
     CMutableTransaction mtx;
     mtx.nVersion = 2;
-    mtx.vout.push_back(MakeTestOutput(50000, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ));
-    mtx.vout.push_back(MakeTestOutput(30000, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_SOQ));
-    mtx.vout.push_back(MakeTestOutput(10000, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ));
+    mtx.vout.push_back(MakeTestOutput(50000, false, false));  // transparent SOQ
+    mtx.vout.push_back(MakeTestOutput(30000, true, false));   // confidential SOQ
+    mtx.vout.push_back(MakeTestOutput(10000, false, false));  // transparent SOQ
 
     CTransaction tx(mtx);
     BOOST_CHECK(tx.vout[0].IsTransparent());
@@ -71,8 +96,8 @@ BOOST_AUTO_TEST_CASE(mixed_mode_tx_soq_and_usdsoq_isolation)
 {
     CMutableTransaction mtx;
     mtx.nVersion = 2;
-    mtx.vout.push_back(MakeTestOutput(10000, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ));
-    mtx.vout.push_back(MakeTestOutput(5000, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ));
+    mtx.vout.push_back(MakeTestOutput(10000, false, false));  // transparent SOQ
+    mtx.vout.push_back(MakeTestOutput(5000, false, true));    // transparent USDSOQ
 
     CTransaction tx(mtx);
     bool hasSOQ = false, hasUSDSOQ = false;
@@ -90,7 +115,7 @@ BOOST_AUTO_TEST_CASE(mixed_mode_visibility_scan)
     {
         CMutableTransaction mtx;
         mtx.nVersion = 2;
-        mtx.vout.push_back(MakeTestOutput(50000, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ));
+        mtx.vout.push_back(MakeTestOutput(50000, false, false));
         CTransaction tx(mtx);
         bool needs = false;
         for (const auto& out : tx.vout)
@@ -101,8 +126,8 @@ BOOST_AUTO_TEST_CASE(mixed_mode_visibility_scan)
     {
         CMutableTransaction mtx;
         mtx.nVersion = 2;
-        mtx.vout.push_back(MakeTestOutput(50000, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ));
-        mtx.vout.push_back(MakeTestOutput(30000, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_SOQ));
+        mtx.vout.push_back(MakeTestOutput(50000, false, false));
+        mtx.vout.push_back(MakeTestOutput(30000, true, false));
         CTransaction tx(mtx);
         bool needs = false;
         for (const auto& out : tx.vout)
@@ -117,26 +142,27 @@ BOOST_AUTO_TEST_CASE(mixed_mode_visibility_scan)
 
 BOOST_AUTO_TEST_CASE(usdsoq_mint_must_produce_transparent)
 {
-    CTxOut out = MakeTestOutput(1000000, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_TRANSPARENT);
+    // Phase 4: USDSOQ outputs use v7 witness (transparent by definition)
+    CTxOut out = MakeTestOutput(1000000, false, true);
+    BOOST_CHECK(!out.IsConfidential());
     BOOST_CHECK(out.IsUSDSOQ());
 }
 
 BOOST_AUTO_TEST_CASE(usdsoq_mint_confidential_rejected)
 {
-    CTxOut out = MakeTestOutput(1000000, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_USDSOQ);
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);
+    // Phase 4: A v4 output cannot simultaneously be USDSOQ (v7).
+    // Attempting confidential + USDSOQ produces a v4 output (which is NOT USDSOQ).
+    CTxOut out = MakeTestOutput(1000000, true, false);
+    BOOST_CHECK(out.IsConfidential());
+    BOOST_CHECK(!out.IsUSDSOQ());
 }
 
 BOOST_AUTO_TEST_CASE(usdsoq_freeze_produces_frozen_transparent)
 {
-    CTxOut out = MakeTestOutput(500000,
-        VISIBILITY_FROZEN_MASK | VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
-    BOOST_CHECK(out.nVisibility & VISIBILITY_FROZEN_MASK);
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_TRANSPARENT);
+    // Phase 4: Freeze state is tracked via DB_USDSOQ_FROZEN registry,
+    // not visibility byte. A v7 output (USDSOQ) is always transparent.
+    CTxOut out = MakeTestOutput(500000, false, true);
+    BOOST_CHECK(!out.IsConfidential());
     BOOST_CHECK(out.IsUSDSOQ());
 }
 
@@ -325,36 +351,38 @@ BOOST_AUTO_TEST_CASE(reorg_same_ki_different_heights)
 
 BOOST_AUTO_TEST_CASE(fuzz_negative_value_usdsoq)
 {
-    CScript script;
-    script << OP_RETURN;
-    CTxOut out(-1, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_TRANSPARENT);
+    // Phase 4: USDSOQ is classified by v7 witness, not byte tag
+    CTxOut out = MakeTestOutput(-1, false, true);
+    BOOST_CHECK(!out.IsConfidential());
+    BOOST_CHECK(out.IsUSDSOQ());
 }
 
 BOOST_AUTO_TEST_CASE(fuzz_max_value_usdsoq)
 {
-    CScript script;
-    script << OP_RETURN;
-    CTxOut out(MAX_MONEY, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_TRANSPARENT);
+    CTxOut out = MakeTestOutput(MAX_MONEY, false, true);
+    BOOST_CHECK(!out.IsConfidential());
+    BOOST_CHECK(out.IsUSDSOQ());
 }
 
-BOOST_AUTO_TEST_CASE(fuzz_all_256_visibility_values)
+BOOST_AUTO_TEST_CASE(fuzz_structural_classification_mutual_exclusion)
 {
+    // Phase 4: v4 and v7 are mutually exclusive — an output can't be both.
     CScript script;
     script << OP_RETURN;
-    int validCount = 0;
-    for (int v = 0; v < 256; v++) {
-        CTxOut out(1000, script, static_cast<uint8_t>(v), ASSET_TYPE_USDSOQ);
-        uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-        if (baseVis == VISIBILITY_TRANSPARENT) {
-            BOOST_CHECK(v == 0x00 || v == 0x80);
-            validCount++;
-        }
-    }
-    BOOST_CHECK_EQUAL(validCount, 2);  // Only 0x00 and 0x80
+
+    // Test: no output can be both confidential and USDSOQ
+    CTxOut soq = MakeTestOutput(1000, false, false);
+    BOOST_CHECK(!soq.IsConfidential());
+    BOOST_CHECK(!soq.IsUSDSOQ());
+    BOOST_CHECK(soq.IsNativeSOQ());
+
+    CTxOut conf = MakeTestOutput(1000, true, false);
+    BOOST_CHECK(conf.IsConfidential());
+    BOOST_CHECK(!conf.IsUSDSOQ());
+
+    CTxOut usdsoq = MakeTestOutput(1000, false, true);
+    BOOST_CHECK(!usdsoq.IsConfidential());
+    BOOST_CHECK(usdsoq.IsUSDSOQ());
 }
 
 BOOST_AUTO_TEST_CASE(fuzz_keyimage_all_zero)

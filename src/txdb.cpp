@@ -40,6 +40,11 @@ static const char DB_USDSOQ_AUTHORITY = 'A';
 // Value: COutPoint — the current authority UTXO that must be spent for mint/burn/freeze/rotate
 static const char DB_USDSOQ_AUTH_OUTPOINT = 'O';
 
+// SOQ-FREEZE (CTxOut migration Phase 1): USDSOQ frozen-outpoint set
+// Key: DB_USDSOQ_FROZEN + COutPoint; value: presence (1) == frozen. Mirrors DB_KEY_IMAGE (a set).
+// Replaces the overloaded nVisibility 0x80 freeze bit. 'Z' is unused ('F' = DB_FLAG).
+static const char DB_USDSOQ_FROZEN = 'Z';
+
 CCoinsViewDB::CCoinsViewDB(size_t nCacheSize, bool fMemory, bool fWipe) : db(GetDataDir() / "chainstate", nCacheSize, fMemory, fWipe, true) 
 {
 }
@@ -163,6 +168,19 @@ bool CCoinsViewDB::ReadUSDSOQAuthorityOutpoint(COutPoint &outpoint) const {
 
 bool CCoinsViewDB::WriteUSDSOQAuthorityOutpoint(const COutPoint &outpoint) {
     return db.Write(DB_USDSOQ_AUTH_OUTPOINT, outpoint);
+}
+
+// SOQ-FREEZE (CTxOut migration Phase 1): USDSOQ frozen-outpoint set
+bool CCoinsViewDB::IsFrozenOutpoint(const COutPoint &outpoint) const {
+    return db.Exists(std::make_pair(DB_USDSOQ_FROZEN, outpoint));
+}
+
+bool CCoinsViewDB::WriteFrozenOutpoint(const COutPoint &outpoint) {
+    return db.Write(std::make_pair(DB_USDSOQ_FROZEN, outpoint), (uint8_t)1);
+}
+
+bool CCoinsViewDB::EraseFrozenOutpoint(const COutPoint &outpoint) {
+    return db.Erase(std::make_pair(DB_USDSOQ_FROZEN, outpoint));
 }
 
 bool CCoinsViewDBCursor::GetKey(uint256 &key) const

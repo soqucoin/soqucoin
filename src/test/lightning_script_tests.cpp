@@ -63,8 +63,7 @@ static std::vector<unsigned char> ComputeCTVHash(const CMutableTransaction& tx, 
     CSHA256 ssOut;
     for (const auto& o : tx.vout) {
         le64(ssOut, o.nValue);
-        ssOut.Write(&o.nVisibility, 1);     // SOQ-COV-012
-        ssOut.Write(&o.nAssetType, 1);
+        // Phase 4: nVisibility/nAssetType bytes removed; classification lives in scriptPubKey
         le32(ssOut, (uint32_t)o.scriptPubKey.size());
         if (!o.scriptPubKey.empty()) ssOut.Write(o.scriptPubKey.data(), o.scriptPubKey.size());
     }
@@ -585,8 +584,7 @@ BOOST_AUTO_TEST_CASE(b1_dump_vectors)
     CTxOut out;
     out.nValue       = 100 * COIN;       // 10,000,000,000 sat
     out.scriptPubKey = CScript() << OP_TRUE;   // 0x51
-    out.nVisibility  = 0x00;             // transparent
-    out.nAssetType   = 0x00;             // native SOQ
+    // Phase 4: nVisibility/nAssetType bytes removed; classification is structural (scriptPubKey)
     tx.vout.push_back(out);
 
     // scriptCode used for the 0x41 (ANYPREVOUT) case — a non-trivial script so the
@@ -616,8 +614,7 @@ BOOST_AUTO_TEST_CASE(b1_dump_vectors)
     BOOST_TEST_MESSAGE("vin0_prevout_n=" << in.prevout.n);
     BOOST_TEST_MESSAGE("vin0_sequence=" << in.nSequence);
     BOOST_TEST_MESSAGE("vout0_value=" << out.nValue);
-    BOOST_TEST_MESSAGE("vout0_visibility=" << (int)out.nVisibility);
-    BOOST_TEST_MESSAGE("vout0_assettype=" << (int)out.nAssetType);
+    // Phase 4: nVisibility/nAssetType bytes removed — classification is structural
     BOOST_TEST_MESSAGE("vout0_scriptpubkey_hex=" << hexs(out.scriptPubKey));
     BOOST_TEST_MESSAGE("scriptcode_hex=" << hexs(scriptCode));
     BOOST_TEST_MESSAGE("amount_sat=" << amount);
@@ -669,13 +666,13 @@ BOOST_AUTO_TEST_CASE(sighashall_dump_vectors)
     CTxOut claim;
     claim.nValue       = 49 * COIN;
     claim.scriptPubKey = CScript() << OP_TRUE;
-    claim.nVisibility  = 0x00; claim.nAssetType = 0x00;
+    // Phase 4: nVisibility/nAssetType removed; classification is structural
     tx.vout.push_back(claim);
 
     CTxOut anchor;
     anchor.nValue       = 0;              // §2.3 fee-bump anchor (inert until package relay)
     anchor.scriptPubKey = CScript() << OP_TRUE;
-    anchor.nVisibility  = 0x00; anchor.nAssetType = 0x00;
+    // Phase 4: nVisibility/nAssetType removed; classification is structural
     tx.vout.push_back(anchor);
 
     // scriptCode = the witnessScript being satisfied. Use a non-trivial standard script so the
@@ -1024,8 +1021,7 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
         CSHA256 ssOut;
         for (const auto& txout : tx.vout) {
             writeLE64(ssOut, txout.nValue);
-            ssOut.Write(&txout.nVisibility, 1);
-            ssOut.Write(&txout.nAssetType, 1);
+            // Phase 4: nVisibility/nAssetType removed
             writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
             if (!txout.scriptPubKey.empty())
                 ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());
@@ -1305,8 +1301,7 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
         CSHA256 ssOut;
         for (const auto& txout : tx.vout) {
             writeLE64(ssOut, txout.nValue);
-            ssOut.Write(&txout.nVisibility, 1);
-            ssOut.Write(&txout.nAssetType, 1);
+            // Phase 4: nVisibility/nAssetType removed
             writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
             if (!txout.scriptPubKey.empty())
                 ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());

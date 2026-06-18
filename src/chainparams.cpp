@@ -249,6 +249,14 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = 0;    // Not yet scheduled
 
+        // OP_CHECKDILITHIUMKEYHASH — NOT ACTIVE on mainnet (pending Phase 2 audit)
+        // Key-committed Dilithium signature verification for eLTOO 2-of-2 multisig.
+        // Enables L2SOQ Lightning channels with Dilithium pubkeys > MAX_SCRIPT_ELEMENT_SIZE.
+        // BIP9 activation post-audit: set nStartTime, miners signal bit 12.
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = 0;    // Not yet scheduled
+
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
@@ -311,13 +319,14 @@ public:
 
         genesis = CreateGenesisBlock(1386325540, 99943, 0x1e0ffff0, 1, 88 * COIN);
 
-        // TODO: Re-mine mainnet genesis with new nonce after CTxOut format change
-        // The old nonce (99943) is invalid after nVisibility+nAssetType serialization.
-        // Mainnet genesis will be properly mined before mainnet launch.
+        // Phase 4: mainnet genesis re-mined 2026-06-16 (DL-GENESIS-REMINE.md)
+        // Original nonce 99943 is still valid under byte-less CTxOut serialization.
+        // Scrypt PoW: 0000026f3f7874ca0c251314eaed2d2fcf83d7da3acfaacf59417d485310b448
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        // Genesis hash assertion deferred — nonce needs re-mining for mainnet launch
+        assert(consensus.hashGenesisBlock == uint256S("0x1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691"));
+        assert(genesis.hashMerkleRoot == uint256S("0x5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69"));
 
         // SOQ-H3: Lattice-BP++ consensus seed — derived from genesis hash
         consensus.latticeBPSeed = ComputeLatticeBPSeed(
@@ -460,6 +469,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].bit = 11;
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // OP_CHECKDILITHIUMKEYHASH — ALWAYS_ACTIVE on testnet for integration testing
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -648,6 +662,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // OP_CHECKDILITHIUMKEYHASH — ALWAYS_ACTIVE for regtest
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
 
@@ -692,7 +711,9 @@ public:
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        assert(consensus.hashGenesisBlock == uint256S("0x22ad706761265b8c05cbc33ff212c1ad7c049afc4e15fc8c04f7e6824da9630f"));
+        // Phase 4: regtest genesis hash changed — byte-less CTxOut serialization.
+        // Old (byte-ful): 0x22ad706761265b8c05cbc33ff212c1ad7c049afc4e15fc8c04f7e6824da9630f
+        assert(consensus.hashGenesisBlock == uint256S("0x3d2160a3b5dc4a9d62e7e66a295f70313ac808440ef7400d6c0772171ce973a5"));
 
         // SOQ-H3: Lattice-BP++ consensus seed
         consensus.latticeBPSeed = ComputeLatticeBPSeed(
@@ -701,7 +722,8 @@ public:
             "N=256,Q=8380417,K=4,range=64");
         digishieldConsensus.latticeBPSeed = consensus.latticeBPSeed;
         auxpowConsensus.latticeBPSeed = consensus.latticeBPSeed;
-        assert(genesis.hashMerkleRoot == uint256S("0xef6d97da4c49ec2be1f68b1608b62e15645237767a8a5f6e16747ede9b114920"));
+        // Old merkle root (byte-ful): 0xef6d97da4c49ec2be1f68b1608b62e15645237767a8a5f6e16747ede9b114920
+        assert(genesis.hashMerkleRoot == uint256S("0x5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69"));
 
         vFixedSeeds.clear(); //!< Regtest mode doesn't have any fixed seeds.
         vSeeds.clear();      //!< Regtest mode doesn't have any DNS seeds.
@@ -858,6 +880,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // OP_CHECKDILITHIUMKEYHASH — ALWAYS_ACTIVE on stagenet for eLTOO testing
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
         // USDSOQ Authority Keys - 2-of-3 ML-DSA-44 multisig (FIPS 204)
         // Keys control USDSOQ mint/burn/freeze. Generated 2026-05-27T04:46:27Z
         // Private key material stored in ADDRESS_REGISTRY.md and soq-signer authority keystore.
@@ -915,17 +942,18 @@ public:
         nDefaultPort = 28333;
         nPruneAfterHeight = 1000;
 
-        // Stagenet Genesis Block - April 2026 (v2 - post CTxOut format change)
+        // Stagenet Genesis Block - April 2026 (v3 — Phase 4 byte-less CTxOut re-mine)
         // Unique genesis isolates Stagenet from all other networks
         // Timestamp: 1745769600 = 2026-04-27 12:00:00 UTC
         // Reward: 500,000 SOQ (matches mainnet emission schedule)
-        // Nonce mined with scrypt PoW on Services VPS (DO-Premium-Intel)
-        genesis = CreateGenesisBlockStagenet(1745769600, 942423, 0x1e0ffff0, 1, 500000 * COIN);
+        // Nonce re-mined 2026-06-16 after Phase 4 CTxOut byte removal (DL-GENESIS-REMINE.md)
+        // Scrypt PoW: 0000023c1d9d18db4abcb57b77efda4968cc3ee0e273870889d7381757c211cc
+        genesis = CreateGenesisBlockStagenet(1745769600, 1215028, 0x1e0ffff0, 1, 500000 * COIN);
 
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        assert(consensus.hashGenesisBlock == uint256S("0x073812fa10d3c23358db3a96365ec4afe6a1d674e87a505b31aca2c032554ec0"));
+        assert(consensus.hashGenesisBlock == uint256S("0x97df3ae79eaf5623c0feecfa1079439f8acdfea06a0f2acb4ef63c6b9ad91bb0"));
 
         // SOQ-H3: Lattice-BP++ consensus seed
         consensus.latticeBPSeed = ComputeLatticeBPSeed(
@@ -934,7 +962,8 @@ public:
             "N=256,Q=8380417,K=4,range=64");
         digishieldConsensus.latticeBPSeed = consensus.latticeBPSeed;
         auxpowConsensus.latticeBPSeed = consensus.latticeBPSeed;
-        assert(genesis.hashMerkleRoot == uint256S("0x9abbf4b3788c188d54f03437f8cfecdfd92ee5406159931146d86cb32cee10b5"));
+        // Phase 4 byte-less merkle root (unchanged — same coinbase, new serialization)
+        assert(genesis.hashMerkleRoot == uint256S("0x994391b757742376b24ebdd37b0fa9ebc11da47366ca8f9ac0a21094da350736"));
 
         vSeeds.clear();
         // Stagenet DNS seeds — resolved to our VPS IPs

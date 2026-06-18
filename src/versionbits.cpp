@@ -54,6 +54,13 @@ const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[Consensus::MAX_VERSION
     {
         /*.name =*/"utxo_cost",
         /*.gbt_force =*/true,
+    },
+    {
+        // SOQ-COV-013: must match DEPLOYMENT_DILITHIUM_KEYHASH (params.h index 12).
+        // Without this entry, index 12 zero-inits to a nullptr name and getblocktemplate
+        // (gbt_vb_name) constructs std::string from null → crash on stagenet (ALWAYS_ACTIVE).
+        /*.name =*/"dilithium_keyhash",
+        /*.gbt_force =*/true,
     }};
 
 ThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex* pindexPrev, const Consensus::Params& params, ThresholdConditionCache& cache) const

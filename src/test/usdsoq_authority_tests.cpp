@@ -533,7 +533,9 @@ BOOST_AUTO_TEST_CASE(e2e_sign_verify_pipeline)
     mintDest << OP_DUP << OP_HASH160
              << std::vector<unsigned char>(20, 0xBE)
              << OP_EQUALVERIFY << OP_CHECKSIG;
-    CTxOut mintOut(CAmount(100000), mintDest, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
+    // Phase 4: USDSOQ classification is structural (v7 witness), not byte tags.
+    // For this test, the mint output just needs a valid scriptPubKey.
+    CTxOut mintOut(CAmount(100000), mintDest);
     mtx.vout.push_back(mintOut);
 
     CTransaction tx(mtx);
@@ -572,7 +574,7 @@ BOOST_AUTO_TEST_CASE(e2e_sign_verify_wrong_sighash_rejected)
 
     CScript mintDest;
     mintDest << OP_RETURN;
-    mtx.vout.push_back(CTxOut(CAmount(100000), mintDest, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ));
+    mtx.vout.push_back(CTxOut(CAmount(100000), mintDest));
 
     CTransaction txOriginal(mtx);
     PrecomputedTransactionData tddOriginal(txOriginal);

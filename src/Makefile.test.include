@@ -101,6 +101,7 @@ BITCOIN_TESTS =\
   test/soqucoin_tests.cpp \
   test/getarg_tests.cpp \
   test/genesis_chainparams_tests.cpp \
+  test/genesis_remine_tests.cpp \
   test/hash_tests.cpp \
   test/key_tests.cpp \
   test/dbwrapper_tests.cpp \
@@ -146,7 +147,16 @@ BITCOIN_TESTS =\
   test/privacy_integration_tests.cpp \
   test/block_accumulator_tests.cpp \
   test/binius64_field_tests.cpp \
-  test/covenant_tests.cpp
+  test/consensus_arch_tests.cpp \
+  test/freeze_registry_tests.cpp \
+  test/freeze_registry_harness_tests.cpp \
+  test/ctxout_format_matrix_tests.cpp \
+  test/covenant_tests.cpp \
+  test/lightning_script_tests.cpp \
+  test/dilithium_keyhash_tests.cpp \
+  test/dilithium_keyhash_committed_tests.cpp \
+  test/usdsoq_v7_holding_tests.cpp \
+  test/usdsoq_v7_conservation_harness_tests.cpp
 # Legacy ECDSA tests disabled for Post-Quantum Transition
 #  test/audit_tests.cpp
 #  test/multisig_tests.cpp
@@ -187,7 +197,7 @@ test_test_soqucoin_LDADD += $(LIBSOQUCOIN_WALLET)
 endif
 
 test_test_soqucoin_LDADD += $(LIBSOQUCOIN_CONSENSUS) $(LIBSOQUCOIN_CRYPTO) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS)
-test_test_soqucoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static -Wl,--allow-multiple-definition
+test_test_soqucoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) -static 
 
 if ENABLE_ZMQ
 test_test_soqucoin_LDADD += $(LIBSOQUCOIN_ZMQ) $(ZMQ_LIBS)

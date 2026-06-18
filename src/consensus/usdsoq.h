@@ -43,10 +43,22 @@ static constexpr uint8_t VISIBILITY_CONFIDENTIAL = 0x01;  // Lattice-BP++ hidden
 // This allows frozen+transparent (0x80) and frozen+confidential (0x81).
 // The low bits still indicate the visibility mode.
 // GENIUS Act §4(a)(2) compliance: stablecoin issuers must be able to freeze.
-static constexpr uint8_t VISIBILITY_FROZEN_MASK   = 0x80;
+static constexpr uint8_t VISIBILITY_FROZEN_MASK   = 0x80;  // PHASE-4-REMOVE
 
 // Maximum valid visibility mode (excluding frozen flag)
 static constexpr uint8_t VISIBILITY_MAX          = 0x01;
+
+// =========================================================================
+// SOQ-FREEZE (CTxOut migration Phase 1): freeze-registry op encoding.
+// The OP_USDSOQ_FREEZE authority op carries an OP_RETURN payload:
+//   [op:1][txid:32][vout:4 LE]  — single outpoint, named as data (not spent).
+// op selects freeze vs unfreeze; consensus adds/removes the outpoint from the
+// DB-backed frozen set (txdb DB_USDSOQ_FROZEN), replacing the overloaded
+// nVisibility 0x80 bit. See design-log/DL-FREEZE-REGISTRY-DESIGN.md.
+// =========================================================================
+static constexpr uint8_t FREEZE_OP_FREEZE   = 0x00;  // add outpoint to frozen set
+static constexpr uint8_t FREEZE_OP_UNFREEZE = 0x01;  // remove outpoint from frozen set
+static constexpr size_t  FREEZE_OP_PAYLOAD_LEN = 1 + 32 + 4;  // op + txid + vout
 
 // Short aliases for validation.cpp/ConnectBlock readability
 static constexpr uint8_t ASSET_SOQ    = ASSET_TYPE_SOQ;
@@ -203,5 +215,19 @@ std::vector<std::vector<uint8_t>> ExtractUSDSOQWitnessSignatures(
 //! Compute SHA256 of the concatenated authority public keys.
 //! This is the 32-byte hash used in OP_5 <hash> authority output scripts.
 uint256 ComputeAuthorityKeyHash(const std::vector<std::vector<uint8_t>>& keys);
+
+// =========================================================================
+// SOQ-FREEZE: Freeze-op parser for ConnectBlock/DisconnectBlock
+// =========================================================================
+
+class CTransaction;
+class COutPoint;
+
+//! Parse a USDSOQ freeze/unfreeze op from a transaction's OP_RETURN outputs.
+//! Returns true if a well-formed freeze op is found (exactly one per tx).
+//! On success, fills `op` (FREEZE_OP_FREEZE or FREEZE_OP_UNFREEZE) and `target`.
+//! Strict: rejects duplicate freeze OP_RETURNs (single-action invariant).
+//! Pure function — no state, safe to unit-test.
+bool ParseUSDSOQFreezeOp(const CTransaction& tx, uint8_t& op, COutPoint& target);
 
 #endif // SOQUCOIN_CONSENSUS_USDSOQ_H

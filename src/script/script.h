@@ -178,6 +178,7 @@ enum opcodetype {
     // Do NOT allocate 0xb5 to any other opcode. Activate post-mainnet via BIP9 after
     // BIP 346 spec stabilizes and Halborn audits the TxFieldSelector implementation.
     OP_NOP7 = 0xb6,
+    OP_CHECKDILITHIUMKEYHASH = OP_NOP7, // Key-committed Dilithium sig verify (eLTOO 2-of-2 multisig)
     OP_NOP8 = 0xb7,
     OP_NOP9 = 0xb8,
     OP_NOP10 = 0xb9,

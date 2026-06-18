@@ -690,6 +690,116 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                 return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
                         }
 
+                    } else if (opcode == OP_CHECKDILITHIUMKEYHASH) {
+                        // =========================================================
+                        // OP_CHECKDILITHIUMKEYHASH (0xb6, was OP_NOP7):
+                        // Key-committed Dilithium signature verification.
+                        //
+                        // Solves the problem that ML-DSA-44 pubkeys (1312 bytes)
+                        // exceed MAX_SCRIPT_ELEMENT_SIZE (520 bytes). Instead of
+                        // embedding the full pubkey in the locking script, the
+                        // script embeds SHA256(pubkey) as a 32-byte keyhash.
+                        // The full pubkey is provided in the witness and verified
+                        // at spend time.
+                        //
+                        // Enables: eLTOO 2-of-2 Dilithium multisig for L2SOQ
+                        // Lightning channels, key-committed covenant patterns.
+                        //
+                        // V6 witnessScript pattern (the keyhash is COMMITTED):
+                        //   <keyhash> OP_CHECKDILITHIUMKEYHASH OP_1
+                        //
+                        // 2-of-2 composition:
+                        //   <khB> OP_CHECKDILITHIUMKEYHASH <khA> OP_CHECKDILITHIUMKEYHASH OP_1
+                        //
+                        // At execution, the witness has already pushed sig+pubkey
+                        // onto the stack; then the script pushes <keyhash> on top.
+                        // So the layout is:
+                        //   stacktop(-1): keyhash (32 bytes, COMMITTED by script)
+                        //   stacktop(-2): pubkey  (1312 or 1313 bytes, from witness)
+                        //   stacktop(-3): sig     (2420 or 2421 bytes, from witness)
+                        //
+                        // On success: all 3 items popped, nothing pushed
+                        //   (CSFS-VERIFY style — composes for k-of-n via chaining,
+                        //   with OP_1 at end for clean-stack truthiness).
+                        // On failure: script fails with SCRIPT_ERR_CHECKDILITHIUMKEYHASH.
+                        //
+                        // BIP9 gated: SCRIPT_VERIFY_DILITHIUM_KEYHASH flag.
+                        // When flag is NOT set, behaves as NOP7 (soft-fork safe).
+                        //
+                        // SECURITY: Keyhash comparison uses constant-time XOR-accumulate
+                        // to prevent timing side-channels on the pubkey hash.
+                        // KEY BINDING: The keyhash is a script literal (committed in
+                        // the v6 program hash). An attacker cannot substitute their
+                        // own keyhash because that would change the program hash.
+                        // =========================================================
+
+                        if (flags & SCRIPT_VERIFY_DILITHIUM_KEYHASH) {
+                            // Active — enforce key-committed Dilithium verification
+                            if (stack.size() < 3)
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                            // Stack layout (top-first): keyhash, pubkey, sig
+                            // The keyhash is a COMMITTED script literal (pushed by
+                            // the witnessScript after witness items), so it's on top.
+                            const valtype& vchKeyHash = stacktop(-1);
+                            const valtype& vchPubKey  = stacktop(-2);
+                            const valtype& vchSig     = stacktop(-3);
+
+                            // Validate keyhash is exactly 32 bytes (SHA256 output)
+                            if (vchKeyHash.size() != 32)
+                                return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+
+                            // Validate pubkey: must be Dilithium ML-DSA-44
+                            // Accept 1312 bytes (raw) or 1313 bytes (0x00 FIPS 204 prefix)
+                            std::vector<unsigned char> vchPubKeyActual = vchPubKey;
+                            if (vchPubKey.size() == 1313 && vchPubKey[0] == 0x00) {
+                                vchPubKeyActual = std::vector<unsigned char>(vchPubKey.begin() + 1, vchPubKey.end());
+                            }
+                            if (vchPubKeyActual.size() != 1312)
+                                return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+
+                            // --- Step 1: Verify SHA256(pubkey) == keyhash ---
+                            // Compute SHA256 of the raw pubkey bytes
+                            unsigned char computed_hash[32];
+                            CSHA256().Write(vchPubKeyActual.data(), vchPubKeyActual.size())
+                                     .Finalize(computed_hash);
+
+                            // SECURITY: Constant-time comparison (XOR-accumulate).
+                            // Prevents timing side-channels that could leak keyhash
+                            // information to an attacker probing with crafted pubkeys.
+                            unsigned char diff = 0;
+                            for (int i = 0; i < 32; ++i) {
+                                diff |= computed_hash[i] ^ vchKeyHash[i];
+                            }
+                            if (diff != 0)
+                                return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+
+                            // --- Step 2: Verify Dilithium signature over sighash ---
+                            // Delegate to checker.CheckSig() which computes the
+                            // transaction sighash and performs ML-DSA-44 verification.
+                            CPubKey pubkey(vchPubKeyActual);
+                            if (!pubkey.IsValid())
+                                return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+
+                            if (!checker.CheckSig(vchSig, vchPubKeyActual, script, sigversion))
+                                return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+
+                            // Success: pop all 3 items (CSFS-VERIFY style).
+                            // For 2-of-2 composition (<khB> OP <khA> OP OP_1),
+                            // each opcode must consume all its operands so the
+                            // clean-stack rule (exactly one truthy element = OP_1)
+                            // is satisfied. Leaving the keyhash would break chaining
+                            // because v6 has no OP_DROP to clean up residuals.
+                            popstack(stack); // keyhash
+                            popstack(stack); // pubkey
+                            popstack(stack); // sig
+                        } else {
+                            // DILITHIUM_KEYHASH not active — treat as NOP7
+                            // Reject if DISCOURAGE_UPGRADABLE_NOPS is set (relay policy)
+                            if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS)
+                                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
+                        }
+
                     } else if (flags & SCRIPT_VERIFY_SCRIPT_RESTORE) {
                         // =========================================================
                         // SATOSHI SCRIPT RESTORATION (Soqucoin genesis-active)
@@ -909,9 +1019,10 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 //   (OP_HASH160, OP_SHA256, OP_CHECKTEMPLATEVERIFY) carry no sigop weight.
 //   This matches Bitcoin Core's treatment of non-sig opcodes.
 //
-// CSFS (OP_NOP5) contribution: counted via GetSigOpCount() on the script,
-//   which detects OP_CHECKSIGFROMSTACK the same way it detects OP_CHECKSIG
-//   (see script.cpp L156–177). No special-casing needed here.
+// CSFS (OP_NOP5) and OP_CHECKDILITHIUMKEYHASH (OP_NOP7) contribution:
+//   counted via GetSigOpCount() on the witness script, which detects
+//   OP_CHECKSIGFROMSTACK and OP_CHECKDILITHIUMKEYHASH alongside OP_CHECKSIG.
+//   Each occurrence costs 1 sigop (one Dilithium verification).
 //
 // APO (sighash-level feature): 0 additional sigops.
 //   APO modifies the message being signed, not the number of verifications.
@@ -1312,14 +1423,22 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                                scriptPubKey[0] == OP_6 &&
                                scriptPubKey[1] == 32);
 
-    // Future witness versions (v7-v16): anyone-can-spend until soft fork
-    // NOTE: v6 is carved out above for P2WSH-Dilithium.
+    // CTxOut migration Phase 3: USDSOQ holding (witness v7). A v7 output holds USDSOQ value
+    // and is spent via the SAME audited v1 single-key Dilithium path (below); the witness
+    // version is the asset discriminator (CTxOut::IsUSDSOQ). Gated by SCRIPT_VERIFY_USDSOQ
+    // (soft-fork safe — anyone-can-spend until active).
+    bool is_usdsoq_holding = (scriptPubKey.size() == 34 &&
+                              scriptPubKey[0] == OP_7 &&
+                              scriptPubKey[1] == 32);
+
+    // Future witness versions (v8-v16): anyone-can-spend until soft fork.
+    // NOTE: v6 (P2WSH-Dilithium) and v7 (USDSOQ holding) are carved out above.
     bool is_future_witness = (scriptPubKey.size() == 34 &&
-                              scriptPubKey[0] >= OP_7 &&
+                              scriptPubKey[0] >= OP_8 &&
                               scriptPubKey[0] <= OP_16 &&
                               scriptPubKey[1] == 32);
 
-    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium) {
+    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium && !is_usdsoq_holding) {
         return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
@@ -1533,6 +1652,17 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // Future witness versions (v7-v16): consensus-valid, no validation performed.
     // SECURITY NOTE: Coins sent to these outputs are anyone-can-spend at
     // the consensus layer until a soft fork adds validation rules.
+    // CTxOut migration Phase 3: USDSOQ holding (witness v7).
+    if (is_usdsoq_holding) {
+        if (!(flags & SCRIPT_VERIFY_USDSOQ)) {
+            return set_success(serror);  // Not active yet — anyone-can-spend (soft-fork safe)
+        }
+        // Active: a v7 USDSOQ holding spends EXACTLY like a v1 single-key Dilithium output —
+        // witness [sig, pubkey], SHA256(pubkey) == the 32-byte program, CheckSig over scriptPubKey.
+        // Fall through to the Dilithium verification below (no duplicate crypto). The asset type
+        // (USDSOQ) is carried by the v7 version itself (IsUSDSOQ) and enforced in ConnectBlock.
+    }
+
     if (is_future_witness) {
         return set_success(serror);
     }
@@ -1622,22 +1752,29 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
     int nHashType = vchSigIn.back();
     std::vector<unsigned char> vchSig(vchSigIn.begin(), vchSigIn.end() - 1);
 
-    // SECURITY NOTE (SOQ-COV-009): Reject APO sighash types (0x41, 0x42) at the
-    // CheckSig level. The standard CheckSig path does not pass SCRIPT_VERIFY_APO
-    // flags, so any signature byte claiming SIGHASH_ANYPREVOUT or
-    // SIGHASH_ANYPREVOUTANYSCRIPT is either:
-    //   (a) malformed — the signer intended an APO sig but used wrong dispatch, or
-    //   (b) malicious — attempting to force the APO branch in SignatureHash()
-    //       without the APO activation flag being enforced.
-    // APO-aware verification happens in the dedicated APO sighash path in
-    // SignatureHash(), which is only reached when the caller intentionally
-    // uses an APO nHashType. Standard CheckSig callers never do this.
-    {
-        int baseType = nHashType & 0x7f;
-        if (baseType == SIGHASH_ANYPREVOUT || baseType == SIGHASH_ANYPREVOUTANYSCRIPT) {
-            return false;
-        }
-    }
+    // SOQ-COV-009 [UPDATED — June 2026]: APO sighash types are now allowed.
+    // =====================================================================
+    // Previously, SIGHASH_ANYPREVOUT (0x41) and SIGHASH_ANYPREVOUTANYSCRIPT
+    // (0x42) were unconditionally rejected here as defense-in-depth.
+    // This blocked the eLTOO update-output rebinding path on stagenet/regtest
+    // even though APO was BIP9 ALWAYS_ACTIVE and SignatureHash() (lines
+    // 1040-1130) already has a complete, audited APO sighash computation path.
+    //
+    // Safety model after removal:
+    //   - Policy layer: STANDARD_SCRIPT_VERIFY_FLAGS now includes
+    //     SCRIPT_VERIFY_APO (policy.h). The mempool only relays TXs
+    //     matching active BIP9 deployments. On mainnet (APO not deployed),
+    //     APO-signed TXs still won't relay.
+    //   - Consensus layer: SignatureHash() handles APO types correctly.
+    //     If a non-APO-signed TX arrives with an APO sighash byte, the
+    //     resulting sighash won't match the signature — verification
+    //     fails naturally via Dilithium CPubKey::Verify(). No funds at risk.
+    //   - CheckSig() is a virtual method on BaseSignatureChecker and does
+    //     not receive `flags`, so flag-gating here would require an
+    //     invasive interface change across 3 classes. The policy layer
+    //     is the correct and sufficient gate.
+    //
+    // Related: SOQ-COV-003 (SignatureHash) still rejects ANYONECANPAY+APO.
 
     uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, txdata);
 
@@ -1813,12 +1950,11 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
         CSHA256 ssOut;
         for (const auto& txout : txTo->vout) {
             writeLE64(ssOut, txout.nValue);
-            // SOQ-COV-012: CTV must commit to extension bytes to prevent
-            // asset-type substitution in covenant-locked UTXOs.
-            // Without this, a CTV vault locked for SOQ could be spent with
-            // USDSOQ outputs of the same value — the hash would still match.
-            ssOut.Write((const unsigned char*)&txout.nVisibility, 1);
-            ssOut.Write((const unsigned char*)&txout.nAssetType, 1);
+            // CTxOut migration Phase 4: the nVisibility/nAssetType bytes were removed from the
+            // CTV output commitment. SOQ-COV-012's asset-substitution protection is preserved by
+            // the scriptPubKey itself being committed below — asset is now the witness version
+            // (SOQ=v1, USDSOQ=v7, confidential=v4), so a different asset = a different script =
+            // a different hash. (Must match the byte-less reimpl serTxOutCtv.)
             writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
             if (!txout.scriptPubKey.empty()) {
                 ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());

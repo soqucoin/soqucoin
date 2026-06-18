@@ -323,9 +323,17 @@ static UniValue usdsoqmint(const JSONRPCRequest& request)
     // For the unsigned TX template, we leave vin empty — the authority
     // adds their input(s) and signs offline.
 
-    // Destination output: standard witness v1 with nAssetType=0x01
+    // Destination output: USDSOQ holding = witness v7 (OP_7 <SHA256(pubkey)>), spent via the
+    // audited v1 single-key Dilithium path. Phase 4: the witness version is the canonical asset
+    // discriminator — no nAssetType byte.
     CScript destScript = GetScriptForDestination(dest);
-    CTxOut mintOutput(amount, destScript, 0x00 /* TRANSPARENT */, 0x01 /* USDSOQ */);
+    if (destScript.size() != 34 || destScript[0] != OP_1 || destScript[1] != 32)
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
+            "USDSOQ mint destination must be a Dilithium (witness v1) address");
+    CScript v7Script;
+    v7Script << OP_7;
+    v7Script << std::vector<unsigned char>(destScript.begin() + 2, destScript.end());  // 32-byte pubkey hash
+    CTxOut mintOutput(amount, v7Script);
     mtx.vout.push_back(mintOutput);
 
     // Serialize the unsigned TX
@@ -334,7 +342,8 @@ static UniValue usdsoqmint(const JSONRPCRequest& request)
     result.pushKV("amount", ValueFromAmount(amount));
     result.pushKV("destination", destination);
     result.pushKV("opcode_tag", "0x01 (OP_USDSOQ_MINT)");
-    result.pushKV("witness_version", 5);
+    result.pushKV("authority_witness_version", 5);     // OP_5 authority output (added by usdsoqsigntx)
+    result.pushKV("destination_witness_version", 7);   // OP_7 USDSOQ holding (Phase 3)
     result.pushKV("status", "unsigned");
     result.pushKV("next_step", "Sign with M-of-N Dilithium authority keys, then broadcast via sendrawtransaction");
 
@@ -407,6 +416,32 @@ static UniValue usdsoqburn(const JSONRPCRequest& request)
     return result;
 }
 
+// Build the unsigned registry-format freeze/unfreeze tx. NO inputs — usdsoqsigntx adds the
+// authority input + OP_5 authority output and signs (opcode_tag=3). The target outpoint is
+// NAMED in the OP_RETURN as DATA (it is NOT spent and stays unspent); ConnectBlock adds/removes
+// it from DB_USDSOQ_FROZEN. Layout matches consensus/usdsoq.cpp ParseUSDSOQFreezeOp exactly:
+//   OP_RETURN <"FREEZE"> <[op:1][txid:32 internal][vout:4 LE]>   (payload = FREEZE_OP_PAYLOAD_LEN)
+static CMutableTransaction MakeRegistryFreezeTx(uint8_t freezeOp, const uint256& txid, uint32_t vout)
+{
+    std::vector<unsigned char> payload(FREEZE_OP_PAYLOAD_LEN);
+    payload[0] = freezeOp;
+    for (int i = 0; i < 32; ++i) payload[1 + i] = *(txid.begin() + i);  // internal byte order (matches parser memcpy)
+    payload[33] = (unsigned char)(vout & 0xFF);
+    payload[34] = (unsigned char)((vout >> 8) & 0xFF);
+    payload[35] = (unsigned char)((vout >> 16) & 0xFF);
+    payload[36] = (unsigned char)((vout >> 24) & 0xFF);
+
+    CScript opret;
+    opret << OP_RETURN
+          << std::vector<unsigned char>{'F','R','E','E','Z','E'}
+          << payload;
+
+    CMutableTransaction mtx;
+    mtx.nVersion = 2;
+    mtx.vout.push_back(CTxOut(0, opret));  // value-0 OP_RETURN, no inputs
+    return mtx;
+}
+
 // =========================================================================
 // usdsoqfreeze — Construct a FREEZE authority transaction (unsigned)
 // =========================================================================
@@ -444,40 +479,76 @@ static UniValue usdsoqfreeze(const JSONRPCRequest& request)
             "USDSOQ deployment is not active. Freeze operations are not available.");
     }
 
-    string txidStr = request.params[0].get_str();
     uint256 txid = ParseHashV(request.params[0], "txid");
     int vout = request.params[1].get_int();
     if (vout < 0)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "vout must be non-negative");
 
-    // Construct the unsigned FREEZE transaction
-    // Input: the USDSOQ UTXO to freeze
-    // Output: OP_RETURN with freeze marker + target outpoint
-    CMutableTransaction mtx;
-    mtx.nVersion = 2;
-
-    // Input: reference the target UTXO
-    CTxIn freezeInput(COutPoint(txid, vout));
-    mtx.vin.push_back(freezeInput);
-
-    // Output: OP_RETURN freeze marker (unspendable, marks UTXO as frozen)
-    CScript freezeScript;
-    freezeScript << OP_RETURN;
-    // Append "FREEZE" tag + target outpoint for auditability
-    std::vector<unsigned char> freezeTag = {'F','R','E','E','Z','E'};
-    freezeScript << freezeTag;
-    CTxOut freezeOutput(0, freezeScript);
-    mtx.vout.push_back(freezeOutput);
+    // Registry format: no inputs; one OP_RETURN naming the target (NOT spent). usdsoqsigntx
+    // (opcode_tag=3) adds the authority input + OP_5 output and signs; ConnectBlock then adds
+    // the target to DB_USDSOQ_FROZEN (ParseUSDSOQFreezeOp). The target UTXO stays unspent.
+    CMutableTransaction mtx = MakeRegistryFreezeTx(FREEZE_OP_FREEZE, txid, (uint32_t)vout);
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("hex", EncodeHexTx(mtx));
     result.pushKV("target_txid", txid.GetHex());
     result.pushKV("target_vout", vout);
+    result.pushKV("op", "freeze");
     result.pushKV("opcode_tag", "0x03 (OP_USDSOQ_FREEZE)");
-    result.pushKV("witness_version", 5);
     result.pushKV("status", "unsigned");
     result.pushKV("genius_act", "§4(a)(2) compliance: stablecoin issuer freeze capability");
-    result.pushKV("next_step", "Sign with authority keys, then broadcast");
+    result.pushKV("next_step", "Sign with usdsoqsigntx opcode_tag=3, then broadcast via sendrawtransaction");
+
+    return result;
+}
+
+// =========================================================================
+// usdsoqunfreeze — Construct an UNFREEZE authority transaction (unsigned)
+// Reverses a freeze: removes the target outpoint from DB_USDSOQ_FROZEN so it can be spent
+// again. Same registry format as freeze, op = FREEZE_OP_UNFREEZE; signed with opcode_tag=3
+// (the op-flag byte, not the witness tag, distinguishes freeze from unfreeze).
+// =========================================================================
+static UniValue usdsoqunfreeze(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 2)
+        throw runtime_error(
+            "usdsoqunfreeze \"txid\" vout\n"
+            "\nConstruct an unsigned USDSOQ UNFREEZE transaction for a specific UTXO.\n"
+            "Reverses a prior freeze (removes the outpoint from the frozen set so it can be spent).\n"
+            "Must be signed with M-of-N Dilithium authority keys via usdsoqsigntx (opcode_tag=3).\n"
+            "GENIUS Act §4(a)(2) compliance: issuer freeze/unfreeze capability.\n"
+            "\nArguments:\n"
+            "1. \"txid\"   (string, required) Transaction ID of the UTXO to unfreeze\n"
+            "2. vout      (numeric, required) Output index of the UTXO to unfreeze\n"
+            "\nExamples:\n" +
+            HelpExampleCli("usdsoqunfreeze", "\"txid\" 0") +
+            HelpExampleRpc("usdsoqunfreeze", "\"txid\", 0"));
+
+    LOCK(cs_main);
+
+    const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
+    ThresholdState state = VersionBitsState(chainActive.Tip(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    if (state != THRESHOLD_ACTIVE) {
+        throw JSONRPCError(RPC_MISC_ERROR,
+            "USDSOQ deployment is not active. Unfreeze operations are not available.");
+    }
+
+    uint256 txid = ParseHashV(request.params[0], "txid");
+    int vout = request.params[1].get_int();
+    if (vout < 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "vout must be non-negative");
+
+    CMutableTransaction mtx = MakeRegistryFreezeTx(FREEZE_OP_UNFREEZE, txid, (uint32_t)vout);
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("hex", EncodeHexTx(mtx));
+    result.pushKV("target_txid", txid.GetHex());
+    result.pushKV("target_vout", vout);
+    result.pushKV("op", "unfreeze");
+    result.pushKV("opcode_tag", "0x03 (OP_USDSOQ_FREEZE; op=unfreeze)");
+    result.pushKV("status", "unsigned");
+    result.pushKV("next_step", "Sign with usdsoqsigntx opcode_tag=3, then broadcast via sendrawtransaction");
 
     return result;
 }
@@ -980,6 +1051,7 @@ static const CRPCCommand commands[] =
     { "usdsoq", "usdsoqmint",             &usdsoqmint,              false, {"amount", "destination"} },
     { "usdsoq", "usdsoqburn",             &usdsoqburn,              false, {"amount"} },
     { "usdsoq", "usdsoqfreeze",           &usdsoqfreeze,            false, {"txid", "vout"} },
+    { "usdsoq", "usdsoqunfreeze",         &usdsoqunfreeze,          false, {"txid", "vout"} },
     { "usdsoq", "usdsoqrotatekeys",       &usdsoqrotatekeys,        false, {"threshold", "pubkeys"} },
     { "usdsoq", "usdsoqgenkeys",          &usdsoqgenkeys,           true,  {} },
     { "usdsoq", "usdsoqsetauthority",     &usdsoqsetauthority,      false, {"threshold", "pubkeys"} },

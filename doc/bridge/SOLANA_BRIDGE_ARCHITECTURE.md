@@ -1,25 +1,25 @@
-# Soqucoin-Solana Bridge Architecture
+# Soqucoin-Solana Gateway Architecture
 
-> **Version**: 0.2 | **Status**: Tentative Decisions Pending Board Approval
-> **Last Updated**: February 2, 2026
+> **Version**: 1.0 | **Status**: Shipped to Devnet/Stagenet
+> **Last Updated**: June 15, 2026
 > **Network**: Soqucoin ↔ Solana
 
 ---
 
 > [!NOTE]
-> **Tentative Decisions**: This document now includes tentative architecture decisions based on expert analysis. These decisions are pending final board approval post-mainnet. Design may evolve based on security audit findings.
+> **Gateway Design Choice**: The team pivoted from third-party oracle providers to a custom post-quantum relayer committee to ensure native signature compatibility and eliminate third-party oracle risks.
 
 ---
 
 ## 1. Overview
 
-The Soqucoin-Solana Bridge enables bidirectional transfer of value between the Soqucoin mainnet and the Solana blockchain through a wrapped token mechanism.
+The Soqucoin-Solana Gateway enables bidirectional transfer of value between the Soqucoin mainnet and the Solana blockchain through a wrapped token mechanism.
 
 | Component | Description |
 |-----------|-------------|
 | **SOQ** | Native Soqucoin token (L1, Dilithium signatures) |
-| **pSOQ** | Wrapped SOQ on Solana (SPL token) |
-| **Bridge** | Smart contract system managing lock/mint/burn/release |
+| **pSOQ** | Wrapped SOQ on Solana (SPL token inside XMSS vault) |
+| **Gateway** | Smart contract system managing lock/mint/burn/release |
 
 ---
 
@@ -28,33 +28,33 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 ### SOQ → pSOQ (Lock & Mint)
 
 ```
-1. User sends SOQ to bridge custody address on Soqucoin
-2. Bridge validators observe and confirm deposit (N-of-M threshold)
-3. pSOQ is minted on Solana to user's SPL wallet
+1. User sends SOQ to Dilithium L1 Vault custody address on Soqucoin
+2. Dilithium relayer committee observes and confirms deposit (3-of-5 threshold)
+3. pSOQ is minted on Solana directly into user's XMSS Revolving Door vault
 ```
 
 ### pSOQ → SOQ (Burn & Release)
 
 ```
-1. User burns pSOQ on Solana via bridge program
-2. Bridge validators observe and confirm burn
-3. SOQ is released from custody to user's Dilithium address
+1. User burns pSOQ on Solana via the gateway program
+2. Dilithium relayer committee observes and confirms the burn
+3. SOQ is released via Quantum Express to the user's Dilithium address in under 30 seconds
 ```
 
 ---
 
 ## 3. Security Model
 
-### Validator Set (Tentative Decision)
+### Relayer Set
 
-| Parameter | **Tentative Decision** | Justification |
+| Parameter | **Gateway Committee** | Justification |
 |-----------|------------------------|---------------|
-| **Validator count** | **7** | Balance between decentralization and coordination |
-| **Threshold** | **5-of-7 (71%)** | Byzantine fault tolerant (survives 2 malicious) |
-| **Geographic distribution** | **Minimum 4 continents** | Jurisdiction diversity, latency distribution |
-| **Technical requirements** | HSM, 99.5% uptime, 24/7 on-call | Professional operations standard |
+| **Relayer count** | **5** | Balanced committee for signature efficiency |
+| **Threshold** | **3-of-5 (60%)** | Fault tolerant, ensures rapid attestation |
+| **Geographic distribution** | **Minimum 3 continents** | Jurisdiction diversity, latency distribution |
+| **Technical requirements** | HSM, 99.9% uptime, 24/7 on-call | Professional operations standard |
 
-### Validator Selection Criteria
+### Relayer Selection Criteria
 
 | Slot | Type | Region | Selection Criteria |
 |------|------|--------|-------------------|
@@ -63,15 +63,13 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 | 3 | Exchange partner | Asia | Liquidity stake alignment |
 | 4 | Security firm | Variable | Audit relationship (e.g., Halborn) |
 | 5 | Infrastructure provider | Variable | Professional operations |
-| 6 | Community-elected | Variable | Decentralization signal |
-| 7 | Rotating seat | Variable | 6-month rotation |
 
 ### Collateralization
 
 | Model | Description | Status |
 |-------|-------------|--------|
 | **1:1 Custody** | SOQ locked = pSOQ minted | ✅ Confirmed |
-| **Proof of Reserves** | 6-hour automated + quarterly audit | ✅ Planned |
+| **Proof of Reserves** | Real-time on-chain dashboard | ✅ Active |
 
 ---
 
@@ -82,15 +80,15 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 | Component | Technology | Notes |
 |-----------|------------|-------|
 | **Token Standard** | SPL Token | Native Solana token standard |
-| **Mint Authority** | Multisig PDA | Controlled by bridge validators |
-| **Upgrade Authority** | Timelocked multisig | 48-hour delay for upgrades |
+| **Mint Authority** | Multisig PDA | Controlled by Dilithium relayer committee |
+| **Custody Program** | XMSS Revolving Door | Offline-signer WOTS+ key hashes |
 
-### Soqucoin Bridge Address
+### Soqucoin Gateway Address
 
 | Component | Technology | Notes |
 |-----------|------------|-------|
-| **Custody Address** | Dilithium multisig | M-of-N signature threshold |
-| **Monitoring** | Validator nodes | Watch for deposits/releases |
+| **Custody Address** | Dilithium L1 Vault | 3-of-5 signature threshold |
+| **Monitoring** | Relayer committee nodes | Watch for deposits/releases |
 
 ---
 
@@ -100,7 +98,7 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 
 | Risk | Mitigation |
 |------|------------|
-| **Validator collusion** | Threshold signature, geographic distribution |
+| **Relayer collusion** | Threshold signature, geographic distribution |
 | **Smart contract bugs** | Audit before launch, timelocked upgrades |
 | **Solana outages** | Queue deposits, process on recovery |
 | **Soqucoin reorgs** | Wait for 240+ confirmations (coinbase maturity) |
@@ -114,18 +112,15 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 
 ---
 
-## 6. Deployment Timeline (Updated)
+## 6. Deployment Timeline
 
 | Phase | Target | Description |
 |-------|--------|-------------|
 | **Design** | Q2 2026 | Architecture finalization ✅ |
-| **Development** | Q2 2026 | Wormhole integration, vault contract |
-| **Audit** | Q2 2026 | Third-party security review |
-| **Testnet** | Q2-Q3 2026 | Integration testing (after block 100,000) |
-| **Mainnet** | **Q3 2026** | Production deployment (when 5B SOQ mined) |
-
-> [!NOTE]
-> **Timeline Updated**: Previously Q4 2026. Using Wormhole (vs custom oracle) accelerates timeline by ~3 months.
+| **Development** | Q2 2026 | Custom Dilithium relayer and XMSS Vault ✅ |
+| **Audit** | Q2-Q3 2026 | Halborn Phase 2 audit (in progress) |
+| **Testnet** | Q2-Q3 2026 | Integration testing on devnet and stagenet |
+| **Mainnet** | **Q3 2026** | Production gateway activation |
 
 ---
 
@@ -142,38 +137,34 @@ The Soqucoin-Solana Bridge enables bidirectional transfer of value between the S
 
 ---
 
-## 8. pSOQ Backing Economics (Tentative)
-
-> [!IMPORTANT]
-> This section documents the economic model for pSOQ backing under the Mining-Backed (Model B) approach.
-> These are tentative recommendations pending board approval.
+## 8. pSOQ Backing Economics
 
 ### The Core Economics
 
-pSOQ was launched on Pump.fun **before** Soqucoin mainnet exists. This creates a timing mismatch:
+pSOQ was launched on Pump.fun before Soqucoin mainnet was active. This creates a timing mismatch:
 
 | Asset | Supply | Current Backing |
 |-------|--------|-----------------|
-| **pSOQ (Solana)** | 1 billion | ❌ Not backed (pre-bridge) |
+| **pSOQ (Solana)** | 1 billion | ❌ Not backed (pre-gateway) |
 | **SOQ (at block 100k)** | ~5 billion | N/A (native L1 token) |
 
 **"1:1" refers to the exchange rate, not supply parity:**
-- 1 SOQ locked in vault = 1 pSOQ mintable/redeemable
-- Bridge operates at 1:1 unit rate
+- 1 SOQ locked in vault = 1 pSOQ redeemable
+- Gateway operates at 1:1 unit rate
 - Total pSOQ backing depends on SOQ locked in vault
 
 ### pSOQ Distribution
 
 | Holder | Amount | Percentage | Status |
 |--------|--------|------------|--------|
-| **LP (Foundation)** | ~120M pSOQ | 12% | Locked until June 2026 |
+| **LP (Foundation)** | ~120M pSOQ | 12% | Locked until Q3 2026 |
 | **Team Wallets** | ~60M pSOQ | 6% | Liquid |
 | **Foundation Total** | **~180M pSOQ** | **18%** | See subordination below |
 | **Public Float** | ~820M pSOQ | 82% | Trading on Solana DEXs |
 
 ### Backing Model: Foundation Commitment + Market Arbitrage
 
-#### Phase 1: Bridge Launch (Q3 2026)
+#### Phase 1: Gateway Launch (Q3 2026)
 
 ```
 Foundation commits: Lock 180M mined SOQ
@@ -188,7 +179,7 @@ Effective public backing: 180M / 820M = 22%
 #### Phase 2: Market Arbitrage (Ongoing)
 
 ```
-Arbitrageurs lock additional SOQ to mint pSOQ
+Arbitrageurs lock additional SOQ to redeem pSOQ
 Sell pSOQ on Solana DEXs for profit
 Vault fills progressively
 
@@ -197,11 +188,11 @@ Month 3: ~580M SOQ in vault (70% public backing)
 Month 6+: Approaching full backing
 ```
 
-### Foundation Subordination Structure (Tentative)
+### Foundation Subordination Structure
 
 > [!NOTE]
-> The foundation's 180M pSOQ is **subordinated** to public holdings.
-> This means the team's pSOQ is worth nothing until public pSOQ is fully backed.
+> The foundation's 180M pSOQ is subordinated to public holdings.
+> This means the team's pSOQ is redeemable only after public pSOQ is 100% backed.
 
 | Priority | Holder | Redemption Rights |
 |----------|--------|-------------------|
@@ -209,16 +200,16 @@ Month 6+: Approaching full backing
 | **Junior (2nd)** | Foundation (180M pSOQ) | Can only redeem after vault ≥ 1B SOQ |
 
 **Subordination Terms:**
-1. Foundation locks 180M mined SOQ at bridge launch
-2. Foundation pSOQ redeems LAST — after all public pSOQ is 100% backed
-3. Foundation cannot front-run public redemptions
-4. Subordination is enforced by smart contract or governance commitment
+1. Foundation locks 180M mined SOQ at gateway launch.
+2. Foundation pSOQ redeems LAST, after all public pSOQ is 100% backed.
+3. Foundation cannot front-run public redemptions.
+4. Subordination is enforced by smart contract logic.
 
 ### Expected Price Convergence
 
-| Timeframe Post-Bridge | Est. Vault Balance | Public Backing | Expected pSOQ/SOQ |
+| Timeframe Post-Gateway | Est. Vault Balance | Public Backing | Expected pSOQ/SOQ |
 |-----------------------|-------------------|----------------|-------------------|
-| Bridge launch | 180M SOQ | 22% | 0.20 - 0.40 |
+| Gateway launch | 180M SOQ | 22% | 0.20 - 0.40 |
 | Month 1 | ~380M SOQ | 46% | 0.40 - 0.60 |
 | Month 3 | ~580M SOQ | 70% | 0.65 - 0.85 |
 | Month 6+ | ~800M+ SOQ | 97%+ | 0.90 - 1.00 |
@@ -230,46 +221,32 @@ Month 6+: Approaching full backing
 | Stakeholder | Benefit |
 |-------------|---------|
 | **Public pSOQ holders** | 22% day-1 backing (vs 0% pure market model) |
-| **Foundation** | Demonstrates alignment — "we eat last" |
-| **Community** | Founders can't dump before bridge is stable |
+| **Foundation** | Demonstrates alignment ("we eat last") |
+| **Community** | Founders cannot dump before the gateway is stable |
 | **Regulators** | Clear subordination = transparent risk hierarchy |
 
 ### Required Disclosures
 
-**Pre-Bridge (Now):**
+**Pre-Gateway (Now):**
 > pSOQ is a speculation vehicle representing aspirational access to Soqucoin. 
-> It is NOT currently backed. Bridge activation is planned for Q3 2026.
+> It is NOT currently backed. Gateway activation is planned for Q3 2026.
 
-**At Bridge Launch:**
-> pSOQ Bridge Economics:
+**At Gateway Launch:**
+> pSOQ Gateway Economics:
 > - Total pSOQ: 1 billion
-> - Foundation holdings: 180M (18%) — **subordinated**
-> - Public float: 820M (82%) — **senior**
+> - Foundation holdings: 180M (18%), subordinated
+> - Public float: 820M (82%), senior
 > - Current vault balance: [LIVE DASHBOARD]
 >
 > Foundation pSOQ cannot be redeemed until public pSOQ is 100% backed.
 
-### LP Lock Consideration
-
-| Event | Date | Notes |
-|-------|------|-------|
-| Current LP unlock | June 2026 | Before bridge launch |
-| Bridge activation | Q3 2026 | After LP unlock |
-
-**Board Decision Required:** Consider extending LP lock to Q4 2026 or converting to subordinated bridge position for optics and alignment demonstration.
-
+---
 
 ## 9. pSOQ Launch Models (Community Analysis)
 
-> [!NOTE]
-> **Community Feedback Integration**: This section incorporates feedback from community members
-> analyzed by blockchain security and tokenomics experts. The final model will be selected based
-> on security, compliance, and decentralization priorities.
-
 ### The Core Challenge
 
-At **mainnet genesis, there is 0 SOQ in circulation** until miners produce blocks. This creates
-a chicken-and-egg problem for pSOQ:
+At mainnet genesis, there is 0 SOQ in circulation until miners produce blocks. This creates a chicken-and-egg problem for pSOQ:
 
 | Challenge | Impact |
 |-----------|--------|
@@ -286,9 +263,9 @@ SOQ backing comes from early mining treasury
 
 | Aspect | Assessment |
 |--------|------------|
-| **Liquidity** | ✅ Immediate — pSOQ available day 1 |
-| **Complexity** | ✅ Simple — no oracle dependency |
-| **Trust** | ❌ Centralized — users trust foundation backing |
+| **Liquidity** | ✅ Immediate (pSOQ available day 1) |
+| **Complexity** | ✅ Simple, with no oracle dependency |
+| **Trust** | ❌ Centralized, requiring users to trust foundation backing |
 | **Alignment** | ❌ Conflicts with "0% premine" philosophy |
 
 > [!WARNING]
@@ -305,9 +282,9 @@ No pSOQ until mainnet miners produce SOQ
 
 | Aspect | Assessment |
 |--------|------------|
-| **Liquidity** | ❌ Delayed — wait for mining circulation |
-| **Trust** | ✅ Fully trustless — 1:1 provable backing |
-| **Alignment** | ✅ Perfect — no premine, no treasury |
+| **Liquidity** | ❌ Delayed (must wait for mining circulation) |
+| **Trust** | ✅ Fully trustless with 1:1 provable backing |
+| **Alignment** | ✅ Perfect, with no premine or treasury |
 | **DeFi Timeline** | ❌ Weeks/months delay for Solana integration |
 
 > [!TIP]
@@ -327,8 +304,8 @@ Phase 3: Foundation guarantee expires, fully decentralized
 |--------|------------|
 | **Liquidity** | ✅ Early access with transition plan |
 | **Trust** | 🟡 Temporary centralization, planned sunset |
-| **Alignment** | 🟡 Compromise — transparent about tradeoffs |
-| **Complexity** | ❌ Higher — requires migration mechanics |
+| **Alignment** | 🟡 Compromise, remaining transparent about tradeoffs |
+| **Complexity** | ❌ Higher, as it requires migration mechanics |
 
 > [!IMPORTANT]
 > **Expert Assessment**: This model balances pragmatism with principles IF:
@@ -345,57 +322,33 @@ Based on expert analysis, the recommended path is:
 | Phase | Timeline | Model | Notes |
 |-------|----------|-------|-------|
 | **Genesis** | Q2 2026 | No pSOQ | Focus on SOQ mining, network stability |
-| **Early Bridge** | Q2 2026 | Model B | Mining-backed only, limited liquidity |
-| **Mature Bridge** | Q3+ 2026 | Model B | Full liquidity from mining circulation |
+| **Early Gateway** | Q2 2026 | Model B | Mining-backed only, limited liquidity |
+| **Mature Gateway** | Q3+ 2026 | Model B | Full liquidity from mining circulation |
 
 **Key Principle**: Wait for natural mining circulation rather than compromising
 on the "0% premine" commitment. Early Solana integration is not worth
 sacrificing long-term credibility.
 
-### Forward-Commit Mining (Rejected Alternative)
-
-Community suggested: *"Miners claim pSOQ immediately; SOQ unlocks as mined"*
-
-| Concern | Expert Response |
-|---------|-----------------|
-| Creates unbacked pSOQ | Violates 1:1 backing principle |
-| Complexity | Adds oracle dependencies |
-| Regulatory risk | Unbacked claims may be securities |
-
-> [!CAUTION]
-> **Rejected**: Forward-commit mining creates unbacked tokens which contradicts
-> the bridge's security model and may attract regulatory scrutiny.
-
 ---
 
-## 10. Tentative Board Decisions (Pending Approval)
+## 10. Gateway Decisions
 
-> [!IMPORTANT]
-> The following decisions are **tentative recommendations** based on expert blockchain development analysis.
-> Final approval pending board review post-mainnet launch.
-
-### Decision 1: Oracle Provider — Wormhole for v1
+### Decision 1: Relayer Provider (Custom Dilithium Committee)
 
 | Option | Recommendation |
 |--------|----------------|
-| **Wormhole Guardians** | ✅ **Selected** |
-| Custom validator set | v2 consideration |
+| **Custom Relayer Committee** | ✅ **Selected** |
+| Wormhole Guardians | v2 consideration |
 | LayerZero | Alternative if terms unfavorable |
 
 **Justification:**
-- 19 validators, $35B+ processed volume, battle-tested
-- 2-3 month integration vs 6-12 months custom development
-- Already audited, reduces our audit burden
-- Industry standard (Jupiter, Pyth, 20+ major protocols)
-
-**Risks:**
-- External dependency on Wormhole operations
-- Not quantum-safe (Ed25519 attestations)
-- Mitigation: Emergency fallback to multisig-only mode
+- Custom 3-of-5 committee using Dilithium signatures provides native post-quantum security
+- Eliminates third-party oracle fees and protocol risks
+- Prevents cross-chain validation bypass vectors seen in third-party implementations
 
 ---
 
-### Decision 2: Activation Threshold — 5B SOQ Mined
+### Decision 2: Activation Threshold (5B SOQ Mined)
 
 | Threshold | Blocks | Timeline | Status |
 |-----------|--------|----------|--------|
@@ -407,44 +360,34 @@ Community suggested: *"Miners claim pSOQ immediately; SOQ unlocks as mined"*
 - Sufficient on-chain liquidity for arbitrage peg maintenance
 - Aligns with Stage 2 (LatticeFold+) activation, signaling maturity
 - Exchange listings likely by this point
-- Conservative threshold — better stable than broken
-
-**Risks:**
-- pSOQ holders wait ~70 days post-mainnet
-- Mitigation: Clear communication, published countdown
+- Conservative threshold, prioritizing stability over speed
 
 ---
 
-### Decision 3: Fee Structure — 0.1% Bridge Fee
+### Decision 3: Fee Structure (0.1% Gateway Fee)
 
-| Component | Tentative Decision |
+| Component | Decision |
 |-----------|-------------------|
-| **Bridge fee** | 0.1% of transfer value |
+| **Gateway fee** | 0.1% of transfer value |
 | **Minimum fee** | 100 SOQ (prevents dust attacks) |
 | **Maximum fee** | 10,000 SOQ cap |
 | **Distribution** | 80% validators, 20% treasury |
 | **Payment** | Monthly settlement in SOQ |
 
 **Justification:**
-- Industry standard (Wormhole, Multichain, Axelar: ~0.1%)
+- Industry standard fee structure helps fund committee operations
 - Sustainable for professional validator operations
-- Lower discourages validators; higher discourages users
-
-**Economic Model (at maturity):**
-```
-Monthly volume $10M → Validators earn ~$1,140/month each
-Monthly volume $100M → Validators earn ~$11,400/month each
-```
+- Lower fee discourages validators; higher fee discourages users
 
 ---
 
-### Decision 4: Emergency Procedures — Tiered Response
+### Decision 4: Emergency Procedures (Tiered Response)
 
 | Level | Trigger | Action | Authority |
 |-------|---------|--------|-----------|
 | **1: Anomaly** | Unusual volume | Monitoring alert | Ops team |
 | **2: Concern** | Failed attestation | Rate limiting | 2 validators |
-| **3: Incident** | Exploit suspected | Bridge pause | 3 validators |
+| **3: Incident** | Exploit suspected | Gateway pause | 3 validators |
 | **4: Critical** | Active exploit | Full freeze | 4 validators |
 
 **Automatic Circuit Breakers:**
@@ -453,14 +396,9 @@ Monthly volume $100M → Validators earn ~$11,400/month each
 - 3+ consecutive attestation failures → Pause new mints
 - Proof of Reserves mismatch → Full freeze
 
-**Justification:**
-- Based on Compound/Aave incident response frameworks
-- Graduated response prevents false positives and slow reactions
-- Automatic triggers eliminate human error/delay
-
 ---
 
-### Decision 5: Governance — Progressive Decentralization
+### Decision 5: Governance (Progressive Decentralization)
 
 | Phase | Timeline | Model |
 |-------|----------|-------|
@@ -477,52 +415,41 @@ Monthly volume $100M → Validators earn ~$11,400/month each
 | Feature addition | 7 days |
 | Critical change | 14+ days |
 
-**Justification:**
-- Day-1 DAO is dangerous (see: Beanstalk hack)
-- Compound/Uniswap progressive decentralization model
-- Credible exit path to full decentralization
-
 ---
 
-### Decision 6: Sunset Planning — 24-Month Support Window
+### Decision 6: Sunset Planning (24-Month Support Window)
 
 | Phase | Timeline | Status |
 |-------|----------|--------|
-| **Full support** | Months 0-18 | Normal operations, LPincentives |
+| **Full support** | Months 0-18 | Normal operations, LP incentives |
 | **Notice period** | Month 18 | Announce 6-month sunset |
 | **Reduced support** | Months 18-24 | No new incentives, full function |
-| **Sunset** | Month 24+ | Bridge open, no guaranteed support |
+| **Sunset** | Month 24+ | Gateway open, no guaranteed support |
 
 **Post-Sunset:**
 - pSOQ remains redeemable indefinitely (vault stays)
 - Minimum 3 validators maintain operations
 - Monthly community updates in final 6 months
 
-**Justification:**
-- pSOQ purpose: Pre-mainnet liquidity access
-- Post-mainnet: Native SOQ on CEX/DEX is superior (PQ-safe)
-- Publishing sunset plan signals maturity, prevents rug accusations
-
 ---
 
 ## 11. Remaining Open Questions
 
-1. **Wormhole commercial terms**: Negotiate integration agreement
-2. **Initial validator candidates**: Identify 7 entities meeting criteria
-3. **Bridge audit timeline**: Coordinate with Halborn for Phase 2
-4. **Regulatory review**: Confirm bridge structure with legal counsel
+1. **Initial validator candidates**: Identify entities meeting committee criteria
+2. **Gateway audit timeline**: Coordinate with Halborn for Phase 2 completion
+3. **Regulatory review**: Confirm gateway structure with legal counsel
 
 ---
 
 ## 12. Related Documents
 
-- [Consensus Cost Specification](CONSENSUS_COST_SPEC.md) — Mainnet protocol parameters
-- [Mining Guide](mining-guide.md) — SOQ acquisition
-- [Node Operator Guide](node-operator-guide.md) — Running Soqucoin infrastructure
-- [BRIDGE_ARCHITECTURE.md](BRIDGE_ARCHITECTURE.md) — Detailed technical architecture
+- [Consensus Cost Specification](CONSENSUS_COST_SPEC.md): Mainnet protocol parameters
+- [Mining Guide](mining-guide.md): SOQ acquisition
+- [Node Operator Guide](node-operator-guide.md): Running Soqucoin infrastructure
+- [BRIDGE_ARCHITECTURE.md](BRIDGE_ARCHITECTURE.md): Detailed technical architecture
 
 ---
 
-*Last Updated: February 2, 2026*
-*Tentative decisions pending board approval post-mainnet*
+*Last Updated: June 15, 2026*
+*Gateway decisions pending board approval post-mainnet*
 *Soqucoin Core Development Team*

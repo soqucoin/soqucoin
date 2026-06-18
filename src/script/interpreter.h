@@ -155,6 +155,11 @@ enum {
     // BIP9-gated: ALWAYS_ACTIVE on stagenet/regtest, nStartTime=0 on mainnet.
     SCRIPT_VERIFY_P2WSH_DILITHIUM = (1U << 24),
 
+    // SOQ-COV-013: OP_CHECKDILITHIUMKEYHASH — key-committed Dilithium sig verify.
+    // When set, OP_NOP7 (0xb6) enforces SHA256(pubkey)==keyhash + Dilithium sig verify.
+    // Enables eLTOO 2-of-2 multisig for L2SOQ Lightning with oversized Dilithium pubkeys.
+    SCRIPT_VERIFY_DILITHIUM_KEYHASH = (1U << 25),
+
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),

@@ -14,12 +14,10 @@
 
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
 
-/** Flag to deserialize CTxOut in standard Bitcoin format (without Soqucoin's
- *  nVisibility and nAssetType extensions). Used when deserializing foreign-chain
- *  coinbase transactions in AuxPoW merge-mining proofs, since parent chains
- *  (LTC, DOGE) use standard Bitcoin CTxOut serialization.
- */
-static const int SERIALIZE_TXOUT_STANDARD = 0x20000000;
+// CTxOut migration Phase 4: SERIALIZE_TXOUT_STANDARD (0x20000000) was REMOVED. CTxOut no
+// longer carries the nVisibility/nAssetType extension bytes, so native == standard Bitcoin
+// CTxOut and the dual-format flag is unnecessary (AuxPoW parent coinbases deserialize with
+// the same single format). Bit 0x20000000 is now free.
 
 static const int WITNESS_SCALE_FACTOR = 4;
 
@@ -140,30 +138,19 @@ public:
 /** An output of a transaction.  It contains the public key that the next input
  * must be able to sign with to claim it.
  *
- * SOQ-AUD2-002 / SOQ-ARCH-001: Extended with nVisibility and nAssetType for
- * native dual-format privacy and multi-asset (USDSOQ stablecoin) support.
- * Both fields are always-present in the wire format from genesis.
- * Default values (0x00) preserve backward compatibility.
+ * CTxOut migration Phase 4: the nVisibility/nAssetType extension bytes were
+ * REMOVED. CTxOut is now standard Bitcoin (nValue + scriptPubKey) — identical
+ * to the foreign/AuxPoW-parent encoding. Asset and visibility classification
+ * follow the witness version in scriptPubKey:
+ *   - USDSOQ ⟺ witness v7 (OP_7 <SHA256(pubkey)>)  → IsUSDSOQ()
+ *   - Confidential ⟺ witness v4 (OP_4 <commitment>) → IsConfidential()
+ *   - Frozen ⟺ DB_USDSOQ_FROZEN registry             → no CTxOut field
  */
 class CTxOut
 {
 public:
     CAmount nValue;
     CScript scriptPubKey;
-
-    //! SOQ-ARCH-001: Visibility mode
-    //! 0x00 = TRANSPARENT (default): cleartext amount in nValue
-    //! 0x01 = CONFIDENTIAL: amount hidden via Lattice-BP++ commitment
-    //! Gated behind DEPLOYMENT_LATTICEBP BIP9 activation.
-    uint8_t nVisibility;
-
-    //! SOQ-AUD2-002: Asset type tag
-    //! 0x00 = native SOQ (default)
-    //! 0x01 = USDSOQ stablecoin
-    //! Gated behind DEPLOYMENT_USDSOQ BIP9 activation.
-    //! Per-asset balance isolation: SOQ and USDSOQ balance independently.
-    //! Fees are always paid in native SOQ (nAssetType == 0x00).
-    uint8_t nAssetType;
 
     CTxOut()
     {
@@ -172,31 +159,22 @@ public:
 
     CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn);
 
-    //! Extended constructor with visibility and asset type
-    CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn,
-           uint8_t nVisibilityIn, uint8_t nAssetTypeIn);
-
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
+        // CTxOut migration Phase 4: the nVisibility/nAssetType extension bytes were
+        // REMOVED. CTxOut is now standard Bitcoin (nValue + scriptPubKey) — identical to
+        // the foreign/AuxPoW-parent encoding, so the SERIALIZE_TXOUT_STANDARD dual-format
+        // seam is gone. Asset/visibility follow the witness version (USDSOQ=v7, confidential=v4).
         READWRITE(nValue);
         READWRITE(*(CScriptBase*)(&scriptPubKey));
-        // Skip Soqucoin-specific extensions when deserializing foreign-chain
-        // transactions (e.g. LTC/DOGE coinbase in AuxPoW merge-mining proofs).
-        // Standard Bitcoin CTxOut is just nValue + scriptPubKey.
-        if (!(s.GetVersion() & SERIALIZE_TXOUT_STANDARD)) {
-            READWRITE(nVisibility);
-            READWRITE(nAssetType);
-        }
     }
 
     void SetNull()
     {
         nValue = -1;
         scriptPubKey.clear();
-        nVisibility = 0x00;
-        nAssetType = 0x00;
     }
 
     bool IsNull() const
@@ -204,17 +182,26 @@ public:
         return (nValue == -1);
     }
 
-    //! Returns true if this output carries native SOQ
-    bool IsNativeSOQ() const { return nAssetType == 0x00; }
+    //! Returns true if this output is a v7 USDSOQ holding (OP_7 <SHA256(pubkey)>).
+    //! Phase 3: the witness version is the asset discriminator for USDSOQ value holdings,
+    //! spent via the (audited) v1 single-key Dilithium path. v5 = USDSOQ *authority* output.
+    bool IsV7USDSOQHolding() const {
+        return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_7 && scriptPubKey[1] == 32;
+    }
 
-    //! Returns true if this output carries USDSOQ
-    bool IsUSDSOQ() const { return nAssetType == 0x01; }
+    //! Returns true if this output carries USDSOQ (witness v7).
+    bool IsUSDSOQ() const { return IsV7USDSOQHolding(); }
 
-    //! Returns true if this output is transparent (cleartext amount)
-    bool IsTransparent() const { return nVisibility == 0x00; }
+    //! Returns true if this output carries native SOQ (i.e. not USDSOQ).
+    bool IsNativeSOQ() const { return !IsUSDSOQ(); }
 
-    //! Returns true if this output is confidential (hidden amount)
-    bool IsConfidential() const { return nVisibility == 0x01; }
+    //! Returns true if this output is confidential (witness v4, Lattice-BP++).
+    bool IsConfidential() const {
+        return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_4 && scriptPubKey[1] == 32;
+    }
+
+    //! Returns true if this output is transparent (not v4-confidential).
+    bool IsTransparent() const { return !IsConfidential(); }
 
     // Soqucoin: allow comparison against different dustlimit parameters
     bool IsDust(const CAmount dustLimit) const
@@ -228,9 +215,7 @@ public:
     friend bool operator==(const CTxOut& a, const CTxOut& b)
     {
         return (a.nValue       == b.nValue &&
-                a.scriptPubKey == b.scriptPubKey &&
-                a.nVisibility  == b.nVisibility &&
-                a.nAssetType   == b.nAssetType);
+                a.scriptPubKey == b.scriptPubKey);
     }
 
     friend bool operator!=(const CTxOut& a, const CTxOut& b)
