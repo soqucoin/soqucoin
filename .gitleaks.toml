@@ -20,8 +20,9 @@ tags = ["soqucoin", "third-party"]
 
 [[rules]]
 id = "soq-rpcpassword"
-description = "soqucoind rpcpassword literal (not a template placeholder)"
-regex = '''(?i)rpcpassword\s*=\s*(?!change_me|__env__|<|\$|password\b)[^\s'"]{8,}'''
+description = "soqucoind rpcpassword literal (placeholders excluded via allowlist.regexes)"
+# RE2 (Go) has no lookahead, so placeholder exclusion lives in allowlist.regexes below.
+regex = '''(?i)rpcpassword\s*=\s*['"]?[^\s'"]{8,}'''
 tags = ["soqucoin", "node"]
 
 [allowlist]
@@ -32,17 +33,28 @@ paths = [
   '''(^|/)src/test/''',
   '''(^|/)src/wallet/test/''',
   '''(^|/)src/qt/test/''',
+  '''(^|/)qa/''',                       # Core's python RPC-test harness (test WIFs/pubkeys)
+  '''(^|/)test_data/''',                # local regtest fixtures
+  '''(^|/)src/qt/locale/.*\.ts$''',     # Qt translations (escaped <PLACEHOLDER> docs)
+  '''(^|/)\.gemini/''',                 # gitignored local-only agent docs (never committed)
   '''(^|/)contrib/''',
   '''(^|/)doc/''',
   '''(^|/)depends/''',
   '''\.example$''',
   '''(^|/)share/''',
+  '''(^|/)scripts/mine_.*genesis.*\.py$''',  # genesis miner embeds the PUBLIC coinbase pubkey
 ]
 regexes = [
-  '''CHANGE_ME''',
+  '''(?i)change_me''',
   '''__ENV__''',
-  '''placeholder''',
+  '''(?i)placeholder''',
+  '''(?i)your_password''',
   '''<[^>]*>''',
+  '''&lt;''',                                  # HTML-escaped placeholder bracket
+  '''\{[A-Za-z_][A-Za-z0-9_.]*\}''',           # f-string / template interpolation, e.g. {RPC_PASS}
+  '''\$\{?[A-Za-z_]''',
+  '''soqucoin\.[a-z]+\.[a-z]''',               # dotted domain-separation labels, not secrets
+  '''(?i)\b(password|yourpassword|secret|example|test|dummy|rpcpass)\b''',
   '''os\.environ''',
   '''process\.env''',
   '''getenv''',
