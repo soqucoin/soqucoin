@@ -1,0 +1,49 @@
+title = "Soqucoin secret-gate"
+
+# Inherit gitleaks' default rules (AWS/GCP/Stripe/JWT/SSH/private-keys/etc.)
+[extend]
+useDefault = true
+
+# --- Soqucoin-specific secret shapes (the ones that have actually leaked) ---
+
+[[rules]]
+id = "soq-signer-bearer"
+description = "soq-signer hot-wallet bearer token"
+regex = '''soqsigner-[A-Za-z0-9-]*bearer[A-Za-z0-9-]*'''
+tags = ["soqucoin", "custody"]
+
+[[rules]]
+id = "rpc-provider-key"
+description = "Helius/Alchemy/Infura/QuickNode RPC API key"
+regex = '''(?i)(helius|alchemy|infura|quicknode)[a-z0-9_.-]*["'=: ]+[a-f0-9]{8}-?[a-f0-9]{4}-?[a-f0-9]{4,}'''
+tags = ["soqucoin", "third-party"]
+
+[[rules]]
+id = "soq-rpcpassword"
+description = "soqucoind rpcpassword literal (not a template placeholder)"
+regex = '''(?i)rpcpassword\s*=\s*(?!change_me|__env__|<|\$|password\b)[^\s'"]{8,}'''
+tags = ["soqucoin", "node"]
+
+[allowlist]
+description = "Bitcoin/Dogecoin Core test vectors, docs, and template placeholders (false positives)"
+# Inherited Core code carries hard-coded test keys/WIFs/signatures in its test + doc trees.
+paths = [
+  '''(^|/)test/''',
+  '''(^|/)src/test/''',
+  '''(^|/)src/wallet/test/''',
+  '''(^|/)src/qt/test/''',
+  '''(^|/)contrib/''',
+  '''(^|/)doc/''',
+  '''(^|/)depends/''',
+  '''\.example$''',
+  '''(^|/)share/''',
+]
+regexes = [
+  '''CHANGE_ME''',
+  '''__ENV__''',
+  '''placeholder''',
+  '''<[^>]*>''',
+  '''os\.environ''',
+  '''process\.env''',
+  '''getenv''',
+]
