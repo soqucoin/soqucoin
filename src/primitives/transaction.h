@@ -138,10 +138,13 @@ public:
 /** An output of a transaction.  It contains the public key that the next input
  * must be able to sign with to claim it.
  *
- * SOQ-AUD2-002 / SOQ-ARCH-001: Extended with nVisibility and nAssetType for
- * native dual-format privacy and multi-asset (USDSOQ stablecoin) support.
- * Both fields are always-present in the wire format from genesis.
- * Default values (0x00) preserve backward compatibility.
+ * CTxOut migration Phase 4: the nVisibility/nAssetType extension bytes were
+ * REMOVED. CTxOut is now standard Bitcoin (nValue + scriptPubKey) — identical
+ * to the foreign/AuxPoW-parent encoding. Asset and visibility classification
+ * follow the witness version in scriptPubKey:
+ *   - USDSOQ ⟺ witness v7 (OP_7 <SHA256(pubkey)>)  → IsUSDSOQ()
+ *   - Confidential ⟺ witness v4 (OP_4 <commitment>) → IsConfidential()
+ *   - Frozen ⟺ DB_USDSOQ_FROZEN registry             → no CTxOut field
  */
 class CTxOut
 {
@@ -149,30 +152,12 @@ public:
     CAmount nValue;
     CScript scriptPubKey;
 
-    //! SOQ-ARCH-001: Visibility mode
-    //! 0x00 = TRANSPARENT (default): cleartext amount in nValue
-    //! 0x01 = CONFIDENTIAL: amount hidden via Lattice-BP++ commitment
-    //! Gated behind DEPLOYMENT_LATTICEBP BIP9 activation.
-    uint8_t nVisibility;
-
-    //! SOQ-AUD2-002: Asset type tag
-    //! 0x00 = native SOQ (default)
-    //! 0x01 = USDSOQ stablecoin
-    //! Gated behind DEPLOYMENT_USDSOQ BIP9 activation.
-    //! Per-asset balance isolation: SOQ and USDSOQ balance independently.
-    //! Fees are always paid in native SOQ (nAssetType == 0x00).
-    uint8_t nAssetType;
-
     CTxOut()
     {
         SetNull();
     }
 
     CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn);
-
-    //! Extended constructor with visibility and asset type
-    CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn,
-           uint8_t nVisibilityIn, uint8_t nAssetTypeIn);
 
     ADD_SERIALIZE_METHODS;
 
@@ -190,8 +175,6 @@ public:
     {
         nValue = -1;
         scriptPubKey.clear();
-        nVisibility = 0x00;
-        nAssetType = 0x00;
     }
 
     bool IsNull() const
@@ -206,28 +189,18 @@ public:
         return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_7 && scriptPubKey[1] == 32;
     }
 
-    //! Returns true if this output carries USDSOQ.
-    //! Phase 3 transition: a v7 holding OR the legacy nAssetType byte. Existing holdings on the
-    //! pre-reset chain are v1+nAssetType, so the byte path is required for equivalence until the
-    //! genesis reset mints USDSOQ as v7 only — at which point the byte path (and v5 byte-vs-version
-    //! authority classification) is finalized in Phase 4.
-    //! Phase 4: USDSOQ is the witness version (v7) — the nAssetType byte is gone.
+    //! Returns true if this output carries USDSOQ (witness v7).
     bool IsUSDSOQ() const { return IsV7USDSOQHolding(); }
 
     //! Returns true if this output carries native SOQ (i.e. not USDSOQ).
     bool IsNativeSOQ() const { return !IsUSDSOQ(); }
 
-    //! Returns true if this output is confidential (hidden amount).
-    //! CTxOut migration Phase 2: confidentiality ⟺ witness-v4 (Lattice-BP++).
-    //! The witness version is the determinant the range-proof verifier already uses
-    //! (interpreter.cpp:1406/1510, OP_4); the nVisibility byte is a redundant marker
-    //! (removed in Phase 4). Equivalent to the legacy nVisibility==0x01 for every existing
-    //! UTXO (consensus cross-enforces v4⟺0x01), so this is NOT a behavior change on real data.
+    //! Returns true if this output is confidential (witness v4, Lattice-BP++).
     bool IsConfidential() const {
         return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_4 && scriptPubKey[1] == 32;
     }
 
-    //! Returns true if this output is transparent (cleartext amount) — i.e. not v4-confidential.
+    //! Returns true if this output is transparent (not v4-confidential).
     bool IsTransparent() const { return !IsConfidential(); }
 
     // Soqucoin: allow comparison against different dustlimit parameters
@@ -242,9 +215,7 @@ public:
     friend bool operator==(const CTxOut& a, const CTxOut& b)
     {
         return (a.nValue       == b.nValue &&
-                a.scriptPubKey == b.scriptPubKey &&
-                a.nVisibility  == b.nVisibility &&
-                a.nAssetType   == b.nAssetType);
+                a.scriptPubKey == b.scriptPubKey);
     }
 
     friend bool operator!=(const CTxOut& a, const CTxOut& b)

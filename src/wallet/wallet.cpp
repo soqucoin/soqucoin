@@ -1919,7 +1919,9 @@ CAmount CWallet::GetUnconfirmedBalanceByAsset(uint8_t nAssetType) const
             const CWalletTx* pcoin = &(*it).second;
             if (!pcoin->IsTrusted() && pcoin->GetDepthInMainChain() == 0 && pcoin->InMempool()) {
                 for (unsigned int i = 0; i < pcoin->tx->vout.size(); i++) {
-                    if (pcoin->tx->vout[i].nAssetType != nAssetType)
+                    // Phase 4: predicate-based asset filter (0x00=SOQ, 0x01=USDSOQ)
+                    bool isUSDSOQ = pcoin->tx->vout[i].IsUSDSOQ();
+                    if ((nAssetType == 0x00 && isUSDSOQ) || (nAssetType == 0x01 && !isUSDSOQ))
                         continue;
                     if (!IsSpent(pcoin->GetHash(), i)) {
                         isminetype mine = IsMine(pcoin->tx->vout[i]);
@@ -1999,11 +2001,12 @@ void CWallet::AvailableCoins(vector<COutput>& vCoins, bool fOnlyConfirmed, const
                 continue;
 
             for (unsigned int i = 0; i < pcoin->tx->vout.size(); i++) {
-                // SOQ-AUD2-003: Asset type filter — skip UTXOs that don't match
-                // the requested asset type (0x00=SOQ, 0x01=USDSOQ, -1=all).
-                if (nFilterAssetType >= 0 &&
-                    pcoin->tx->vout[i].nAssetType != static_cast<uint8_t>(nFilterAssetType)) {
-                    continue;
+                // Phase 4: predicate-based asset filter (0=SOQ, 1=USDSOQ, -1=all).
+                if (nFilterAssetType >= 0) {
+                    bool isUSDSOQ = pcoin->tx->vout[i].IsUSDSOQ();
+                    if ((nFilterAssetType == 0 && isUSDSOQ) || (nFilterAssetType == 1 && !isUSDSOQ)) {
+                        continue;
+                    }
                 }
 
                 if (pcoin->tx->vout[i].nValue < nMinimumAmount || pcoin->tx->vout[i].nValue > nMaximumAmount)

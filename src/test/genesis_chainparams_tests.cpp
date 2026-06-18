@@ -102,8 +102,8 @@ BOOST_AUTO_TEST_CASE(stagenet_genesis_merkle_root_consistent)
 
 BOOST_AUTO_TEST_CASE(genesis_coinbase_outputs_have_correct_fields)
 {
-    // Verify that CTxOut fields (nVisibility, nAssetType) are set correctly
-    // in genesis coinbase outputs. This catches serialization regressions.
+    // Phase 4: Verify genesis coinbase outputs are transparent native SOQ
+    // via structural predicates (nVisibility/nAssetType bytes were removed).
     SelectParams(CBaseChainParams::STAGENET);
     const CBlock& genesis = Params().GenesisBlock();
     const CTransaction& coinbase = *genesis.vtx[0];
@@ -111,8 +111,9 @@ BOOST_AUTO_TEST_CASE(genesis_coinbase_outputs_have_correct_fields)
     BOOST_CHECK(coinbase.vout.size() >= 1);
     for (const auto& out : coinbase.vout) {
         // Genesis coinbase outputs must be transparent native SOQ
-        BOOST_CHECK_EQUAL(out.nVisibility, 0x00);
-        BOOST_CHECK_EQUAL(out.nAssetType, 0x00);
+        BOOST_CHECK(out.IsNativeSOQ());
+        BOOST_CHECK(!out.IsConfidential());
+        BOOST_CHECK(!out.IsUSDSOQ());
     }
 }
 

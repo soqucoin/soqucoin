@@ -128,7 +128,9 @@ static UniValue getdecoyoutputs(const JSONRPCRequest& request)
 
                 // Only confidential outputs of the requested asset type
                 if (!out.IsConfidential()) continue;
-                if (out.nAssetType != assetFilter) continue;
+                // Phase 4: asset classification via witness version, not nAssetType byte
+                bool wantUSDSOQ = (assetFilter == 0x01);
+                if (wantUSDSOQ != out.IsUSDSOQ()) continue;
 
                 // Verify this output is still unspent via CCoins API
                 const CCoins* coins = pcoinsTip->AccessCoins(txid);
@@ -316,8 +318,9 @@ static UniValue getprivacystatus(const JSONRPCRequest& request)
                 const CCoins* coins = pcoinsTip->AccessCoins(txid);
                 if (!coins || !coins->IsAvailable(n)) continue;
 
-                if (out.nAssetType == 0x00) soqCount++;
-                else if (out.nAssetType == 0x01) usdsoqCount++;
+                // Phase 4: classify via witness version
+                if (out.IsUSDSOQ()) usdsoqCount++;
+                else soqCount++;
             }
         }
     }
@@ -600,10 +603,13 @@ static UniValue createunshieldtx(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INVALID_PARAMETER,
                 "UTXO is not confidential — use regular send instead");
 
-        if (out.nAssetType != assetFilter)
+        // Phase 4: asset classification via witness version
+        bool isUSDSOQ = out.IsUSDSOQ();
+        bool wantUSDSOQ = (assetFilter == 0x01);
+        if (isUSDSOQ != wantUSDSOQ)
             throw JSONRPCError(RPC_INVALID_PARAMETER,
                 strprintf("UTXO asset type %d does not match requested %d",
-                    out.nAssetType, assetFilter));
+                    isUSDSOQ ? 1 : 0, assetFilter));
 
         // Extract stealth public key from the scriptPubKey
         // Format: OP_4 <push-len> <stealth-pk>

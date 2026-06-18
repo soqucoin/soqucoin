@@ -113,26 +113,15 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
         out.pushKV("scriptPubKey", o);
 
-        // SOQ-AUD2-002 / SOQ-ARCH-001: Expose asset and visibility metadata.
-        // Version-aware (Phase 3): classify via CTxOut::IsUSDSOQ() (v7 holding OR legacy
-        // byte), not the raw byte, so v7 holdings report USDSOQ even with the byte clear.
+        // Phase 4: asset and visibility classification via witness version predicates,
+        // not removed nAssetType/nVisibility bytes.
         if (txout.IsUSDSOQ()) {
             out.pushKV("assetType", 1);
             out.pushKV("assetName", "usdsoq");
-        } else if (txout.nAssetType != 0x00) {
-            out.pushKV("assetType", (int)txout.nAssetType);
-            out.pushKV("assetName", "unknown");
         }
-        if (txout.nVisibility != 0x00) {
-            out.pushKV("visibility", (int)txout.nVisibility);
-            uint8_t baseVis = txout.nVisibility & 0x7F;
-            bool isFrozen = (txout.nVisibility & 0x80) != 0;
-            std::string visLabel;
-            if (baseVis == 0x00) visLabel = "transparent";
-            else if (baseVis == 0x01) visLabel = "confidential";
-            else visLabel = "unknown";
-            if (isFrozen) visLabel += "+frozen";
-            out.pushKV("visibilityName", visLabel);
+        if (txout.IsConfidential()) {
+            out.pushKV("visibility", 1);
+            out.pushKV("visibilityName", "confidential");
         }
 
         vout.push_back(out);

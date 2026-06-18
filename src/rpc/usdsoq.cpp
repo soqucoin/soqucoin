@@ -324,10 +324,8 @@ static UniValue usdsoqmint(const JSONRPCRequest& request)
     // adds their input(s) and signs offline.
 
     // Destination output: USDSOQ holding = witness v7 (OP_7 <SHA256(pubkey)>), spent via the
-    // audited v1 single-key Dilithium path. Phase 3: the v7 version is the canonical asset
-    // discriminator; nAssetType=0x01 is kept as a TRANSITION dual-signal (byte AND version both
-    // say USDSOQ, so version-aware and byte-aware readers agree) until the genesis reset mints
-    // USDSOQ as v7 only — after which the byte is removed (Phase 4).
+    // audited v1 single-key Dilithium path. Phase 4: the witness version is the canonical asset
+    // discriminator — no nAssetType byte.
     CScript destScript = GetScriptForDestination(dest);
     if (destScript.size() != 34 || destScript[0] != OP_1 || destScript[1] != 32)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY,
@@ -335,7 +333,7 @@ static UniValue usdsoqmint(const JSONRPCRequest& request)
     CScript v7Script;
     v7Script << OP_7;
     v7Script << std::vector<unsigned char>(destScript.begin() + 2, destScript.end());  // 32-byte pubkey hash
-    CTxOut mintOutput(amount, v7Script, 0x00 /* TRANSPARENT */, 0x01 /* USDSOQ byte: PHASE-4-REMOVE */);
+    CTxOut mintOutput(amount, v7Script);
     mtx.vout.push_back(mintOutput);
 
     // Serialize the unsigned TX

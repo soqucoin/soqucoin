@@ -3,8 +3,10 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 // SOQ-AUD2-002: USDSOQ Stablecoin Consensus Tests
-// Covers: CTxOut fields, supply counter, asset isolation, frozen UTXOs,
-//         opcode dispatch, BIP9 gating, compressor serialization.
+// Phase 4: Refactored to remove nVisibility/nAssetType byte-level tests.
+// Classification is now structural: v7 witness = USDSOQ, v4 witness = confidential.
+// Covers: CTxOut predicates, supply counter, asset isolation, opcode dispatch,
+//         BIP9 gating, compressor serialization.
 
 #include "chainparams.h"
 #include "compressor.h"
@@ -22,6 +24,40 @@
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(usdsoq_tests, BasicTestingSetup)
+
+// =========================================================================
+// Helpers: Phase 4 structural output construction
+// =========================================================================
+
+// Build a v7 witness scriptPubKey (USDSOQ classification)
+static CScript MakeV7Script() {
+    CScript s;
+    s << OP_7 << std::vector<unsigned char>(32, 0xab);
+    return s;
+}
+
+// Build a v4 witness scriptPubKey (confidential classification)
+static CScript MakeV4Script() {
+    CScript s;
+    s << OP_4 << std::vector<unsigned char>(32, 0xab);
+    return s;
+}
+
+// Build a v1 witness scriptPubKey (transparent native SOQ)
+static CScript MakeV1Script() {
+    CScript s;
+    s << OP_1 << std::vector<unsigned char>(32, 0xcd);
+    return s;
+}
+
+// Build a standard P2PKH scriptPubKey (transparent native SOQ)
+static CScript MakeP2PKH() {
+    CScript s;
+    s << OP_DUP << OP_HASH160
+      << std::vector<unsigned char>(20, 0xab)
+      << OP_EQUALVERIFY << OP_CHECKSIG;
+    return s;
+}
 
 // =========================================================================
 // 1. CONSTANTS & DATA STRUCTURES
@@ -57,50 +93,49 @@ BOOST_AUTO_TEST_CASE(authority_limits)
 }
 
 // =========================================================================
-// 2. CTxOut FIELD TESTS
+// 2. CTxOut PREDICATE TESTS (Phase 4 — structural classification)
 // =========================================================================
 
 BOOST_AUTO_TEST_CASE(ctxout_default_fields)
 {
     CTxOut out;
     out.SetNull();
-    BOOST_CHECK_EQUAL(out.nVisibility, 0x00);
-    BOOST_CHECK_EQUAL(out.nAssetType, 0x00);
+    // Default CTxOut has no witness program → transparent native SOQ
     BOOST_CHECK(out.IsNativeSOQ());
     BOOST_CHECK(out.IsTransparent());
     BOOST_CHECK(!out.IsUSDSOQ());
     BOOST_CHECK(!out.IsConfidential());
 }
 
-BOOST_AUTO_TEST_CASE(ctxout_extended_constructor)
+BOOST_AUTO_TEST_CASE(ctxout_v7_is_usdsoq)
 {
-    CScript script;
-    script << OP_RETURN;
-    CTxOut out(1000, script, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_USDSOQ);
+    // Phase 4: v7 witness scriptPubKey = USDSOQ
+    CTxOut out(1000, MakeV7Script());
     BOOST_CHECK_EQUAL(out.nValue, 1000);
-    BOOST_CHECK_EQUAL(out.nVisibility, VISIBILITY_CONFIDENTIAL);
-    BOOST_CHECK_EQUAL(out.nAssetType, ASSET_TYPE_USDSOQ);
     BOOST_CHECK(out.IsUSDSOQ());
-    // Phase 2: IsConfidential() is witness-v4-derived, not nVisibility-derived.
-    // This output has an OP_RETURN script (not v4), so IsConfidential() is false
-    // even though nVisibility==0x01. The field stores correctly — that's what
-    // this test validates (field storage, not semantic confidentiality).
-    BOOST_CHECK_EQUAL(out.nVisibility, VISIBILITY_CONFIDENTIAL);
     BOOST_CHECK(!out.IsNativeSOQ());
+    BOOST_CHECK(!out.IsConfidential());
 }
 
-BOOST_AUTO_TEST_CASE(ctxout_equality_includes_new_fields)
+BOOST_AUTO_TEST_CASE(ctxout_v4_is_confidential)
 {
-    CScript script;
-    script << OP_RETURN;
-    CTxOut a(1000, script, 0x00, 0x00);
-    CTxOut b(1000, script, 0x00, 0x01);
-    CTxOut c(1000, script, 0x01, 0x00);
-    CTxOut d(1000, script, 0x00, 0x00);
+    // Phase 4: v4 witness scriptPubKey = confidential
+    CTxOut out(2000, MakeV4Script());
+    BOOST_CHECK(out.IsConfidential());
+    BOOST_CHECK(out.IsNativeSOQ());  // v4 is confidential SOQ, not USDSOQ
+    BOOST_CHECK(!out.IsUSDSOQ());
+}
 
-    BOOST_CHECK(a == d);  // Same fields
-    BOOST_CHECK(a != b);  // Different asset type
-    BOOST_CHECK(a != c);  // Different visibility
+BOOST_AUTO_TEST_CASE(ctxout_equality_structural)
+{
+    // Phase 4: Equality is (nValue, scriptPubKey) — same script = equal
+    CScript p2pkh = MakeP2PKH();
+    CTxOut a(1000, p2pkh);
+    CTxOut b(1000, p2pkh);
+    CTxOut c(1000, MakeV7Script());
+
+    BOOST_CHECK(a == b);  // Same value+script
+    BOOST_CHECK(a != c);  // Different script → different classification
 }
 
 // =========================================================================
@@ -109,9 +144,8 @@ BOOST_AUTO_TEST_CASE(ctxout_equality_includes_new_fields)
 
 BOOST_AUTO_TEST_CASE(ctxout_serialization_roundtrip)
 {
-    CScript script;
-    script << OP_RETURN;
-    CTxOut original(5000, script, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_USDSOQ);
+    // Phase 4: Serialization is (nValue, scriptPubKey) — no byte tags
+    CTxOut original(5000, MakeV7Script());
 
     CDataStream ss(SER_DISK, CLIENT_VERSION);
     ss << original;
@@ -120,17 +154,13 @@ BOOST_AUTO_TEST_CASE(ctxout_serialization_roundtrip)
     ss >> deserialized;
 
     BOOST_CHECK_EQUAL(deserialized.nValue, 5000);
-    BOOST_CHECK_EQUAL(deserialized.nVisibility, VISIBILITY_CONFIDENTIAL);
-    BOOST_CHECK_EQUAL(deserialized.nAssetType, ASSET_TYPE_USDSOQ);
+    BOOST_CHECK(deserialized.IsUSDSOQ());
     BOOST_CHECK(original == deserialized);
 }
 
-BOOST_AUTO_TEST_CASE(ctxout_serialization_frozen_mask)
+BOOST_AUTO_TEST_CASE(ctxout_serialization_confidential_roundtrip)
 {
-    CScript script;
-    script << OP_RETURN;
-    uint8_t frozenVis = VISIBILITY_FROZEN_MASK | VISIBILITY_TRANSPARENT;
-    CTxOut original(100, script, frozenVis, ASSET_TYPE_USDSOQ);
+    CTxOut original(3000, MakeV4Script());
 
     CDataStream ss(SER_DISK, CLIENT_VERSION);
     ss << original;
@@ -138,22 +168,19 @@ BOOST_AUTO_TEST_CASE(ctxout_serialization_frozen_mask)
     CTxOut deserialized;
     ss >> deserialized;
 
-    BOOST_CHECK_EQUAL(deserialized.nVisibility, frozenVis);
-    BOOST_CHECK(deserialized.nVisibility & VISIBILITY_FROZEN_MASK);
-    BOOST_CHECK_EQUAL(deserialized.nVisibility & ~VISIBILITY_FROZEN_MASK, VISIBILITY_TRANSPARENT);
+    BOOST_CHECK_EQUAL(deserialized.nValue, 3000);
+    BOOST_CHECK(deserialized.IsConfidential());
+    BOOST_CHECK(original == deserialized);
 }
 
 // =========================================================================
 // 4. CTxOutCompressor — UTXO DB persistence
 // =========================================================================
 
-BOOST_AUTO_TEST_CASE(compressor_preserves_new_fields)
+BOOST_AUTO_TEST_CASE(compressor_preserves_usdsoq)
 {
-    // CRITICAL: CTxOutCompressor must serialize nVisibility + nAssetType
-    // or the UTXO database drops them on restart.
-    CScript script;
-    script << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0xab) << OP_EQUALVERIFY << OP_CHECKSIG;
-    CTxOut original(50000, script, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_USDSOQ);
+    // Phase 4: Compressor preserves scriptPubKey, which carries classification
+    CTxOut original(50000, MakeV7Script());
 
     CDataStream ss(SER_DISK, CLIENT_VERSION);
     CTxOutCompressor compOut(original);
@@ -163,17 +190,13 @@ BOOST_AUTO_TEST_CASE(compressor_preserves_new_fields)
     CTxOutCompressor compIn(restored);
     ss >> compIn;
 
-    BOOST_CHECK_EQUAL(restored.nVisibility, VISIBILITY_CONFIDENTIAL);
-    BOOST_CHECK_EQUAL(restored.nAssetType, ASSET_TYPE_USDSOQ);
+    BOOST_CHECK(restored.IsUSDSOQ());
     BOOST_CHECK_EQUAL(restored.nValue, 50000);
 }
 
-BOOST_AUTO_TEST_CASE(compressor_frozen_usdsoq_roundtrip)
+BOOST_AUTO_TEST_CASE(compressor_preserves_confidential)
 {
-    CScript script;
-    script << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0xcd) << OP_EQUALVERIFY << OP_CHECKSIG;
-    uint8_t frozenConf = VISIBILITY_FROZEN_MASK | VISIBILITY_CONFIDENTIAL;
-    CTxOut original(99999, script, frozenConf, ASSET_TYPE_USDSOQ);
+    CTxOut original(99999, MakeV4Script());
 
     CDataStream ss(SER_DISK, CLIENT_VERSION);
     ss << CTxOutCompressor(original);
@@ -181,17 +204,14 @@ BOOST_AUTO_TEST_CASE(compressor_frozen_usdsoq_roundtrip)
     CTxOut restored;
     ss >> REF(CTxOutCompressor(restored));
 
-    BOOST_CHECK_EQUAL(restored.nVisibility, frozenConf);
-    BOOST_CHECK_EQUAL(restored.nAssetType, ASSET_TYPE_USDSOQ);
-    BOOST_CHECK(restored.nVisibility & VISIBILITY_FROZEN_MASK);
+    BOOST_CHECK(restored.IsConfidential());
+    BOOST_CHECK_EQUAL(restored.nValue, 99999);
 }
 
 BOOST_AUTO_TEST_CASE(compressor_default_soq_roundtrip)
 {
     // Default SOQ outputs must survive compressor roundtrip unchanged
-    CScript script;
-    script << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0x11) << OP_EQUALVERIFY << OP_CHECKSIG;
-    CTxOut original(100000, script);  // Uses default 0x00/0x00
+    CTxOut original(100000, MakeP2PKH());
 
     CDataStream ss(SER_DISK, CLIENT_VERSION);
     ss << CTxOutCompressor(original);
@@ -199,8 +219,9 @@ BOOST_AUTO_TEST_CASE(compressor_default_soq_roundtrip)
     CTxOut restored;
     ss >> REF(CTxOutCompressor(restored));
 
-    BOOST_CHECK_EQUAL(restored.nVisibility, VISIBILITY_TRANSPARENT);
-    BOOST_CHECK_EQUAL(restored.nAssetType, ASSET_TYPE_SOQ);
+    BOOST_CHECK(restored.IsNativeSOQ());
+    BOOST_CHECK(!restored.IsConfidential());
+    BOOST_CHECK(!restored.IsUSDSOQ());
     BOOST_CHECK_EQUAL(restored.nValue, 100000);
 }
 
@@ -534,112 +555,48 @@ BOOST_AUTO_TEST_CASE(versionbits_usdsoq_name)
 }
 
 // =========================================================================
-// 12. USDSOQ VISIBILITY ENFORCEMENT (Phase 3)
+// 12. USDSOQ VISIBILITY ENFORCEMENT (Phase 4 — structural)
 // =========================================================================
-// These test the visibility enforcement logic that ConnectBlock applies:
-// USDSOQ outputs MUST be transparent (nVisibility base bits == 0x00).
-// The frozen mask (0x80) is allowed, but confidential (0x01) is not.
+// Phase 4: USDSOQ = v7 witness, which is transparent by definition.
+// Confidentiality = v4 witness, which is mutually exclusive with v7.
 
-BOOST_AUTO_TEST_CASE(usdsoq_visibility_transparent_allowed)
+BOOST_AUTO_TEST_CASE(usdsoq_is_transparent_by_definition)
 {
-    // Transparent USDSOQ is the only valid mode
-    CScript script;
-    script << OP_RETURN;
-    CTxOut out(1000, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
-
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_TRANSPARENT);
+    // v7 outputs are always transparent
+    CTxOut out(1000, MakeV7Script());
     BOOST_CHECK(out.IsUSDSOQ());
+    BOOST_CHECK(!out.IsConfidential());
     BOOST_CHECK(out.IsTransparent());
 }
 
-BOOST_AUTO_TEST_CASE(usdsoq_visibility_frozen_transparent_allowed)
+BOOST_AUTO_TEST_CASE(soq_can_be_confidential)
 {
-    // Frozen + transparent USDSOQ is valid (GENIUS Act freeze compliance)
-    CScript script;
-    script << OP_RETURN;
-    uint8_t frozenTransparent = VISIBILITY_FROZEN_MASK | VISIBILITY_TRANSPARENT;
-    CTxOut out(1000, script, frozenTransparent, ASSET_TYPE_USDSOQ);
-
-    // After masking off frozen bit, base visibility must be transparent
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_TRANSPARENT);
-    BOOST_CHECK(out.nVisibility & VISIBILITY_FROZEN_MASK);
-}
-
-BOOST_AUTO_TEST_CASE(usdsoq_visibility_confidential_rejected)
-{
-    // Confidential USDSOQ violates consensus — the base visibility
-    // check in ConnectBlock would reject this output.
-    CScript script;
-    script << OP_RETURN;
-    CTxOut out(1000, script, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_USDSOQ);
-
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_CONFIDENTIAL);
-    // This would trigger "bad-txns-usdsoq-confidential" in ConnectBlock
-    BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);
-}
-
-BOOST_AUTO_TEST_CASE(usdsoq_visibility_frozen_confidential_rejected)
-{
-    // Frozen + confidential USDSOQ is also invalid
-    CScript script;
-    script << OP_RETURN;
-    uint8_t frozenConf = VISIBILITY_FROZEN_MASK | VISIBILITY_CONFIDENTIAL;
-    CTxOut out(1000, script, frozenConf, ASSET_TYPE_USDSOQ);
-
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK_EQUAL(baseVis, VISIBILITY_CONFIDENTIAL);
-    BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);
-}
-
-BOOST_AUTO_TEST_CASE(soq_visibility_confidential_allowed)
-{
-    // Native SOQ CAN be confidential — only USDSOQ has this restriction.
-    // Phase 2: IsConfidential() requires a v4 witness script (the prover determinant).
-    CScript v4spk;
-    v4spk << OP_4 << std::vector<unsigned char>(32, 0xab);  // OP_4 <32-byte> = v4 confidential
-    CTxOut out(1000, v4spk, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_SOQ);
-
+    // Native SOQ CAN be confidential via v4 witness
+    CTxOut out(1000, MakeV4Script());
     BOOST_CHECK(out.IsConfidential());
     BOOST_CHECK(out.IsNativeSOQ());
-    // No visibility restriction for native SOQ
+    BOOST_CHECK(!out.IsUSDSOQ());
 }
 
-BOOST_AUTO_TEST_CASE(usdsoq_visibility_all_invalid_modes)
+BOOST_AUTO_TEST_CASE(v4_and_v7_mutually_exclusive)
 {
-    // Test all non-zero base visibility values are detected as invalid
-    CScript script;
-    script << OP_RETURN;
+    // An output cannot simultaneously be v4 (confidential) and v7 (USDSOQ)
+    CTxOut v4out(1000, MakeV4Script());
+    CTxOut v7out(1000, MakeV7Script());
 
-    for (uint8_t v = 1; v <= VISIBILITY_MAX; v++) {
-        CTxOut out(1000, script, v, ASSET_TYPE_USDSOQ);
-        uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-        BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);  // All rejected
-    }
-
-    // Also check with frozen mask applied
-    for (uint8_t v = 1; v <= VISIBILITY_MAX; v++) {
-        uint8_t frozen = VISIBILITY_FROZEN_MASK | v;
-        CTxOut out(1000, script, frozen, ASSET_TYPE_USDSOQ);
-        uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-        BOOST_CHECK(baseVis != VISIBILITY_TRANSPARENT);  // All rejected
-    }
+    BOOST_CHECK(v4out.IsConfidential() && !v4out.IsUSDSOQ());
+    BOOST_CHECK(v7out.IsUSDSOQ() && !v7out.IsConfidential());
 }
 
 // =========================================================================
-// 13. CROSS-ASSET ISOLATION (Phase 3 verification)
+// 13. CROSS-ASSET ISOLATION (Phase 4 — structural)
 // =========================================================================
 
-BOOST_AUTO_TEST_CASE(cross_asset_isolation_ctxout_fields)
+BOOST_AUTO_TEST_CASE(cross_asset_isolation_ctxout_predicates)
 {
-    // SOQ and USDSOQ outputs with same value/script differ by nAssetType
-    CScript script;
-    script << OP_RETURN;
-
-    CTxOut soqOut(5000, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ);
-    CTxOut usdsoqOut(5000, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
+    // SOQ and USDSOQ outputs differ by witness version
+    CTxOut soqOut(5000, MakeP2PKH());
+    CTxOut usdsoqOut(5000, MakeV7Script());
 
     // They must NOT be equal — prevents cross-asset confusion
     BOOST_CHECK(soqOut != usdsoqOut);
@@ -649,71 +606,31 @@ BOOST_AUTO_TEST_CASE(cross_asset_isolation_ctxout_fields)
     BOOST_CHECK(!usdsoqOut.IsNativeSOQ());
 }
 
-BOOST_AUTO_TEST_CASE(shielding_usdsoq_preserves_asset_type)
+BOOST_AUTO_TEST_CASE(shielding_usdsoq_impossible_phase4)
 {
-    // If someone attempts to "shield" a USDSOQ output (changing visibility
-    // from transparent to confidential), the nAssetType must be preserved.
-    // ConnectBlock will then reject it because USDSOQ outputs cannot be v4-confidential.
-    // Phase 2: IsConfidential() requires a v4 witness script.
-    CScript v1spk;
-    v1spk << OP_1 << std::vector<unsigned char>(32, 0xcd);  // v1 Dilithium (transparent)
-    CScript v4spk;
-    v4spk << OP_4 << std::vector<unsigned char>(32, 0xab);  // v4 confidential
-
-    // Start transparent USDSOQ
-    CTxOut transparent(1000, v1spk, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
+    // Phase 4: An output is either v7 (USDSOQ) or v4 (confidential), never both.
+    // "Shielding" USDSOQ would require changing the scriptPubKey from v7 to v4,
+    // which changes the asset type. ConnectBlock enforcement prevents this.
+    CTxOut transparent(1000, MakeV7Script());
     BOOST_CHECK(transparent.IsTransparent());
     BOOST_CHECK(transparent.IsUSDSOQ());
 
-    // "Shield" it — use v4 script, asset stays USDSOQ
-    CTxOut shielded(1000, v4spk, VISIBILITY_CONFIDENTIAL, ASSET_TYPE_USDSOQ);
+    CTxOut shielded(1000, MakeV4Script());
     BOOST_CHECK(shielded.IsConfidential());
-    BOOST_CHECK(shielded.IsUSDSOQ());
-
-    // ConnectBlock enforcement: USDSOQ + v4 (confidential) → reject
-    // The output is invalid at consensus level — USDSOQ must be transparent
-}
-
-BOOST_AUTO_TEST_CASE(checktx_rejects_invalid_asset_type)
-{
-    // CheckTransaction should reject unknown asset types
-    // Currently ASSET_TYPE_MAX = 0x01, so 0x02+ is invalid
-    CScript script;
-    script << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0xab)
-           << OP_EQUALVERIFY << OP_CHECKSIG;
-    CTxOut out(1000, script, VISIBILITY_TRANSPARENT, 0x02);  // Invalid asset type
-
-    BOOST_CHECK_EQUAL(out.nAssetType, 0x02);
-    BOOST_CHECK(out.nAssetType > ASSET_TYPE_MAX);  // Exceeds max
-}
-
-BOOST_AUTO_TEST_CASE(checktx_rejects_invalid_visibility)
-{
-    // Visibility values above VISIBILITY_MAX (excluding frozen mask) are invalid
-    CScript script;
-    script << OP_RETURN;
-    CTxOut out(1000, script, 0x02, ASSET_TYPE_SOQ);  // Invalid base visibility
-
-    uint8_t baseVis = out.nVisibility & ~VISIBILITY_FROZEN_MASK;
-    BOOST_CHECK(baseVis > VISIBILITY_MAX);
+    BOOST_CHECK(!shielded.IsUSDSOQ());  // v4 is NOT USDSOQ
+    BOOST_CHECK(shielded.IsNativeSOQ());
 }
 
 BOOST_AUTO_TEST_CASE(fee_must_be_soq_not_usdsoq)
 {
-    // Transaction fees must be nAssetType == 0x00 (SOQ).
-    // This is enforced in ConnectBlock's per-asset fee computation.
-    // Verify the field distinction exists at the data structure level.
-    CScript script;
-    script << OP_RETURN;
-
-    CTxOut feeOutput(100, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_SOQ);
+    // Transaction fees must be native SOQ, not USDSOQ.
+    // ConnectBlock's per-asset fee computation enforces this.
+    CTxOut feeOutput(100, MakeP2PKH());
     BOOST_CHECK(feeOutput.IsNativeSOQ());
-    BOOST_CHECK_EQUAL(feeOutput.nAssetType, ASSET_SOQ);
 
-    CTxOut usdsoqOutput(100, script, VISIBILITY_TRANSPARENT, ASSET_TYPE_USDSOQ);
+    CTxOut usdsoqOutput(100, MakeV7Script());
     BOOST_CHECK(!usdsoqOutput.IsNativeSOQ());
     // ConnectBlock would reject this as a fee-paying output
 }
 
 BOOST_AUTO_TEST_SUITE_END()
-

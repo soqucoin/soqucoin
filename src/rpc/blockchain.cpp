@@ -1027,12 +1027,9 @@ UniValue gettxout(const JSONRPCRequest& request)
     ret.pushKV("version", coins.nVersion);
     ret.pushKV("coinbase", coins.fCoinBase);
 
-    // SOQ-INFRA-018: Expose nAssetType for multi-asset coin selection.
-    // 0x00 = native SOQ, 0x01 = USDSOQ. Required by soq-signer to prevent
-    // cross-asset contamination (SOQ-INFRA-023). The field is persisted in
-    // the coins DB via CCoins serialization (compressor.h) but was never
-    // exposed in the RPC response until now.
-    ret.pushKV("assettype", (int)coins.vout[n].nAssetType);
+    // Phase 4: asset type follows the witness version (IsUSDSOQ ⟺ v7), not the
+    // removed nAssetType byte. Returns 1 for USDSOQ, 0 for native SOQ.
+    ret.pushKV("assettype", coins.vout[n].IsUSDSOQ() ? 1 : 0);
 
     return ret;
 }

@@ -203,8 +203,7 @@ struct V7ConservationChainSetup : public TestingSetup {
             c->vout.resize(1);
             c->vout[0].nValue       = value;
             c->vout[0].scriptPubKey = MakeV7Spk(coinbasePkBytes);
-            c->vout[0].nVisibility  = 0x00;
-            c->vout[0].nAssetType   = assetByte;
+            // Phase 4: nVisibility/nAssetType bytes removed; classification is structural (v7 witness = USDSOQ)
         }
         return COutPoint(txid, 0);
     }

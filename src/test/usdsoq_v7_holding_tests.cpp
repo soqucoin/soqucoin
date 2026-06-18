@@ -58,7 +58,7 @@ static CMutableTransaction SpendTx()
     tx.nVersion = 2;
     CTxIn in; in.prevout = COutPoint(uint256S("0x77"), 0); in.nSequence = CTxIn::SEQUENCE_FINAL;
     tx.vin.push_back(in);
-    CTxOut o; o.nValue = 50 * COIN; o.scriptPubKey = CScript() << OP_TRUE; o.nVisibility = 0; o.nAssetType = 0;
+    CTxOut o; o.nValue = 50 * COIN; o.scriptPubKey = CScript() << OP_TRUE;
     tx.vout.push_back(o);
     return tx;
 }
@@ -150,14 +150,14 @@ BOOST_AUTO_TEST_CASE(v7_isusdsoq_by_version)
     CPubKey pubkey = k.GetPubKey();
     std::vector<unsigned char> pk(pubkey.begin(), pubkey.end());
 
-    CTxOut v7; v7.nValue = 1000; v7.scriptPubKey = MakeV7Spk(pk); v7.nVisibility = 0; v7.nAssetType = 0;
+    CTxOut v7; v7.nValue = 1000; v7.scriptPubKey = MakeV7Spk(pk);
     BOOST_CHECK(v7.IsV7USDSOQHolding());
-    BOOST_CHECK(v7.IsUSDSOQ());        // USDSOQ by version, nAssetType byte == 0
+    BOOST_CHECK(v7.IsUSDSOQ());        // USDSOQ by witness version
     BOOST_CHECK(!v7.IsNativeSOQ());
 
-    // A plain v1 output is SOQ unless the legacy byte is set (transition recognition).
+    // A plain v1 output is SOQ.
     CScript v1; v1 << OP_1 << std::vector<unsigned char>(32, 0xcd);
-    CTxOut soq; soq.nValue = 1000; soq.scriptPubKey = v1; soq.nVisibility = 0; soq.nAssetType = 0;
+    CTxOut soq; soq.nValue = 1000; soq.scriptPubKey = v1;
     BOOST_CHECK(!soq.IsUSDSOQ());
     BOOST_CHECK(soq.IsNativeSOQ());
 }
