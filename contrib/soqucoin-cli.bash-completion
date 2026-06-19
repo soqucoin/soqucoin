@@ -1,4 +1,4 @@
-# bash programmable completion for bitcoin-cli(1)
+# bash programmable completion for soqucoin-cli(1)
 # Copyright (c) 2012-2016 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
@@ -143,7 +143,7 @@ _bitcoin_cli() {
             ;;
     esac
 } &&
-complete -F _bitcoin_cli bitcoin-cli
+complete -F _bitcoin_cli soqucoin-cli
 
 # Local variables:
 # mode: shell-script
