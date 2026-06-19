@@ -32,7 +32,8 @@
 #include <boost/test/unit_test.hpp>
 #include <boost/thread.hpp>
 
-std::unique_ptr<CConnman> g_connman;
+// g_connman is defined in init.cpp (linked via LIBSOQUCOIN_SERVER); the test
+// harness resets/reassigns it in TestingSetup rather than re-defining it.
 uint256 insecure_rand_seed = GetRandHash();
 FastRandomContext insecure_rand_ctx(insecure_rand_seed);
 
@@ -169,12 +170,7 @@ void Shutdown(void* parg)
     exit(0);
 }
 
-void StartShutdown()
-{
-    exit(0);
-}
-
-bool ShutdownRequested()
-{
-    return false;
-}
+// StartShutdown() and ShutdownRequested() are provided by init.cpp (linked via
+// LIBSOQUCOIN_SERVER). The real StartShutdown sets fRequestShutdown rather than
+// calling exit(0), which is safer for the test harness; ShutdownRequested returns
+// that flag. No test relies on a particular shutdown behaviour.
