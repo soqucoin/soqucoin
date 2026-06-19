@@ -181,8 +181,11 @@ src/crypto/latticebp/*.dSYM/
 src/crypto/latticebp/test_latticebp
 src/crypto/latticebp/quick_test
 
-# AI agent brain files (local only, never commit)
+# AI agent brain files + internal tooling (local only, never commit)
 .gemini/
+.agents/
+.beads/
+CLAUDE.md
 
 # Build artifacts and test binaries
 src/crypto/latticebp/liblatticebp.dylib
