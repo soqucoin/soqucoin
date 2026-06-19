@@ -31,14 +31,17 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
-      - name: Check trailing whitespace
+      - name: Trailing whitespace (changed lines)
         run: |
-          if git diff --check HEAD~1 2>/dev/null; then
-            echo "✅ No trailing whitespace"
-          fi
-      - name: Check include guards
+          git diff --check HEAD~1 HEAD -- ':!src/leveldb' ':!src/univalue' ':!src/secp256k1'
+      - name: Python functional tests must compile
         run: |
-          echo "✅ Lint passed"
+          python3 -m py_compile qa/rpc-tests/*.py qa/pull-tester/*.py
+      - name: Shell scripts pass shellcheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          # Soqucoin-authored scripts only; vendored/autotools excluded.
+          shellcheck -S error contrib/devtools/check-crypto-licenses.sh
 
   # ============================================
   # Linux x86_64 (primary build + tests)
@@ -65,13 +68,22 @@ jobs:
           key: linux-x64-ccache-${{ hashFiles('**/configure.ac') }}
           restore-keys: linux-x64-ccache-
 
-      - name: Build
+      - name: Build (with unit + bench tests enabled)
         run: |
           ./autogen.sh
-          ./configure --without-gui --disable-tests --disable-bench \
+          ./configure --without-gui \
             --enable-zmq --enable-module-rangeproof \
             --enable-module-generator --enable-experimental
           make $MAKEFLAGS
+
+      - name: Run unit tests (make check)
+        run: |
+          make check VERBOSE=1
+
+      - name: Run functional tests (Soqucoin-specific)
+        run: |
+          python3 qa/pull-tester/rpc-tests.py \
+            auxpow.py latticefold_basic.py pat_basic.py
 
   # ============================================
   # Linux ARM64 (cross-compile)
