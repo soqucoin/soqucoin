@@ -31,9 +31,16 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2  # need HEAD~1 for the changed-lines diff (default checkout is shallow)
       - name: Trailing whitespace (changed lines)
         run: |
-          git diff --check HEAD~1 HEAD -- ':!src/leveldb' ':!src/univalue' ':!src/secp256k1'
+          # HEAD~1 is absent on the very first commit / some events — don't hard-fail (exit 128).
+          if git rev-parse --verify --quiet HEAD~1 >/dev/null; then
+            git diff --check HEAD~1 HEAD -- ':!src/leveldb' ':!src/univalue' ':!src/secp256k1'
+          else
+            echo "no previous commit to diff against — skipping whitespace check"
+          fi
       - name: Python functional tests must compile
         run: |
           python3 -m py_compile qa/rpc-tests/*.py qa/pull-tester/*.py
