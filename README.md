@@ -5,7 +5,7 @@
 <h1 align="center">Soqucoin™ Core</h1>
 
 <p align="center">
-  <strong>The first production cryptocurrency with native post-quantum signatures and confidential transactions</strong>
+  <strong>A post-quantum Layer 1 with native ML-DSA-44 signatures and confidential transactions — in stagenet, mainnet genesis in progress</strong>
 </p>
 
 <p align="center">
@@ -71,6 +71,12 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 
 ### Performance Benchmarks
 
+<!-- H-5 FLAG (repo-prof-gqq.5): the "Lattice-BP++ Verify = 0.022 ms" figure below
+     (and the duplicate at "Verify Time" in the CT table) is UNVERIFIED — no in-repo
+     benchmark backs it, and it is internally implausible (faster than a single
+     Dilithium verify at 0.041 ms for a 12 KB lattice range proof; possible µs/ms
+     unit error vs an internal ~4 ms measurement). Re-benchmark and reconcile before
+     this README is published. Do NOT ship these numbers as-is. -->
 ```
 ┌─────────────────────────────────┬────────────────┬─────────────┐
 │ Operation                       │ Time (M4)      │ Size        │
@@ -89,7 +95,7 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 Validated on **Antminer L7** (9.5 GH/s):
 - Standard Stratum V1 protocol
 - Zero firmware modifications
-- Zero rejected shares (cleaner than Litecoinpool/Powerpool)
+- Zero rejected shares across the validation run
 - 640+ blocks continuous operation, zero crashes
 
 ### PAT (Practical Aggregation Technique)
