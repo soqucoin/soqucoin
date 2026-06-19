@@ -234,9 +234,19 @@ BOOST_AUTO_TEST_CASE(hardfork_parameters)
     BOOST_CHECK_EQUAL(preAuxpowParams.nPowTargetTimespan, 60);
     BOOST_CHECK_EQUAL(preAuxpowParams.fDigishieldDifficultyCalculation, true);
 
-    // Block 1000: AuxPoW activates (Vanguard Window ends)
+    // AuxPoW is valid from genesis on mainnet — there is NO activation window.
+    // nAuxpowStartHeight=0 (chainparams.cpp CMainParams "AuxPoW from genesis",
+    // DL-MAINNET-DIFFICULTY-TRANSITION); the validation gate rejects an AuxPoW block
+    // only when nHeight < nAuxpowStartHeight, which is never true at 0.
+    BOOST_CHECK_EQUAL(Params().GetConsensus(0).nAuxpowStartHeight, 0);
+
+    // Block 1000: still the single merged DigiShield+AuxPoW tier that began at block 1
+    // (nHeightEffective=1) — NOT a new tier. There is no block-1000 milestone: the prior
+    // "Vanguard Window ends at 1000" assertion was fiction. The only Vanguard Window in
+    // the project is stagenet's solo-first-100-blocks (nAuxpowStartHeight=100); mainnet
+    // launches AuxPoW from genesis with SOQUPOOL hashrate behind it.
     const Consensus::Params& auxpowParams = Params().GetConsensus(1000);
-    BOOST_CHECK_EQUAL(auxpowParams.nHeightEffective, 1000);
+    BOOST_CHECK_EQUAL(auxpowParams.nHeightEffective, 1);
     BOOST_CHECK_EQUAL(auxpowParams.nPowTargetTimespan, 60);
     BOOST_CHECK_EQUAL(auxpowParams.fAllowLegacyBlocks, true);
     BOOST_CHECK_EQUAL(auxpowParams.fDigishieldDifficultyCalculation, true);
