@@ -1,0 +1,16 @@
+Binius64 — GF(2^128) Field Arithmetic — License & Provenance
+============================================================
+
+SPDX-License-Identifier: MIT
+
+Copyright (c) 2025-2026 The Soqucoin Core developers
+
+Original work by Soqucoin: a clean-room implementation of GF(2^128) binary-field
+arithmetic for the Binius / Sangria proof system. Licensed under the MIT License;
+the full license text is in the repository root `COPYING`.
+
+This module implements standard binary-field arithmetic. The field polynomial is
+the NIST SP 800-38D pentanomial (the same GHASH polynomial used by AES-GCM); such
+references describe the mathematics and are not third-party source attributions.
+Portions were rewritten as part of the Halborn Extension Audit remediation
+(findings SOQ-A001..A004; see the SECURITY NOTE headers in the source).

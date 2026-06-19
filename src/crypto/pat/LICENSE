@@ -1,0 +1,14 @@
+PAT — Practical Aggregation Technique — License & Provenance
+============================================================
+
+SPDX-License-Identifier: MIT
+
+Copyright (c) 2025-2026 The Soqucoin Core developers
+
+Original work by Soqucoin: a logarithmic, Merkle-based aggregation scheme that
+batches n Dilithium signatures into a compact proof (the basis of the
+`CHECKPATAGG` consensus primitive). Licensed under the MIT License; the full
+license text is in the repository root `COPYING`.
+
+This module is original Soqucoin work and is not derived from third-party source
+code.

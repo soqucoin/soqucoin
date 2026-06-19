@@ -1,0 +1,17 @@
+name: license-check
+
+# Verifies every cryptographic module directory carries a LICENSE file.
+# Independent of ci.yml so it adds coverage without touching the main build.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  crypto-licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check crypto module licenses
+        run: bash contrib/devtools/check-crypto-licenses.sh

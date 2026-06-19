@@ -1,0 +1,17 @@
+PAT Dilithium Keystore — License & Provenance
+=============================================
+
+SPDX-License-Identifier: MIT
+
+Copyright (c) 2025-2026 The Soqucoin Core developers
+
+Original work by Soqucoin: the Dilithium key-management layer (`CDilithiumKey`,
+PAT type aliases, and a `randombytes` shim that delegates to Bitcoin Core's
+`GetStrongRandBytes`). Licensed under the MIT License; the full license text is
+in the repository root `COPYING`.
+
+NOTE: the `dilithium-ref/` subdirectory vendors the PQ-Crystals CRYSTALS-Dilithium
+reference implementation under its own upstream license — see
+`src/pat/dilithium-ref/LICENSE`. The files directly in this directory
+(`keys.*`, `types.h`, `randombytes.cpp`) are original Soqucoin work and are not
+derived from third-party source code.
