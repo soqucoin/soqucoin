@@ -1,0 +1,29 @@
+Lattice-BP++ — License, Provenance & Patent Notice
+==================================================
+
+SPDX-License-Identifier: MIT
+
+Copyright (c) 2025-2026 The Soqucoin Core developers / Soqucoin Labs Inc.
+
+Original work by Soqucoin: a lattice-based Bulletproofs++ construction (range
+proofs, ring signatures, stealth addresses, commitments) for confidential,
+post-quantum transactions. Licensed under the MIT License; the full license text
+is in the repository root `COPYING`.
+
+The NTT twiddle factors and Montgomery/Barrett reduction constants follow the
+CRYSTALS-Dilithium NIST reference values (public domain; see
+`src/crypto/dilithium/LICENSE`). This module is otherwise not derived from
+third-party source code.
+
+PATENT NOTICE — Patent Pending
+------------------------------
+Lattice-BP++ is the subject of the following pending U.S. provisional patent
+applications by Soqucoin Labs Inc.:
+
+  - No. 63/999,796 — "Post-Quantum Cryptographic Architecture for Blockchain
+    Networks" (filed 2025)
+  - No. 64/023,515 — "Lattice-BP++ Post-Quantum Privacy" (filed 2026)
+
+The MIT copyright license above governs the copyright in this source code; it
+does not itself grant any rights under those patents. This notice is
+informational only and does not constitute a license, waiver, or covenant.

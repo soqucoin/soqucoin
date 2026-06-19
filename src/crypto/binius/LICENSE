@@ -1,0 +1,16 @@
+Binius Commitment Scheme — License & Provenance
+===============================================
+
+SPDX-License-Identifier: MIT
+
+Copyright (c) 2025-2026 The Soqucoin Core developers
+
+Original work by Soqucoin: a clean-room implementation of a Binius-style binary-
+field commitment scheme, used as the foundation for the Sangria recursion layer
+(see `src/crypto/sangria/`). Licensed under the MIT License; the full license
+text is in the repository root `COPYING`.
+
+This module implements a published cryptographic construction (binary-field /
+"Binius" commitments); it is not derived from third-party source code.
+References to "irreducible polynomial", "tower field", etc. in the source are
+standard mathematical terminology, not third-party attributions.

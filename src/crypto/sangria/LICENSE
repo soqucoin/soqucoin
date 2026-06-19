@@ -1,0 +1,14 @@
+Sangria — Recursive Folding Engine — License & Provenance
+=========================================================
+
+SPDX-License-Identifier: MIT
+
+Copyright (c) 2025-2026 The Soqucoin Core developers
+
+Original work by Soqucoin: a clean-room implementation of a Sangria-style
+recursive folding engine providing constant-size Dilithium batch verification
+(built on the Binius commitment scheme in `src/crypto/binius/`). Licensed under
+the MIT License; the full license text is in the repository root `COPYING`.
+
+This module implements a published cryptographic construction; it is not derived
+from third-party source code.

@@ -1,0 +1,32 @@
+CRYSTALS-Dilithium Reference Implementation — License & Provenance
+==================================================================
+
+SPDX-License-Identifier: CC0-1.0 OR Apache-2.0 OR GPL-2.0-only
+
+This directory holds a copy of the CRYSTALS-Dilithium reference implementation
+(NIST FIPS-204 ML-DSA) from the PQ-Crystals project:
+
+    https://github.com/pq-crystals/dilithium
+
+NOTE: the production build links `src/crypto/dilithium/`; this `src/pat/`
+copy is a reference / keystore-side tree. The same upstream license applies.
+
+----------------------------------------------------------------------
+Upstream license — verbatim, from pq-crystals/dilithium/LICENSE:
+
+    Public Domain (https://creativecommons.org/share-your-work/public-domain/cc0/);
+    or Apache 2.0 License (https://www.apache.org/licenses/LICENSE-2.0.html) or GPL 2.0 License (http://www.gnu.org/licenses/gpl-2.0.html).
+
+    For Keccak and the random number generator
+    we are using public-domain code from sources
+    and by authors listed in comments on top of
+    the respective files.
+----------------------------------------------------------------------
+
+`fips202.c` / `fips202.h` (Keccak / SHAKE) and the randombytes implementation
+are public-domain code by their respective authors; see the comments at the top
+of those files.
+
+Soqucoin modifications (e.g. the `soqucoin_memcleanse` hardening) are
+contributed by The Soqucoin Core developers under the project's MIT license
+(see the repository root `COPYING`) and do not alter the upstream terms above.
