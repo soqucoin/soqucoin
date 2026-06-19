@@ -6,7 +6,11 @@
 
 #include "consensus/params.h"
 
-const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[Consensus::MAX_VERSION_BITS_DEPLOYMENTS] = {
+// NOTE: declared without an explicit array bound on purpose — the size is deduced
+// from the initializer count so the static_assert below can detect a missing entry.
+// (With an explicit [MAX_VERSION_BITS_DEPLOYMENTS] bound, a missing initializer would
+// silently zero-init the last slot to a nullptr name — the soqucoin-build-z45 bug.)
+const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[] = {
     {
         /*.name =*/"testdummy",
         /*.gbt_force =*/true,
@@ -62,6 +66,15 @@ const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[Consensus::MAX_VERSION
         /*.name =*/"dilithium_keyhash",
         /*.gbt_force =*/true,
     }};
+
+// Compile-time guard: the VersionBitsDeploymentInfo array is indexed by the
+// DeploymentPos enum (consensus/params.h). If a new deployment is added to the
+// enum but its entry here is forgotten, the missing slot zero-inits to a nullptr
+// name and getblocktemplate (gbt_vb_name) constructs std::string from null →
+// daemon crash (the soqucoin-build-z45 launch-gate bug). This static_assert turns
+// that runtime crash into a build failure.
+static_assert(sizeof(VersionBitsDeploymentInfo) / sizeof(VersionBitsDeploymentInfo[0]) == Consensus::MAX_VERSION_BITS_DEPLOYMENTS,
+              "VersionBitsDeploymentInfo is missing an entry for a DeploymentPos enum value (see consensus/params.h)");
 
 ThresholdState AbstractThresholdConditionChecker::GetStateFor(const CBlockIndex* pindexPrev, const Consensus::Params& params, ThresholdConditionCache& cache) const
 {
