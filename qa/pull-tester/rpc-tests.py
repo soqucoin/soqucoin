@@ -110,6 +110,8 @@ testScripts = [
     # 'segwit.py',
     # vv Tests less than 2m vv
     'auxpow.py',
+    'latticefold_basic.py',
+    'pat_basic.py',
     'getauxblock.py',
     'wallet.py',
     'wallet-accounts.py',

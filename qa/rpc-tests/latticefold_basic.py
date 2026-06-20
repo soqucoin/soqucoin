@@ -62,7 +62,7 @@ class LatticeFoldBasicTest(BitcoinTestFramework):
         # Given the time constraints and lack of python crypto lib for LatticeFold,
         # we'll rely on the C++ unit tests for logic and this test for basic node health.
         
-        self.log.info("LatticeFold+ functional test: Node running and mining blocks.")
+        print("LatticeFold+ functional test: Node running and mining blocks.")
         node.generate(1)
         assert_equal(node.getblockcount(), 102)
 

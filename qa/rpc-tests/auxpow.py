@@ -13,7 +13,6 @@ from test_framework import scrypt_auxpow
 
 class AuxPOWTest (BitcoinTestFramework):
     REWARD = 500000 # reward per block
-    CHAIN_ID = "62"
     DIGISHIELD_START = 10 # nHeight when digishield starts
     AUXPOW_START = 20 # nHeight when auxpow starts
     MATURITY_HEIGHT = 60 # number of blocks for mined transactions to mature
@@ -35,7 +34,7 @@ class AuxPOWTest (BitcoinTestFramework):
         try:
             scrypt_auxpow.mineScryptAux(self.nodes[0], "00", True)
         except JSONRPCException as ex:
-            if ex.error['message'] == "getauxblock method is not yet available":
+            if "AuxPoW mining is not available until block" in ex.error['message']:
                 pass
             else:
                 raise ex
@@ -55,7 +54,7 @@ class AuxPOWTest (BitcoinTestFramework):
         try:
             scrypt_auxpow.mineScryptAux(self.nodes[0], "00", True)
         except JSONRPCException as ex:
-            if ex.error['message'] == "getauxblock method is not yet available":
+            if "AuxPoW mining is not available until block" in ex.error['message']:
                 pass
             else:
                 raise ex
@@ -71,10 +70,12 @@ class AuxPOWTest (BitcoinTestFramework):
         # 7. mine an auxpow block with high pow, expect: fail
         assert scrypt_auxpow.mineScryptAux(self.nodes[0], "00", False) is False
 
-        # 8. mine a valid auxpow block with the parent chain being us
-        # expect: fail
-        assert scrypt_auxpow.mineScryptAux(self.nodes[0], self.CHAIN_ID, True) is False
-        self.sync_all()
+        # NOTE: Dogecoin's original step "mine an auxpow whose parent chain is us,
+        # expect: fail" does NOT apply to Soqucoin. The self-chain-id guard in
+        # auxpow.cpp ("Aux POW parent has our chain ID") is gated on fStrictChainId,
+        # which is false on every network by design (allow legacy non-auxpow blocks).
+        # So such a block is accepted, not rejected. Removed to keep the node-0
+        # reward count below exact (steps 2 and 6 only). See soqucoin-build-lw7.
 
         # 9. mine enough blocks to mature all node 0 rewards
         self.nodes[1].generate(self.MATURITY_HEIGHT)

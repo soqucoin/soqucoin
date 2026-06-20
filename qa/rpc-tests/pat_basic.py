@@ -25,7 +25,7 @@ class PatBasicTest(BitcoinTestFramework):
         # Similar to LatticeFold, we verify node health and basic mining.
         # OP_CHECKPATAGG (0xfd) integration is verified by unit tests.
         
-        self.log.info("PAT functional test: Node running and mining blocks.")
+        print("PAT functional test: Node running and mining blocks.")
         node.generate(1)
         assert_equal(node.getblockcount(), 102)
 
