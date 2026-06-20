@@ -430,8 +430,15 @@ BOOST_AUTO_TEST_CASE(committed_sdk_crossvector)
         "20a8fb234f71d54297c08936be4acd1e6d21c5bc0143df1a7e94d251f11717682ab651";
     const std::string EXPECT_SPK =
         "56208a0fa8a6e1cf96081b999ab7323df717ee3d2f57a837428b24405cb5e3ed1be5";
+    // Byte-less CTxOut value (Phase 4 removed nVisibility/nAssetType from output
+    // serialization, which changed hashOutputs and therefore the APO 0x42 sighash).
+    // Confirmed authoritative: the SDK's apoSighash (byte-less serTxOutConsensus, green
+    // against node-dumped vectors + on-chain e2e on v1.3.0) produces this exact digest for
+    // the same tx (version 2, locktime 101, single OP_TRUE output @ 1 COIN). The prior
+    // value b3275466…e8ab55 was the pre-byte-less vector and is stale. Regenerate via the
+    // SDK apoSighash or a live-node SignatureHash dump if the output serialization changes.
     const std::string EXPECT_SH  =
-        "b3275466d41b3e4eefe04653941a45ad5f65a73af35fb23af86c221421e8ab55";
+        "5282e95c98dc98c513076b0a0ab92140d8fceaaa725b9b4510165e52dfc4f0e6";
 
     const std::string gotWs  = HexStr(ws.begin(), ws.end());
     const std::string gotSpk = HexStr(spk.begin(), spk.end());

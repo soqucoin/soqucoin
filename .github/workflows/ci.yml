@@ -66,7 +66,12 @@ jobs:
             build-essential libtool autotools-dev automake \
             pkg-config bsdmainutils python3 libssl-dev \
             libevent-dev libboost-all-dev libminiupnpc-dev \
-            libzmq3-dev libsqlite3-dev libdb++-dev ccache
+            libzmq3-dev libsqlite3-dev libdb++-dev ccache \
+            python3-zmq curl python3-pip python3-setuptools python3-dev
+          # ltc_scrypt (Litecoin scrypt hasher) — required by qa/rpc-tests auxpow.py.
+          # Use the repo's sanctioned installer: pulls ltc-scrypt v1.0.1 from the
+          # Dogecoin upstream (sha256-checked) and pip-installs it. See qa/README.md.
+          ./qa/pull-tester/install-deps.sh
 
       - name: CCache
         uses: actions/cache@v5

@@ -309,15 +309,28 @@ BOOST_AUTO_TEST_CASE(keyhash_opcode_and_flag_constants)
     BOOST_CHECK_EQUAL(std::string(GetOpName(OP_CHECKDILITHIUMKEYHASH)),
                       std::string("OP_CHECKDILITHIUMKEYHASH"));
 
-    // GetSigOpCount must count OP_CHECKDILITHIUMKEYHASH as 1 sigop
+    // GetSigOpCount — sigop accounting for OP_CHECKDILITHIUMKEYHASH / OP_CHECKSIGFROMSTACK.
+    //
+    // DEFERRED (soqucoin-build-05n). Counting these opcodes as sigops is a consensus
+    // rule change: CScript::GetSigOpCount feeds GetTransactionSigOpCost, checked vs
+    // MAX_BLOCK_SIGOPS_COST (block validity). The legacy counter takes no activation
+    // flags, so making it count them UNCONDITIONALLY would value blocks differently on
+    // upgraded vs non-upgraded nodes (witness-v0 P2WSH path) → chain split. The count
+    // must instead flip atomically with the BIP9 activation of the opcodes
+    // (SCRIPT_VERIFY_DILITHIUM_KEYHASH / SCRIPT_VERIFY_CSFS), implemented in the
+    // flag-aware witness path and shipped bundled with mainnet activation
+    // (Halborn Phase 2, not yet scheduled). Mainnet opcodes are not active yet.
+    //
+    // Until that lands, the legacy counter intentionally does NOT count them. We assert
+    // that current (pre-gated) behavior so this stays an active guard: any change to the
+    // count must consciously confront the gating decision above, not slip in ungated.
     CScript script;
     script << OP_CHECKDILITHIUMKEYHASH;
-    BOOST_CHECK_EQUAL(script.GetSigOpCount(true), 1u);
+    BOOST_CHECK_EQUAL(script.GetSigOpCount(true), 0u);  // TODO(soqucoin-build-05n): -> 1u under gated counting
 
-    // Verify it counts alongside other sig ops
     CScript multiSigOp;
     multiSigOp << OP_CHECKSIG << OP_CHECKDILITHIUMKEYHASH << OP_CHECKSIGFROMSTACK;
-    BOOST_CHECK_EQUAL(multiSigOp.GetSigOpCount(true), 3u);
+    BOOST_CHECK_EQUAL(multiSigOp.GetSigOpCount(true), 1u);  // TODO(soqucoin-build-05n): -> 3u (CHECKSIG+CDKH+CSFS) under gated counting
 }
 
 BOOST_AUTO_TEST_SUITE_END()
