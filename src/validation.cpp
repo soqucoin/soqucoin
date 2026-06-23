@@ -4534,6 +4534,28 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
             return state.DoS(100, error("%s: forked chain older than last checkpoint (height %d)", __func__, nHeight), REJECT_CHECKPOINT, "bad-fork-prior-to-checkpoint");
     }
 
+    // Finality horizon (anti-deep-reorg). A small merge-mined chain cannot
+    // out-hash a rental 51% attack (Analysis [A], 2026-06-22) — renting a
+    // majority of SOQ's scrypt hashrate is ~free because the same hashrate
+    // earns LTC+DOGE. So we refuse to reorganize more than nMaxReorgDepth blocks
+    // deep: a block building on a branch that forks below the horizon can never
+    // join the active chain, making sufficiently buried history final
+    // regardless of attacker hashrate. Skipped during initial sync, when the
+    // node must be free to select the most-work chain while bootstrapping.
+    // No peer ban (DoS 0): near the horizon two honest nodes can briefly
+    // disagree, and banning would partition them. 0 = disabled (e.g. regtest).
+    if (consensusParams.nMaxReorgDepth > 0 && pindexPrev != NULL &&
+        chainActive.Tip() != NULL && !IsInitialBlockDownload()) {
+        const CBlockIndex* pforkPrev = chainActive.FindFork(pindexPrev);
+        if (pforkPrev != NULL) {
+            const int nReorgDepth = chainActive.Height() - pforkPrev->nHeight;
+            if (nReorgDepth >= consensusParams.nMaxReorgDepth)
+                return state.DoS(0, error("%s: block builds on a fork %d blocks deep, beyond the %d-block finality horizon",
+                    __func__, nReorgDepth, consensusParams.nMaxReorgDepth),
+                    REJECT_INVALID, "bad-fork-beyond-finality");
+        }
+    }
+
     // Check timestamp against prev
     if (block.GetBlockTime() <= pindexPrev->GetMedianTimePast())
         return state.Invalid(false, REJECT_INVALID, "time-too-old", "block's timestamp is too early");
