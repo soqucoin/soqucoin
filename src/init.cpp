@@ -1164,6 +1164,20 @@ bool AppInitParameterInteraction()
             }
         }
     }
+
+    if (IsArgSet("-maxreorgdepth")) {
+        // Allow overriding the finality horizon (Consensus::nMaxReorgDepth) for
+        // testing. Regtest only — it is a consensus parameter on real networks.
+        if (!chainparams.MineBlocksOnDemand()) {
+            return InitError("-maxreorgdepth may only be overridden on regtest.");
+        }
+        int64_t nDepth;
+        if (!ParseInt64(GetArg("-maxreorgdepth", ""), &nDepth) || nDepth < 0) {
+            return InitError("Invalid -maxreorgdepth (expected a non-negative integer)");
+        }
+        UpdateRegtestMaxReorgDepth((int)nDepth);
+        LogPrintf("Setting regtest finality horizon (nMaxReorgDepth) to %d\n", (int)nDepth);
+    }
     return true;
 }
 

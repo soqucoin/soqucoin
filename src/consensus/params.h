@@ -75,6 +75,21 @@ struct Params {
     uint32_t nMinerConfirmationWindow;
     BIP9Deployment vDeployments[MAX_VERSION_BITS_DEPLOYMENTS];
     uint32_t nCoinbaseMaturity;
+    /**
+     * Finality horizon (anti-deep-reorg). Reject any block that builds on a
+     * fork more than this many blocks below the active tip, i.e. refuse to
+     * reorganize deeper than nMaxReorgDepth. 0 = disabled.
+     *
+     * Rationale (Analysis [A], 2026-06-22): SOQ is a small merge-mined chain
+     * whose committed scrypt hashrate is a rounding error against the rentable
+     * scrypt market, and renting a 51% majority is ~free because the same
+     * hashrate earns LTC+DOGE. PoW weight therefore cannot secure the chain
+     * (the CoiledCoin failure mode). A bounded reorg horizon converts an
+     * unlimited-time cheap attack into a bounded-window one and makes deeply
+     * buried history final regardless of attacker hashrate. Must exceed any
+     * realistic natural reorg depth (a few blocks) by a wide margin.
+     */
+    int nMaxReorgDepth = 0;
     /** Proof of work parameters */
     uint256 powLimit;
     bool fPowAllowMinDifficultyBlocks;

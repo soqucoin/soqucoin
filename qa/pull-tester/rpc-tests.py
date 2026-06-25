@@ -112,6 +112,7 @@ testScripts = [
     'auxpow.py',
     'latticefold_basic.py',
     'pat_basic.py',
+    'maxreorgdepth.py',
     'getauxblock.py',
     'wallet.py',
     'wallet-accounts.py',

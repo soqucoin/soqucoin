@@ -157,6 +157,12 @@ public:
         consensus.nPowTargetSpacing = 60;                                                                    // 1 minute
         consensus.fDigishieldDifficultyCalculation = false;
         consensus.nCoinbaseMaturity = 30;
+        // Finality horizon (Analysis [A], 2026-06-22): refuse reorgs deeper than
+        // this. 288 blocks ~= 4.8h at 1-min spacing, >>any natural reorg depth.
+        // TEAM-TUNABLE policy value (smaller = faster finality + smaller
+        // double-spend window; must stay well above the deepest natural reorg).
+        // Propagates into digishieldConsensus via the copy below.
+        consensus.nMaxReorgDepth = 288;
         consensus.fSimplifiedRewards = true; // Fixed 500K SOQ/block from genesis (no Dogecoin random rewards)
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowAllowDigishieldMinDifficultyBlocks = false;
@@ -394,6 +400,7 @@ public:
         consensus.nPowTargetTimespan = 4 * 60 * 60; // pre-digishield: 4 hours
         consensus.fDigishieldDifficultyCalculation = false;
         consensus.nCoinbaseMaturity = 30;
+        consensus.nMaxReorgDepth = 288; // Finality horizon (Analysis [A]); see CMainParams. Propagates into digishieldConsensus.
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowAllowDigishieldMinDifficultyBlocks = false;
         consensus.nSubsidyHalvingInterval = 100000;
@@ -682,6 +689,7 @@ public:
         // Soqucoin parameters
         consensus.fSimplifiedRewards = true;
         consensus.nCoinbaseMaturity = 60; // For easier testability in RPC tests
+        consensus.nMaxReorgDepth = 0;      // Disabled on regtest; functional tests opt in via -maxreorgdepth (see UpdateMaxReorgDepth)
 
         digishieldConsensus = consensus;
         digishieldConsensus.nHeightEffective = 10;
@@ -753,6 +761,12 @@ public:
         consensus.vDeployments[d].nStartTime = nStartTime;
         consensus.vDeployments[d].nTimeout = nTimeout;
     }
+
+    void UpdateMaxReorgDepth(int nMaxReorgDepth)
+    {
+        consensus.nMaxReorgDepth = nMaxReorgDepth;
+        digishieldConsensus.nMaxReorgDepth = nMaxReorgDepth;
+    }
 };
 static CRegTestParams regTestParams;
 
@@ -795,6 +809,7 @@ public:
         consensus.nMinerConfirmationWindow = 2016;
         consensus.fSimplifiedRewards = true;
         consensus.nCoinbaseMaturity = 30;
+        consensus.nMaxReorgDepth = 288; // Finality horizon (Analysis [A]); mainnet rehearsal — match CMainParams.
 
         // Dilithium only from genesis
         consensus.dilithiumOnlyHeight = 0;
@@ -1041,4 +1056,9 @@ void SelectParams(const std::string& network)
 void UpdateRegtestBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime, int64_t nTimeout)
 {
     regTestParams.UpdateBIP9Parameters(d, nStartTime, nTimeout);
+}
+
+void UpdateRegtestMaxReorgDepth(int nMaxReorgDepth)
+{
+    regTestParams.UpdateMaxReorgDepth(nMaxReorgDepth);
 }
