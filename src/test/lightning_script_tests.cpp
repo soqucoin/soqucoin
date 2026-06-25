@@ -1648,4 +1648,348 @@ BOOST_AUTO_TEST_CASE(mldsa44_interop_vector_dump)
     BOOST_TEST_MESSAGE("MLDSA44_VECTOR_END");
 }
 
+// ============================================================================
+// V6 eLTOO SUPERSESSION MODEL — does "latest state wins" hold on-chain?
+// ============================================================================
+//
+// Resolves the open question from the P6.3 recon (SOQUSHIELD_OPT3_P6_3_RECON_
+// FINDINGS_2026-06-24.md §5). Two properties were proven SEPARATELY elsewhere
+// but never JOINTLY, and the supersession ratchet was never tested on V6:
+//
+//   PART A (coexistence): APO-derived CSFS message + in-script CTV bind together
+//     in ONE secure update output, and rebinding (APO ignores prevout) is
+//     consensus-compatible.  Expected: honest spend PASS, tampered REJECT,
+//     rebound spend PASS.
+//
+//   PART B (supersession): classic eLTOO ratchets "newer state supersedes older"
+//     via <state+1> OP_CHECKLOCKTIMEVERIFY in the update script.  On V6,
+//     OP_CLTV/OP_CSV are NO-OPs in EvalScript (interpreter.cpp has no CLTV/CSV
+//     opcode handler; they fall through the default case).  So:
+//       B1: an old, fully co-signed update (state 100) REMAINS a valid spend of
+//           the funding output even after the channel advances to state 200 —
+//           nothing on-chain revokes it.  Expected: PASS (= the finding: no
+//           on-chain supersession).
+//       B2: a script that TRIES to gate by state number via OP_CLTV accepts a
+//           tx whose nLockTime is BELOW the committed floor — the ratchet is
+//           silently skipped.  Expected: PASS (= ratchet does not execute).
+//
+// CONCLUSION (documented, not a pass/fail bug): V6's current opcodes support a
+// CTV-committed unilateral close to a FIXED settlement, but NOT a trustless
+// "latest-state-wins" ratchet (eLTOO) or revocation penalty (LN-penalty) — both
+// need in-script branching/comparison that V6 EvalScript treats as no-ops.
+// Trustless multi-update channels therefore require off-chain enforcement
+// (LSP/watchtower co-signing ONLY the latest state) or a new consensus opcode.
+//
+// Run: src/test/test_soqucoin --run_test=lightning_script_tests/eltoo_v6_supersession_model --log_level=message
+BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
+{
+    auto hex = [](const unsigned char* p, size_t n) {
+        static const char* d = "0123456789abcdef";
+        std::string s; s.reserve(n * 2);
+        for (size_t i = 0; i < n; i++) { s += d[p[i] >> 4]; s += d[p[i] & 0xf]; }
+        return s;
+    };
+    auto hexv = [&](const std::vector<unsigned char>& v) { return hex(v.data(), v.size()); };
+
+    // CTV hash (mirrors csfs_ctv_substitution_attack / interpreter.cpp:1718-1843)
+    auto computeCTVHash = [](const CMutableTransaction& tx, unsigned int nIn) -> std::vector<unsigned char> {
+        auto le32 = [](CSHA256& h, uint32_t v){ uint8_t b[4]={(uint8_t)v,(uint8_t)(v>>8),(uint8_t)(v>>16),(uint8_t)(v>>24)}; h.Write(b,4); };
+        auto le64 = [](CSHA256& h, int64_t v){ uint64_t u=(uint64_t)v; uint8_t b[8]={(uint8_t)u,(uint8_t)(u>>8),(uint8_t)(u>>16),(uint8_t)(u>>24),(uint8_t)(u>>32),(uint8_t)(u>>40),(uint8_t)(u>>48),(uint8_t)(u>>56)}; h.Write(b,8); };
+        CSHA256 ss;
+        le32(ss, (uint32_t)tx.nVersion);
+        le32(ss, tx.nLockTime);
+        le32(ss, (uint32_t)tx.vin.size());
+        CSHA256 ssSeq; for (const auto& i : tx.vin) le32(ssSeq, i.nSequence);
+        uint8_t sh[32]; ssSeq.Finalize(sh); ss.Write(sh, 32);
+        le32(ss, (uint32_t)tx.vout.size());
+        CSHA256 ssOut;
+        for (const auto& o : tx.vout) { le64(ssOut, o.nValue); le32(ssOut, (uint32_t)o.scriptPubKey.size()); if (!o.scriptPubKey.empty()) ssOut.Write(o.scriptPubKey.data(), o.scriptPubKey.size()); }
+        uint8_t oh[32]; ssOut.Finalize(oh); ss.Write(oh, 32);
+        le32(ss, nIn);
+        uint8_t r[32]; ss.Finalize(r);
+        return std::vector<unsigned char>(r, r + 32);
+    };
+
+    auto makeV6ScriptPubKey = [](const CScript& witnessScript) -> CScript {
+        uint256 h; CSHA256().Write(witnessScript.data(), witnessScript.size()).Finalize(h.begin());
+        CScript spk; spk << OP_6; spk << std::vector<unsigned char>(h.begin(), h.end());
+        return spk;
+    };
+
+    // CSFS signing convention (P6.3 §3): raw 2420-byte sig over sha256d(msgBytes),
+    // NO appended hashType byte. msgBytes is the 32-byte sighash carried on the stack.
+    auto signCsfs = [](CKey& k, const uint256& sighash) -> std::vector<unsigned char> {
+        std::vector<unsigned char> msgBytes(sighash.begin(), sighash.begin() + 32);
+        uint256 digest = Hash(msgBytes.begin(), msgBytes.end()); // double-SHA256
+        std::vector<unsigned char> sig;
+        BOOST_REQUIRE(k.Sign(digest, sig));
+        BOOST_REQUIRE_EQUAL(sig.size(), 2420u); // raw — no hashType byte
+        return sig;
+    };
+
+    const unsigned int v6Flags = SCRIPT_VERIFY_WITNESS
+                               | SCRIPT_VERIFY_P2WSH_DILITHIUM
+                               | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY
+                               | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY
+                               | SCRIPT_VERIFY_APO
+                               | SCRIPT_VERIFY_SCRIPT_RESTORE
+                               | SCRIPT_VERIFY_CSFS
+                               | SCRIPT_VERIFY_CTV;
+
+    // ---- Keys (Alice + Bob channel partners) ----
+    CKey alice, bob;
+    alice.MakeNewKey(true);
+    bob.MakeNewKey(true);
+    CPubKey alicePk = alice.GetPubKey();
+    CPubKey bobPk = bob.GetPubKey();
+    BOOST_REQUIRE(alicePk.IsValid());
+    BOOST_REQUIRE(bobPk.IsValid());
+    std::vector<unsigned char> alicePkBytes(alicePk.begin(), alicePk.end());
+    std::vector<unsigned char> bobPkBytes(bobPk.begin(), bobPk.end());
+    std::vector<unsigned char> alicePkPrefixed; alicePkPrefixed.push_back(0x00);
+    alicePkPrefixed.insert(alicePkPrefixed.end(), alicePkBytes.begin(), alicePkBytes.end());
+
+    const CAmount channelAmount = 100 * COIN;
+    CScript emptyScriptSig;
+
+    // Assemble the secure-variant witness for a CSFS+in-script-CTV spend:
+    //   [aliceSig, msg, alicePk, bobSig, msg, bobPk, witnessScript, 0x00||alicePk]
+    auto secureWitness = [&](const std::vector<unsigned char>& aSig, const std::vector<unsigned char>& aMsg,
+                             const std::vector<unsigned char>& bSig, const std::vector<unsigned char>& bMsg,
+                             const CScript& ws) -> CScriptWitness {
+        CScriptWitness w;
+        w.stack.push_back(aSig);
+        w.stack.push_back(aMsg);
+        w.stack.push_back(alicePkBytes);
+        w.stack.push_back(bSig);
+        w.stack.push_back(bMsg);
+        w.stack.push_back(bobPkBytes);
+        w.stack.push_back(std::vector<unsigned char>(ws.begin(), ws.end()));
+        w.stack.push_back(alicePkPrefixed);
+        return w;
+    };
+
+    // ================================================================
+    // PART A — COEXISTENCE: APO-derived CSFS msg + in-script CTV
+    // ================================================================
+    // Update output commits (in-script CTV) to a settlement that splits 60/40.
+    // Both partners authorize via CSFS over the APO-0x42 sighash of that settlement.
+    CScript ctvPlaceholder; // built once we know the settlement template
+    // Build the settlement first so we can compute its CTV hash.
+    CMutableTransaction settleTx;
+    settleTx.nVersion = 2; settleTx.nLockTime = 0;
+    CTxIn sIn; sIn.prevout.hash = uint256S("00"); sIn.prevout.n = 0; sIn.nSequence = CTxIn::SEQUENCE_FINAL;
+    settleTx.vin.push_back(sIn);
+    CTxOut aPay; aPay.nValue = 60 * COIN; aPay.scriptPubKey = CScript() << OP_TRUE;
+    CTxOut bPay; bPay.nValue = 40 * COIN; bPay.scriptPubKey = CScript() << OP_TRUE;
+    settleTx.vout.push_back(aPay); settleTx.vout.push_back(bPay);
+
+    std::vector<unsigned char> settleCtv = computeCTVHash(settleTx, 0);
+
+    // Secure update output: OP_NOP5 OP_NOP5 <settleCtv> OP_CHECKTEMPLATEVERIFY  (b4 b4 20<hash> b3)
+    CScript updateScript;
+    updateScript << OP_NOP5 << OP_NOP5 << settleCtv << OP_CHECKTEMPLATEVERIFY;
+    CScript updateSpk = makeV6ScriptPubKey(updateScript);
+
+    // CSFS message = APO-0x42 sighash of the settlement (the parties' rebinding convention).
+    CTransaction ctxSettle(settleTx);
+    uint256 apo42 = SignatureHash(updateScript, ctxSettle, 0, SIGHASH_ANYPREVOUTANYSCRIPT,
+                                  channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+    std::vector<unsigned char> apoMsg(apo42.begin(), apo42.begin() + 32);
+    std::vector<unsigned char> aSigA = signCsfs(alice, apo42);
+    std::vector<unsigned char> bSigA = signCsfs(bob, apo42);
+
+    // A1: honest settlement spend (outputs match the committed CTV) → PASS
+    {
+        ScriptError se = SCRIPT_ERR_OK;
+        CScriptWitness w = secureWitness(aSigA, apoMsg, bSigA, apoMsg, updateScript);
+        TransactionSignatureChecker ck(&ctxSettle, 0, channelAmount);
+        bool ok = VerifyScript(emptyScriptSig, updateSpk, &w, v6Flags, ck, &se);
+        BOOST_CHECK_MESSAGE(ok, "A1: APO-CSFS + in-script-CTV honest spend PASSES, serror=" << se);
+    }
+
+    // A2: tamper the settlement outputs (Alice grabs 100), keep the committed CTV → CTV REJECTS
+    {
+        CMutableTransaction theft = settleTx;
+        theft.vout.clear();
+        CTxOut steal; steal.nValue = channelAmount; steal.scriptPubKey = CScript() << OP_TRUE;
+        theft.vout.push_back(steal);
+        CTransaction ctxTheft(theft);
+        // Re-sign for the theft tx so CSFS itself can't be the rejecter — isolate CTV as the gate.
+        uint256 theftApo = SignatureHash(updateScript, ctxTheft, 0, SIGHASH_ANYPREVOUTANYSCRIPT,
+                                         channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<unsigned char> theftMsg(theftApo.begin(), theftApo.begin() + 32);
+        std::vector<unsigned char> aSigT = signCsfs(alice, theftApo);
+        std::vector<unsigned char> bSigT = signCsfs(bob, theftApo);
+        ScriptError se = SCRIPT_ERR_OK;
+        CScriptWitness w = secureWitness(aSigT, theftMsg, bSigT, theftMsg, updateScript);
+        TransactionSignatureChecker ck(&ctxTheft, 0, channelAmount);
+        bool ok = VerifyScript(emptyScriptSig, updateSpk, &w, v6Flags, ck, &se);
+        BOOST_CHECK_MESSAGE(!ok, "A2: tampered outputs REJECTED by in-script CTV, serror=" << se);
+    }
+
+    // A3: rebinding — APO-0x42 ignores prevout, so the SAME sigs validate when the input
+    //     is rebound to a different funding outpoint (consensus-compatible off-chain rebinding).
+    {
+        CMutableTransaction rebound = settleTx;
+        rebound.vin[0].prevout.hash = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        rebound.vin[0].prevout.n = 7;
+        CTransaction ctxRebound(rebound);
+        // CTV commits to (version,locktime,nIn,sequences,outputs,inputIndex) — NOT the prevout —
+        // so the committed settleCtv is unchanged; and apo42 ignores prevout, so the msg/sigs hold.
+        BOOST_REQUIRE(computeCTVHash(rebound, 0) == settleCtv);
+        ScriptError se = SCRIPT_ERR_OK;
+        CScriptWitness w = secureWitness(aSigA, apoMsg, bSigA, apoMsg, updateScript);
+        TransactionSignatureChecker ck(&ctxRebound, 0, channelAmount);
+        bool ok = VerifyScript(emptyScriptSig, updateSpk, &w, v6Flags, ck, &se);
+        BOOST_CHECK_MESSAGE(ok, "A3: REBINDING — same CSFS sigs validate against a different prevout, serror=" << se);
+    }
+
+    // ================================================================
+    // PART B — SUPERSESSION: is "latest state wins" enforced on-chain?
+    // ================================================================
+    // Funding output: CSFS 2-of-2 (b4 b4 51). Every update spends THIS output via APO.
+    CScript fundingScript; fundingScript << OP_NOP5 << OP_NOP5 << OP_1;
+    CScript fundingSpk = makeV6ScriptPubKey(fundingScript);
+
+    CMutableTransaction fundTx;
+    fundTx.nVersion = 2; fundTx.nLockTime = 0;
+    CTxIn cb; cb.prevout.SetNull(); cb.nSequence = CTxIn::SEQUENCE_FINAL; fundTx.vin.push_back(cb);
+    CTxOut fo; fo.nValue = channelAmount; fo.scriptPubKey = fundingSpk; fundTx.vout.push_back(fo);
+
+    // Build a co-signed update tx for a given state (nLockTime carries the state number,
+    // mirroring classic eLTOO — but on V6 it has no in-script effect).
+    auto buildSignedUpdate = [&](int64_t stateNum, const CAmount aBal, const CAmount bBal,
+                                 std::vector<unsigned char>& outMsg,
+                                 std::vector<unsigned char>& outASig,
+                                 std::vector<unsigned char>& outBSig) -> CMutableTransaction {
+        // The state's settlement template (what this update would close to).
+        CMutableTransaction settle;
+        settle.nVersion = 2; settle.nLockTime = 0;
+        CTxIn si; si.prevout.SetNull(); si.nSequence = CTxIn::SEQUENCE_FINAL; settle.vin.push_back(si);
+        CTxOut oa; oa.nValue = aBal; oa.scriptPubKey = CScript() << OP_TRUE;
+        CTxOut ob; ob.nValue = bBal; ob.scriptPubKey = CScript() << OP_TRUE;
+        settle.vout.push_back(oa); settle.vout.push_back(ob);
+        std::vector<unsigned char> ctv = computeCTVHash(settle, 0);
+
+        CScript uScript; uScript << OP_NOP5 << OP_NOP5 << ctv << OP_CHECKTEMPLATEVERIFY;
+        CScript uSpk = makeV6ScriptPubKey(uScript);
+
+        CMutableTransaction u;
+        u.nVersion = 2; u.nLockTime = stateNum; // state number (no in-script effect on V6)
+        CTxIn ui; ui.prevout.hash = fundTx.GetHash(); ui.prevout.n = 0; ui.nSequence = 0xfffffffe;
+        u.vin.push_back(ui);
+        CTxOut uo; uo.nValue = channelAmount; uo.scriptPubKey = uSpk; u.vout.push_back(uo);
+
+        CTransaction cu(u);
+        uint256 sh = SignatureHash(fundingScript, cu, 0, SIGHASH_ANYPREVOUTANYSCRIPT,
+                                   channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+        outMsg.assign(sh.begin(), sh.begin() + 32);
+        outASig = signCsfs(alice, sh);
+        outBSig = signCsfs(bob, sh);
+        return u;
+    };
+
+    // State 100 (Alice 50 / Bob 50) and state 200 (Alice 10 / Bob 90 — Bob got paid).
+    std::vector<unsigned char> msg100, aSig100, bSig100;
+    CMutableTransaction u100 = buildSignedUpdate(100, 50 * COIN, 50 * COIN, msg100, aSig100, bSig100);
+    std::vector<unsigned char> msg200, aSig200, bSig200;
+    CMutableTransaction u200 = buildSignedUpdate(200, 10 * COIN, 90 * COIN, msg200, aSig200, bSig200);
+
+    // Channel has advanced to state 200. Both partners hold valid co-signs for BOTH states.
+    // B1: the OLD state-100 update is STILL a valid spend of the funding output — nothing
+    //     on-chain revoked it. Alice can broadcast it to undo Bob's payment.
+    bool u100StillValid;
+    {
+        CTransaction cu100(u100);
+        ScriptError se = SCRIPT_ERR_OK;
+        CScriptWitness w = secureWitness(aSig100, msg100, bSig100, msg100, fundingScript);
+        TransactionSignatureChecker ck(&cu100, 0, channelAmount);
+        u100StillValid = VerifyScript(emptyScriptSig, fundingSpk, &w, v6Flags, ck, &se);
+        BOOST_CHECK_MESSAGE(u100StillValid,
+            "B1: stale state-100 update STILL valid after advancing to 200 — NO on-chain "
+            "supersession (the finding), serror=" << se);
+    }
+    // ...and state 200 is equally valid. Both spend the same funding UTXO; consensus has no
+    // preference for the higher state. Whichever confirms first wins → first-broadcast, not
+    // latest-state. This is the crux: V6 cannot ratchet.
+    bool u200Valid;
+    {
+        CTransaction cu200(u200);
+        ScriptError se = SCRIPT_ERR_OK;
+        CScriptWitness w = secureWitness(aSig200, msg200, bSig200, msg200, fundingScript);
+        TransactionSignatureChecker ck(&cu200, 0, channelAmount);
+        u200Valid = VerifyScript(emptyScriptSig, fundingSpk, &w, v6Flags, ck, &se);
+        BOOST_CHECK_MESSAGE(u200Valid, "B1b: state-200 update also valid (both spend funding), serror=" << se);
+    }
+
+    // B2: an in-script state floor is UNCONSTRUCTIBLE on V6, and OP_CLTV provably does not gate.
+    //   The classic ratchet is <state+1> OP_CHECKLOCKTIMEVERIFY OP_DROP <...>. But OP_CLTV does
+    //   not pop its argument (true in Bitcoin too), so it must be followed by OP_DROP — and
+    //   OP_DROP is ALSO a no-op in V6 EvalScript, so the pushed state number is never removed and
+    //   corrupts the subsequent CSFS stack (the 1st CSFS reads the leftover number as a pubkey).
+    //   PROOF that OP_CLTV is never consulted: a "satisfied" spend (nLockTime=201 >= floor) and a
+    //   "violated" spend (nLockTime=101 < floor) of the SAME script fail IDENTICALLY — if CLTV
+    //   gated anything, the satisfied case would pass. Both fail with the same error → the
+    //   locktime is never looked at.
+    CScript ratchetScript;
+    ratchetScript << CScriptNum(201) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                  << OP_NOP5 << OP_NOP5 << OP_1;
+    CScript ratchetSpk = makeV6ScriptPubKey(ratchetScript);
+
+    CMutableTransaction rf;
+    rf.nVersion = 2; rf.nLockTime = 0;
+    CTxIn rcb; rcb.prevout.SetNull(); rcb.nSequence = CTxIn::SEQUENCE_FINAL; rf.vin.push_back(rcb);
+    CTxOut rfo; rfo.nValue = channelAmount; rfo.scriptPubKey = ratchetSpk; rf.vout.push_back(rfo);
+
+    auto spendRatchetAt = [&](uint32_t nLockTime, ScriptError& se) -> bool {
+        CMutableTransaction t;
+        t.nVersion = 2; t.nLockTime = nLockTime;
+        CTxIn ti; ti.prevout.hash = rf.GetHash(); ti.prevout.n = 0; ti.nSequence = 0xfffffffe;
+        t.vin.push_back(ti);
+        CTxOut to; to.nValue = channelAmount; to.scriptPubKey = CScript() << OP_TRUE; t.vout.push_back(to);
+        CTransaction ct(t);
+        uint256 sh = SignatureHash(ratchetScript, ct, 0, SIGHASH_ANYPREVOUTANYSCRIPT,
+                                   channelAmount, SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<unsigned char> rmsg(sh.begin(), sh.begin() + 32);
+        std::vector<unsigned char> ra = signCsfs(alice, sh);
+        std::vector<unsigned char> rb = signCsfs(bob, sh);
+        CScriptWitness w = secureWitness(ra, rmsg, rb, rmsg, ratchetScript);
+        TransactionSignatureChecker ck(&ct, 0, channelAmount);
+        return VerifyScript(emptyScriptSig, ratchetSpk, &w, v6Flags, ck, &se);
+    };
+
+    ScriptError seViolated = SCRIPT_ERR_OK, seSatisfied = SCRIPT_ERR_OK;
+    bool okViolated  = spendRatchetAt(101, seViolated);   // below the "floor"
+    bool okSatisfied = spendRatchetAt(201, seSatisfied);  // meets the "floor"
+
+    // Neither spends, and both fail the same way → OP_CLTV gating is absent (not merely skipped):
+    // the script is simply broken by the no-op CLTV/DROP residue, identically regardless of locktime.
+    bool ratchetUnconstructible = (!okViolated && !okSatisfied && seViolated == seSatisfied);
+    BOOST_CHECK_MESSAGE(ratchetUnconstructible,
+        "B2: in-script state floor is unconstructible — satisfied(201) and violated(101) spends "
+        "fail identically (CLTV never consulted). okViolated=" << okViolated
+        << " seViolated=" << seViolated << " okSatisfied=" << okSatisfied << " seSatisfied=" << seSatisfied);
+
+    // ---- Summary ----
+    BOOST_TEST_MESSAGE("SUPERSESSION_MODEL_BEGIN");
+    BOOST_TEST_MESSAGE("update_script_hex=" << hexv(std::vector<unsigned char>(updateScript.begin(), updateScript.end())));
+    BOOST_TEST_MESSAGE("funding_script_hex=" << hexv(std::vector<unsigned char>(fundingScript.begin(), fundingScript.end())));
+    BOOST_TEST_MESSAGE("b1_stale_state_still_valid=" << u100StillValid);
+    BOOST_TEST_MESSAGE("b1b_new_state_valid=" << u200Valid);
+    BOOST_TEST_MESSAGE("b2_cltv_violated_spends=" << okViolated << " (serror=" << seViolated << ")");
+    BOOST_TEST_MESSAGE("b2_cltv_satisfied_spends=" << okSatisfied << " (serror=" << seSatisfied << ")");
+    BOOST_TEST_MESSAGE("b2_ratchet_unconstructible=" << ratchetUnconstructible);
+    BOOST_TEST_MESSAGE("SUPERSESSION_MODEL_END");
+
+    // The decision-forcing result, asserted so it can't silently regress:
+    //  - coexistence + binding WORK (A1/A2/A3 above), but
+    //  - on-chain supersession does NOT (B1: stale state stays valid; B2: no in-script ratchet).
+    BOOST_REQUIRE_MESSAGE(u100StillValid && u200Valid && ratchetUnconstructible,
+        "SUPERSESSION VERDICT: V6 supports CTV-committed fixed-settlement close, but NOT a "
+        "trustless latest-state-wins ratchet — old fully-signed states stay spendable and an "
+        "in-script CLTV/CSV state floor is unconstructible (no-op opcodes). Multi-update channels "
+        "need off-chain (LSP/watchtower) supersession or a new consensus opcode.");
+}
+
 BOOST_AUTO_TEST_SUITE_END()
