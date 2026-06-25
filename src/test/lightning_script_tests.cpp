@@ -1992,4 +1992,251 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
         "need off-chain (LSP/watchtower) supersession or a new consensus opcode.");
 }
 
+// ============================================================================
+// PATH B1 TARGET TESTS — eLTOO ratchet + HTLC once v6 control-flow is restored
+// ============================================================================
+//
+// Spec: design-log/DL-V6-CONTROLFLOW-RESTORE.md. These LOCK the target B1 script
+// forms (assert the opcode skeleton — green today) and encode the behavioural
+// target (PENDING-guarded; auto-activate when SCRIPT_VERIFY_V6_CONTROLFLOW ships).
+//
+// The guard probe: a script <1> OP_DROP OP_1 leaves a 1-element stack iff real
+// OP_DROP executes. Today OP_DROP is a no-op (residue → 2 elements), so the
+// behavioural blocks below are skipped with a PENDING message and CI stays green.
+// When step 2 restores the opcodes, the probe passes and the assertions enforce.
+
+static const unsigned int kV6ControlFlow = (1U << 26); // proposed SCRIPT_VERIFY_V6_CONTROLFLOW
+
+static bool V6ControlFlowActive()
+{
+    CScript probe; probe << CScriptNum(1) << OP_DROP << OP_1;
+    CMutableTransaction tx = MakeSpendTx(0xffffffff, 0, 1);
+    MutableTransactionSignatureChecker checker(&tx, 0, 0);
+    std::vector<std::vector<unsigned char>> st; ScriptError e = SCRIPT_ERR_OK;
+    EvalScript(st, probe, kV6ControlFlow, checker, SIGVERSION_BASE, &e);
+    return st.size() == 1; // real OP_DROP → [OP_1]; no-op OP_DROP → [1, 1]
+}
+
+// Normalised opcode skeleton: every data push (0x01..OP_PUSHDATA4) → -1, opcodes kept.
+static std::vector<int> OpSkeleton(const CScript& s)
+{
+    std::vector<int> out;
+    CScript::const_iterator pc = s.begin();
+    opcodetype op; std::vector<unsigned char> data;
+    while (s.GetOp(pc, op, data)) {
+        if (op >= 0x01 && op <= OP_PUSHDATA4) out.push_back(-1);
+        else out.push_back((int)op);
+    }
+    return out;
+}
+
+static CScript MakeV6Spk(const CScript& ws)
+{
+    uint256 h; CSHA256().Write(ws.data(), ws.size()).Finalize(h.begin());
+    CScript spk; spk << OP_6; spk << std::vector<unsigned char>(h.begin(), h.end());
+    return spk;
+}
+
+// ------------------------------------------------- eLTOO update output (B1 §4.1)
+BOOST_AUTO_TEST_CASE(eltoo_v6_ratchet_target)
+{
+    // Deterministic keyhashes so the form is reproducible.
+    std::vector<unsigned char> khAu(32, 0x11), khBu(32, 0x22), khAs(32, 0x33), khBs(32, 0x44);
+    const int64_t N = 600000, csv = 288;
+
+    // B1 update script: IF <N+1> CLTV DROP <khB> CDKH <khA> CDKH OP_1
+    //                   ELSE <csv> CSV DROP <khB> CDKH <khA> CDKH OP_1 ENDIF
+    CScript ws;
+    ws << OP_IF
+         << CScriptNum(N + 1) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+         << khBu << OP_CHECKDILITHIUMKEYHASH << khAu << OP_CHECKDILITHIUMKEYHASH << OP_1
+       << OP_ELSE
+         << CScriptNum(csv) << OP_CHECKSEQUENCEVERIFY << OP_DROP
+         << khBs << OP_CHECKDILITHIUMKEYHASH << khAs << OP_CHECKDILITHIUMKEYHASH << OP_1
+       << OP_ENDIF;
+
+    // ---- FORM LOCK (green today): exact opcode skeleton ----
+    std::vector<int> expected = {
+        OP_IF, -1, OP_CHECKLOCKTIMEVERIFY, OP_DROP,
+        -1, OP_CHECKDILITHIUMKEYHASH, -1, OP_CHECKDILITHIUMKEYHASH, OP_1,
+        OP_ELSE, -1, OP_CHECKSEQUENCEVERIFY, OP_DROP,
+        -1, OP_CHECKDILITHIUMKEYHASH, -1, OP_CHECKDILITHIUMKEYHASH, OP_1,
+        OP_ENDIF };
+    BOOST_CHECK_MESSAGE(OpSkeleton(ws) == expected,
+        "eLTOO update script matches the locked B1 form (IF-CLTV-2of2 / ELSE-CSV-2of2)");
+
+    {
+        auto hex = [](const unsigned char* p, size_t n){ static const char* d="0123456789abcdef"; std::string s; for(size_t i=0;i<n;i++){s+=d[p[i]>>4];s+=d[p[i]&0xf];} return s; };
+        BOOST_TEST_MESSAGE("eltoo_update_script_form_hex=" << hex(ws.data(), ws.size()));
+    }
+
+    // ---- BEHAVIOURAL TARGET (PENDING until DL-V6-CONTROLFLOW-RESTORE ships) ----
+    if (!V6ControlFlowActive()) {
+        BOOST_TEST_MESSAGE("PENDING DL-V6-CONTROLFLOW-RESTORE: ratchet behaviour asserted once "
+                           "v6 control-flow opcodes execute (step 2).");
+        return;
+    }
+
+    // Real keys; rebuild the script with committed keyhashes of the real pubkeys.
+    CKey aU, bU; aU.MakeNewKey(true); bU.MakeNewKey(true);
+    CPubKey aUpk = aU.GetPubKey(), bUpk = bU.GetPubKey();
+    std::vector<unsigned char> aUb(aUpk.begin(), aUpk.end()), bUb(bUpk.begin(), bUpk.end());
+    auto kh = [](const std::vector<unsigned char>& pk){ std::vector<unsigned char> h(32); CSHA256().Write(pk.data(), pk.size()).Finalize(h.data()); return h; };
+    std::vector<unsigned char> aTrail; aTrail.push_back(0x00); aTrail.insert(aTrail.end(), aUb.begin(), aUb.end());
+
+    CScript upd;
+    upd << OP_IF
+          << CScriptNum(N + 1) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+          << kh(bUb) << OP_CHECKDILITHIUMKEYHASH << kh(aUb) << OP_CHECKDILITHIUMKEYHASH << OP_1
+        << OP_ELSE
+          << CScriptNum(csv) << OP_CHECKSEQUENCEVERIFY << OP_DROP
+          << kh(bUb) << OP_CHECKDILITHIUMKEYHASH << kh(aUb) << OP_CHECKDILITHIUMKEYHASH << OP_1
+        << OP_ENDIF;
+    CScript updSpk = MakeV6Spk(upd);
+    const CAmount amt = 100 * COIN;
+
+    // Funding tx carrying the state-N update output.
+    CMutableTransaction fund; fund.nVersion = 2;
+    CTxIn fi; fi.prevout.SetNull(); fi.nSequence = CTxIn::SEQUENCE_FINAL; fund.vin.push_back(fi);
+    CTxOut fo; fo.nValue = amt; fo.scriptPubKey = updSpk; fund.vout.push_back(fo);
+
+    const unsigned int flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM
+                             | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY
+                             | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_DILITHIUM_KEYHASH
+                             | SCRIPT_VERIFY_SCRIPT_RESTORE | kV6ControlFlow;
+
+    // Spend the update branch with a tx at a GIVEN state (nLockTime). APO-0x42 keyhash 2-of-2.
+    auto spendUpdateBranch = [&](uint32_t lockState, ScriptError& se) -> bool {
+        CMutableTransaction t; t.nVersion = 2; t.nLockTime = lockState;
+        CTxIn ti; ti.prevout.hash = fund.GetHash(); ti.prevout.n = 0; ti.nSequence = 0xfffffffe; t.vin.push_back(ti);
+        CTxOut to; to.nValue = amt; to.scriptPubKey = updSpk; t.vout.push_back(to); // re-commit (next state)
+        CTransaction ct(t);
+        uint256 sh = SignatureHash(upd, ct, 0, SIGHASH_ANYPREVOUTANYSCRIPT, amt, SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<unsigned char> sa, sb; aU.Sign(sh, sa); bU.Sign(sh, sb);
+        sa.push_back(SIGHASH_ANYPREVOUTANYSCRIPT); sb.push_back(SIGHASH_ANYPREVOUTANYSCRIPT);
+        CScriptWitness w; // satisfaction: [sigA,pubA,sigB,pubB, selector=true], then ws, trailer
+        w.stack.push_back(sa); w.stack.push_back(aUb);
+        w.stack.push_back(sb); w.stack.push_back(bUb);
+        w.stack.push_back(std::vector<unsigned char>{0x01});
+        w.stack.push_back(std::vector<unsigned char>(upd.begin(), upd.end()));
+        w.stack.push_back(aTrail);
+        CScript empty; TransactionSignatureChecker ck(&ct, 0, amt);
+        return VerifyScript(empty, updSpk, &w, flags, ck, &se);
+    };
+
+    ScriptError seHi = SCRIPT_ERR_OK, seLo = SCRIPT_ERR_OK;
+    bool higherSupersedes = spendUpdateBranch((uint32_t)N + 100, seHi); // state > N → CLTV ok
+    bool lowerBlocked     = spendUpdateBranch((uint32_t)N - 100, seLo); // state < N+1 → CLTV fail
+    BOOST_CHECK_MESSAGE(higherSupersedes, "ratchet: higher-state update SPENDS the state-N output, serror=" << seHi);
+    BOOST_CHECK_MESSAGE(!lowerBlocked, "ratchet: lower-state update is REJECTED by CLTV, serror=" << seLo);
+}
+
+// ------------------------------------------------------------ HTLC output (B1 §4.2)
+BOOST_AUTO_TEST_CASE(htlc_v6_target)
+{
+    std::vector<unsigned char> H(32, 0xab), khPayee(32, 0x55), khPayer(32, 0x66);
+    const int64_t cltv = 500;
+
+    // B1 HTLC: IF OP_SHA256 <H> OP_EQUALVERIFY <khPayee> CDKH OP_1
+    //          ELSE <cltv> CLTV DROP <khPayer> CDKH OP_1 ENDIF
+    CScript ws;
+    ws << OP_IF
+         << OP_SHA256 << H << OP_EQUALVERIFY << khPayee << OP_CHECKDILITHIUMKEYHASH << OP_1
+       << OP_ELSE
+         << CScriptNum(cltv) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << khPayer << OP_CHECKDILITHIUMKEYHASH << OP_1
+       << OP_ENDIF;
+
+    std::vector<int> expected = {
+        OP_IF, OP_SHA256, -1, OP_EQUALVERIFY, -1, OP_CHECKDILITHIUMKEYHASH, OP_1,
+        OP_ELSE, -1, OP_CHECKLOCKTIMEVERIFY, OP_DROP, -1, OP_CHECKDILITHIUMKEYHASH, OP_1,
+        OP_ENDIF };
+    BOOST_CHECK_MESSAGE(OpSkeleton(ws) == expected,
+        "HTLC script matches the locked B1 form (IF-hashlock-payee / ELSE-CLTV-payer)");
+
+    if (!V6ControlFlowActive()) {
+        BOOST_TEST_MESSAGE("PENDING DL-V6-CONTROLFLOW-RESTORE: HTLC success/timeout asserted once "
+                           "v6 control-flow opcodes execute (step 2).");
+        return;
+    }
+
+    // Real keys + a real preimage; rebuild with committed keyhashes.
+    CKey payee, payer; payee.MakeNewKey(true); payer.MakeNewKey(true);
+    std::vector<unsigned char> peeB(payee.GetPubKey().begin(), payee.GetPubKey().end());
+    std::vector<unsigned char> perB(payer.GetPubKey().begin(), payer.GetPubKey().end());
+    auto kh = [](const std::vector<unsigned char>& pk){ std::vector<unsigned char> h(32); CSHA256().Write(pk.data(), pk.size()).Finalize(h.data()); return h; };
+    std::vector<unsigned char> preimage(32, 0x07);
+    std::vector<unsigned char> Hreal(32); CSHA256().Write(preimage.data(), preimage.size()).Finalize(Hreal.data());
+    std::vector<unsigned char> peeTrail; peeTrail.push_back(0x00); peeTrail.insert(peeTrail.end(), peeB.begin(), peeB.end());
+    std::vector<unsigned char> perTrail; perTrail.push_back(0x00); perTrail.insert(perTrail.end(), perB.begin(), perB.end());
+
+    CScript htlc;
+    htlc << OP_IF
+           << OP_SHA256 << Hreal << OP_EQUALVERIFY << kh(peeB) << OP_CHECKDILITHIUMKEYHASH << OP_1
+         << OP_ELSE
+           << CScriptNum(cltv) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << kh(perB) << OP_CHECKDILITHIUMKEYHASH << OP_1
+         << OP_ENDIF;
+    CScript htlcSpk = MakeV6Spk(htlc);
+    const CAmount amt = 49 * COIN;
+
+    CMutableTransaction fund; fund.nVersion = 2;
+    CTxIn fi; fi.prevout.SetNull(); fi.nSequence = CTxIn::SEQUENCE_FINAL; fund.vin.push_back(fi);
+    CTxOut fo; fo.nValue = amt; fo.scriptPubKey = htlcSpk; fund.vout.push_back(fo);
+
+    const unsigned int flags = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM
+                             | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY | SCRIPT_VERIFY_DILITHIUM_KEYHASH
+                             | SCRIPT_VERIFY_SCRIPT_RESTORE | kV6ControlFlow;
+
+    // SUCCESS: [sigPayee, pubPayee, preimage, true]
+    {
+        CMutableTransaction t; t.nVersion = 2; t.nLockTime = 0;
+        CTxIn ti; ti.prevout.hash = fund.GetHash(); ti.prevout.n = 0; ti.nSequence = 0xfffffffe; t.vin.push_back(ti);
+        CTxOut to; to.nValue = amt; to.scriptPubKey = CScript() << OP_TRUE; t.vout.push_back(to);
+        CTransaction ct(t);
+        uint256 sh = SignatureHash(htlc, ct, 0, SIGHASH_ALL, amt, SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<unsigned char> sig; payee.Sign(sh, sig); sig.push_back(SIGHASH_ALL);
+        CScriptWitness w;
+        w.stack.push_back(sig); w.stack.push_back(peeB); w.stack.push_back(preimage);
+        w.stack.push_back(std::vector<unsigned char>{0x01});
+        w.stack.push_back(std::vector<unsigned char>(htlc.begin(), htlc.end()));
+        w.stack.push_back(peeTrail);
+        CScript empty; ScriptError se = SCRIPT_ERR_OK; TransactionSignatureChecker ck(&ct, 0, amt);
+        BOOST_CHECK_MESSAGE(VerifyScript(empty, htlcSpk, &w, flags, ck, &se),
+            "HTLC success: correct preimage + payee sig claims, serror=" << se);
+
+        // wrong preimage → hashlock fails
+        CScriptWitness wbad = w; wbad.stack[2] = std::vector<unsigned char>(32, 0x08);
+        ScriptError se2 = SCRIPT_ERR_OK;
+        BOOST_CHECK_MESSAGE(!VerifyScript(empty, htlcSpk, &wbad, flags, ck, &se2),
+            "HTLC success: wrong preimage REJECTED, serror=" << se2);
+    }
+
+    // TIMEOUT: [sigPayer, pubPayer, false], claim tx nLockTime >= cltv
+    {
+        CMutableTransaction t; t.nVersion = 2; t.nLockTime = (uint32_t)cltv + 1;
+        CTxIn ti; ti.prevout.hash = fund.GetHash(); ti.prevout.n = 0; ti.nSequence = 0xfffffffe; t.vin.push_back(ti);
+        CTxOut to; to.nValue = amt; to.scriptPubKey = CScript() << OP_TRUE; t.vout.push_back(to);
+        CTransaction ct(t);
+        uint256 sh = SignatureHash(htlc, ct, 0, SIGHASH_ALL, amt, SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<unsigned char> sig; payer.Sign(sh, sig); sig.push_back(SIGHASH_ALL);
+        CScriptWitness w;
+        w.stack.push_back(sig); w.stack.push_back(perB);
+        w.stack.push_back(std::vector<unsigned char>{}); // false selector → ELSE branch
+        w.stack.push_back(std::vector<unsigned char>(htlc.begin(), htlc.end()));
+        w.stack.push_back(perTrail);
+        CScript empty; ScriptError se = SCRIPT_ERR_OK; TransactionSignatureChecker ck(&ct, 0, amt);
+        BOOST_CHECK_MESSAGE(VerifyScript(empty, htlcSpk, &w, flags, ck, &se),
+            "HTLC timeout: payer claims after CLTV, serror=" << se);
+
+        // premature timeout (nLockTime < cltv) → CLTV rejects
+        CMutableTransaction t2 = t; t2.nLockTime = (uint32_t)cltv - 10;
+        CTransaction ct2(t2);
+        uint256 sh2 = SignatureHash(htlc, ct2, 0, SIGHASH_ALL, amt, SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<unsigned char> sig2; payer.Sign(sh2, sig2); sig2.push_back(SIGHASH_ALL);
+        CScriptWitness w2 = w; w2.stack[0] = sig2;
+        ScriptError se2 = SCRIPT_ERR_OK; TransactionSignatureChecker ck2(&ct2, 0, amt);
+        BOOST_CHECK_MESSAGE(!VerifyScript(empty, htlcSpk, &w2, flags, ck2, &se2),
+            "HTLC timeout: premature claim REJECTED by CLTV, serror=" << se2);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()
