@@ -2242,4 +2242,45 @@ BOOST_AUTO_TEST_CASE(htlc_v6_target)
     }
 }
 
+// ------------------------------------------- B1 script byte vectors (for the SDKs)
+// Emits the canonical B1 eLTOO update + HTLC script hex for deterministic keyhash inputs,
+// so the TS/Dart SDKs can byte-match (the keyhash = SHA256(pubkey) step is pinned by P4).
+// Run: test_soqucoin --run_test=lightning_script_tests/b1_script_vectors --log_level=message
+BOOST_AUTO_TEST_CASE(b1_script_vectors)
+{
+    auto hexs = [](const CScript& s){ static const char* d="0123456789abcdef"; std::string o; for(size_t i=0;i<s.size();i++){o+=d[s[i]>>4];o+=d[s[i]&0xf];} return o; };
+
+    // eLTOO update: distinct update vs settlement keyhashes to exercise the full form.
+    std::vector<unsigned char> khAu(32,0x11), khBu(32,0x22), khAs(32,0x33), khBs(32,0x44);
+    const int64_t N = 600000, csv = 288;
+    CScript eltoo;
+    eltoo << OP_IF
+            << CScriptNum(N + 1) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+            << khBu << OP_CHECKDILITHIUMKEYHASH << khAu << OP_CHECKDILITHIUMKEYHASH << OP_1
+          << OP_ELSE
+            << CScriptNum(csv) << OP_CHECKSEQUENCEVERIFY << OP_DROP
+            << khBs << OP_CHECKDILITHIUMKEYHASH << khAs << OP_CHECKDILITHIUMKEYHASH << OP_1
+          << OP_ENDIF;
+
+    // HTLC: hashlock H, payee/payer keyhashes, absolute cltv.
+    std::vector<unsigned char> H(32,0xab), khPayee(32,0x55), khPayer(32,0x66);
+    const int64_t cltv = 500;
+    CScript htlc;
+    htlc << OP_IF
+           << OP_SHA256 << H << OP_EQUALVERIFY << khPayee << OP_CHECKDILITHIUMKEYHASH << OP_1
+         << OP_ELSE
+           << CScriptNum(cltv) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << khPayer << OP_CHECKDILITHIUMKEYHASH << OP_1
+         << OP_ENDIF;
+
+    BOOST_TEST_MESSAGE("B1_VECTORS_BEGIN");
+    BOOST_TEST_MESSAGE("eltoo_stateNum=" << N);
+    BOOST_TEST_MESSAGE("eltoo_csv=" << csv);
+    BOOST_TEST_MESSAGE("eltoo_khAu=11..(x32) khBu=22 khAs=33 khBs=44");
+    BOOST_TEST_MESSAGE("eltoo_update_script_hex=" << hexs(eltoo));
+    BOOST_TEST_MESSAGE("htlc_cltv=" << cltv);
+    BOOST_TEST_MESSAGE("htlc_H=ab..(x32) khPayee=55 khPayer=66");
+    BOOST_TEST_MESSAGE("htlc_script_hex=" << hexs(htlc));
+    BOOST_TEST_MESSAGE("B1_VECTORS_END");
+}
+
 BOOST_AUTO_TEST_SUITE_END()
