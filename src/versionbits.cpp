@@ -65,6 +65,11 @@ const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[] = {
         // (gbt_vb_name) constructs std::string from null → crash on stagenet (ALWAYS_ACTIVE).
         /*.name =*/"dilithium_keyhash",
         /*.gbt_force =*/true,
+    },
+    {
+        // DL-V6-CONTROLFLOW-RESTORE: must match DEPLOYMENT_V6_CONTROLFLOW (params.h index 13).
+        /*.name =*/"v6_controlflow",
+        /*.gbt_force =*/true,
     }};
 
 // Compile-time guard: the VersionBitsDeploymentInfo array is indexed by the
