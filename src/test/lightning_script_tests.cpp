@@ -2005,7 +2005,7 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
 // behavioural blocks below are skipped with a PENDING message and CI stays green.
 // When step 2 restores the opcodes, the probe passes and the assertions enforce.
 
-static const unsigned int kV6ControlFlow = (1U << 26); // proposed SCRIPT_VERIFY_V6_CONTROLFLOW
+static const unsigned int kV6ControlFlow = SCRIPT_VERIFY_V6_CONTROLFLOW; // DL-V6-CONTROLFLOW-RESTORE
 
 static bool V6ControlFlowActive()
 {
@@ -2161,8 +2161,11 @@ BOOST_AUTO_TEST_CASE(htlc_v6_target)
 
     // Real keys + a real preimage; rebuild with committed keyhashes.
     CKey payee, payer; payee.MakeNewKey(true); payer.MakeNewKey(true);
-    std::vector<unsigned char> peeB(payee.GetPubKey().begin(), payee.GetPubKey().end());
-    std::vector<unsigned char> perB(payer.GetPubKey().begin(), payer.GetPubKey().end());
+    // Bind CPubKey to locals before begin()/end() — separate GetPubKey() temporaries
+    // would yield iterators into distinct destroyed objects (the CPubKey-temporary bug).
+    CPubKey payeePk = payee.GetPubKey(), payerPk = payer.GetPubKey();
+    std::vector<unsigned char> peeB(payeePk.begin(), payeePk.end());
+    std::vector<unsigned char> perB(payerPk.begin(), payerPk.end());
     auto kh = [](const std::vector<unsigned char>& pk){ std::vector<unsigned char> h(32); CSHA256().Write(pk.data(), pk.size()).Finalize(h.data()); return h; };
     std::vector<unsigned char> preimage(32, 0x07);
     std::vector<unsigned char> Hreal(32); CSHA256().Write(preimage.data(), preimage.size()).Finalize(Hreal.data());

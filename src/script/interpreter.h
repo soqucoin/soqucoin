@@ -160,6 +160,14 @@ enum {
     // Enables eLTOO 2-of-2 multisig for L2SOQ Lightning with oversized Dilithium pubkeys.
     SCRIPT_VERIFY_DILITHIUM_KEYHASH = (1U << 25),
 
+    // DL-V6-CONTROLFLOW-RESTORE: execute the bounded standard-opcode set that
+    // trust-minimised Lightning needs but V6's PQ-only EvalScript treats as no-ops:
+    // OP_IF/NOTIF/ELSE/ENDIF, OP_DROP, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY,
+    // OP_SHA256, OP_EQUAL/OP_EQUALVERIFY. PQ signatures stay on CSFS/keyhash (the
+    // 520-byte push limit still forbids inline 1312-byte pubkeys → no inline CHECKSIG).
+    // When clear, those opcodes remain no-ops (unchanged behaviour).
+    SCRIPT_VERIFY_V6_CONTROLFLOW = (1U << 26),
+
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),
