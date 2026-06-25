@@ -146,11 +146,18 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     valtype vchPushValue;
     CScriptNum bn(0);
     vector<valtype> altstack;
+    // DL-V6-CONTROLFLOW-RESTORE: OP_IF/NOTIF/ELSE/ENDIF condition stack. Empty unless
+    // SCRIPT_VERIFY_V6_CONTROLFLOW restores real branching; fExec is recomputed from it.
+    std::vector<bool> vfExec;
     set_success(serror);
 
     try {
         while (pc < pend) {
+            // Executing iff no enclosing conditional branch is currently false.
             bool fExec = true;
+            for (size_t i = 0; i < vfExec.size(); ++i) {
+                if (!vfExec[i]) { fExec = false; break; }
+            }
 
             if (!script.GetOp(pc, opcode, vchPushValue))
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
@@ -162,7 +169,40 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 //
                 // Execution
                 //
-                if (fExec) {
+                // DL-V6-CONTROLFLOW-RESTORE: conditional opcodes run even inside a
+                // non-taken branch (they manage the vfExec nesting). Gated by the flag;
+                // when clear they fall through to the no-op behaviour below.
+                if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) &&
+                    (opcode == OP_IF || opcode == OP_NOTIF || opcode == OP_ELSE || opcode == OP_ENDIF)) {
+                    if (opcode == OP_IF || opcode == OP_NOTIF) {
+                        // <expression> IF/NOTIF [statements] [ELSE [statements]] ENDIF
+                        bool fValue = false;
+                        if (fExec) {
+                            if (stack.size() < 1)
+                                return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+                            valtype& vch = stacktop(-1);
+                            if (flags & SCRIPT_VERIFY_MINIMALIF) {
+                                if (vch.size() > 1)
+                                    return set_error(serror, SCRIPT_ERR_MINIMALIF);
+                                if (vch.size() == 1 && vch[0] != 1)
+                                    return set_error(serror, SCRIPT_ERR_MINIMALIF);
+                            }
+                            fValue = CastToBool(vch);
+                            if (opcode == OP_NOTIF)
+                                fValue = !fValue;
+                            popstack(stack);
+                        }
+                        vfExec.push_back(fValue);
+                    } else if (opcode == OP_ELSE) {
+                        if (vfExec.empty())
+                            return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+                        vfExec.back() = !vfExec.back();
+                    } else { // OP_ENDIF
+                        if (vfExec.empty())
+                            return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+                        vfExec.pop_back();
+                    }
+                } else if (fExec) {
                     if (opcode == OP_RESERVED_BATCHSIG) {
                         // SOQ-I002: OP_RESERVED_BATCHSIG (0xfe) is permanently DEPRECATED.
                         // The old Binius SNARK batch verifier (sangria::VerifyBatch) has been
@@ -800,6 +840,64 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                 return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
                         }
 
+                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_DROP) {
+                        // DL-V6-CONTROLFLOW-RESTORE: pop one item (needed after CLTV/CSV).
+                        if (stack.size() < 1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        popstack(stack);
+
+                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) &&
+                               (opcode == OP_EQUAL || opcode == OP_EQUALVERIFY)) {
+                        // DL-V6-CONTROLFLOW-RESTORE: byte-equality (HTLC hashlock).
+                        if (stack.size() < 2)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        valtype& vch1 = stacktop(-2);
+                        valtype& vch2 = stacktop(-1);
+                        bool fEqual = (vch1 == vch2);
+                        popstack(stack);
+                        popstack(stack);
+                        stack.push_back(fEqual ? vchTrue : vchFalse);
+                        if (opcode == OP_EQUALVERIFY) {
+                            if (fEqual)
+                                popstack(stack);
+                            else
+                                return set_error(serror, SCRIPT_ERR_EQUALVERIFY);
+                        }
+
+                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_SHA256) {
+                        // DL-V6-CONTROLFLOW-RESTORE: SHA256 (HTLC preimage hashlock).
+                        if (stack.size() < 1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        valtype& vch = stacktop(-1);
+                        valtype vchHash(32);
+                        CSHA256().Write(vch.data(), vch.size()).Finalize(vchHash.data());
+                        popstack(stack);
+                        stack.push_back(vchHash);
+
+                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_CHECKLOCKTIMEVERIFY) {
+                        // DL-V6-CONTROLFLOW-RESTORE: BIP65 absolute locktime. Arg stays on
+                        // stack (caller DROPs). eLTOO state ratchet + HTLC timeout.
+                        if (stack.size() < 1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        const CScriptNum nLockTime(stacktop(-1), (flags & SCRIPT_VERIFY_MINIMALDATA) != 0, 5);
+                        if (nLockTime < 0)
+                            return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
+                        if (!checker.CheckLockTime(nLockTime))
+                            return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+
+                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_CHECKSEQUENCEVERIFY) {
+                        // DL-V6-CONTROLFLOW-RESTORE: BIP112 relative locktime. Arg stays on
+                        // stack (caller DROPs). eLTOO settlement-branch CSV delay.
+                        if (stack.size() < 1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        const CScriptNum nSequence(stacktop(-1), (flags & SCRIPT_VERIFY_MINIMALDATA) != 0, 5);
+                        if (nSequence < 0)
+                            return set_error(serror, SCRIPT_ERR_NEGATIVE_LOCKTIME);
+                        // If the disable flag is set the operand is a NOP (BIP112 extensibility).
+                        if ((nSequence.getint64() & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG) == 0)
+                            if (!checker.CheckSequence(nSequence))
+                                return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+
                     } else if (flags & SCRIPT_VERIFY_SCRIPT_RESTORE) {
                         // =========================================================
                         // SATOSHI SCRIPT RESTORATION (Soqucoin genesis-active)
@@ -976,6 +1074,10 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 }
             }
         }
+
+        // DL-V6-CONTROLFLOW-RESTORE: every OP_IF/NOTIF must be closed by an OP_ENDIF.
+        if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && !vfExec.empty())
+            return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
     } catch (...) {
         return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
     }
