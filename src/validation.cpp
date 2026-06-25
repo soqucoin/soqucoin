@@ -2396,6 +2396,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
     }
 
+    // DL-V6-CONTROLFLOW-RESTORE: Start enforcing the restored branch/timelock/hashlock opcodes
+    // (OP_IF/ELSE/ENDIF, OP_DROP, OP_CLTV, OP_CSV, OP_SHA256, OP_EQUAL[VERIFY]) in v6 EvalScript —
+    // the eLTOO state ratchet, settlement CSV, and HTLC hashlock/timeout. PQ sigs stay on
+    // CSFS/keyhash. When inactive these opcodes remain no-ops (unchanged behaviour).
+    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_V6_CONTROLFLOW, versionbitscache) == THRESHOLD_ACTIVE) {
+        flags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
+    }
+
     // SATOSHI SCRIPT RESTORATION: Always-active on Soqucoin (genesis-active).
     // AND/OR/XOR/MUL/DIV/MOD/SUBSTR/LEFT/RIGHT re-enabled with BCH-style bounds.
     // No BIP9 gate needed — these are genesis-active like OP_CAT.

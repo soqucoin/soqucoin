@@ -30,6 +30,7 @@ enum DeploymentPos {
     DEPLOYMENT_P2WSH_DILITHIUM, // Witness v6: P2WSH with Dilithium (bit 10) — covenant script execution, L2SOQ Lightning
     DEPLOYMENT_UTXO_COST,       // SOQ-ARCH-003: Consensus-enforced minimum UTXO value (bit 11) — Cardano-style utxoCostPerByte
     DEPLOYMENT_DILITHIUM_KEYHASH, // OP_CHECKDILITHIUMKEYHASH (bit 12) — key-committed Dilithium sig verify, eLTOO 2-of-2 multisig
+    DEPLOYMENT_V6_CONTROLFLOW, // DL-V6-CONTROLFLOW-RESTORE (bit 13) — IF/CLTV/CSV/DROP/SHA256/EQUAL in v6 EvalScript (eLTOO ratchet, HTLC)
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };

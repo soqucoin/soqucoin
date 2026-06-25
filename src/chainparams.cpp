@@ -263,6 +263,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = 0;    // Not yet scheduled
 
+        // DL-V6-CONTROLFLOW-RESTORE: restore branch/timelock/hashlock opcodes in v6 EvalScript.
+        // BIP9 activation post-audit: set nStartTime, miners signal bit 13.
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = 0;    // Not yet scheduled
+
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
@@ -482,6 +488,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE on testnet for eLTOO/HTLC integration testing
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
 
@@ -673,6 +684,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE for regtest (eLTOO/HTLC unit + functional tests)
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -899,6 +915,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE on stagenet for the eLTOO/HTLC e2e (ratchet, settlement, HTLC)
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // USDSOQ Authority Keys - 2-of-3 ML-DSA-44 multisig (FIPS 204)
         // Keys control USDSOQ mint/burn/freeze. Generated 2026-05-27T04:46:27Z
