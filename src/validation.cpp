@@ -1029,6 +1029,27 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             scriptVerifyFlags = GetArg("-promiscuousmempoolflags", scriptVerifyFlags);
         }
 
+        // Relay + enforce V6 covenant txs that the NEXT block will enforce. STANDARD omits the V6
+        // covenant opcodes, so without this a B1/eLTOO (or CTV/CSFS/keyhash) tx is non-standard
+        // (won't relay) AND its covenant opcodes are no-ops at the mempool — e.g. OP_CLTV in a v6
+        // script wrongly passes a below-floor eLTOO spend that ConnectBlock rejects. OR-in the V6
+        // covenant flags gated by their BIP9 deployment (per-net), mirroring ConnectBlock: they are
+        // ALWAYS_ACTIVE on stagenet/regtest and nStartTime=0 (never) on mainnet, so this adds NOTHING
+        // on mainnet until activation — keeping mempool policy consistent with consensus.
+        {
+            const CBlockIndex* tipPrev = chainActive.Tip();
+            const Consensus::Params& cons = Params().GetConsensus(0);
+            auto v6active = [&](Consensus::DeploymentPos pos) {
+                return VersionBitsState(tipPrev, cons, pos, versionbitscache) == THRESHOLD_ACTIVE;
+            };
+            if (v6active(Consensus::DEPLOYMENT_CTV))               scriptVerifyFlags |= SCRIPT_VERIFY_CTV;
+            if (v6active(Consensus::DEPLOYMENT_APO))               scriptVerifyFlags |= SCRIPT_VERIFY_APO;
+            if (v6active(Consensus::DEPLOYMENT_CSFS))              scriptVerifyFlags |= SCRIPT_VERIFY_CSFS;
+            if (v6active(Consensus::DEPLOYMENT_P2WSH_DILITHIUM))   scriptVerifyFlags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
+            if (v6active(Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) scriptVerifyFlags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
+            if (v6active(Consensus::DEPLOYMENT_V6_CONTROLFLOW))    scriptVerifyFlags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
+        }
+
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
         PrecomputedTransactionData txdata(tx);
