@@ -32,7 +32,7 @@ third-party source code.
 
 | Path | Module | License | Notes |
 |------|--------|---------|-------|
-| `src/crypto/latticebp/` | Lattice-BP++ (confidential tx primitives) | MIT + **patent-pending** | U.S. Provisional No. 63/999,796 + No. 64/023,515; see [`LICENSE`](src/crypto/latticebp/LICENSE) |
+| `src/crypto/latticebp/` | Lattice-BP++ (confidential tx primitives) | MIT + **patent-pending** | Patent pending (provisional serials withheld); see [`LICENSE`](src/crypto/latticebp/LICENSE) |
 | `src/crypto/latticefold/` | LatticeFold+ verifier (Dilithium batch verify) | MIT | Halborn-remediated |
 | `src/crypto/binius/` | Binius binary-field commitments | MIT | Foundation for Sangria |
 | `src/crypto/binius64/` | GF(2^128) field arithmetic | MIT | Halborn-remediated (SOQ-A001..A004) |
@@ -44,5 +44,5 @@ third-party source code.
 - Per-directory `LICENSE` files state the authoritative terms for each module.
 - The CI `license-check` job (`.github/workflows/license-check.yml`) asserts that
   every cryptographic module directory carries a `LICENSE`.
-- The latticebp patent notice references U.S. Provisional Patent Application
-  No. 63/999,796 (2025) and No. 64/023,515 (2026), both filed by Soqucoin Labs Inc.
+- The latticebp patent notice references two pending U.S. provisional patent
+  applications (filed 2025 and 2026) by Soqucoin Labs Inc.; serial numbers are withheld.

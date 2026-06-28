@@ -17,12 +17,11 @@ third-party source code.
 
 PATENT NOTICE — Patent Pending
 ------------------------------
-Lattice-BP++ is the subject of the following pending U.S. provisional patent
-applications by Soqucoin Labs Inc.:
+Lattice-BP++ is the subject of pending U.S. provisional patent applications by
+Soqucoin Labs Inc. (serial numbers withheld pending non-provisional filing):
 
-  - No. 63/999,796 — "Post-Quantum Cryptographic Architecture for Blockchain
-    Networks" (filed 2025)
-  - No. 64/023,515 — "Lattice-BP++ Post-Quantum Privacy" (filed 2026)
+  - "Post-Quantum Cryptographic Architecture for Blockchain Networks" (filed 2025)
+  - "Lattice-BP++ Post-Quantum Privacy" (filed 2026)
 
 The MIT copyright license above governs the copyright in this source code; it
 does not itself grant any rights under those patents. This notice is
