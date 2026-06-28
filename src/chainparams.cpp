@@ -143,7 +143,10 @@ public:
         bech32HRP = "sq";
 
         // Blocks 0 - 144999 are conventional difficulty calculation
-        consensus.nSubsidyHalvingInterval = 100000;
+        // 47B Moderate emission (locked 2026-06-28, bead soqucoin-build-c61):
+        // 250,000-block halving interval (~174d at 60s) × 4 halvings; 100K launch
+        // reward + 2,500 tail live in GetSoqucoinBlockSubsidy (soqucoin.cpp).
+        consensus.nSubsidyHalvingInterval = 250000;
         consensus.nMajorityEnforceBlockUpgrade = 1500;
         consensus.nMajorityRejectBlockOutdated = 1900;
         consensus.nMajorityWindow = 2000;
@@ -409,7 +412,7 @@ public:
         consensus.nMaxReorgDepth = 288; // Finality horizon (Analysis [A]); see CMainParams. Propagates into digishieldConsensus.
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowAllowDigishieldMinDifficultyBlocks = false;
-        consensus.nSubsidyHalvingInterval = 100000;
+        consensus.nSubsidyHalvingInterval = 250000; // 47B schedule — mirror mainnet (bead c61)
         consensus.nMajorityEnforceBlockUpgrade = 501;
         consensus.nMajorityRejectBlockOutdated = 750;
         consensus.nMajorityWindow = 1000;
@@ -806,7 +809,10 @@ public:
         strNetworkID = "stagenet";
         bech32HRP = "ssq"; // stagenet soqucoin
 
-        consensus.nSubsidyHalvingInterval = 100000;
+        // 47B schedule — stagenet mirrors mainnet economics (bead c61). At 250K
+        // blocks/halving the first halving is ~174d out, so stagenet exercises the
+        // schedule via unit tests, not by waiting for a live halving.
+        consensus.nSubsidyHalvingInterval = 250000;
         consensus.nMajorityEnforceBlockUpgrade = 1500;
         consensus.nMajorityRejectBlockOutdated = 1900;
         consensus.nMajorityWindow = 2000;

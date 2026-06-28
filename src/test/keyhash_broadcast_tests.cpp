@@ -331,7 +331,7 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
     const CAmount FEE = 50000;
 
     // Coinbase value at block 1 on regtest (fSimplifiedRewards, halving=150):
-    // Block 0..149 → (500000 * COIN) >> 0 = 500,000 COIN.
+    // Block 0..149 → (100000 * COIN) >> 0 = 100,000 COIN (47B schedule, bead c61).
     CAmount cbValue = coinbaseTxns[0].vout[0].nValue;
     BOOST_TEST_MESSAGE("Coinbase[0] value: " << cbValue << " sat ("
                        << (cbValue / COIN) << " SOQ)");
