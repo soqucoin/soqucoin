@@ -103,6 +103,7 @@ struct Params {
     bool fDigishieldDifficultyCalculation;
     bool fPowAllowDigishieldMinDifficultyBlocks; // Allow minimum difficulty blocks where a retarget would normally occur
     bool fSimplifiedRewards;                     // Use block height derived rewards rather than previous block hash derived
+    int nInitialSubsidy = 100000;                // Epoch-0 block reward in whole SOQ; halved each nSubsidyHalvingInterval (GetSoqucoinBlockSubsidy). Mainnet/testnet/stagenet = 100000 (47B model, bead c61); regtest keeps 500000 as a test fixture.
 
     uint256 nMinimumChainWork;
     uint256 defaultAssumeValid;

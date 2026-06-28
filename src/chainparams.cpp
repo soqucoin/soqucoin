@@ -147,6 +147,7 @@ public:
         // 250,000-block halving interval (~174d at 60s) × 4 halvings; 100K launch
         // reward + 2,500 tail live in GetSoqucoinBlockSubsidy (soqucoin.cpp).
         consensus.nSubsidyHalvingInterval = 250000;
+        consensus.nInitialSubsidy = 100000; // 47B launch reward
         consensus.nMajorityEnforceBlockUpgrade = 1500;
         consensus.nMajorityRejectBlockOutdated = 1900;
         consensus.nMajorityWindow = 2000;
@@ -413,6 +414,7 @@ public:
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowAllowDigishieldMinDifficultyBlocks = false;
         consensus.nSubsidyHalvingInterval = 250000; // 47B schedule — mirror mainnet (bead c61)
+        consensus.nInitialSubsidy = 100000; // 47B launch reward
         consensus.nMajorityEnforceBlockUpgrade = 501;
         consensus.nMajorityRejectBlockOutdated = 750;
         consensus.nMajorityWindow = 1000;
@@ -616,6 +618,10 @@ public:
         strNetworkID = "regtest";
         bech32HRP = "sq";
         consensus.nSubsidyHalvingInterval = 150;
+        // Regtest keeps the historical 500,000 launch reward as a test fixture: the
+        // qa/rpc-tests functional suite hardcodes 500K-coinbase balances. Mainnet
+        // economics (100K) are exercised by the C++ subsidy unit tests, not regtest.
+        consensus.nInitialSubsidy = 500000;
         consensus.nMajorityEnforceBlockUpgrade = 750;
         consensus.nMajorityRejectBlockOutdated = 950;
         consensus.nMajorityWindow = 1000;
@@ -813,6 +819,7 @@ public:
         // blocks/halving the first halving is ~174d out, so stagenet exercises the
         // schedule via unit tests, not by waiting for a live halving.
         consensus.nSubsidyHalvingInterval = 250000;
+        consensus.nInitialSubsidy = 100000; // 47B launch reward (stagenet mirrors mainnet)
         consensus.nMajorityEnforceBlockUpgrade = 1500;
         consensus.nMajorityRejectBlockOutdated = 1900;
         consensus.nMajorityWindow = 2000;
