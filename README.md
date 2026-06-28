@@ -289,9 +289,9 @@ This project follows [Bitcoin Core contribution guidelines](CONTRIBUTING.md):
 | **Ticker** | SOQ |
 | **Algorithm** | Scrypt |
 | **Block Time** | 1 minute |
-| **Initial Block Reward** | 500,000 SOQ |
-| **Halving Interval** | 100,000 blocks (~69 days) |
-| **Terminal Emission** | 10,000 SOQ perpetual (after block 600,000) |
+| **Initial Block Reward** | 100,000 SOQ |
+| **Halving Interval** | 250,000 blocks (~174 days) |
+| **Terminal Emission** | 2,500 SOQ perpetual (after block 1,000,000) |
 | **Supply Model** | Inflationary with declining rate |
 | **Premine** | 0 SOQ |
 

@@ -107,7 +107,7 @@ Creates a new block template for merged mining.
   "hash": "abc123...",
   "chainid": 21329,
   "previousblockhash": "def456...",
-  "coinbasevalue": 50000000000000,
+  "coinbasevalue": 10000000000000,
   "bits": "1e0fffff",
   "height": 1213,
   "_target": "00000fffff..."

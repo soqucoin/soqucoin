@@ -3,7 +3,7 @@
 > **Network**: Stagenet (pre-mainnet testing environment)  
 > **Algorithm**: Scrypt (Litecoin/Dogecoin compatible — AuxPoW merge-mining ready)  
 > **Block time**: ~60 seconds  
-> **Initial reward**: 500,000 SOQ/block (halving every 100,000 blocks)  
+> **Initial reward**: 100,000 SOQ/block (halving every 250,000 blocks)  
 > **Pool**: `stratum+tcp://64.23.197.144:3333`  
 > **Explorer**: Coming soon
 
@@ -211,8 +211,8 @@ Payouts are processed every 10 minutes via PPLNS. Minimum payout: 1 SOQ.
 | PoW Algorithm | Scrypt |
 | AuxPoW | Enabled (merge-mining ready) |
 | Block Time | ~60 seconds |
-| Initial Subsidy | 500,000 SOQ |
-| Halving Interval | 100,000 blocks |
+| Initial Subsidy | 100,000 SOQ |
+| Halving Interval | 250,000 blocks |
 | Consensus Features | Dilithium signatures, USDSOQ opcodes, Lattice-BP++ privacy (BIP9-gated) |
 
 ### Seed Nodes

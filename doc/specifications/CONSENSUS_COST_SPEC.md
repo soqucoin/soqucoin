@@ -194,7 +194,7 @@ This section explains **why** each modified parameter differs from Dogecoin's ba
 
 | Dogecoin | Soqucoin | Rationale |
 |----------|----------|-----------|
-| Blocks 0-100k: Random 0-1,000,000 DOGE | Blocks 0-100k: Fixed 500,000 SOQ | **Predictability** |
+| Blocks 0-100k: Random 0-1,000,000 DOGE | Blocks 1-250k: Fixed 100,000 SOQ | **Predictability** |
 
 Dogecoin's random block rewards were a "fun" feature reflecting its meme origins. For a serious post-quantum chain:
 - Miners and investors require **predictable economic models**
@@ -205,12 +205,12 @@ Dogecoin's random block rewards were a "fun" feature reflecting its meme origins
 
 | Dogecoin | Soqucoin | Rationale |
 |----------|----------|-----------|
-| 10,000 DOGE perpetual (after block 600k) | 10,000 SOQ perpetual (after block 600k) | **Miner incentive sustainability** |
+| 10,000 DOGE perpetual (after block 600k) | 2,500 SOQ perpetual (after block 1,000,000) | **Miner incentive sustainability** |
 
-Both chains converge to **identical terminal emission**: 10,000 tokens/block indefinitely. This is intentional:
+Both chains adopt **perpetual tail emission**, but Soqucoin uses a smaller 2,500 SOQ/block tail (vs Dogecoin's 10,000 DOGE/block) and begins it later, after block 1,000,000. This is intentional:
 - Perpetual inflation ensures ongoing miner incentives
 - Prevents "fee-only" security model concerns
-- Aligns with Dogecoin's proven long-term approach
+- Aligns with Dogecoin's proven long-term approach while keeping tail inflation lower
 
 ### 2.3 Fee Structure: Placeholder for Mainnet Economics
 
@@ -424,13 +424,13 @@ Standard Bitcoin witness limits were designed for ECDSA (~72 byte signatures). D
 |-----------|-------|--------|
 | **Block Time Target** | 60 seconds | Inherited (Dogecoin) |
 | **Difficulty Adjustment** | Every block (DigiShield) | Inherited (Dogecoin) |
-| **Halving Interval** | 100,000 blocks (~69 days)¹ | Modified (Soqucoin) |
-| **Initial Block Reward** | 500,000 SOQ | Modified (Soqucoin) |
-| **Terminal Reward** | 10,000 SOQ (after block 600,000) | Modified (Soqucoin) |
+| **Halving Interval** | 250,000 blocks (~174 days)¹ | Modified (Soqucoin) |
+| **Initial Block Reward** | 100,000 SOQ | Modified (Soqucoin) |
+| **Terminal Reward** | 2,500 SOQ (after block 1,000,000) | Modified (Soqucoin) |
 | **Coinbase Maturity** | 30 blocks | Modified (Soqucoin) |
 | **AuxPoW Chain ID** | 0x5351 (21329 decimal) | Novel (Soqucoin) |
 
-> ¹ Calculation: 100,000 blocks × 60 seconds = 6,000,000 seconds ≈ 69.4 days at target. Actual time varies with hashrate.
+> ¹ Calculation: 250,000 blocks × 60 seconds = 15,000,000 seconds ≈ 173.6 days at target. Actual time varies with hashrate.
 
 ---
 
@@ -646,13 +646,11 @@ All values are defined in the Soqucoin Core source code at the following paths:
 
 | Block Range | Reward per Block | Cumulative Supply |
 |-------------|------------------|-------------------|
-| 0 - 100,000 | 500,000 SOQ | 50 billion SOQ |
-| 100,001 - 200,000 | 250,000 SOQ | 75 billion SOQ |
-| 200,001 - 300,000 | 125,000 SOQ | 87.5 billion SOQ |
-| 300,001 - 400,000 | 62,500 SOQ | 93.75 billion SOQ |
-| 400,001 - 500,000 | 31,250 SOQ | 96.875 billion SOQ |
-| 500,001 - 600,000 | 15,625 SOQ | 98.4375 billion SOQ |
-| 600,001+ | 10,000 SOQ | Perpetual inflation |
+| 1 - 250,000 | 100,000 SOQ | 25 billion SOQ |
+| 250,001 - 500,000 | 50,000 SOQ | 37.5 billion SOQ |
+| 500,001 - 750,000 | 25,000 SOQ | 43.75 billion SOQ |
+| 750,001 - 1,000,000 | 12,500 SOQ | 46.875 billion SOQ |
+| 1,000,001+ | 2,500 SOQ | Perpetual inflation (~1.31B SOQ/year) |
 
 ### Allocations
 

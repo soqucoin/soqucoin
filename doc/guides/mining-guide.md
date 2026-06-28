@@ -108,7 +108,7 @@ var SoqucoinNetwork = &AuxChain{
         User:       "soqurpc",
         Password:   "your_secure_password",
     },
-    BlockReward:    500000,     // Initial block reward
+    BlockReward:    100000,     // Initial block reward
     ConfirmBlocks:  100,        // Coinbase maturity
 }
 ```
@@ -135,13 +135,11 @@ soqucoin-cli getauxblock "blockhash" "auxpow_data"
 
 | Block Range | Reward (SOQ) | Notes |
 |-------------|--------------|-------|
-| 0 - 99,999 | 500,000 | Initial phase |
-| 100,000 - 199,999 | 250,000 | First halving |
-| 200,000 - 299,999 | 125,000 | Second halving |
-| 300,000 - 399,999 | 62,500 | Third halving |
-| 400,000 - 499,999 | 31,250 | Fourth halving |
-| 500,000 - 599,999 | 15,625 | Fifth halving |
-| 600,000+ | 10,000 | Terminal perpetual |
+| 1 - 250,000 | 100,000 | Initial phase |
+| 250,001 - 500,000 | 50,000 | First halving |
+| 500,001 - 750,000 | 25,000 | Second halving |
+| 750,001 - 1,000,000 | 12,500 | Third halving |
+| 1,000,001+ | 2,500 | Terminal perpetual |
 
 ### Block Time
 
