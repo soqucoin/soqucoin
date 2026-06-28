@@ -116,10 +116,11 @@ Soqucoin follows Dogecoin's emission model with minor adjustments:
 
 | Height | Reward | Notes |
 |--------|--------|-------|
-| 0 - 99,999 | 500,000 SOQ | Genesis phase |
-| 100,000 - 199,999 | 250,000 SOQ | First halving |
-| 200,000 - 299,999 | 125,000 SOQ | Second halving |
-| 300,000+ | 10,000 SOQ | Perpetual tail emission |
+| 1 – 250,000 | 100,000 SOQ | Genesis phase |
+| 250,001 – 500,000 | 50,000 SOQ | First halving |
+| 500,001 – 750,000 | 25,000 SOQ | Second halving |
+| 750,001 – 1,000,000 | 12,500 SOQ | Third halving |
+| 1,000,001+ | 2,500 SOQ | Perpetual tail emission |
 
 ### Tail Emission Rationale
 
@@ -128,7 +129,7 @@ Like Dogecoin, Soqucoin uses **perpetual tail emission** (no supply cap) to:
 - Replace lost coins over time
 - Maintain transaction fee competitiveness
 
-**Annual Inflation:** ~5.26B SOQ (~3% decreasing annually)
+**Annual Inflation:** ~1.31B SOQ/year at tail (declining; ~2.7% at head completion)
 
 ---
 
@@ -202,7 +203,7 @@ See [INCIDENT_RESPONSE_PLAN.md](INCIDENT_RESPONSE_PLAN.md) for:
 | Consensus | SHA-256 (merged-mined) | Scrypt (AuxPoW capable) |
 | Signatures | ECDSA | **Dilithium (PQ-safe)** |
 | Block Time | 1 minute | 1 minute |
-| Tail Emission | 10,000 DOGE/block | 10,000 SOQ/block |
+| Tail Emission | 10,000 DOGE/block | 2,500 SOQ/block |
 | Governance | BIP9 soft forks | BIP9 soft forks |
 
 **Key Differentiator:** Soqucoin is the **first quantum-resistant Scrypt chain**.

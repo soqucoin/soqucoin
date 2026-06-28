@@ -4,9 +4,9 @@
 
 Soqucoin uses a **perpetual emission model** (similar to Dogecoin) to ensure long-term miner incentives for network security:
 
-- **Initial block reward**: 500,000 SOQ
-- **Halvings**: Every 100,000 blocks (~70 days)
-- **Terminal emission**: 10,000 SOQ perpetual after block 600,000
+- **Initial block reward**: 100,000 SOQ
+- **Halvings**: Every 250,000 blocks (~174 days)
+- **Terminal emission**: 2,500 SOQ perpetual after block 1,000,000
 
 This inflationary model ensures miners always have incentive to secure the post-quantum network.
 
@@ -14,19 +14,17 @@ This inflationary model ensures miners always have incentive to secure the post-
 
 | Block Range | Block Reward | Timeline (~1 min blocks) |
 |-------------|-------------|--------------------------|
-| 0 – 99,999 | 500,000 SOQ | First ~70 days |
-| 100,000 – 199,999 | 250,000 SOQ | ~70 days |
-| 200,000 – 299,999 | 125,000 SOQ | ~70 days |
-| 300,000 – 399,999 | 62,500 SOQ | ~70 days |
-| 400,000 – 499,999 | 31,250 SOQ | ~70 days |
-| 500,000 – 599,999 | 15,625 SOQ | ~70 days |
-| **600,000+** | **10,000 SOQ (perpetual)** | **Forever** |
+| 1 – 250,000 | 100,000 SOQ | First ~174 days |
+| 250,001 – 500,000 | 50,000 SOQ | ~174 days |
+| 500,001 – 750,000 | 25,000 SOQ | ~174 days |
+| 750,001 – 1,000,000 | 12,500 SOQ | ~174 days |
+| **1,000,001+** | **2,500 SOQ (perpetual)** | **Forever** |
 
 **Key characteristics:**
-- **No hard cap** – perpetual emission after block 600,000
-- **100,000 block halving interval** (~70 days at 1-min blocks)
-- **~11.4 months** to reach terminal emission
-- **Terminal emission**: 10,000 SOQ/block = ~5.25B SOQ/year
+- **No hard cap** – perpetual emission after block 1,000,000
+- **250,000 block halving interval** (~174 days at 1-min blocks)
+- **~1.9 years** to reach terminal emission
+- **Terminal emission**: 2,500 SOQ/block = ~1.31B SOQ/year
 
 ## Where is the emission schedule defined?
 
@@ -61,13 +59,11 @@ Soqucoin uses the **Scrypt** proof-of-work algorithm with:
 
 | Block Range | Reward (SOQ) |
 |-------------|-------------:|
-| 0 – 99,999 | 500,000 |
-| 100,000 – 199,999 | 250,000 |
-| 200,000 – 299,999 | 125,000 |
-| 300,000 – 399,999 | 62,500 |
-| 400,000 – 499,999 | 31,250 |
-| 500,000 – 599,999 | 15,625 |
-| 600,000+ | 10,000 (perpetual) |
+| 1 – 250,000 | 100,000 |
+| 250,001 – 500,000 | 50,000 |
+| 500,001 – 750,000 | 25,000 |
+| 750,001 – 1,000,000 | 12,500 |
+| 1,000,001+ | 2,500 (perpetual) |
 
 ## Is there a mining pool?
 

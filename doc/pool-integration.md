@@ -135,7 +135,7 @@ soqucoin-cli createauxblock ssq1p23ssp9dsfcxzn33msmfzsk723rg24h9j8lrdn4qtaezcztj
 #   "hash": "...",
 #   "chainid": 98,
 #   "previousblockhash": "...",
-#   "coinbasevalue": 50000000000000,
+#   "coinbasevalue": 10000000000000,
 #   "bits": "...",
 #   "height": 126,
 #   "_target": "..."
@@ -152,13 +152,11 @@ soqucoin-cli submitauxblock <hash> <serialized_auxpow>
 
 | Block Range | Subsidy (SOQ) | Phase |
 |-------------|---------------|-------|
-| 0 – 99,999 | 500,000 | Emission 1 |
-| 100,000 – 199,999 | 250,000 | Halving 1 |
-| 200,000 – 299,999 | 125,000 | Halving 2 |
-| 300,000 – 399,999 | 62,500 | Halving 3 |
-| 400,000 – 499,999 | 31,250 | Halving 4 |
-| 500,000 – 599,999 | 15,625 | Halving 5 |
-| 600,000+ | 10,000 | Perpetual tail emission |
+| 1 – 250,000 | 100,000 | Emission 1 |
+| 250,001 – 500,000 | 50,000 | Halving 1 |
+| 500,001 – 750,000 | 25,000 | Halving 2 |
+| 750,001 – 1,000,000 | 12,500 | Halving 3 |
+| 1,000,001+ | 2,500 | Perpetual tail emission |
 
 **Notes:**
 - Reward is 100% to miner (no dev tax, no foundation cut)
