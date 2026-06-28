@@ -139,12 +139,16 @@ CAmount GetSoqucoinBlockSubsidy(int nHeight, const Consensus::Params& consensusP
         int rand = generateMTRandom(seed, maxReward);
 
         return (1 + rand) * COIN;
-    } else if (nHeight < (6 * consensusParams.nSubsidyHalvingInterval)) {
-        // New-style constant rewards for each halving interval
-        return (500000 * COIN) >> halvings;
+    } else if (nHeight < (4 * consensusParams.nSubsidyHalvingInterval)) {
+        // 47B Moderate emission schedule (locked 2026-06-28, bead soqucoin-build-c61):
+        // launch reward (nInitialSubsidy = 100,000 SOQ on mainnet) halved 4 times at
+        // nSubsidyHalvingInterval. Head supply ~46.875B (25B + 12.5B + 6.25B + 3.125B).
+        // See DL-EMISSION-47B-LOCK. (regtest pins nInitialSubsidy=500000 for test fixtures.)
+        return ((CAmount)consensusParams.nInitialSubsidy * COIN) >> halvings;
     } else {
-        // Constant inflation
-        return 10000 * COIN;
+        // Perpetual tail — mild, declining inflation (~1.31B SOQ/yr at the mainnet
+        // 60s/250K-block cadence). Keeps SOQ a living currency, not hard-capped.
+        return 2500 * COIN;
     }
 }
 

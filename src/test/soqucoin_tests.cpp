@@ -11,53 +11,6 @@
 
 BOOST_FIXTURE_TEST_SUITE(soqucoin_tests, TestingSetup)
 
-/**
- * the maximum block reward at a given height for a block without fees
- */
-uint64_t expectedMaxSubsidy(int height) {
-    if (height < 100000) {
-        return 1000000 * COIN;
-    } else if (height < 145000) {
-        return 500000 * COIN;
-    } else if (height < 200000) {
-        return 250000 * COIN;
-    } else if (height < 300000) {
-        return 125000 * COIN;
-    } else if (height < 400000) {
-        return  62500 * COIN;
-    } else if (height < 500000) {
-        return  31250 * COIN;
-    } else if (height < 600000) {
-        return  15625 * COIN;
-    } else {
-        return  10000 * COIN;
-    }
-}
-
-/**
- * the minimum possible value for the maximum block reward at a given height
- * for a block without fees
- */
-uint64_t expectedMinSubsidy(int height) {
-    if (height < 100000) {
-        return 0;
-    } else if (height < 145000) {
-        return 0;
-    } else if (height < 200000) {
-        return 250000 * COIN;
-    } else if (height < 300000) {
-        return 125000 * COIN;
-    } else if (height < 400000) {
-        return  62500 * COIN;
-    } else if (height < 500000) {
-        return  31250 * COIN;
-    } else if (height < 600000) {
-        return  15625 * COIN;
-    } else {
-        return  10000 * COIN;
-    }
-}
-
 BOOST_AUTO_TEST_CASE(subsidy_first_100k_test)
 {
     const CChainParams& mainParams = Params(CBaseChainParams::MAIN);
@@ -68,15 +21,16 @@ BOOST_AUTO_TEST_CASE(subsidy_first_100k_test)
         const Consensus::Params& params = mainParams.GetConsensus(nHeight);
         CAmount nSubsidy = GetSoqucoinBlockSubsidy(nHeight, params, ArithToUint256(prevHash));
         BOOST_CHECK(MoneyRange(nSubsidy));
-        BOOST_CHECK(nSubsidy <= 1000000 * COIN);
+        BOOST_CHECK(nSubsidy <= 100000 * COIN);
         nSum += nSubsidy;
         // Use nSubsidy to give us some variation in previous block hash, without requiring full block templates
         prevHash += nSubsidy;
     }
 
-    // Soqucoin: fSimplifiedRewards=true from genesis
-    // 100,000 blocks × 500,000 COIN + 1 block × 250,000 COIN (halvings=1 at h=100000)
-    const CAmount expected = (CAmount)50000250000LL * COIN;
+    // 47B Moderate schedule (bead c61): heights 0..100000 are all in epoch 0
+    // (< 250,000-block halving interval), each minting the 100,000 SOQ launch reward.
+    // 100,001 blocks × 100,000 SOQ
+    const CAmount expected = (CAmount)10000100000LL * COIN;
     BOOST_CHECK_EQUAL(expected, nSum);
 }
 
@@ -90,15 +44,16 @@ BOOST_AUTO_TEST_CASE(subsidy_100k_145k_test)
         const Consensus::Params& params = mainParams.GetConsensus(nHeight);
         CAmount nSubsidy = GetSoqucoinBlockSubsidy(nHeight, params, ArithToUint256(prevHash));
         BOOST_CHECK(MoneyRange(nSubsidy));
-        BOOST_CHECK(nSubsidy <= 500000 * COIN);
+        BOOST_CHECK(nSubsidy <= 100000 * COIN);
         nSum += nSubsidy;
         // Use nSubsidy to give us some variation in previous block hash, without requiring full block templates
         prevHash += nSubsidy;
     }
 
-    // Soqucoin: fSimplifiedRewards=true, halvings=1 for all blocks [100000,145000]
-    // 45,001 blocks × 250,000 COIN
-    const CAmount expected = (CAmount)11250250000LL * COIN;
+    // 47B Moderate schedule (bead c61): heights 100000..145000 are still in epoch 0
+    // (< 250,000-block interval), each minting 100,000 SOQ.
+    // 45,001 blocks × 100,000 SOQ
+    const CAmount expected = (CAmount)4500100000LL * COIN;
     BOOST_CHECK_EQUAL(expected, nSum);
 }
 
@@ -108,20 +63,23 @@ BOOST_AUTO_TEST_CASE(subsidy_post_145k_test)
     const CChainParams& mainParams = Params(CBaseChainParams::MAIN);
     const uint256 prevHash = uint256S("0");
 
-    for (int nHeight = 145000; nHeight < 600000; nHeight++) {
+    // 47B Moderate schedule (bead c61): reward = (100000 >> halvings) across the 4
+    // head epochs, then a perpetual 2,500 SOQ tail from 4 × interval (height 1,000,000).
+    for (int nHeight = 145000; nHeight < 1100000; nHeight++) {
         const Consensus::Params& params = mainParams.GetConsensus(nHeight);
+        const int interval = params.nSubsidyHalvingInterval;
         CAmount nSubsidy = GetSoqucoinBlockSubsidy(nHeight, params, prevHash);
-        CAmount nExpectedSubsidy = (500000 >> (nHeight / 100000)) * COIN;
+        CAmount nExpectedSubsidy = (nHeight < 4 * interval)
+            ? (100000 >> (nHeight / interval)) * COIN
+            : 2500 * COIN;
         BOOST_CHECK(MoneyRange(nSubsidy));
         BOOST_CHECK_EQUAL(nSubsidy, nExpectedSubsidy);
     }
 
-    // Test reward at 600k+ is constant
-    CAmount nConstantSubsidy = GetSoqucoinBlockSubsidy(600000, mainParams.GetConsensus(600000), prevHash);
-    BOOST_CHECK_EQUAL(nConstantSubsidy, 10000 * COIN);
-
-    nConstantSubsidy = GetSoqucoinBlockSubsidy(700000, mainParams.GetConsensus(700000), prevHash);
-    BOOST_CHECK_EQUAL(nConstantSubsidy, 10000 * COIN);
+    // Tail is constant 2,500 SOQ from the 4th halving (height 1,000,000) onward.
+    const int interval = mainParams.GetConsensus(0).nSubsidyHalvingInterval;
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(4 * interval, mainParams.GetConsensus(4 * interval), prevHash), 2500 * COIN);
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(6 * interval, mainParams.GetConsensus(6 * interval), prevHash), 2500 * COIN);
 }
 
 BOOST_AUTO_TEST_CASE(get_next_work_difficulty_limit)

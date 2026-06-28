@@ -224,16 +224,21 @@ BOOST_AUTO_TEST_CASE(subsidy_halving_schedule)
     uint256 dummyHash;
     dummyHash.SetNull();
 
-    // Block 0: 500,000 SOQ
-    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(0, consensus, dummyHash), 500000 * COIN);
-    // After first halving: 250,000 SOQ
-    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(consensus.nSubsidyHalvingInterval, consensus, dummyHash), 250000 * COIN);
-    // After second halving: 125,000 SOQ
-    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(2 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 125000 * COIN);
-    // After sixth halving: perpetual 10,000 SOQ
-    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(6 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 10000 * COIN);
-    // Way past sixth halving: still 10,000 SOQ (perpetual inflation)
-    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(100 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 10000 * COIN);
+    // 47B Moderate emission (locked 2026-06-28, bead c61): 100K launch reward,
+    // 4 halvings at nSubsidyHalvingInterval, then a perpetual 2,500 SOQ tail.
+    // Block 0 (epoch 0): 100,000 SOQ
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(0, consensus, dummyHash), 100000 * COIN);
+    // After first halving: 50,000 SOQ
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(consensus.nSubsidyHalvingInterval, consensus, dummyHash), 50000 * COIN);
+    // After second halving: 25,000 SOQ
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(2 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 25000 * COIN);
+    // After third halving (final head epoch): 12,500 SOQ
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(3 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 12500 * COIN);
+    // Fourth halving onward: perpetual 2,500 SOQ tail
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(4 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 2500 * COIN);
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(6 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 2500 * COIN);
+    // Way past the tail transition: still 2,500 SOQ (perpetual inflation)
+    BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(100 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 2500 * COIN);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
