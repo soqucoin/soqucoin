@@ -219,9 +219,10 @@ soqucoin-cli listtransactions "*" 100 0 true | jq '.[] | select(.category == "re
 |------------------|---------------------------|
 | < 1,000 SOQ | 6 confirmations (~6 min) |
 | 1,000 - 10,000 SOQ | 12 confirmations (~12 min) |
-| > 10,000 SOQ | 24+ confirmations (~24 min) |
+| 10,000 - 100,000 SOQ | 24 confirmations (~24 min) |
+| Large value / final settlement | **288 confirmations (~4.8h — absolute finality)** |
 
-> **Note**: With 1-minute block times and merged mining, 6 confirmations provides strong finality for most transactions.
+> **Note**: Below 288 blocks, confirmations are **probabilistic** — more confirmations lower the reversal risk, but a large hashpower rental can still reorganize recent blocks. At **288 blocks (~4.8h)** finality becomes **absolute**: the network rejects any reorg deeper than 288 blocks (`nMaxReorgDepth`), so a buried transaction cannot be reversed by hashpower. **Do not credit large deposits on a handful of confirmations** — wait for the 288-block finality horizon for high-value settlement. See [Chain Finality](https://soqu.org/docs/protocol/finality/) for the full properties and tradeoffs.
 
 ---
 
