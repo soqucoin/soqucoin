@@ -40,8 +40,12 @@ def computeAuxpowWithChainId (block, target, chainid, ok):
   txHash = doubleHashHex (tx)
 
   # Construct the parent block header.  It need not be valid, just good
-  # enough for auxpow purposes.
-  header = "0100" + chainid + "00"
+  # enough for auxpow purposes.  The chain id may be one byte ("62") or, for
+  # Soqucoin's two-byte 0x5351, two bytes little-endian ("5153").
+  if len (chainid) == 4:
+    header = "0100" + chainid
+  else:
+    header = "0100" + chainid + "00"
   header += "00" * 32
   header += reverseHex (txHash)
   header += "00" * 4

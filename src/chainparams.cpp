@@ -303,7 +303,12 @@ public:
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
+        // lw7: reject AuxPoW blocks that don't carry our chain id (and, via the
+        // parent-side check, parents that DO) — blocks cross-chain / self-merge-mining
+        // PoW reuse. Safe on mainnet: the chain is fresh and the miner (SetBaseVersion)
+        // stamps chain id 0x5351 on every block from genesis. The check is scoped to
+        // AuxPoW blocks (soqucoin.cpp), so solo blocks are unaffected.
+        consensus.fStrictChainId = true;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nAuxpowStartHeight = 0;    // AuxPoW from genesis — merge mining available from block 0
         consensus.nHeightEffective = 0;
@@ -537,7 +542,7 @@ public:
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = false;  // Allow legacy blocks without embedded chain ID
+        consensus.fStrictChainId = true;   // lw7 — testnet3 is retired; mirror mainnet
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nAuxpowStartHeight = 0;    // AuxPoW from genesis — mirror mainnet (bead lnq)
@@ -743,7 +748,7 @@ public:
 
         // AuxPow parameters
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
+        consensus.fStrictChainId = true;     // lw7 — regtest is ephemeral; mirror mainnet
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nAuxpowStartHeight = 20;   // Regtest: match auxpowConsensus.nHeightEffective
 
@@ -1011,6 +1016,13 @@ public:
 
         // AuxPoW parameters - same as mainnet
         consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin
+        // lw7: DELIBERATELY still false on stagenet. The LIVE stagenet's historical
+        // AuxPoW blocks were mined as version 0x00000104 — AuxPoW flag set but chain
+        // id 0x0 (the pre-lw7 miner didn't stamp it). Flipping strict here would make
+        // every one of those blocks invalid (IsAuxpow && GetChainId 0 != 0x5351) and
+        // reject the entire live chain. Flip this to true ONLY at the next coordinated
+        // stagenet RESET, once a fresh chain is mined with the chain-id-stamping miner
+        // AND the pool's merged-mining commitment is verified to use chain id 0x5351.
         consensus.fStrictChainId = false;
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true;

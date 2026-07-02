@@ -70,12 +70,11 @@ class AuxPOWTest (BitcoinTestFramework):
         # 7. mine an auxpow block with high pow, expect: fail
         assert scrypt_auxpow.mineScryptAux(self.nodes[0], "00", False) is False
 
-        # NOTE: Dogecoin's original step "mine an auxpow whose parent chain is us,
-        # expect: fail" does NOT apply to Soqucoin. The self-chain-id guard in
-        # auxpow.cpp ("Aux POW parent has our chain ID") is gated on fStrictChainId,
-        # which is false on every network by design (allow legacy non-auxpow blocks).
-        # So such a block is accepted, not rejected. Removed to keep the node-0
-        # reward count below exact (steps 2 and 6 only). See soqucoin-build-lw7.
+        # 8. mine an auxpow block whose PARENT chain is us, expect: fail
+        # (lw7: fStrictChainId=true on regtest since 2026-07-02 — an auxpow parent
+        # carrying our own chain id 0x5351 is self-merge-mining PoW reuse and must be
+        # rejected by the parent-side guard in auxpow.cpp. "5153" = 0x5351 LE.)
+        assert scrypt_auxpow.mineScryptAux(self.nodes[0], "5153", True) is False
 
         # 9. mine enough blocks to mature all node 0 rewards
         self.nodes[1].generate(self.MATURITY_HEIGHT)
