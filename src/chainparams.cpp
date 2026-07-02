@@ -397,7 +397,6 @@ class CTestNetParams : public CChainParams
 private:
     Consensus::Params digishieldConsensus;
     Consensus::Params auxpowConsensus;
-    Consensus::Params minDifficultyConsensus;
 
 public:
     CTestNetParams()
@@ -511,37 +510,34 @@ public:
         consensus.fStrictChainId = false;  // Allow legacy blocks without embedded chain ID
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
-        consensus.nAuxpowStartHeight = 158100; // Match auxpowConsensus.nHeightEffective
+        consensus.nAuxpowStartHeight = 0;    // AuxPoW from genesis — mirror mainnet (bead lnq)
 
-        // Blocks 145000 - 157499 are Digishield without minimum difficulty on all blocks
+        // DigiShield + AuxPoW from block 1 — mirrors mainnet's merged tier.
+        // (bead soqucoin-build-lnq: the previous 145000/157500/158100 tier
+        // ladder was un-customized Dogecoin testnet history, meaningless on
+        // Soqucoin's own genesis. Testnet3 is retired in favor of stagenet,
+        // so this has no live-network impact; aligned to the mainnet design
+        // for a possible future re-mine.)
         digishieldConsensus = consensus;
-        digishieldConsensus.nHeightEffective = 145000;
+        digishieldConsensus.nHeightEffective = 1;
         digishieldConsensus.nPowTargetTimespan = 60; // post-digishield: 1 minute
         digishieldConsensus.fDigishieldDifficultyCalculation = true;
         digishieldConsensus.fSimplifiedRewards = true;
-        digishieldConsensus.fPowAllowMinDifficultyBlocks = false;
         digishieldConsensus.nCoinbaseMaturity = 240;
-        digishieldConsensus.dilithiumOnlyHeight = 0;
+        // Testnet keeps the min-difficulty testing allowances (terminal state
+        // of the old 157500+ tiers).
+        digishieldConsensus.fPowAllowDigishieldMinDifficultyBlocks = true;
+        digishieldConsensus.fPowAllowMinDifficultyBlocks = true;
 
-        // Blocks 157500 - 158099 are Digishield with minimum difficulty on all blocks
-        minDifficultyConsensus = digishieldConsensus;
-        minDifficultyConsensus.nHeightEffective = 157500;
-        minDifficultyConsensus.fPowAllowDigishieldMinDifficultyBlocks = true;
-        minDifficultyConsensus.fPowAllowMinDifficultyBlocks = true;
-        minDifficultyConsensus.dilithiumOnlyHeight = 0;
-
-        // Enable AuxPoW at 158100
-        auxpowConsensus = minDifficultyConsensus;
-        auxpowConsensus.nHeightEffective = 158100;
-        auxpowConsensus.fPowAllowDigishieldMinDifficultyBlocks = true;
+        // AuxPoW shares the block-1 tier (same as mainnet — BST valid)
+        auxpowConsensus = digishieldConsensus;
+        auxpowConsensus.nHeightEffective = 1;
         auxpowConsensus.fAllowLegacyBlocks = true;
-        auxpowConsensus.dilithiumOnlyHeight = 0;
 
         // Assemble the binary search tree of parameters
-        pConsensusRoot = &digishieldConsensus;
-        digishieldConsensus.pLeft = &consensus;
-        digishieldConsensus.pRight = &minDifficultyConsensus;
-        minDifficultyConsensus.pRight = &auxpowConsensus;
+        // Simple two-node tree: genesis (left) and block 1+ (right)
+        pConsensusRoot = &consensus;
+        consensus.pRight = &auxpowConsensus;
 
         pchMessageStart[0] = 0xfc;
         pchMessageStart[1] = 0xc1;
@@ -559,7 +555,6 @@ public:
         // Testnet3 is being retired in favor of stagenet.
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        minDifficultyConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         // Genesis hash assertion deferred — testnet3 is being retired
 
@@ -569,7 +564,6 @@ public:
             "soqucoin-latticebp-params-v1",
             "N=256,Q=8380417,K=4,range=64");
         digishieldConsensus.latticeBPSeed = consensus.latticeBPSeed;
-        minDifficultyConsensus.latticeBPSeed = consensus.latticeBPSeed;
         auxpowConsensus.latticeBPSeed = consensus.latticeBPSeed;
 
         // Clear all Dogecoin seeds - Soqucoin testnet is isolated
