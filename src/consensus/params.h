@@ -45,9 +45,28 @@ struct BIP9Deployment {
     int64_t nStartTime;
     /** Timeout/expiry MedianTime for the deployment attempt. */
     int64_t nTimeout;
+    /**
+     * Flag-day (height-gated) activation — bead soqucoin-build-p96, "Option D".
+     * Soqucoin is merge-mined and has no BIP9 signaling constituency (a chain-id
+     * in the block-version high bits also physically precludes the BIP9 top-bits
+     * pattern), so post-launch soft-forks activate at a scheduled height set in a
+     * coordinated release rather than by miner version-bit signaling.
+     *
+     * When != NO_HEIGHT_ACTIVATION, this deployment is ACTIVE for a block iff that
+     * block's height >= nActivationHeight, and the BIP9 nStartTime/nTimeout fields
+     * are NOT consulted for activation. Set to NOT_SCHEDULED to ship a feature
+     * dormant (mainnet), 0 to activate from genesis (test networks). When left at
+     * NO_HEIGHT_ACTIVATION the deployment uses the BIP9 state machine as before
+     * (retained for the ALWAYS_ACTIVE and historical CSV/SegWit deployments).
+     */
+    int nActivationHeight = NO_HEIGHT_ACTIVATION;
 
     static constexpr int64_t NO_TIMEOUT = std::numeric_limits<int64_t>::max();
     static constexpr int64_t ALWAYS_ACTIVE = -1;
+    /** Sentinel: not height-gated — fall back to the BIP9 state machine. */
+    static constexpr int NO_HEIGHT_ACTIVATION = -1;
+    /** A height no chain will reach — feature is height-gated but not yet scheduled. */
+    static constexpr int NOT_SCHEDULED = std::numeric_limits<int>::max();
 };
 
 /**
@@ -162,6 +181,21 @@ struct Params {
      *  MUST match between soqucoind and soq-privacy-signer for proof verification. */
     std::array<uint8_t, 32> latticeBPSeed = {};
 };
+
+/**
+ * Height-gated ("flag-day") soft-fork activation predicate — bead p96, Option D.
+ * Returns whether the height-gated deployment `pos` is active for a block at
+ * `nHeight`. Intended only for deployments configured with an nActivationHeight;
+ * deployments left on the BIP9 state machine (NO_HEIGHT_ACTIVATION) always return
+ * false here and must be queried via VersionBitsState instead. Total and
+ * crash-free by construction (no per-block asserts).
+ */
+inline bool DeploymentActiveAtHeight(int nHeight, const Params& params, DeploymentPos pos)
+{
+    const int h = params.vDeployments[pos].nActivationHeight;
+    return h != BIP9Deployment::NO_HEIGHT_ACTIVATION && nHeight >= h;
+}
+
 } // namespace Consensus
 
 #endif // BITCOIN_CONSENSUS_PARAMS_H

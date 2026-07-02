@@ -273,6 +273,24 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = 0;    // Not yet scheduled
 
+        // p96 / Option D — MAINNET flag-day activation heights.
+        // These post-launch soft-forks activate by scheduled HEIGHT (not BIP9 miner
+        // signaling: Soqucoin is merge-mined with no signaling constituency; see
+        // DL-P96-BLOCK-VERSION-ACTIVATION.md). All ship NOT_SCHEDULED (dormant) — a
+        // coordinated release sets a real height for each as its Halborn Phase 2
+        // scope clears. The nStartTime/nTimeout above are retained but NOT consulted
+        // for these deployments. (CHECKPATAGG/LATTICEFOLD stay always-active on BIP9;
+        // CSV/SegWit stay on the historical BIP9 windows.)
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight  = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = Consensus::BIP9Deployment::NOT_SCHEDULED;
+
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
@@ -497,6 +515,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // p96 / Option D: height-gated activation, height 0 = active from genesis
+        // (equivalent to the ALWAYS_ACTIVE test behavior above). See CMainParams.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight  = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
 
@@ -692,6 +722,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // p96 / Option D: height-gated activation, height 0 = active from genesis
+        // (equivalent to the ALWAYS_ACTIVE test behavior above). See CMainParams.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight  = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = 0;
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
@@ -927,6 +969,19 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // p96 / Option D: height-gated activation, height 0 = active from genesis
+        // (equivalent to the ALWAYS_ACTIVE test behavior above — the live stagenet's
+        // historical blocks validate identically). See CMainParams.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight  = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = 0;
 
         // USDSOQ Authority Keys - 2-of-3 ML-DSA-44 multisig (FIPS 204)
         // Keys control USDSOQ mint/burn/freeze. Generated 2026-05-27T04:46:27Z
