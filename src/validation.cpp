@@ -4542,7 +4542,7 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 
     // AuxPoW height enforcement: reject AuxPoW blocks before the activation
     // height. On mainnet, nAuxpowStartHeight=0 (AuxPoW from genesis).
-    // nAuxpowStartHeight: mainnet=0, stagenet=100, testnet=158100, regtest=20.
+    // nAuxpowStartHeight: mainnet=0, stagenet=100, testnet=0, regtest=20.
     // Solo mining via getblocktemplate/submitblock is always available at all heights.
     if (block.IsAuxpow() && nHeight < consensusParams.nAuxpowStartHeight)
         return state.DoS(100, error("%s : auxpow block at height %d rejected, AuxPoW activates at height %d",
