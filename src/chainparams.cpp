@@ -167,7 +167,7 @@ public:
         // double-spend window; must stay well above the deepest natural reorg).
         // Propagates into digishieldConsensus via the copy below.
         consensus.nMaxReorgDepth = 288;
-        consensus.fSimplifiedRewards = true; // Fixed 500K SOQ/block from genesis (no Dogecoin random rewards)
+        consensus.fSimplifiedRewards = true; // Deterministic subsidy: 100,000 SOQ initial, 47B/250k-halving schedule (no Dogecoin random rewards); see GetSoqucoinBlockSubsidy
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowAllowDigishieldMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
@@ -994,7 +994,7 @@ public:
         // Stagenet Genesis Block - April 2026 (v3 — Phase 4 byte-less CTxOut re-mine)
         // Unique genesis isolates Stagenet from all other networks
         // Timestamp: 1745769600 = 2026-04-27 12:00:00 UTC
-        // Reward: 500,000 SOQ (matches mainnet emission schedule)
+        // Reward: 500,000 SOQ (stagenet test value; mainnet initial subsidy is 100,000 SOQ)
         // Nonce re-mined 2026-06-16 after Phase 4 CTxOut byte removal (DL-GENESIS-REMINE.md)
         // Scrypt PoW: 0000023c1d9d18db4abcb57b77efda4968cc3ee0e273870889d7381757c211cc
         genesis = CreateGenesisBlockStagenet(1745769600, 1215028, 0x1e0ffff0, 1, 500000 * COIN);

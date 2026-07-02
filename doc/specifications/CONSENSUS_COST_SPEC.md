@@ -1,7 +1,7 @@
 # Soqucoin Protocol Parameters & Consensus Cost Specification
 
 > **Version**: 4.1 | **Status**: Pre-Mainnet
-> **Last Updated**: May 25, 2026
+> **Last Updated**: July 2, 2026
 > **Specification Tag**: Mainnet Candidate v1.0.0-rc4
 > **Prepared For**: Halborn Security Audit (Hossam Mohamed, Alexis Fabre)
 
@@ -428,6 +428,7 @@ Standard Bitcoin witness limits were designed for ECDSA (~72 byte signatures). D
 | **Initial Block Reward** | 100,000 SOQ | Modified (Soqucoin) |
 | **Terminal Reward** | 2,500 SOQ (after block 1,000,000) | Modified (Soqucoin) |
 | **Coinbase Maturity** | 30 blocks | Modified (Soqucoin) |
+| **Finality Horizon** | 288 blocks (~4.8h), via `nMaxReorgDepth` | Novel (Soqucoin) |
 | **AuxPoW Chain ID** | 0x5351 (21329 decimal) | Novel (Soqucoin) |
 
 > ¹ Calculation: 250,000 blocks × 60 seconds = 15,000,000 seconds ≈ 173.6 days at target. Actual time varies with hashrate.
@@ -634,7 +635,7 @@ All values are defined in the Soqucoin Core source code at the following paths:
 
 ### Known Limitations
 
-- **Long-range reorg under low AuxPoW participation**: Mitigated by monitoring, checkpoints (if needed)
+- **Long-range reorg under low AuxPoW participation**: Bounded by a hard finality rule. Nodes refuse any reorg deeper than `nMaxReorgDepth` = 288 blocks (~4.8h at 1-min spacing), well above any natural reorg depth. Supplemented by monitoring.
 - **Novel cryptography risk**: LatticeFold is research-grade; staged activation provides buffer
 - **Fee economics pre-market**: Policy parameters are placeholders pending real market data
 
