@@ -1104,9 +1104,11 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 //     → 1 sigop. Implicit single-key Dilithium verify.
 //
 //   Witness v0, 32-byte program (P2WSH — Dilithium script hash):
-//     → Count OP_CHECKSIG + OP_CHECKSIGVERIFY + OP_CHECKSIGFROMSTACK in
-//       the witness script (last witness stack item). Each = 1 sigop.
+//     → Count sig-verification opcodes in the witness script (last witness
+//       stack item). OP_CHECKSIG/OP_CHECKSIGVERIFY = 1 sigop each;
 //       OP_CHECKMULTISIG = N sigops where N is the key count pushdata.
+//       OP_CHECKSIGFROMSTACK / OP_CHECKDILITHIUMKEYHASH = 1 sigop each,
+//       but ONLY under their activation flags (see below).
 //
 //   Witness v1..v5 (PAT, LatticeFold, Lattice-BP++, USDSOQ authority):
 //     → 1 sigop per input. These programs perform at most one aggregate
@@ -1121,14 +1123,52 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 //   (OP_HASH160, OP_SHA256, OP_CHECKTEMPLATEVERIFY) carry no sigop weight.
 //   This matches Bitcoin Core's treatment of non-sig opcodes.
 //
-// CSFS (OP_NOP5) and OP_CHECKDILITHIUMKEYHASH (OP_NOP7) contribution:
-//   counted via GetSigOpCount() on the witness script, which detects
-//   OP_CHECKSIGFROMSTACK and OP_CHECKDILITHIUMKEYHASH alongside OP_CHECKSIG.
-//   Each occurrence costs 1 sigop (one Dilithium verification).
+// CSFS (OP_NOP5) and OP_CHECKDILITHIUMKEYHASH (OP_NOP7) contribution (bead 05n):
+//   1 sigop each (one Dilithium verification), counted by the flag-aware
+//   CountWitnessScriptSigOps below — ONLY when SCRIPT_VERIFY_CSFS /
+//   SCRIPT_VERIFY_DILITHIUM_KEYHASH is set, so the cost flips atomically with
+//   the BIP9 activation of the opcodes. Pre-activation they are NOPs and cost
+//   0, identical to the legacy CScript::GetSigOpCount(true) count. The legacy
+//   counter itself takes no flags and deliberately stays uncounting: this
+//   count feeds GetTransactionSigOpCost → MAX_BLOCK_SIGOPS_COST (block
+//   validity), so an unconditional count would split upgraded vs non-upgraded
+//   nodes on the witness-v0 P2WSH path.
 //
 // APO (sighash-level feature): 0 additional sigops.
 //   APO modifies the message being signed, not the number of verifications.
 //   The containing OP_CHECKSIG already contributes its sigop.
+// Flag-aware sigop count for a witness script (bead 05n). Matches
+// CScript::GetSigOpCount(true) exactly when neither activation flag is set;
+// additionally charges 1 sigop per OP_CHECKSIGFROMSTACK[VERIFY] under
+// SCRIPT_VERIFY_CSFS and per OP_CHECKDILITHIUMKEYHASH under
+// SCRIPT_VERIFY_DILITHIUM_KEYHASH.
+static size_t CountWitnessScriptSigOps(const CScript& script, unsigned int flags)
+{
+    size_t n = 0;
+    CScript::const_iterator pc = script.begin();
+    opcodetype lastOpcode = OP_INVALIDOPCODE;
+    while (pc < script.end()) {
+        opcodetype opcode;
+        if (!script.GetOp(pc, opcode))
+            break;
+        if (opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY) {
+            n++;
+        } else if (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY) {
+            if (lastOpcode >= OP_1 && lastOpcode <= OP_16)
+                n += CScript::DecodeOP_N(lastOpcode);
+            else
+                n += MAX_PUBKEYS_PER_MULTISIG;
+        } else if ((flags & SCRIPT_VERIFY_CSFS) && opcode == OP_CHECKSIGFROMSTACK) {
+            // Covers OP_CHECKSIGFROMSTACKVERIFY too (same byte, OP_NOP5).
+            n++;
+        } else if ((flags & SCRIPT_VERIFY_DILITHIUM_KEYHASH) && opcode == OP_CHECKDILITHIUMKEYHASH) {
+            n++;
+        }
+        lastOpcode = opcode;
+    }
+    return n;
+}
+
 size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags)
 {
     static const size_t SIGOPS_PER_CHECKSIG = 1;
@@ -1153,12 +1193,14 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
                 // P2WSH: count sig-verification opcodes in the witness script
                 // The witness script is always the last stack item.
                 // SECURITY NOTE (SOQ-COV-010): We count OP_CHECKSIG,
-                // OP_CHECKSIGVERIFY, OP_CHECKSIGFROMSTACK, and
-                // OP_CHECKMULTISIG/VERIFY in the redeemScript. CTV (OP_NOP4)
-                // and APO sighash types do NOT contribute additional sigops.
+                // OP_CHECKSIGVERIFY, and OP_CHECKMULTISIG/VERIFY in the
+                // redeemScript, plus OP_CHECKSIGFROMSTACK and
+                // OP_CHECKDILITHIUMKEYHASH under their activation flags
+                // (bead 05n). CTV (OP_NOP4) and APO sighash types do NOT
+                // contribute additional sigops.
                 const std::vector<unsigned char>& scriptBytes = witness->stack.back();
                 CScript witnessScript(scriptBytes.begin(), scriptBytes.end());
-                return witnessScript.GetSigOpCount(true);
+                return CountWitnessScriptSigOps(witnessScript, flags);
             }
             // Witness v0 with unrecognized program size: 0 sigops (invalid but non-fatal here)
             return 0;
@@ -1182,7 +1224,7 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
             if (flags & SCRIPT_VERIFY_P2WSH_DILITHIUM) {
                 const std::vector<unsigned char>& scriptBytes = witness->stack[witness->stack.size() - 2];
                 CScript witnessScript(scriptBytes.begin(), scriptBytes.end());
-                return witnessScript.GetSigOpCount(true);
+                return CountWitnessScriptSigOps(witnessScript, flags);
             }
             // Flag not active: charge 0 (anyone-can-spend, no script executed)
             return 0;

@@ -309,28 +309,73 @@ BOOST_AUTO_TEST_CASE(keyhash_opcode_and_flag_constants)
     BOOST_CHECK_EQUAL(std::string(GetOpName(OP_CHECKDILITHIUMKEYHASH)),
                       std::string("OP_CHECKDILITHIUMKEYHASH"));
 
-    // GetSigOpCount — sigop accounting for OP_CHECKDILITHIUMKEYHASH / OP_CHECKSIGFROMSTACK.
+    // Sigop accounting for OP_CHECKDILITHIUMKEYHASH / OP_CHECKSIGFROMSTACK
+    // (soqucoin-build-05n, gated counting).
     //
-    // DEFERRED (soqucoin-build-05n). Counting these opcodes as sigops is a consensus
-    // rule change: CScript::GetSigOpCount feeds GetTransactionSigOpCost, checked vs
-    // MAX_BLOCK_SIGOPS_COST (block validity). The legacy counter takes no activation
-    // flags, so making it count them UNCONDITIONALLY would value blocks differently on
-    // upgraded vs non-upgraded nodes (witness-v0 P2WSH path) → chain split. The count
-    // must instead flip atomically with the BIP9 activation of the opcodes
-    // (SCRIPT_VERIFY_DILITHIUM_KEYHASH / SCRIPT_VERIFY_CSFS), implemented in the
-    // flag-aware witness path and shipped bundled with mainnet activation
-    // (Halborn Phase 2, not yet scheduled). Mainnet opcodes are not active yet.
-    //
-    // Until that lands, the legacy counter intentionally does NOT count them. We assert
-    // that current (pre-gated) behavior so this stays an active guard: any change to the
-    // count must consciously confront the gating decision above, not slip in ungated.
+    // The legacy CScript::GetSigOpCount takes no activation flags, so it must
+    // NEVER count these opcodes: it feeds GetTransactionSigOpCost, checked vs
+    // MAX_BLOCK_SIGOPS_COST (block validity), and an unconditional count would
+    // value blocks differently on upgraded vs non-upgraded nodes (witness-v0
+    // P2WSH path) → chain split. These asserts are a permanent guard, not a TODO.
     CScript script;
     script << OP_CHECKDILITHIUMKEYHASH;
-    BOOST_CHECK_EQUAL(script.GetSigOpCount(true), 0u);  // TODO(soqucoin-build-05n): -> 1u under gated counting
+    BOOST_CHECK_EQUAL(script.GetSigOpCount(true), 0u);  // permanent: legacy counter is flag-blind
 
     CScript multiSigOp;
     multiSigOp << OP_CHECKSIG << OP_CHECKDILITHIUMKEYHASH << OP_CHECKSIGFROMSTACK;
-    BOOST_CHECK_EQUAL(multiSigOp.GetSigOpCount(true), 1u);  // TODO(soqucoin-build-05n): -> 3u (CHECKSIG+CDKH+CSFS) under gated counting
+    BOOST_CHECK_EQUAL(multiSigOp.GetSigOpCount(true), 1u);  // permanent: only OP_CHECKSIG counted
+
+    // The gated count lives in the witness path (CountWitnessSigOps), which
+    // receives the activation flags and so flips atomically with the BIP9
+    // activation of SCRIPT_VERIFY_DILITHIUM_KEYHASH / SCRIPT_VERIFY_CSFS.
+    // Exercise it through a witness-v0 P2WSH program (script = last stack item).
+    {
+        std::vector<unsigned char> wsBytes(multiSigOp.begin(), multiSigOp.end());
+        CScript scriptSig;
+        CScript scriptPubKey;
+        scriptPubKey << OP_0 << std::vector<unsigned char>(32, 0xcc); // P2WSH
+        CScriptWitness witness;
+        witness.stack.push_back(std::vector<unsigned char>(2420, 0x01)); // dummy sig
+        witness.stack.push_back(wsBytes);
+
+        // Pre-activation: CDKH/CSFS are NOPs, cost 0 — only OP_CHECKSIG counts.
+        BOOST_CHECK_EQUAL(CountWitnessSigOps(scriptSig, scriptPubKey, &witness,
+                                             SCRIPT_VERIFY_WITNESS), 1u);
+        // Each flag adds exactly its own opcode's verification cost.
+        BOOST_CHECK_EQUAL(CountWitnessSigOps(scriptSig, scriptPubKey, &witness,
+                                             SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CSFS), 2u);
+        BOOST_CHECK_EQUAL(CountWitnessSigOps(scriptSig, scriptPubKey, &witness,
+                                             SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_DILITHIUM_KEYHASH), 2u);
+        // Both active: CHECKSIG + CDKH + CSFS = 3 Dilithium verifications.
+        BOOST_CHECK_EQUAL(CountWitnessSigOps(scriptSig, scriptPubKey, &witness,
+                                             SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CSFS |
+                                             SCRIPT_VERIFY_DILITHIUM_KEYHASH), 3u);
+    }
+
+    // Same accounting on the witness-v6 (P2WSH-Dilithium) path: the eLTOO
+    // funding script is 2x CDKH, witnessScript = second-to-last stack item.
+    {
+        CScript fundingScript;
+        fundingScript << OP_CHECKDILITHIUMKEYHASH << OP_CHECKDILITHIUMKEYHASH;
+        std::vector<unsigned char> wsBytes(fundingScript.begin(), fundingScript.end());
+        CScript scriptSig;
+        CScript scriptPubKey;
+        scriptPubKey << OP_6 << std::vector<unsigned char>(32, 0xdd); // witness v6
+        CScriptWitness witness;
+        witness.stack.push_back(wsBytes);
+        witness.stack.push_back(std::vector<unsigned char>(1312, 0x02)); // dummy pubkey (last)
+
+        // v6 script execution not active: anyone-can-spend, 0 sigops.
+        BOOST_CHECK_EQUAL(CountWitnessSigOps(scriptSig, scriptPubKey, &witness,
+                                             SCRIPT_VERIFY_WITNESS), 0u);
+        // v6 active but keyhash not: CDKH still a NOP, 0 sigops.
+        BOOST_CHECK_EQUAL(CountWitnessSigOps(scriptSig, scriptPubKey, &witness,
+                                             SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM), 0u);
+        // v6 + keyhash active: 2 Dilithium verifications = 2 sigops.
+        BOOST_CHECK_EQUAL(CountWitnessSigOps(scriptSig, scriptPubKey, &witness,
+                                             SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM |
+                                             SCRIPT_VERIFY_DILITHIUM_KEYHASH), 2u);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
