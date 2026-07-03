@@ -820,6 +820,47 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         CAmount inChainInputValue;
         double dPriority = view.GetPriority(tx, chainActive.Height(), inChainInputValue);
 
+        // SOQ-USDSOQ-MEMPOOL-CRASH: Enforce USDSOQ per-asset conservation HERE, before
+        // constructing the CTxMemPoolEntry below. The full conservation check lives in
+        // Consensus::CheckTxInputs (via CheckInputs), but that does not run until ~200
+        // lines later — and CTxMemPoolEntry's `assert(inChainInputValue <= nValueIn)`
+        // fires first for a non-conserving USDSOQ spend (inChainInputValue sums raw coin
+        // value incl. USDSOQ, while nValueIn = GetValueOut() + SOQ-only fee; the delta is
+        // exactly USDSOQ_in − USDSOQ_out). A non-conserving USDSOQ tx from any peer would
+        // therefore abort() the daemon — a remotely-triggerable crash. Reject it cleanly
+        // here, mirroring the ConnectBlock rule, so mempool policy matches consensus.
+        // Authority txs (OP_5 marker) mint ex nihilo and are exempt, exactly as in
+        // CheckTxInputs; they give USDSOQ_out ≥ USDSOQ_in so the assert never trips.
+        {
+            bool isAuthorityTx = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.scriptPubKey.size() == 34 &&
+                    txout.scriptPubKey[0] == OP_5 && txout.scriptPubKey[1] == 32) {
+                    isAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isAuthorityTx) {
+                CAmount nUSDSOQIn = 0, nUSDSOQOut = 0;
+                for (const auto& txin : tx.vin) {
+                    const CCoins* c = view.AccessCoins(txin.prevout.hash);
+                    if (c && c->IsAvailable(txin.prevout.n) &&
+                        c->vout[txin.prevout.n].IsUSDSOQ()) {
+                        nUSDSOQIn += c->vout[txin.prevout.n].nValue;
+                    }
+                }
+                for (const auto& txout : tx.vout) {
+                    if (txout.IsUSDSOQ()) nUSDSOQOut += txout.nValue;
+                }
+                if (nUSDSOQIn != nUSDSOQOut) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-txns-usdsoq-not-conserved", false,
+                        strprintf("USDSOQ in (%s) != USDSOQ out (%s)",
+                            FormatMoney(nUSDSOQIn), FormatMoney(nUSDSOQOut)));
+                }
+            }
+        }
+
         // Keep track of transactions that spend a coinbase, which we re-scan
         // during reorgs to ensure COINBASE_MATURITY is still met.
         bool fSpendsCoinbase = false;

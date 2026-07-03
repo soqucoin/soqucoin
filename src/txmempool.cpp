@@ -32,7 +32,19 @@ CTxMemPoolEntry::CTxMemPoolEntry(const CTransactionRef& _tx, const CAmount& _nFe
     nSizeWithDescendants = GetTxSize();
     nModFeesWithDescendants = nFee;
     CAmount nValueIn = tx->GetValueOut() + nFee;
-    assert(inChainInputValue <= nValueIn);
+    // SOQ-USDSOQ-MEMPOOL-CRASH (defense-in-depth): NEVER abort() the daemon here.
+    // For USDSOQ txs, inChainInputValue sums raw coin value (incl. USDSOQ) while
+    // nValueIn uses the SOQ-only fee, so a non-conserving USDSOQ tx makes
+    // inChainInputValue > nValueIn — the original assert() turned that into a
+    // remotely-triggerable node crash. AcceptToMemoryPool now rejects non-conserving
+    // USDSOQ txs before we get here, but inChainInputValue only feeds the priority
+    // heuristic, so if the invariant is ever violated we clamp instead of crashing.
+    if (inChainInputValue > nValueIn) {
+        LogPrintf("CTxMemPoolEntry: clamping inChainInputValue %s > nValueIn %s for tx %s "
+                  "(non-conserving USDSOQ or accounting skew; priority heuristic only)\n",
+                  FormatMoney(inChainInputValue), FormatMoney(nValueIn), tx->GetHash().ToString());
+        inChainInputValue = nValueIn; // member; feeds GetPriority() only
+    }
 
     feeDelta = 0;
 
