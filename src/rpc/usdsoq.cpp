@@ -64,21 +64,20 @@ static UniValue getusdsoqstatus(const JSONRPCRequest& request)
 
     UniValue result(UniValue::VOBJ);
 
-    // Deployment status
+    // Deployment status (p96 / Option D: height-gated flag-day activation)
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState state = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    const bool fActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
+    const int nActHeight = consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight;
 
     string statusStr;
-    switch (state) {
-        case THRESHOLD_DEFINED:   statusStr = "defined"; break;
-        case THRESHOLD_STARTED:   statusStr = "started"; break;
-        case THRESHOLD_LOCKED_IN: statusStr = "locked_in"; break;
-        case THRESHOLD_ACTIVE:    statusStr = "active"; break;
-        case THRESHOLD_FAILED:    statusStr = "failed"; break;
-        default:                  statusStr = "unknown"; break;
-    }
+    if (fActive) statusStr = "active";
+    else if (nActHeight == Consensus::BIP9Deployment::NO_HEIGHT_ACTIVATION) statusStr = "disabled";
+    else if (nActHeight == Consensus::BIP9Deployment::NOT_SCHEDULED) statusStr = "not_scheduled";
+    else statusStr = "scheduled";  // a concrete future activation height is set
     result.pushKV("deployment_status", statusStr);
+    result.pushKV("activation_height",
+        nActHeight == Consensus::BIP9Deployment::NOT_SCHEDULED ? -1 : nActHeight);
     result.pushKV("bit", 6);
     result.pushKV("witness_version", 5);
 
@@ -92,7 +91,7 @@ static UniValue getusdsoqstatus(const JSONRPCRequest& request)
 
     // Supply counters
     UniValue supply(UniValue::VOBJ);
-    if (state == THRESHOLD_ACTIVE) {
+    if (fActive) {
         // SOQ-AUD2-002 D1: Read from global supply counter (persisted to/from LevelDB)
         supply.pushKV("total_minted", ValueFromAmount(g_usdsoq_supply.TotalMinted()));
         supply.pushKV("total_burned", ValueFromAmount(g_usdsoq_supply.TotalBurned()));
@@ -140,10 +139,10 @@ static UniValue getusdsoqauthority(const JSONRPCRequest& request)
     // Authority key set is injected during BIP9 activation.
     // Before activation, report uninitialized state.
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState state = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    const bool fUsdsoqActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
 
-    if (state != THRESHOLD_ACTIVE) {
+    if (!fUsdsoqActive) {
         result.pushKV("initialized", false);
         result.pushKV("threshold", 0);
         result.pushKV("key_count", 0);
@@ -214,10 +213,10 @@ static UniValue verifyusdsoqauthority(const JSONRPCRequest& request)
 
     // Check deployment status
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState state = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    const bool fUsdsoqActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
 
-    if (state != THRESHOLD_ACTIVE) {
+    if (!fUsdsoqActive) {
         throw JSONRPCError(RPC_MISC_ERROR,
             "USDSOQ deployment is not active. Cannot verify authority signatures.");
     }
@@ -295,10 +294,10 @@ static UniValue usdsoqmint(const JSONRPCRequest& request)
     LOCK(cs_main);
 
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState state = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    const bool fUsdsoqActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
 
-    if (state != THRESHOLD_ACTIVE) {
+    if (!fUsdsoqActive) {
         throw JSONRPCError(RPC_MISC_ERROR,
             "USDSOQ deployment is not active. Mint operations are not available.");
     }
@@ -377,10 +376,10 @@ static UniValue usdsoqburn(const JSONRPCRequest& request)
     LOCK(cs_main);
 
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState state = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    const bool fUsdsoqActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
 
-    if (state != THRESHOLD_ACTIVE) {
+    if (!fUsdsoqActive) {
         throw JSONRPCError(RPC_MISC_ERROR,
             "USDSOQ deployment is not active. Burn operations are not available.");
     }
@@ -471,10 +470,10 @@ static UniValue usdsoqfreeze(const JSONRPCRequest& request)
     LOCK(cs_main);
 
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState state = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    const bool fUsdsoqActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
 
-    if (state != THRESHOLD_ACTIVE) {
+    if (!fUsdsoqActive) {
         throw JSONRPCError(RPC_MISC_ERROR,
             "USDSOQ deployment is not active. Freeze operations are not available.");
     }
@@ -527,9 +526,9 @@ static UniValue usdsoqunfreeze(const JSONRPCRequest& request)
     LOCK(cs_main);
 
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState state = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
-    if (state != THRESHOLD_ACTIVE) {
+    const bool fUsdsoqActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
+    if (!fUsdsoqActive) {
         throw JSONRPCError(RPC_MISC_ERROR,
             "USDSOQ deployment is not active. Unfreeze operations are not available.");
     }
@@ -583,10 +582,10 @@ static UniValue usdsoqrotatekeys(const JSONRPCRequest& request)
     LOCK(cs_main);
 
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState state = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
+    const bool fUsdsoqActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
 
-    if (state != THRESHOLD_ACTIVE) {
+    if (!fUsdsoqActive) {
         throw JSONRPCError(RPC_MISC_ERROR,
             "USDSOQ deployment is not active. Key rotation is not available.");
     }
@@ -813,9 +812,9 @@ static UniValue usdsoqsigntx(const JSONRPCRequest& request)
 
     // Check deployment
     const Consensus::Params& consensus = Params().GetConsensus(chainActive.Height());
-    ThresholdState deployState = VersionBitsState(chainActive.Tip(),
-        consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache);
-    if (deployState != THRESHOLD_ACTIVE)
+    const bool fUsdsoqActive = Consensus::DeploymentActiveAtHeight(chainActive.Height(),
+        consensus, Consensus::DEPLOYMENT_USDSOQ);
+    if (!fUsdsoqActive)
         throw JSONRPCError(RPC_MISC_ERROR,
             "USDSOQ deployment is not active.");
 

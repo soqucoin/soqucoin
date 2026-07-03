@@ -1033,14 +1033,15 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // covenant opcodes, so without this a B1/eLTOO (or CTV/CSFS/keyhash) tx is non-standard
         // (won't relay) AND its covenant opcodes are no-ops at the mempool — e.g. OP_CLTV in a v6
         // script wrongly passes a below-floor eLTOO spend that ConnectBlock rejects. OR-in the V6
-        // covenant flags gated by their BIP9 deployment (per-net), mirroring ConnectBlock: they are
-        // ALWAYS_ACTIVE on stagenet/regtest and nStartTime=0 (never) on mainnet, so this adds NOTHING
-        // on mainnet until activation — keeping mempool policy consistent with consensus.
+        // covenant flags gated by their height-activation (p96/Option D), mirroring ConnectBlock:
+        // they are height-0 on stagenet/regtest and NOT_SCHEDULED (never) on mainnet, so this adds
+        // NOTHING on mainnet until activation — keeping mempool policy consistent with consensus.
+        // Evaluated for the NEXT block (tip height + 1), which is what these txs would land in.
         {
-            const CBlockIndex* tipPrev = chainActive.Tip();
-            const Consensus::Params& cons = Params().GetConsensus(0);
+            const int nNextHeight = chainActive.Height() + 1;
+            const Consensus::Params& cons = Params().GetConsensus(nNextHeight);
             auto v6active = [&](Consensus::DeploymentPos pos) {
-                return VersionBitsState(tipPrev, cons, pos, versionbitscache) == THRESHOLD_ACTIVE;
+                return Consensus::DeploymentActiveAtHeight(nNextHeight, cons, pos);
             };
             if (v6active(Consensus::DEPLOYMENT_CTV))               scriptVerifyFlags |= SCRIPT_VERIFY_CTV;
             if (v6active(Consensus::DEPLOYMENT_APO))               scriptVerifyFlags |= SCRIPT_VERIFY_APO;
@@ -2351,12 +2352,19 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // outputs are no longer anyone-can-spend — range proofs are verified.
     // When NOT active, confidential outputs (nVisibility != 0x00) are rejected
     // in the per-TX output validation loop below.
-    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_LATTICEBP, versionbitscache) == THRESHOLD_ACTIVE) {
+    //
+    // p96 / Option D: the post-launch soft-forks below activate by scheduled
+    // HEIGHT (DeploymentActiveAtHeight), not BIP9 miner signaling — Soqucoin is
+    // merge-mined with no signaling constituency. Test nets set the height to 0
+    // (active from genesis); mainnet ships them NOT_SCHEDULED (dormant) until a
+    // coordinated release sets a real height. CHECKPATAGG/LATTICEFOLD (always-
+    // active) and CSV/SegWit (historical) remain on the BIP9 state machine above.
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_LATTICEBP)) {
         flags |= SCRIPT_VERIFY_LATTICEBP;
     }
 
     // SOQ-AUD2-002: Start enforcing USDSOQ stablecoin authority opcodes
-    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_USDSOQ, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_USDSOQ)) {
         flags |= SCRIPT_VERIFY_USDSOQ;
 
         // SOQ-AUD2-002 D4: Lazy-initialize authority from Consensus::Params.
@@ -2383,7 +2391,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     // BIP 119: Start enforcing OP_CHECKTEMPLATEVERIFY (vault/covenant opcodes)
-    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_CTV, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_CTV)) {
         flags |= SCRIPT_VERIFY_CTV;
     }
 
@@ -2391,13 +2399,13 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // NOTE: This does NOT modify Dilithium signature verification. It adds
     // new sighash types (0x41, 0x42) that produce alternate sighash values.
     // The existing SIGHASH_ALL (0x01) path is completely untouched.
-    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_APO, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_APO)) {
         flags |= SCRIPT_VERIFY_APO;
     }
 
     // BIP 348: Start enforcing OP_CHECKSIGFROMSTACK (oracle contracts, bridge attestation)
     // Strict ML-DSA-44 only. Message is SHA256'd before Dilithium verify.
-    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_CSFS, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_CSFS)) {
         flags |= SCRIPT_VERIFY_CSFS;
     }
 
@@ -2405,7 +2413,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // When active, witness v6 programs execute arbitrary scripts via EvalScript,
     // enabling CTV vaults, CSFS oracles, OP_CAT covenants, and L2SOQ Lightning.
     // See DL-P2WSH-DILITHIUM.md for full design.
-    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_P2WSH_DILITHIUM, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_P2WSH_DILITHIUM)) {
         flags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
     }
 
@@ -2413,7 +2421,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // When active, OP_NOP7 (0xb6) enforces SHA256(pubkey)==keyhash + Dilithium sig verify.
     // Enables eLTOO 2-of-2 multisig for L2SOQ Lightning with oversized Dilithium pubkeys.
     // See DL-OP-CHECKDILITHIUMKEYHASH.md for design.
-    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_DILITHIUM_KEYHASH, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) {
         flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
     }
 
@@ -2421,7 +2429,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // (OP_IF/ELSE/ENDIF, OP_DROP, OP_CLTV, OP_CSV, OP_SHA256, OP_EQUAL[VERIFY]) in v6 EvalScript —
     // the eLTOO state ratchet, settlement CSV, and HTLC hashlock/timeout. PQ sigs stay on
     // CSFS/keyhash. When inactive these opcodes remain no-ops (unchanged behaviour).
-    if (VersionBitsState(pindex->pprev, consensus, Consensus::DEPLOYMENT_V6_CONTROLFLOW, versionbitscache) == THRESHOLD_ACTIVE) {
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_V6_CONTROLFLOW)) {
         flags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
     }
 
@@ -2434,10 +2442,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // SOQ-ARCH-003: Check if consensus-enforced minimum UTXO value is active (BIP9).
     // When active, every output must hold >= UTXO_COST_PER_BYTE × serialized_output_size.
     // Prevents dust storm attacks that bloat the UTXO set (Cardano-style utxoCostPerByte).
-    // Mainnet: nStartTime=0 (dormant until Phase 2 audit). Stagenet/regtest: ALWAYS_ACTIVE.
+    // Mainnet: NOT_SCHEDULED (dormant until Phase 2 audit). Stagenet/regtest: height 0.
     // See DL-SOQ-FEE-ARCHITECTURE-V3.md.
-    bool fEnforceUtxoCost = (VersionBitsState(pindex->pprev, consensus,
-        Consensus::DEPLOYMENT_UTXO_COST, versionbitscache) == THRESHOLD_ACTIVE);
+    bool fEnforceUtxoCost = Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus,
+        Consensus::DEPLOYMENT_UTXO_COST);
 
     int64_t nTime2 = GetTimeMicros();
     nTimeForks += nTime2 - nTime1;

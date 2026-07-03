@@ -88,11 +88,16 @@ unsigned int CalculateSoqucoinNextWorkRequired(const CBlockIndex* pindexLast, in
 
 bool CheckAuxPowProofOfWork(const CBlockHeader& block, const Consensus::Params& params)
 {
-    /* Except for legacy blocks with full version 1, ensure that
-       the chain ID is correct.  Legacy blocks are not allowed since
-       the merge-mining start, which is checked in AcceptBlockHeader
-       where the height is known.  */
-    if (!block.IsLegacy() && params.fStrictChainId && block.GetChainId() != params.nAuxpowChainId)
+    /* Ensure AuxPoW (merge-mined) blocks carry our chain ID (bead lw7). The chain
+       id only has meaning for merge-mining — it selects the merkle index committed
+       in the parent chain's coinbase — so the strict check is scoped to AuxPoW
+       blocks (block.IsAuxpow()), not all non-legacy blocks. Solo/direct-PoW blocks
+       have no parent proof; their version high bits are unconstrained. This is
+       stricter-where-it-matters and, unlike Dogecoin's !IsLegacy() form, does not
+       require every solo block (or in-process test block) to carry the chain id.
+       The complementary parent-side check (auxpow.cpp: parent must NOT carry our
+       chain id) blocks self-merge-mining PoW reuse. */
+    if (block.IsAuxpow() && params.fStrictChainId && block.GetChainId() != params.nAuxpowChainId)
         return error("%s : block does not have our chain ID"
                      " (got %d, expected %d, full nVersion %d)",
                      __func__, block.GetChainId(),

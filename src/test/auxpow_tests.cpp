@@ -376,29 +376,33 @@ BOOST_AUTO_TEST_CASE(auxpow_pow)
     mineBlock(block, true);
     BOOST_CHECK(CheckAuxPowProofOfWork(block, params));
 
-    // Soqucoin block version 2 can be both AuxPoW and regular, so test 3
+    // lw7: the strict chain-id check is scoped to AuxPoW blocks (IsAuxpow()), not
+    // all non-legacy blocks as in Dogecoin. A NON-auxpow block's version high bits
+    // are unconstrained — chain id only has meaning for merge mining (it selects the
+    // parent-coinbase merkle index). So a version-3 block, and a block whose version
+    // carries a MISMATCHED chain id, are accepted regardless of fStrictChainId as
+    // long as the AuxPoW flag is clear. (regtest runs fStrictChainId=true.)
 
-    block.nVersion = 3;
-    mineBlock(block, true);
-    if (params.fStrictChainId) {
-        BOOST_CHECK(!CheckAuxPowProofOfWork(block, params));
-    } else {
-        // Version 3 blocks are allowed when fStrictChainId is false
-        BOOST_CHECK(CheckAuxPowProofOfWork(block, params));
-    }
-
-    block.SetBaseVersion(2, params.nAuxpowChainId);
+    block.nVersion = 3;                                   // non-auxpow, chain id 0
     mineBlock(block, true);
     BOOST_CHECK(CheckAuxPowProofOfWork(block, params));
 
-    block.SetChainId(params.nAuxpowChainId + 1);
+    block.SetBaseVersion(2, params.nAuxpowChainId);       // non-auxpow, correct chain id
     mineBlock(block, true);
-    if (params.fStrictChainId) {
-        BOOST_CHECK(!CheckAuxPowProofOfWork(block, params));
-    } else {
-        // Mismatched chain ID allowed when fStrictChainId is false
-        BOOST_CHECK(CheckAuxPowProofOfWork(block, params));
-    }
+    BOOST_CHECK(CheckAuxPowProofOfWork(block, params));
+
+    block.SetChainId(params.nAuxpowChainId + 1);          // non-auxpow, MISMATCHED chain id
+    mineBlock(block, true);
+    BOOST_CHECK(CheckAuxPowProofOfWork(block, params));    // accepted: not AuxPoW → not checked
+
+    /* An AuxPoW-flagged block with a MISMATCHED chain id is rejected under strict
+       chain id — the lw7 security gate fires before the "missing auxpow data" check.
+       (The full parent-carries-our-chain-id rejection is covered by auxpow.py.) */
+    block.SetChainId(params.nAuxpowChainId + 1);
+    block.SetAuxpowFlag(true);
+    mineBlock(block, true);
+    BOOST_CHECK(!CheckAuxPowProofOfWork(block, params));
+    block.SetAuxpowFlag(false);
 
     /* Check the case when the block does not have auxpow (this is true
      right now).  */

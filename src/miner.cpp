@@ -153,10 +153,15 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     const Consensus::Params& consensus = chainparams.GetConsensus(nHeight);
     const int32_t nChainId = consensus.nAuxpowChainId;
-    // FIXME: Active version bits after the always-auxpow fork!
-    // const int32_t nVersion = ComputeBlockVersion(pindexPrev, consensus);
+    // p96 / Option D + lw7: soft-forks activate by HEIGHT, not BIP9 version-bit
+    // signaling (Soqucoin is merge-mined; see DL-P96-BLOCK-VERSION-ACTIVATION.md),
+    // so ComputeBlockVersion is intentionally NOT used. We emit the Dogecoin block
+    // version layout — base version in the low bits, our AuxPoW chain id in the high
+    // bits (SetBaseVersion) — so every block (solo and the AuxPoW child template
+    // getauxblock builds on) carries chain id 0x5351. This is what lets fStrictChainId
+    // reject cross-chain / self-merge-mining reuse (bead lw7).
     const int32_t nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
-    pblock->nVersion = nVersion;
+    pblock->SetBaseVersion(nVersion, nChainId);
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
     if (chainparams.MineBlocksOnDemand())

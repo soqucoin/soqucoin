@@ -241,4 +241,80 @@ BOOST_AUTO_TEST_CASE(subsidy_halving_schedule)
     BOOST_CHECK_EQUAL(GetSoqucoinBlockSubsidy(100 * consensus.nSubsidyHalvingInterval, consensus, dummyHash), 2500 * COIN);
 }
 
+// ============================================================================
+// p96 / Option D — flag-day (height-gated) soft-fork activation
+// ============================================================================
+
+// The height-gated deployments that moved off BIP9 signaling (bits 5-13).
+static const Consensus::DeploymentPos P96_FLAGDAY_DEPLOYMENTS[] = {
+    Consensus::DEPLOYMENT_LATTICEBP,
+    Consensus::DEPLOYMENT_USDSOQ,
+    Consensus::DEPLOYMENT_CTV,
+    Consensus::DEPLOYMENT_APO,
+    Consensus::DEPLOYMENT_CSFS,
+    Consensus::DEPLOYMENT_P2WSH_DILITHIUM,
+    Consensus::DEPLOYMENT_UTXO_COST,
+    Consensus::DEPLOYMENT_DILITHIUM_KEYHASH,
+    Consensus::DEPLOYMENT_V6_CONTROLFLOW,
+};
+
+BOOST_AUTO_TEST_CASE(p96_deployment_active_predicate)
+{
+    Consensus::Params p;  // vDeployments default-constructed (nActivationHeight = NO_HEIGHT_ACTIVATION)
+    const Consensus::DeploymentPos pos = Consensus::DEPLOYMENT_USDSOQ;
+
+    // NO_HEIGHT_ACTIVATION (not height-gated) → never active via this predicate,
+    // even at absurd heights. Such deployments must be queried via BIP9 instead.
+    p.vDeployments[pos].nActivationHeight = Consensus::BIP9Deployment::NO_HEIGHT_ACTIVATION;
+    BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(0, p, pos));
+    BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(1000000, p, pos));
+
+    // NOT_SCHEDULED → dormant at every reachable height (ships-off on mainnet).
+    p.vDeployments[pos].nActivationHeight = Consensus::BIP9Deployment::NOT_SCHEDULED;
+    BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(0, p, pos));
+    BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(1000000000, p, pos));
+
+    // A concrete future height H: inactive below H, active at/above H (flag day).
+    p.vDeployments[pos].nActivationHeight = 500000;
+    BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(499999, p, pos));
+    BOOST_CHECK(Consensus::DeploymentActiveAtHeight(500000, p, pos));   // first enforcing block
+    BOOST_CHECK(Consensus::DeploymentActiveAtHeight(500001, p, pos));
+
+    // Height 0 → active from genesis (the test-network configuration).
+    p.vDeployments[pos].nActivationHeight = 0;
+    BOOST_CHECK(Consensus::DeploymentActiveAtHeight(0, p, pos));
+    BOOST_CHECK(Consensus::DeploymentActiveAtHeight(1, p, pos));
+}
+
+BOOST_AUTO_TEST_CASE(p96_mainnet_ships_dormant)
+{
+    // Every flag-day soft-fork must be dormant on mainnet at genesis and stay
+    // dormant until a coordinated release sets a real height. Prevents an
+    // accidental genesis-active PQ/covenant/economic rule on mainnet.
+    SelectParams(CBaseChainParams::MAIN);
+    const Consensus::Params& consensus = Params().GetConsensus(0);
+    for (const auto pos : P96_FLAGDAY_DEPLOYMENTS) {
+        BOOST_CHECK_EQUAL(consensus.vDeployments[pos].nActivationHeight,
+                          Consensus::BIP9Deployment::NOT_SCHEDULED);
+        BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(0, consensus, pos));
+        BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(1000000, consensus, pos));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(p96_testnets_active_from_genesis)
+{
+    // Regtest and stagenet must keep the flag-day features active from genesis
+    // (height 0), preserving the prior ALWAYS_ACTIVE test behavior — and the
+    // live stagenet's historical blocks must validate identically.
+    for (const std::string& net : {CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        const Consensus::Params& consensus = Params().GetConsensus(0);
+        for (const auto pos : P96_FLAGDAY_DEPLOYMENTS) {
+            BOOST_CHECK_EQUAL(consensus.vDeployments[pos].nActivationHeight, 0);
+            BOOST_CHECK(Consensus::DeploymentActiveAtHeight(0, consensus, pos));
+        }
+    }
+    SelectParams(CBaseChainParams::MAIN);  // restore default for later tests
+}
+
 BOOST_AUTO_TEST_SUITE_END()

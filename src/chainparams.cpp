@@ -273,6 +273,24 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = 0;    // Not yet scheduled
 
+        // p96 / Option D — MAINNET flag-day activation heights.
+        // These post-launch soft-forks activate by scheduled HEIGHT (not BIP9 miner
+        // signaling: Soqucoin is merge-mined with no signaling constituency; see
+        // DL-P96-BLOCK-VERSION-ACTIVATION.md). All ship NOT_SCHEDULED (dormant) — a
+        // coordinated release sets a real height for each as its Halborn Phase 2
+        // scope clears. The nStartTime/nTimeout above are retained but NOT consulted
+        // for these deployments. (CHECKPATAGG/LATTICEFOLD stay always-active on BIP9;
+        // CSV/SegWit stay on the historical BIP9 windows.)
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight  = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = Consensus::BIP9Deployment::NOT_SCHEDULED;
+
 
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
@@ -285,7 +303,12 @@ public:
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
+        // lw7: reject AuxPoW blocks that don't carry our chain id (and, via the
+        // parent-side check, parents that DO) — blocks cross-chain / self-merge-mining
+        // PoW reuse. Safe on mainnet: the chain is fresh and the miner (SetBaseVersion)
+        // stamps chain id 0x5351 on every block from genesis. The check is scoped to
+        // AuxPoW blocks (soqucoin.cpp), so solo blocks are unaffected.
+        consensus.fStrictChainId = true;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nAuxpowStartHeight = 0;    // AuxPoW from genesis — merge mining available from block 0
         consensus.nHeightEffective = 0;
@@ -497,6 +520,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // p96 / Option D: height-gated activation, height 0 = active from genesis
+        // (equivalent to the ALWAYS_ACTIVE test behavior above). See CMainParams.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight  = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
 
@@ -507,7 +542,7 @@ public:
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = false;  // Allow legacy blocks without embedded chain ID
+        consensus.fStrictChainId = true;   // lw7 — testnet3 is retired; mirror mainnet
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nAuxpowStartHeight = 0;    // AuxPoW from genesis — mirror mainnet (bead lnq)
@@ -693,6 +728,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // p96 / Option D: height-gated activation, height 0 = active from genesis
+        // (equivalent to the ALWAYS_ACTIVE test behavior above). See CMainParams.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight  = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = 0;
+
         // The best chain should have at least this much work.
         consensus.nMinimumChainWork = uint256S("0x00");
 
@@ -701,7 +748,7 @@ public:
 
         // AuxPow parameters
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
-        consensus.fStrictChainId = false;    // Allow legacy blocks without embedded chain ID
+        consensus.fStrictChainId = true;     // lw7 — regtest is ephemeral; mirror mainnet
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nAuxpowStartHeight = 20;   // Regtest: match auxpowConsensus.nHeightEffective
 
@@ -928,6 +975,19 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // p96 / Option D: height-gated activation, height 0 = active from genesis
+        // (equivalent to the ALWAYS_ACTIVE test behavior above — the live stagenet's
+        // historical blocks validate identically). See CMainParams.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight  = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nActivationHeight        = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = 0;
+
         // USDSOQ Authority Keys - 2-of-3 ML-DSA-44 multisig (FIPS 204)
         // Keys control USDSOQ mint/burn/freeze. Generated 2026-05-27T04:46:27Z
         // Private key material stored in ADDRESS_REGISTRY.md and soq-signer authority keystore.
@@ -956,6 +1016,13 @@ public:
 
         // AuxPoW parameters - same as mainnet
         consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin
+        // lw7: DELIBERATELY still false on stagenet. The LIVE stagenet's historical
+        // AuxPoW blocks were mined as version 0x00000104 — AuxPoW flag set but chain
+        // id 0x0 (the pre-lw7 miner didn't stamp it). Flipping strict here would make
+        // every one of those blocks invalid (IsAuxpow && GetChainId 0 != 0x5351) and
+        // reject the entire live chain. Flip this to true ONLY at the next coordinated
+        // stagenet RESET, once a fresh chain is mined with the chain-id-stamping miner
+        // AND the pool's merged-mining commitment is verified to use chain id 0x5351.
         consensus.fStrictChainId = false;
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true;
