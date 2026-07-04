@@ -119,3 +119,77 @@ Rebuild SoquShield from `soqucoin-ops` branch `feat/usdsoq-balance-v7-index`
 (carries the USDSOQ send asset-isolation + v7-input-scriptPubKey fixes, the
 balance/UTXO API v7 queries, and the privacy de-claw). The node fix + the app
 fix are BOTH required for the send to complete.
+
+---
+
+## 2026-07-04 ADDENDUM — the deploy was INCOMPLETE: the 3 Hetzner pool daemons were missed
+
+**Incident (2026-07-04 16:41 UTC).** The drill's burn step (`d10c651d…566c`,
+100 USDSOQ, authority burn = non-conserving by design) was broadcast from the
+signer. It was ATMP-accepted and template-included on Broadcast (the BUG-20/21
+policy behavior working as designed), then relayed over P2P to the SOQUPOOL
+Hetzner daemons — which were still on `v1.4.0.0-8264181ef-dirty` (the v1.4.0
+release merge, PRE-dating ALL five fixes). All three hit the exact Bug-2 assert:
+
+```
+soqucoind: txmempool.cpp:35: CTxMemPoolEntry: Assertion `inChainInputValue <= nValueIn' failed.
+```
+
+systemd auto-restarted all three within ~40s (NRestarts=1, no loop); pool
+mining continued (blocks 7567/7568 found after). No payout impact. The burn tx
+now sits ONLY in the fixed DO nodes' mempools — the pool nodes crashed during
+acceptance, so it never entered their mempools and (having already been
+announced once) will NOT re-relay on its own. **The burn cannot mine until the
+Hetzner daemons run the fixed binary.**
+
+**Second finding — pool-node supply DBs are CORRUPT.** On restart Hillsboro
+logged `Restored supply from DB: total_minted=24800000000000` (248,000 USDSOQ;
+true value: 1,000). The old build PERSISTED the BUG-18 dry-run leak (the
+`!fJustCheck` persist gate does not exist at `8264181ef`), then re-added +1000
+replaying block 7077. ⚠️ The "restart self-heals" note above applies only to
+builds that HAVE the persist gate — the Hetzner builds do not. The only correct
+repair is a reindex (or fresh resync): the chain is ~7.6k mostly-empty blocks,
+so this is minutes-not-hours despite the usual reindex caution.
+
+**Staged binaries (2026-07-04, built per-box from the branch @ `5e5876763` —
+lib parity guaranteed):** `/opt/pool/bin/soqucoind.usdsoqfix` on each of
+Hillsboro `5.78.192.237`, Nuremberg `116.203.230.200`, Singapore `5.223.50.163`.
+Verify sha256 against the build logs before swapping.
+
+### Per-node completion steps (ROLLING, one box at a time — Casey/coordinated;
+### stop/restart + reindex are DCG-gated)
+
+For each of Hillsboro → Nuremberg → Singapore (2/3 keep mining SOQ while one
+reindexes; LTC/DOGE stratum is unaffected):
+
+1. `sha256sum /opt/pool/bin/soqucoind.usdsoqfix` — matches the build log.
+2. `cp /opt/pool/bin/soqucoind /opt/pool/bin/soqucoind.bak-20260704`
+3. `systemctl stop soqucoind` (pool-server stays up; SOQ jobs stall on this box only)
+4. `cp /opt/pool/bin/soqucoind.usdsoqfix /opt/pool/bin/soqucoind`
+5. One-time reindex to heal the supply DB: add `-reindex` to ExecStart (or run
+   once via a drop-in), `systemctl daemon-reload && systemctl start soqucoind`,
+   wait for tip (watch `getblockcount` — expect minutes), then REMOVE the
+   `-reindex` flag and `daemon-reload` again (do NOT leave it — every future
+   restart would reindex).
+6. Verify: `--version` → `v1.4.0.0-5e5876763`; `getusdsoqstatus` →
+   `total_minted=1000, outstanding=1000` (pre-burn) — the corrupt 249,000 is gone;
+   journal clean of asserts.
+7. Next box.
+
+### After ALL THREE are upgraded — finish the burn drill
+
+The burn will not re-announce by itself. Re-submit it once:
+
+```
+# on Broadcast (64.23.129.28):
+RAW=$(soqucoin-cli getrawtransaction d10c651d86a30ab20a8f537215448e69111289336d5b1425af625a54a197566c 0)
+# on any upgraded pool box:
+soqucoin-cli sendrawtransaction $RAW
+```
+
+Then confirm it MINES and `getusdsoqstatus` shows
+`total_burned=100, outstanding=900` on every node (BUG-20 live proof).
+
+⚠️ Do NOT broadcast ANY further USDSOQ tx (send/burn/mint) until all three
+Hetzner daemons run `5e5876763` — any non-conserving authority tx re-crashes
+the unfixed miners (this is exactly what happened at 16:41 UTC).
