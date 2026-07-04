@@ -1,4 +1,4 @@
-# USDSOQ Mempool Crash Fix — Fleet Deploy Runbook (Buddy handoff)
+# USDSOQ Mempool Crash Fix — Fleet Deploy Runbook
 
 **Fix branch:** `consensus/usdsoq-mempool-crash-fix` (repo `soqucoin/soqucoin`), tip `5e5876763`
 **Spec:** `doc/design/DL-USDSOQ-MEMPOOL-CRASH-FIX.md`

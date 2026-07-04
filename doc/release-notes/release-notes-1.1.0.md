@@ -80,5 +80,4 @@ testnet/development installations.
 
 ## Credits
 
-- Buddy (Antigravity AI) — audit, implementation, testing
-- Casey Wilson — review, approval
+- Casey Wilson — design, implementation, audit, testing

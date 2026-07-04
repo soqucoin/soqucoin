@@ -6,7 +6,7 @@
 // Spec + storage tests for the DB-backed frozen-outpoint set that replaces the
 // overloaded nVisibility 0x80 freeze bit. See design-log/DL-FREEZE-REGISTRY-DESIGN.md.
 //
-// STATUS (Fable+Buddy, 2026-06-16):
+// STATUS (2026-06-16):
 //   - Test 1: storage round-trip — exercises txdb layer. ✅
 //   - Test 2: freeze→spend guard — proves IsFrozenOutpoint gates spend. ✅
 //   - Test 3: unfreeze→spend allowed — proves EraseFrozenOutpoint clears guard. ✅
@@ -54,7 +54,7 @@ static CScript MakeFreezeOpReturn(uint8_t op, const uint256& txid, uint32_t vout
 BOOST_FIXTURE_TEST_SUITE(freeze_registry_tests, BasicTestingSetup)
 
 // ---------------------------------------------------------------------------
-// Test 1 — storage layer round-trip (the part Fable implemented; should PASS)
+// Test 1 — storage layer round-trip (should PASS)
 //   Mirrors the key-image set: presence == frozen, keyed by COutPoint.
 // ---------------------------------------------------------------------------
 BOOST_AUTO_TEST_CASE(freeze_registry_storage_roundtrip)

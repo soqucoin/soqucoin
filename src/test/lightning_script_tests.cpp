@@ -957,7 +957,7 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_onchain_lifecycle)
 // CSFS+CTV BINDING MODEL — PROVES OUTPUT COMMITMENT
 // ============================================================================
 //
-// Fable's binding concern: CSFS alone verifies signatures over an arbitrary
+// Key binding concern: CSFS alone verifies signatures over an arbitrary
 // message, but doesn't bind that message to the spending transaction's outputs.
 // CTV (OP_CHECKTEMPLATEVERIFY) fills this gap by committing to:
 //   nVersion, nLockTime, nInputs, sequences, nOutputs, outputs, inputIndex
@@ -1252,7 +1252,7 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
 // CSFS+CTV SUBSTITUTION ATTACK (Scenarios D + E)
 // ============================================================================
 //
-// Fable's insight: when ctv_hash is a free witness item, Alice can substitute
+// Key insight: when ctv_hash is a free witness item, Alice can substitute
 // BOTH the ctv_hash AND the outputs while reusing Bob's valid CSFS signatures.
 // CSFS verifies "agreed" (the old sighash), CTV verifies ctvH' (the attacker's
 // template) — they're decoupled.
@@ -1584,7 +1584,7 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
 // ============================================================================
 //
 // Produces a deterministic (secretKey, pubKey, digest, signature) tuple from
-// the node's pqcrystals_dilithium2_ref implementation. Fable uses this to
+// the node's pqcrystals_dilithium2_ref implementation. This test uses this to
 // verify @noble/post-quantum's ml-dsa44 matches the node's signing.
 //
 // If the signatures don't match, the SDK falls back to a WASM build of the

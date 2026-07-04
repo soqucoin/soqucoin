@@ -2148,7 +2148,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     //   ConnectBlock FREEZE  → DisconnectBlock ERASE  (undo the freeze)
     //   ConnectBlock UNFREEZE → DisconnectBlock WRITE  (re-freeze)
     //
-    // R1 FIX (Fable review, 2026-06-16): Mirror ConnectBlock apply's guards.
+    // R1 FIX: Mirror ConnectBlock apply's guards.
     // Only reverse freeze ops for txs that are authority txs (have OP_5 <32>
     // output) AND are at/after nUSDSOQAuthorityEnforcementHeight. Without
     // these guards, an attacker can craft a non-authority tx with a FREEZE
