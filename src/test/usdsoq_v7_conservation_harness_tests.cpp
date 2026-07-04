@@ -31,6 +31,7 @@
 #include "script/interpreter.h"
 #include "script/script.h"
 #include "coins.h"
+#include "txmempool.h"
 #include "txdb.h"
 #include "uint256.h"
 #include "validation.h"
@@ -286,6 +287,25 @@ struct V7ConservationChainSetup : public TestingSetup {
 
         SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);  // v7 USDSOQ input
         SignInput(tx, 1, coinbaseSpk, feeVal);                // SOQ fee input
+        return tx;
+    }
+
+    // The daf9fd85 BUG, reproduced: a conserving v7→v7 send whose v7 input is signed
+    // against the v1 scriptCode (OP_1 <program>) instead of the correct v7 scriptCode
+    // (OP_7 <program>). The tx is otherwise valid (conserves, generous SOQ fee), so the
+    // ONLY thing wrong is the v7 signature — which the node catches as NULLFAIL once
+    // SCRIPT_VERIFY_USDSOQ is set. Used to prove the mempool now enforces that flag.
+    CMutableTransaction BuildV7SendMisSigned(const COutPoint& v7op, CAmount v7Val,
+                                             const CTransaction& feeCoinbase, const CScript& v7DestSpk)
+    {
+        const CAmount feeVal = feeCoinbase.vout[0].nValue;
+        CMutableTransaction tx; tx.nVersion = 2;
+        CTxIn vin0; vin0.prevout = v7op; vin0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin0);
+        CTxIn vin1; vin1.prevout = COutPoint(feeCoinbase.GetHash(), 0); vin1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin1);
+        CTxOut o0; o0.nValue = v7Val;            o0.scriptPubKey = v7DestSpk;  tx.vout.push_back(o0); // USDSOQ out (full)
+        CTxOut o1; o1.nValue = feeVal - 100000;  o1.scriptPubKey = coinbaseSpk; tx.vout.push_back(o1); // SOQ change (generous 100k fee)
+        SignInput(tx, 0, MakeV1Spk(coinbasePkBytes), v7Val);  // WRONG: v1 scriptCode for a v7 input (the bug)
+        SignInput(tx, 1, coinbaseSpk, feeVal);                // SOQ fee input (correct)
         return tx;
     }
 
@@ -551,6 +571,35 @@ BOOST_AUTO_TEST_CASE(v7_authority_burn_decrements_supply)
         BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), 0);       // supply destroyed
         g_usdsoq_supply.Reset();
     }
+}
+
+// REGRESSION (mempool ≡ consensus, live bug daf9fd85): the mempool must REJECT a v7
+// USDSOQ input signed against the wrong (v1) scriptCode instead of relaying it. Before
+// the fix the ATMP script flags omitted SCRIPT_VERIFY_USDSOQ, so a v7 input was
+// anyone-can-spend at accept time → the mis-signed tx relayed, then stalled every block
+// template (ConnectBlock enforces the flag and rejects it → empty blocks). With the
+// mempool now mirroring ConnectBlock's flags, ATMP catches the bad signature up front.
+BOOST_AUTO_TEST_CASE(mempool_rejects_v7_input_signed_with_wrong_scriptcode)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction bad = BuildV7SendMisSigned(v7op, v7Val, coinbaseTxns[0], v7Dest);
+
+    CValidationState state;
+    bool missingInputs = false;
+    bool ok = AcceptToMemoryPool(mempool, state, MakeTransactionRef(bad), false,
+                                 &missingInputs, nullptr, false, 0);
+    BOOST_CHECK_MESSAGE(!ok, "mempool must REJECT a v7 input signed with the v1 scriptCode "
+        "(else a tx that ConnectBlock rejects gets relayed and stalls block templates)");
+    BOOST_TEST_MESSAGE("ATMP reject reason: " << state.GetRejectReason());
+    // Confirm it's the SCRIPT-verify check (the flag mirror), not an incidental reject.
+    const std::string& why = state.GetRejectReason();
+    BOOST_CHECK_MESSAGE(why.find("script") != std::string::npos ||
+                        why.find("nullfail") != std::string::npos ||
+                        why.find("mandatory") != std::string::npos,
+        "rejection must be the script-verify flag, got: " + why);
+    BOOST_CHECK(!mempool.exists(bad.GetHash()));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

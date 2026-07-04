@@ -1090,6 +1090,25 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             if (v6active(Consensus::DEPLOYMENT_P2WSH_DILITHIUM))   scriptVerifyFlags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
             if (v6active(Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) scriptVerifyFlags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
             if (v6active(Consensus::DEPLOYMENT_V6_CONTROLFLOW))    scriptVerifyFlags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
+
+            // SOQ-P001 / SOQ-P002 / SOQ-ARCH-001 / SOQ-AUD2-002: mirror the PQ + asset
+            // script flags that ConnectBlock enforces (interpreter.cpp gates the v7 USDSOQ,
+            // PAT-aggregate, LatticeFold and Lattice-BP++ verification on these exact flags).
+            // Without them the mempool verifies those inputs LENIENTLY — a v7 USDSOQ input is
+            // effectively anyone-can-spend at accept time — so a tx that ConnectBlock will
+            // REJECT is accepted and relayed, then sits in the mempool poisoning every block
+            // template until it expires: the pool mines empty (coinbase-only) blocks. That is
+            // exactly what a mis-signed v7 USDSOQ send (wrong scriptCode → NULLFAIL) did on
+            // stagenet (live bug daf9fd85). This is the same policy≡consensus fix the V6
+            // covenant flags above already apply. Match ConnectBlock's activation exactly:
+            //   PAT / LATTICEFOLD  → BIP9 VersionBitsState at the tip (= the next block's pprev)
+            //   LATTICEBP / USDSOQ → height-gated (p96/Option D) at the next block
+            if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_CHECKPATAGG, versionbitscache) == THRESHOLD_ACTIVE)
+                scriptVerifyFlags |= SCRIPT_VERIFY_PAT;
+            if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_LATTICEFOLD, versionbitscache) == THRESHOLD_ACTIVE)
+                scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEFOLD;
+            if (v6active(Consensus::DEPLOYMENT_LATTICEBP))         scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEBP;
+            if (v6active(Consensus::DEPLOYMENT_USDSOQ))            scriptVerifyFlags |= SCRIPT_VERIFY_USDSOQ;
         }
 
         // Check against previous transactions
