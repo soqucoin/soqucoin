@@ -1,20 +1,33 @@
 # USDSOQ Mempool Crash Fix — Fleet Deploy Runbook (Buddy handoff)
 
-**Fix branch:** `consensus/usdsoq-mempool-crash-fix` (repo `soqucoin/soqucoin`), tip `9270bd79b`
+**Fix branch:** `consensus/usdsoq-mempool-crash-fix` (repo `soqucoin/soqucoin`), tip `e860a6409`
 **Spec:** `doc/design/DL-USDSOQ-MEMPOOL-CRASH-FIX.md`
-**Staged binary:** Services VPS `143.110.229.69:/usr/local/bin/soqucoind.usdsoqfix`
-- version `v1.4.0.0-9270bd79b`, sha256 `625ecd239b9c1f09cf03114d4b4ad9de607dc92b3ba05bf1d6782087a6d7fc7f`
+**Staged binary (REBUILT — now contains Bug 2 + BUG-18):** Services VPS `143.110.229.69:/usr/local/bin/soqucoind.usdsoqfix`
+- version `v1.4.0.0-e860a6409`, sha256 `e61e727ccac0bfaf6ab739f6ad6708fd138f537c4082e6c4a2cac066a2f3d6cd`
 - Linux x86-64 ELF, built on the Services VPS from the fix branch.
+- ⚠️ Supersedes the earlier `625ecd23…` binary (that one had only Bug 2). Deploy THIS one.
 
-## What this fixes
+## What this fixes (TWO critical bugs, both in this binary)
 
-A non-conserving USDSOQ spend crashed the node (`CTxMemPoolEntry` assert →
-abort). Remotely-triggerable DoS + the reason USDSOQ sends fail. Two layers:
-mempool acceptance now rejects non-conserving USDSOQ txs cleanly, and the entry
-constructor clamps instead of asserting. **Backward-compatible** — it only adds
-a reject for txs that were already consensus-invalid and removes an abort; block
-validity is unchanged. Verified: `mempool_tests` + USDSOQ/freeze suites green.
-NOT yet live-proven (this deploy is the proof).
+**Bug 2 — node crash on USDSOQ spend.** A non-conserving USDSOQ spend crashed
+the node (`CTxMemPoolEntry` assert → abort) — remotely-triggerable DoS.
+Mempool acceptance now rejects non-conserving USDSOQ txs cleanly and the entry
+constructor clamps instead of asserting.
+
+**BUG-18 — USDSOQ supply-accumulator leak in dry-run validation (found live).**
+`ConnectBlock` mutated the global supply counter even during `fJustCheck` dry-runs
+(`TestBlockValidity`, run on every `getblocktemplate` poll) with no rollback, so
+the counter inflated ~1000→137000 after ~140 polls; `TestBlockValidity` then
+failed and the pool mined ~570 empty (coinbase-only) blocks, blocking ALL USDSOQ
+confirmation. Now the delta is validated on a copy and committed only on a real
+connect (`!fJustCheck`).
+
+Both are **backward-compatible** (block validity unchanged) and verified by unit
+tests (`mempool_tests`, the v7 conservation harness incl. the dry-run-no-leak
+regression, plus the USDSOQ/freeze suites — all green). NOT yet live-proven;
+this deploy is the proof. NOTE: running nodes may hold an inflated in-memory
+supply — a restart reloads the correct value from LevelDB (the persist was
+always `!fJustCheck`-gated), so the redeploy self-heals it.
 
 ## ⚠️ Binary-parity caveat
 
@@ -46,7 +59,7 @@ Confirm the full node set from the fleet topology before starting.
 2. Back up the current binary (`cp /usr/local/bin/soqucoind{,.bak-YYYYMMDD}`).
 3. Install the new binary in place.
 4. `systemctl restart soqucoind-<role>` (per node role).
-5. Verify: `soqucoind ... --version` == `v1.4.0.0-9270bd79b`; node reaches the
+5. Verify: `soqucoind ... --version` == `v1.4.0.0-e860a6409`; node reaches the
    current tip and stays up (`getblockcount`, no assertion in the journal).
 
 ## Post-deploy verification (the live proof)
