@@ -602,4 +602,51 @@ BOOST_AUTO_TEST_CASE(mempool_rejects_v7_input_signed_with_wrong_scriptcode)
     BOOST_CHECK(!mempool.exists(bad.GetHash()));
 }
 
+// REGRESSION BUG-22 (mempool ≡ consensus, same divergence class as BUG-21): the
+// mempool must REJECT a spend of a registry-frozen USDSOQ outpoint. ConnectBlock
+// enforces the freeze registry (bad-txns-spend-frozen-usdsoq), but a frozen-coin
+// spend is script-VALID (freezing does not alter the holding script), so without
+// the ATMP mirror it relays, sits in the mempool, and fails every block template
+// at TestBlockValidity → coinbase-only blocks (the exact empty-block DoS shape of
+// BUG-18/21). The same tx must be ACCEPTED once the outpoint is unfrozen, proving
+// the rejection is the freeze guard and not an incidental policy failure.
+BOOST_AUTO_TEST_CASE(mempool_rejects_spend_of_frozen_v7_outpoint)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction spend = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[0], v7Dest);
+
+    // Freeze the outpoint in the DB-backed registry (what a mined authority
+    // FREEZE op does via WriteFrozenOutpoint at ConnectBlock).
+    {
+        LOCK(cs_main);
+        BOOST_REQUIRE(pcoinsdbview->WriteFrozenOutpoint(v7op));
+        BOOST_REQUIRE(pcoinsdbview->IsFrozenOutpoint(v7op));
+    }
+
+    CValidationState state;
+    bool missingInputs = false;
+    bool ok = AcceptToMemoryPool(mempool, state, MakeTransactionRef(spend), false,
+                                 &missingInputs, nullptr, false, 0);
+    BOOST_CHECK_MESSAGE(!ok, "mempool must REJECT a spend of a frozen USDSOQ outpoint "
+        "(else it relays and stalls every block template at TestBlockValidity)");
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txns-spend-frozen-usdsoq");
+    BOOST_CHECK(!mempool.exists(spend.GetHash()));
+
+    // Unfreeze → the SAME tx must now be accepted (isolates the freeze guard).
+    {
+        LOCK(cs_main);
+        BOOST_REQUIRE(pcoinsdbview->EraseFrozenOutpoint(v7op));
+        BOOST_REQUIRE(!pcoinsdbview->IsFrozenOutpoint(v7op));
+    }
+    CValidationState state2;
+    bool missingInputs2 = false;
+    bool ok2 = AcceptToMemoryPool(mempool, state2, MakeTransactionRef(spend), false,
+                                  &missingInputs2, nullptr, false, 0);
+    BOOST_CHECK_MESSAGE(ok2, "the identical tx must be ACCEPTED once unfrozen, got: "
+        + state2.GetRejectReason());
+    BOOST_CHECK(mempool.exists(spend.GetHash()));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

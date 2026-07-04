@@ -861,6 +861,29 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             }
         }
 
+        // BUG-22: Frozen-UTXO guard must ALSO run at mempool acceptance.
+        // ConnectBlock rejects any spend of a registry-frozen USDSOQ output
+        // (bad-txns-spend-frozen-usdsoq), but without this mirror a frozen-coin
+        // spend is script-valid, relays, and sits in the mempool poisoning
+        // every block template (TestBlockValidity fails) — the same
+        // mempool/consensus divergence class as BUG-21. Mirrors the
+        // ConnectBlock input loop exactly: applies to ALL txs (authority txs
+        // included — a freeze blocks even authority burns of that outpoint),
+        // USDSOQ prevouts only, registry lookup via pcoinsdbview. The registry
+        // is empty until the first post-enforcement freeze, so this adds
+        // nothing until freezes exist (mainnet-inert until USDSOQ activation).
+        for (const auto& txin : tx.vin) {
+            const CCoins* c = view.AccessCoins(txin.prevout.hash);
+            if (c && c->IsAvailable(txin.prevout.n) &&
+                c->vout[txin.prevout.n].IsUSDSOQ() &&
+                pcoinsdbview && pcoinsdbview->IsFrozenOutpoint(txin.prevout)) {
+                return state.DoS(100, false, REJECT_INVALID,
+                    "bad-txns-spend-frozen-usdsoq", false,
+                    strprintf("input %s:%u is a frozen USDSOQ outpoint",
+                        txin.prevout.hash.ToString(), txin.prevout.n));
+            }
+        }
+
         // Keep track of transactions that spend a coinbase, which we re-scan
         // during reorgs to ensure COINBASE_MATURITY is still met.
         bool fSpendsCoinbase = false;
