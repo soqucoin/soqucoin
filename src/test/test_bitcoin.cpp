@@ -77,6 +77,12 @@ TestingSetup::TestingSetup(const std::string& chainName) : BasicTestingSetup(cha
     mempool.setSanityCheck(1.0);
     pblocktree = new CBlockTreeDB(1 << 20, true);
     pcoinsdbview = new CCoinsViewDB(1 << 23, true);
+    // The member above SHADOWS the validation.cpp global of the same name.
+    // Production (init.cpp) sets the global, and consensus paths in
+    // validation.cpp (freeze-registry lookups, supply/authority persistence)
+    // are guarded on it — leaving it null silently disables those paths in
+    // every unit test. Mirror the production wiring.
+    ::pcoinsdbview = pcoinsdbview;
     pcoinsTip = new CCoinsViewCache(pcoinsdbview);
     InitBlockIndex(chainparams);
     {
@@ -99,6 +105,7 @@ TestingSetup::~TestingSetup()
     threadGroup.join_all();
     UnloadBlockIndex();
     delete pcoinsTip;
+    ::pcoinsdbview = nullptr; // un-alias the global before freeing the member
     delete pcoinsdbview;
     delete pblocktree;
     fs::remove_all(pathTemp);

@@ -585,4 +585,34 @@ BOOST_AUTO_TEST_CASE(MempoolSizeLimitTest)
     SetMockTime(0);
 }
 
+// SOQ-USDSOQ-MEMPOOL-CRASH: a non-conserving USDSOQ spend produced
+// inChainInputValue > (GetValueOut() + fee). The old CTxMemPoolEntry ctor
+// assert()ed on that and abort()ed the daemon — a remotely-triggerable crash.
+// The ctor now clamps instead of aborting. This test constructs that exact
+// condition and verifies (a) no abort and (b) inChainInputValue is clamped to
+// GetValueOut()+fee. Before the fix this test would kill the test binary.
+BOOST_AUTO_TEST_CASE(MempoolEntryNoCrashOnUsdsoqImbalance)
+{
+    CMutableTransaction tx;
+    tx.vin.resize(1);
+    tx.vin[0].scriptSig = CScript() << OP_11;
+    tx.vout.resize(1);
+    tx.vout[0].scriptPubKey = CScript() << OP_11 << OP_EQUAL;
+    tx.vout[0].nValue = 100000LL; // GetValueOut() == 100000
+
+    const CAmount fee = 0;
+    // inChainInputValue far exceeds GetValueOut()+fee — the crash condition
+    // (mirrors a USDSOQ input whose raw value isn't reflected in the SOQ-only fee).
+    const CAmount inflatedInChain = 100000000000LL; // 1000 "USDSOQ"
+    LockPoints lp;
+
+    CTxMemPoolEntry entry(MakeTransactionRef(tx), fee, /*nTime=*/0, /*prio=*/0.0,
+        /*height=*/1, inflatedInChain, /*spendsCoinbase=*/false, /*sigOps=*/1, lp);
+
+    // Reaching here at all means we did NOT abort() (the DoS is fixed).
+    // The value is clamped to GetValueOut()+fee so the priority heuristic stays sane.
+    BOOST_CHECK_EQUAL(entry.GetInChainInputValue(), CTransaction(tx).GetValueOut() + fee);
+    BOOST_CHECK(entry.GetTxSize() > 0);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

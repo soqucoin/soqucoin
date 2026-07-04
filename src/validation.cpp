@@ -820,6 +820,70 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         CAmount inChainInputValue;
         double dPriority = view.GetPriority(tx, chainActive.Height(), inChainInputValue);
 
+        // SOQ-USDSOQ-MEMPOOL-CRASH: Enforce USDSOQ per-asset conservation HERE, before
+        // constructing the CTxMemPoolEntry below. The full conservation check lives in
+        // Consensus::CheckTxInputs (via CheckInputs), but that does not run until ~200
+        // lines later — and CTxMemPoolEntry's `assert(inChainInputValue <= nValueIn)`
+        // fires first for a non-conserving USDSOQ spend (inChainInputValue sums raw coin
+        // value incl. USDSOQ, while nValueIn = GetValueOut() + SOQ-only fee; the delta is
+        // exactly USDSOQ_in − USDSOQ_out). A non-conserving USDSOQ tx from any peer would
+        // therefore abort() the daemon — a remotely-triggerable crash. Reject it cleanly
+        // here, mirroring the ConnectBlock rule, so mempool policy matches consensus.
+        // Authority txs (OP_5 marker) mint ex nihilo and are exempt, exactly as in
+        // CheckTxInputs; they give USDSOQ_out ≥ USDSOQ_in so the assert never trips.
+        {
+            bool isAuthorityTx = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.scriptPubKey.size() == 34 &&
+                    txout.scriptPubKey[0] == OP_5 && txout.scriptPubKey[1] == 32) {
+                    isAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isAuthorityTx) {
+                CAmount nUSDSOQIn = 0, nUSDSOQOut = 0;
+                for (const auto& txin : tx.vin) {
+                    const CCoins* c = view.AccessCoins(txin.prevout.hash);
+                    if (c && c->IsAvailable(txin.prevout.n) &&
+                        c->vout[txin.prevout.n].IsUSDSOQ()) {
+                        nUSDSOQIn += c->vout[txin.prevout.n].nValue;
+                    }
+                }
+                for (const auto& txout : tx.vout) {
+                    if (txout.IsUSDSOQ()) nUSDSOQOut += txout.nValue;
+                }
+                if (nUSDSOQIn != nUSDSOQOut) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-txns-usdsoq-not-conserved", false,
+                        strprintf("USDSOQ in (%s) != USDSOQ out (%s)",
+                            FormatMoney(nUSDSOQIn), FormatMoney(nUSDSOQOut)));
+                }
+            }
+        }
+
+        // BUG-22: Frozen-UTXO guard must ALSO run at mempool acceptance.
+        // ConnectBlock rejects any spend of a registry-frozen USDSOQ output
+        // (bad-txns-spend-frozen-usdsoq), but without this mirror a frozen-coin
+        // spend is script-valid, relays, and sits in the mempool poisoning
+        // every block template (TestBlockValidity fails) — the same
+        // mempool/consensus divergence class as BUG-21. Mirrors the
+        // ConnectBlock input loop exactly: applies to ALL txs (authority txs
+        // included — a freeze blocks even authority burns of that outpoint),
+        // USDSOQ prevouts only, registry lookup via pcoinsdbview. The registry
+        // is empty until the first post-enforcement freeze, so this adds
+        // nothing until freezes exist (mainnet-inert until USDSOQ activation).
+        for (const auto& txin : tx.vin) {
+            const CCoins* c = view.AccessCoins(txin.prevout.hash);
+            if (c && c->IsAvailable(txin.prevout.n) &&
+                c->vout[txin.prevout.n].IsUSDSOQ() &&
+                pcoinsdbview && pcoinsdbview->IsFrozenOutpoint(txin.prevout)) {
+                return state.DoS(100, false, REJECT_INVALID,
+                    "bad-txns-spend-frozen-usdsoq", false,
+                    strprintf("input %s:%u is a frozen USDSOQ outpoint",
+                        txin.prevout.hash.ToString(), txin.prevout.n));
+            }
+        }
+
         // Keep track of transactions that spend a coinbase, which we re-scan
         // during reorgs to ensure COINBASE_MATURITY is still met.
         bool fSpendsCoinbase = false;
@@ -1049,6 +1113,25 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             if (v6active(Consensus::DEPLOYMENT_P2WSH_DILITHIUM))   scriptVerifyFlags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
             if (v6active(Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) scriptVerifyFlags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
             if (v6active(Consensus::DEPLOYMENT_V6_CONTROLFLOW))    scriptVerifyFlags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
+
+            // SOQ-P001 / SOQ-P002 / SOQ-ARCH-001 / SOQ-AUD2-002: mirror the PQ + asset
+            // script flags that ConnectBlock enforces (interpreter.cpp gates the v7 USDSOQ,
+            // PAT-aggregate, LatticeFold and Lattice-BP++ verification on these exact flags).
+            // Without them the mempool verifies those inputs LENIENTLY — a v7 USDSOQ input is
+            // effectively anyone-can-spend at accept time — so a tx that ConnectBlock will
+            // REJECT is accepted and relayed, then sits in the mempool poisoning every block
+            // template until it expires: the pool mines empty (coinbase-only) blocks. That is
+            // exactly what a mis-signed v7 USDSOQ send (wrong scriptCode → NULLFAIL) did on
+            // stagenet (live bug daf9fd85). This is the same policy≡consensus fix the V6
+            // covenant flags above already apply. Match ConnectBlock's activation exactly:
+            //   PAT / LATTICEFOLD  → BIP9 VersionBitsState at the tip (= the next block's pprev)
+            //   LATTICEBP / USDSOQ → height-gated (p96/Option D) at the next block
+            if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_CHECKPATAGG, versionbitscache) == THRESHOLD_ACTIVE)
+                scriptVerifyFlags |= SCRIPT_VERIFY_PAT;
+            if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_LATTICEFOLD, versionbitscache) == THRESHOLD_ACTIVE)
+                scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEFOLD;
+            if (v6active(Consensus::DEPLOYMENT_LATTICEBP))         scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEBP;
+            if (v6active(Consensus::DEPLOYMENT_USDSOQ))            scriptVerifyFlags |= SCRIPT_VERIFY_USDSOQ;
         }
 
         // Check against previous transactions
@@ -1890,6 +1973,20 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
             const CTransaction& tx = *(block.vtx[i]);
             if (tx.IsCoinBase()) continue;
 
+            // BUG-19: mirror ConnectBlock — only AUTHORITY txs (OP_5 marker) moved the
+            // supply counter, so only they are reversed here. A transfer changed nothing,
+            // so reversing its outputs/inputs would corrupt the supply on reorg (and
+            // desync connect vs disconnect). Detect the authority marker as ConnectBlock does.
+            bool isAuthorityTx = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.scriptPubKey.size() == 34 &&
+                    txout.scriptPubKey[0] == OP_5 && txout.scriptPubKey[1] == 32) {
+                    isAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isAuthorityTx) continue;
+
             // Count USDSOQ outputs being removed (reverses mints)
             for (const auto& txout : tx.vout) {
                 if (txout.IsUSDSOQ()) {
@@ -2677,8 +2774,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 // always open (signatures always required). No unsigned USDSOQ TX
                 // can exist before BIP9 activates USDSOQ, making this safe.
                 //
-                // STAGENET: nUSDSOQAuthorityEnforcementHeight=37201, exempting
-                // blocks 0-37200 which contain pre-authority CLI test mints.
+                // STAGENET: nUSDSOQAuthorityEnforcementHeight=7700 (recalibrated
+                // 2026-07-04 for the reset chain), exempting the pre-enforcement
+                // drill txs (mint 6501, send 7077, burn 7595).
                 if (pindex->nHeight < consensus.nUSDSOQAuthorityEnforcementHeight) {
                     LogPrintf("USDSOQ: Pre-enforcement height %d < %d — "
                               "skipping authority sig verification for tx %s "
@@ -3104,9 +3202,16 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         // Supply invariant maintained: transfers don't change total supply.
                     }
 
-                    // Only count transparent USDSOQ outputs toward minted supply.
-                    // Confidential outputs don't change total supply (transfers only).
-                    if (txout.IsTransparent()) {
+                    // BUG-19: ONLY authority txs (mint/burn/freeze/rotate — OP_5 marker)
+                    // change the USDSOQ supply. A plain user transfer re-emits existing
+                    // USDSOQ in its outputs and MUST be supply-neutral. Counting every
+                    // transparent USDSOQ output as "minted" inflated the supply by the
+                    // transfer amount on every send (the input-burn loop below can't offset
+                    // it — inputs are already spent in the view by the time it runs, so
+                    // nUSDSOQBurned is always 0 here). That inflated supply then made block
+                    // templates carrying a USDSOQ send fail validation → the pool mined empty
+                    // blocks. Gate minting on isAuthorityTx so only real mints move the counter.
+                    if (isAuthorityTx && txout.IsTransparent()) {
                         nUSDSOQMinted += txout.nValue;
                     }
                     // Confidential outputs: value is hidden in commitment.
@@ -3114,58 +3219,81 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 }
             }
 
-            // Track USDSOQ inputs being spent (consumed supply)
-            for (const auto& txin : tx.vin) {
-                const CCoins* coins = view.AccessCoins(txin.prevout.hash);
-                if (!coins || !coins->IsAvailable(txin.prevout.n))
-                    continue;
-                const CTxOut& prevOut = coins->vout[txin.prevout.n];
-                if (prevOut.IsUSDSOQ()) {
-                    // Defense-in-depth: reject confidential USDSOQ inputs
-                    // Phase 4: use IsConfidential() predicate (v4 witness version)
-                    if (prevOut.IsConfidential()) {
-                        return state.DoS(100,
-                            error("ConnectBlock(): spending confidential USDSOQ input %s:%u"
-                                  " — should not exist",
-                                txin.prevout.hash.ToString(), txin.prevout.n),
-                            REJECT_INVALID, "bad-txns-usdsoq-conf-input");
+            // Track USDSOQ inputs being spent (consumed supply) — AUTHORITY txs only.
+            //
+            // BUG-20: a burn is an authority tx that destroys USDSOQ; a plain transfer is
+            // supply-neutral (its v7 output is NOT counted as minted, per BUG-19 above), so
+            // its inputs must NOT be counted as burned either. Only authority txs move supply.
+            //
+            // The inputs are already spent in the coins view by now (UpdateCoins ran in the
+            // first pass over the block), so the old `view.AccessCoins(...)->IsAvailable`
+            // read here always hit the spent branch and nUSDSOQBurned was silently always 0 —
+            // meaning burns could never decrement the supply. Read the original prevouts from
+            // the block undo instead (the same source DisconnectBlock uses), so burns are
+            // counted correctly AND connect/disconnect stay symmetric on reorg.
+            if (isAuthorityTx && i > 0 && (i - 1) < blockundo.vtxundo.size()) {
+                const CTxUndo& txundo = blockundo.vtxundo[i - 1];
+                for (unsigned int j = 0; j < tx.vin.size() && j < txundo.vprevout.size(); j++) {
+                    const CTxOut& prevOut = txundo.vprevout[j].txout;
+                    if (prevOut.IsUSDSOQ()) {
+                        // Defense-in-depth: reject confidential USDSOQ inputs
+                        // Phase 4: use IsConfidential() predicate (v4 witness version)
+                        if (prevOut.IsConfidential()) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): spending confidential USDSOQ input %s:%u"
+                                      " — should not exist",
+                                    tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n),
+                                REJECT_INVALID, "bad-txns-usdsoq-conf-input");
+                        }
+                        nUSDSOQBurned += prevOut.nValue;
                     }
-                    nUSDSOQBurned += prevOut.nValue;
                 }
             }
         }
 
-        // SOQ-AUD2-002 D1: Persist USDSOQ supply delta to global counter + LevelDB
+        // SOQ-AUD2-002 D1: Apply the USDSOQ supply delta to the global counter + LevelDB.
+        //
+        // BUG-18: ConnectBlock runs with fJustCheck=true for VALIDATION-ONLY dry-runs
+        // (TestBlockValidity, called by CreateNewBlock on every getblocktemplate poll).
+        // The old code mutated the GLOBAL g_usdsoq_supply here unconditionally and only
+        // gated the LevelDB persist on !fJustCheck — so each template poll leaked the
+        // in-memory counter with no rollback. After ~140 polls the supply inflated far
+        // past reality, TestBlockValidity then failed, and the pool fell back to mining
+        // empty (coinbase-only) blocks — blocking ALL USDSOQ tx confirmation.
+        //
+        // Fix: validate the delta on a COPY (so overflow/underflow is still detected
+        // against the real current supply on every path), and COMMIT to the global +
+        // LevelDB ONLY on a real connect (!fJustCheck). A discarded dry-run now leaves
+        // the global untouched. DisconnectBlock reverses the committed delta on reorg.
         if (nUSDSOQMinted > 0 || nUSDSOQBurned > 0) {
-            LogPrintf("USDSOQ: block %d supply delta: minted=%d burned=%d net=%d\n",
-                pindex->nHeight, nUSDSOQMinted, nUSDSOQBurned,
-                nUSDSOQMinted - nUSDSOQBurned);
-
-            // Update in-memory supply counter (checked arithmetic)
-            if (nUSDSOQMinted > 0 && !g_usdsoq_supply.Mint(nUSDSOQMinted)) {
+            CUSDSOQSupply supplyAfter = g_usdsoq_supply; // value copy
+            if (nUSDSOQMinted > 0 && !supplyAfter.Mint(nUSDSOQMinted)) {
                 return state.DoS(100,
                     error("ConnectBlock(): USDSOQ supply overflow on mint of %d at block %d",
                         nUSDSOQMinted, pindex->nHeight),
                     REJECT_INVALID, "bad-usdsoq-supply-overflow");
             }
-            if (nUSDSOQBurned > 0 && !g_usdsoq_supply.Burn(nUSDSOQBurned)) {
+            if (nUSDSOQBurned > 0 && !supplyAfter.Burn(nUSDSOQBurned)) {
                 return state.DoS(100,
                     error("ConnectBlock(): USDSOQ supply underflow on burn of %d at block %d",
                         nUSDSOQBurned, pindex->nHeight),
                     REJECT_INVALID, "bad-usdsoq-supply-underflow");
             }
 
-            // Persist to LevelDB for crash recovery
-            if (!fJustCheck && pcoinsdbview) {
-                if (!pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply)) {
+            LogPrintf("USDSOQ: block %d supply delta: minted=%d burned=%d net=%d%s\n",
+                pindex->nHeight, nUSDSOQMinted, nUSDSOQBurned,
+                nUSDSOQMinted - nUSDSOQBurned, fJustCheck ? " (dry-run, not committed)" : "");
+
+            if (!fJustCheck) {
+                g_usdsoq_supply = supplyAfter; // commit only on a real block connect
+                if (pcoinsdbview && !pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply)) {
                     LogPrintf("ERROR: USDSOQ: Failed to persist supply to LevelDB at block %d\n",
                         pindex->nHeight);
                 }
+                LogPrintf("USDSOQ: supply state: total_minted=%d total_burned=%d outstanding=%d\n",
+                    g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
+                    g_usdsoq_supply.Outstanding());
             }
-
-            LogPrintf("USDSOQ: supply state: total_minted=%d total_burned=%d outstanding=%d\n",
-                g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
-                g_usdsoq_supply.Outstanding());
         }
     }
 

@@ -31,6 +31,7 @@
 #include "script/interpreter.h"
 #include "script/script.h"
 #include "coins.h"
+#include "txmempool.h"
 #include "txdb.h"
 #include "uint256.h"
 #include "validation.h"
@@ -62,6 +63,19 @@ static CScript MakeV7Spk(const std::vector<unsigned char>& rawPubkey)
     CSHA256().Write(rawPubkey.data(), rawPubkey.size()).Finalize(pkHash.begin());
     CScript spk;
     spk << OP_7 << std::vector<unsigned char>(pkHash.begin(), pkHash.end());
+    return spk;
+}
+
+// V5 authority-marker scriptPubKey: OP_5 <32-byte hash>. Its presence in an output
+// makes a tx an AUTHORITY tx (mint/burn/freeze/rotate) — the OP_5 <32> shape is exactly
+// what ConnectBlock scans for. Sig verification only kicks in once g_usdsoq_authority
+// is initialized (it is NOT in this harness), so a marker alone flags authority here.
+static CScript MakeV5Spk(const std::vector<unsigned char>& rawPubkey)
+{
+    uint256 pkHash;
+    CSHA256().Write(rawPubkey.data(), rawPubkey.size()).Finalize(pkHash.begin());
+    CScript spk;
+    spk << OP_5 << std::vector<unsigned char>(pkHash.begin(), pkHash.end());
     return spk;
 }
 
@@ -145,6 +159,41 @@ struct V7ConservationChainSetup : public TestingSetup {
         bool accepted = ProcessNewBlock(cp, shared, true, &fNewBlock);
         BOOST_TEST_MESSAGE("ProcessNewBlock: accepted=" << accepted << " fNewBlock=" << fNewBlock
             << " vtx=" << block.vtx.size() << " tip=" << chainActive.Tip()->GetBlockHash().ToString());
+        return block;
+    }
+
+    // Like CreateAndProcessBlock but STOPS before ProcessNewBlock — returns a fully
+    // solved (PoW + commitment) block that is NOT connected, so a caller can run
+    // TestBlockValidity(fJustCheck) against it repeatedly. Used to reproduce BUG-18
+    // (getblocktemplate re-runs the dry-run every poll).
+    CBlock BuildSolvedBlock(const std::vector<CMutableTransaction>& txns, const CScript& spk)
+    {
+        const CChainParams& cp = Params();
+        std::unique_ptr<CBlockTemplate> tmpl = BlockAssembler(cp).CreateNewBlock(spk, true);
+        BOOST_REQUIRE(tmpl != nullptr);
+        CBlock& block = tmpl->block;
+        block.vtx.resize(1);
+        {
+            CMutableTransaction coinbaseMut(*block.vtx[0]);
+            coinbaseMut.vout.erase(
+                std::remove_if(coinbaseMut.vout.begin(), coinbaseMut.vout.end(),
+                    [](const CTxOut& o) {
+                        return o.scriptPubKey.size() >= 38 &&
+                               o.scriptPubKey[0] == OP_RETURN && o.scriptPubKey[1] == 0x24 &&
+                               o.scriptPubKey[2] == 0xaa && o.scriptPubKey[3] == 0x21 &&
+                               o.scriptPubKey[4] == 0xa9 && o.scriptPubKey[5] == 0xed;
+                    }),
+                coinbaseMut.vout.end());
+            coinbaseMut.vin[0].scriptWitness.stack.clear();
+            block.vtx[0] = MakeTransactionRef(std::move(coinbaseMut));
+        }
+        for (const CMutableTransaction& tx : txns)
+            block.vtx.push_back(MakeTransactionRef(tx));
+        GenerateCoinbaseCommitment(block, chainActive.Tip(), cp.GetConsensus(0));
+        unsigned int extraNonce = 0;
+        IncrementExtraNonce(&block, chainActive.Tip(), extraNonce);
+        while (!CheckProofOfWork(block.GetPoWHash(), block.nBits, cp.GetConsensus(0)))
+            ++block.nNonce;
         return block;
     }
 
@@ -237,6 +286,71 @@ struct V7ConservationChainSetup : public TestingSetup {
         CTxOut o1; o1.nValue = feeVal - 10000; o1.scriptPubKey = coinbaseSpk; tx.vout.push_back(o1); // SOQ change
 
         SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);  // v7 USDSOQ input
+        SignInput(tx, 1, coinbaseSpk, feeVal);                // SOQ fee input
+        return tx;
+    }
+
+    // The daf9fd85 BUG, reproduced: a conserving v7→v7 send whose v7 input is signed
+    // against the v1 scriptCode (OP_1 <program>) instead of the correct v7 scriptCode
+    // (OP_7 <program>). The tx is otherwise valid (conserves, generous SOQ fee), so the
+    // ONLY thing wrong is the v7 signature — which the node catches as NULLFAIL once
+    // SCRIPT_VERIFY_USDSOQ is set. Used to prove the mempool now enforces that flag.
+    CMutableTransaction BuildV7SendMisSigned(const COutPoint& v7op, CAmount v7Val,
+                                             const CTransaction& feeCoinbase, const CScript& v7DestSpk)
+    {
+        const CAmount feeVal = feeCoinbase.vout[0].nValue;
+        CMutableTransaction tx; tx.nVersion = 2;
+        CTxIn vin0; vin0.prevout = v7op; vin0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin0);
+        CTxIn vin1; vin1.prevout = COutPoint(feeCoinbase.GetHash(), 0); vin1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin1);
+        CTxOut o0; o0.nValue = v7Val;            o0.scriptPubKey = v7DestSpk;  tx.vout.push_back(o0); // USDSOQ out (full)
+        CTxOut o1; o1.nValue = feeVal - 100000;  o1.scriptPubKey = coinbaseSpk; tx.vout.push_back(o1); // SOQ change (generous 100k fee)
+        SignInput(tx, 0, MakeV1Spk(coinbasePkBytes), v7Val);  // WRONG: v1 scriptCode for a v7 input (the bug)
+        SignInput(tx, 1, coinbaseSpk, feeVal);                // SOQ fee input (correct)
+        return tx;
+    }
+
+    // Mirrors the LIVE drill send daf9fd85: one v7 USDSOQ input (full value) SPLIT into
+    // TWO v7 outputs (split0 + (v7Val-split0)) + a SOQ fee input → SOQ change. USDSOQ
+    // in==out exactly across the two outputs; fee paid in SOQ. This is the shape the app
+    // actually produces (send amount + USDSOQ change), which the single-output helper
+    // above does not exercise.
+    CMutableTransaction BuildV7SplitSend(const COutPoint& v7op, CAmount v7Val, CAmount split0,
+                                         const CTransaction& feeCoinbase, const CScript& v7DestSpk)
+    {
+        const CAmount feeVal = feeCoinbase.vout[0].nValue;
+        CMutableTransaction tx; tx.nVersion = 2;
+
+        CTxIn vin0; vin0.prevout = v7op; vin0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin0);
+        CTxIn vin1; vin1.prevout = COutPoint(feeCoinbase.GetHash(), 0); vin1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin1);
+
+        CTxOut o0; o0.nValue = split0;          o0.scriptPubKey = v7DestSpk;  tx.vout.push_back(o0); // USDSOQ send
+        CTxOut o1; o1.nValue = v7Val - split0;  o1.scriptPubKey = v7DestSpk;  tx.vout.push_back(o1); // USDSOQ change (v7)
+        CTxOut o2; o2.nValue = feeVal - 10000;  o2.scriptPubKey = coinbaseSpk; tx.vout.push_back(o2); // SOQ change
+
+        SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);
+        SignInput(tx, 1, coinbaseSpk, feeVal);
+        return tx;
+    }
+
+    // AUTHORITY BURN: a v7 USDSOQ input is destroyed (no v7 output), the tx carries an
+    // OP_5 authority marker so it's exempt from value-conservation, and a SOQ fee input
+    // covers the marker + fee. USDSOQ in > USDSOQ out → supply must DROP by the burned
+    // amount. Exercises the BUG-20 path: burned inputs are read from the block undo
+    // (they're already spent in the coins view by the time the supply loop runs).
+    CMutableTransaction BuildV7Burn(const COutPoint& v7op, CAmount v7Val,
+                                    const CTransaction& feeCoinbase)
+    {
+        const CAmount feeVal = feeCoinbase.vout[0].nValue;
+        CMutableTransaction tx; tx.nVersion = 2;
+
+        CTxIn vin0; vin0.prevout = v7op; vin0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin0);
+        CTxIn vin1; vin1.prevout = COutPoint(feeCoinbase.GetHash(), 0); vin1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin1);
+
+        // OP_5 authority marker (funded from the SOQ input) — no v7 output at all.
+        CTxOut mark; mark.nValue = 10000;              mark.scriptPubKey = MakeV5Spk(coinbasePkBytes); tx.vout.push_back(mark);
+        CTxOut chg;  chg.nValue  = feeVal - 20000;     chg.scriptPubKey  = coinbaseSpk;                 tx.vout.push_back(chg);  // SOQ change (fee=10000)
+
+        SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);  // v7 USDSOQ input (to be burned)
         SignInput(tx, 1, coinbaseSpk, feeVal);                // SOQ fee input
         return tx;
     }
@@ -339,6 +453,200 @@ BOOST_AUTO_TEST_CASE(v7_input_to_soq_output_rejected)
     BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() != B.GetHash(),
         "a v7-USDSOQ-input → SOQ-output tx must be rejected by conservation (can't convert "
         "USDSOQ→SOQ); if it connects, the v7 input isn't classified USDSOQ by version");
+}
+
+// ---------------------------------------------------------------------------
+// BUG-18: a VALIDATION-ONLY dry-run (TestBlockValidity → ConnectBlock fJustCheck)
+// must NOT mutate the global USDSOQ supply accumulator. CreateNewBlock runs this
+// on EVERY getblocktemplate poll; the old code leaked the counter each call, so
+// after ~140 polls the supply inflated and the pool mined empty blocks. Here we
+// build a valid v7→v7-send block and TestBlockValidity it many times, asserting
+// the global supply is byte-for-byte unchanged. Before the fix this fails
+// (total_minted grows by v7Val per call).
+// ---------------------------------------------------------------------------
+// BUG-19 repro: match the LIVE state — a prior real mint left outstanding>0 —
+// then validate/connect a plain v7→v7 send. If ConnectBlock's gross-flow supply
+// accounting (transfer outputs counted as minted, inputs as burned) rejects the
+// block, this reproduces the empty-block failure.
+BOOST_AUTO_TEST_CASE(v7_send_connects_with_prior_minted_supply)
+{
+    const CAmount v7Val = 5 * COIN;
+    {
+        LOCK(cs_main);
+        g_usdsoq_supply.Reset();
+        BOOST_REQUIRE(g_usdsoq_supply.Mint(v7Val)); // simulate the earlier authority mint
+    }
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction send = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[0], v7Dest);
+    std::vector<CMutableTransaction> txns{send};
+    CBlock B = CreateAndProcessBlock(txns, coinbaseSpk);
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B.GetHash(),
+        "a v7→v7 send must connect even when prior supply.outstanding>0 — a plain transfer "
+        "must not be rejected by supply accounting (BUG-19)");
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), v7Val); // transfer is supply-neutral
+        g_usdsoq_supply.Reset();
+    }
+}
+
+BOOST_AUTO_TEST_CASE(dryrun_testblockvalidity_does_not_leak_usdsoq_supply)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction send = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[0], v7Dest);
+    CBlock B = BuildSolvedBlock({send}, coinbaseSpk); // solved but NOT connected
+
+    LOCK(cs_main);
+    const CAmount mintedBefore = g_usdsoq_supply.TotalMinted();
+    const CAmount burnedBefore = g_usdsoq_supply.TotalBurned();
+    const CAmount outBefore = g_usdsoq_supply.Outstanding();
+
+    // Simulate 25 getblocktemplate polls (each is a TestBlockValidity dry-run).
+    bool anyValid = false;
+    for (int i = 0; i < 25; ++i) {
+        CValidationState st;
+        if (TestBlockValidity(st, Params(), B, chainActive.Tip(), true, true))
+            anyValid = true;
+    }
+    BOOST_CHECK_MESSAGE(anyValid, "the send block must pass TestBlockValidity at least once "
+        "(else this test isn't exercising the supply-delta path)");
+
+    BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalMinted(), mintedBefore);
+    BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalBurned(), burnedBefore);
+    BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), outBefore);
+}
+
+// ---------------------------------------------------------------------------
+// BUG-20: an AUTHORITY burn must DECREMENT the supply. Before the fix the
+// burned-input count read the coins view AFTER UpdateCoins had already spent
+// the inputs, so nUSDSOQBurned was always 0 and a burn left the supply
+// unchanged (USDSOQ silently un-destroyable). The fix reads the spent prevouts
+// from the block undo. Seed a prior mint of v7Val, burn the whole v7 coin, and
+// assert outstanding drops to 0.
+// ---------------------------------------------------------------------------
+// LIVE REPRO: exact shape of the drill send daf9fd85 — a 1000-unit v7 coin split into
+// 100 + 900 v7 outputs, prior supply minted=1000. Must connect and leave outstanding=1000.
+BOOST_AUTO_TEST_CASE(v7_split_send_connects_with_prior_minted_supply)
+{
+    const CAmount v7Val = 1000 * COIN;
+    {
+        LOCK(cs_main);
+        g_usdsoq_supply.Reset();
+        BOOST_REQUIRE(g_usdsoq_supply.Mint(v7Val));
+    }
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction send = BuildV7SplitSend(v7op, v7Val, 100 * COIN, coinbaseTxns[0], v7Dest);
+    std::vector<CMutableTransaction> txns{send};
+    CBlock B = CreateAndProcessBlock(txns, coinbaseSpk);
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B.GetHash(),
+        "a v7→(v7+v7) split send (the app's real shape) must connect with prior supply>0");
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), v7Val);
+        g_usdsoq_supply.Reset();
+    }
+}
+
+BOOST_AUTO_TEST_CASE(v7_authority_burn_decrements_supply)
+{
+    const CAmount v7Val = 5 * COIN;
+    {
+        LOCK(cs_main);
+        g_usdsoq_supply.Reset();
+        BOOST_REQUIRE(g_usdsoq_supply.Mint(v7Val)); // the earlier authority mint
+    }
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CMutableTransaction burn = BuildV7Burn(v7op, v7Val, coinbaseTxns[0]);
+    std::vector<CMutableTransaction> txns{burn};
+    CBlock B = CreateAndProcessBlock(txns, coinbaseSpk);
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B.GetHash(),
+        "an authority burn (v7 in, OP_5 marker, no v7 out) must connect");
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalBurned(), v7Val);   // burn was counted
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), 0);       // supply destroyed
+        g_usdsoq_supply.Reset();
+    }
+}
+
+// REGRESSION (mempool ≡ consensus, live bug daf9fd85): the mempool must REJECT a v7
+// USDSOQ input signed against the wrong (v1) scriptCode instead of relaying it. Before
+// the fix the ATMP script flags omitted SCRIPT_VERIFY_USDSOQ, so a v7 input was
+// anyone-can-spend at accept time → the mis-signed tx relayed, then stalled every block
+// template (ConnectBlock enforces the flag and rejects it → empty blocks). With the
+// mempool now mirroring ConnectBlock's flags, ATMP catches the bad signature up front.
+BOOST_AUTO_TEST_CASE(mempool_rejects_v7_input_signed_with_wrong_scriptcode)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction bad = BuildV7SendMisSigned(v7op, v7Val, coinbaseTxns[0], v7Dest);
+
+    CValidationState state;
+    bool missingInputs = false;
+    bool ok = AcceptToMemoryPool(mempool, state, MakeTransactionRef(bad), false,
+                                 &missingInputs, nullptr, false, 0);
+    BOOST_CHECK_MESSAGE(!ok, "mempool must REJECT a v7 input signed with the v1 scriptCode "
+        "(else a tx that ConnectBlock rejects gets relayed and stalls block templates)");
+    BOOST_TEST_MESSAGE("ATMP reject reason: " << state.GetRejectReason());
+    // Confirm it's the SCRIPT-verify check (the flag mirror), not an incidental reject.
+    const std::string& why = state.GetRejectReason();
+    BOOST_CHECK_MESSAGE(why.find("script") != std::string::npos ||
+                        why.find("nullfail") != std::string::npos ||
+                        why.find("mandatory") != std::string::npos,
+        "rejection must be the script-verify flag, got: " + why);
+    BOOST_CHECK(!mempool.exists(bad.GetHash()));
+}
+
+// REGRESSION BUG-22 (mempool ≡ consensus, same divergence class as BUG-21): the
+// mempool must REJECT a spend of a registry-frozen USDSOQ outpoint. ConnectBlock
+// enforces the freeze registry (bad-txns-spend-frozen-usdsoq), but a frozen-coin
+// spend is script-VALID (freezing does not alter the holding script), so without
+// the ATMP mirror it relays, sits in the mempool, and fails every block template
+// at TestBlockValidity → coinbase-only blocks (the exact empty-block DoS shape of
+// BUG-18/21). The same tx must be ACCEPTED once the outpoint is unfrozen, proving
+// the rejection is the freeze guard and not an incidental policy failure.
+BOOST_AUTO_TEST_CASE(mempool_rejects_spend_of_frozen_v7_outpoint)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction spend = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[0], v7Dest);
+
+    // Freeze the outpoint in the DB-backed registry (what a mined authority
+    // FREEZE op does via WriteFrozenOutpoint at ConnectBlock).
+    {
+        LOCK(cs_main);
+        BOOST_REQUIRE(pcoinsdbview->WriteFrozenOutpoint(v7op));
+        BOOST_REQUIRE(pcoinsdbview->IsFrozenOutpoint(v7op));
+    }
+
+    CValidationState state;
+    bool missingInputs = false;
+    bool ok = AcceptToMemoryPool(mempool, state, MakeTransactionRef(spend), false,
+                                 &missingInputs, nullptr, false, 0);
+    BOOST_CHECK_MESSAGE(!ok, "mempool must REJECT a spend of a frozen USDSOQ outpoint "
+        "(else it relays and stalls every block template at TestBlockValidity)");
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txns-spend-frozen-usdsoq");
+    BOOST_CHECK(!mempool.exists(spend.GetHash()));
+
+    // Unfreeze → the SAME tx must now be accepted (isolates the freeze guard).
+    {
+        LOCK(cs_main);
+        BOOST_REQUIRE(pcoinsdbview->EraseFrozenOutpoint(v7op));
+        BOOST_REQUIRE(!pcoinsdbview->IsFrozenOutpoint(v7op));
+    }
+    CValidationState state2;
+    bool missingInputs2 = false;
+    bool ok2 = AcceptToMemoryPool(mempool, state2, MakeTransactionRef(spend), false,
+                                  &missingInputs2, nullptr, false, 0);
+    BOOST_CHECK_MESSAGE(ok2, "the identical tx must be ACCEPTED once unfrozen, got: "
+        + state2.GetRejectReason());
+    BOOST_CHECK(mempool.exists(spend.GetHash()));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -152,14 +152,16 @@ struct Params {
     /** SOQ-I005-STAGENET: USDSOQ authority signature enforcement height.
      *  Before this height, USDSOQ authority TXs (bootstrap or chain) are
      *  accepted WITHOUT authority signature verification. This exempts
-     *  pre-authority test mints on stagenet (blocks 0–37200).
+     *  pre-enforcement authority txs on stagenet.
      *
      *  MAINNET: Set to 0 — authority signatures enforced from BIP9 activation.
      *  No unsigned USDSOQ TX can exist before BIP9 activates USDSOQ, so the
      *  enforcement height is irrelevant (there are no blocks to exempt).
      *
-     *  STAGENET: Set to 37201 — blocks 0-37200 exempt (pre-authority test mints).
-     *  Authority signature verification required from block 37201 onward.
+     *  STAGENET: Set to 7700 (recalibrated 2026-07-04 for the reset chain;
+     *  was 37201 for the pre-reset chain). Blocks 0-7699 exempt (drill txs).
+     *  Authority signature verification AND freeze-registry application are
+     *  required from block 7700 onward.
      *
      *  See SECURITY_ISSUE_REGISTRY.md SOQ-I005-STAGENET for full rationale. */
     int32_t nUSDSOQAuthorityEnforcementHeight = 0;
