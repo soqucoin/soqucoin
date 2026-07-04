@@ -3176,23 +3176,34 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 }
             }
 
-            // Track USDSOQ inputs being spent (consumed supply)
-            for (const auto& txin : tx.vin) {
-                const CCoins* coins = view.AccessCoins(txin.prevout.hash);
-                if (!coins || !coins->IsAvailable(txin.prevout.n))
-                    continue;
-                const CTxOut& prevOut = coins->vout[txin.prevout.n];
-                if (prevOut.IsUSDSOQ()) {
-                    // Defense-in-depth: reject confidential USDSOQ inputs
-                    // Phase 4: use IsConfidential() predicate (v4 witness version)
-                    if (prevOut.IsConfidential()) {
-                        return state.DoS(100,
-                            error("ConnectBlock(): spending confidential USDSOQ input %s:%u"
-                                  " — should not exist",
-                                txin.prevout.hash.ToString(), txin.prevout.n),
-                            REJECT_INVALID, "bad-txns-usdsoq-conf-input");
+            // Track USDSOQ inputs being spent (consumed supply) — AUTHORITY txs only.
+            //
+            // BUG-20: a burn is an authority tx that destroys USDSOQ; a plain transfer is
+            // supply-neutral (its v7 output is NOT counted as minted, per BUG-19 above), so
+            // its inputs must NOT be counted as burned either. Only authority txs move supply.
+            //
+            // The inputs are already spent in the coins view by now (UpdateCoins ran in the
+            // first pass over the block), so the old `view.AccessCoins(...)->IsAvailable`
+            // read here always hit the spent branch and nUSDSOQBurned was silently always 0 —
+            // meaning burns could never decrement the supply. Read the original prevouts from
+            // the block undo instead (the same source DisconnectBlock uses), so burns are
+            // counted correctly AND connect/disconnect stay symmetric on reorg.
+            if (isAuthorityTx && i > 0 && (i - 1) < blockundo.vtxundo.size()) {
+                const CTxUndo& txundo = blockundo.vtxundo[i - 1];
+                for (unsigned int j = 0; j < tx.vin.size() && j < txundo.vprevout.size(); j++) {
+                    const CTxOut& prevOut = txundo.vprevout[j].txout;
+                    if (prevOut.IsUSDSOQ()) {
+                        // Defense-in-depth: reject confidential USDSOQ inputs
+                        // Phase 4: use IsConfidential() predicate (v4 witness version)
+                        if (prevOut.IsConfidential()) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): spending confidential USDSOQ input %s:%u"
+                                      " — should not exist",
+                                    tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n),
+                                REJECT_INVALID, "bad-txns-usdsoq-conf-input");
+                        }
+                        nUSDSOQBurned += prevOut.nValue;
                     }
-                    nUSDSOQBurned += prevOut.nValue;
                 }
             }
         }

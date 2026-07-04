@@ -65,6 +65,19 @@ static CScript MakeV7Spk(const std::vector<unsigned char>& rawPubkey)
     return spk;
 }
 
+// V5 authority-marker scriptPubKey: OP_5 <32-byte hash>. Its presence in an output
+// makes a tx an AUTHORITY tx (mint/burn/freeze/rotate) — the OP_5 <32> shape is exactly
+// what ConnectBlock scans for. Sig verification only kicks in once g_usdsoq_authority
+// is initialized (it is NOT in this harness), so a marker alone flags authority here.
+static CScript MakeV5Spk(const std::vector<unsigned char>& rawPubkey)
+{
+    uint256 pkHash;
+    CSHA256().Write(rawPubkey.data(), rawPubkey.size()).Finalize(pkHash.begin());
+    CScript spk;
+    spk << OP_5 << std::vector<unsigned char>(pkHash.begin(), pkHash.end());
+    return spk;
+}
+
 // 0x00-prefixed pubkey for the trailing witness item (FIPS 204 Table 3).
 static std::vector<unsigned char> Prefixed(const std::vector<unsigned char>& rawPubkey)
 {
@@ -276,6 +289,29 @@ struct V7ConservationChainSetup : public TestingSetup {
         return tx;
     }
 
+    // AUTHORITY BURN: a v7 USDSOQ input is destroyed (no v7 output), the tx carries an
+    // OP_5 authority marker so it's exempt from value-conservation, and a SOQ fee input
+    // covers the marker + fee. USDSOQ in > USDSOQ out → supply must DROP by the burned
+    // amount. Exercises the BUG-20 path: burned inputs are read from the block undo
+    // (they're already spent in the coins view by the time the supply loop runs).
+    CMutableTransaction BuildV7Burn(const COutPoint& v7op, CAmount v7Val,
+                                    const CTransaction& feeCoinbase)
+    {
+        const CAmount feeVal = feeCoinbase.vout[0].nValue;
+        CMutableTransaction tx; tx.nVersion = 2;
+
+        CTxIn vin0; vin0.prevout = v7op; vin0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin0);
+        CTxIn vin1; vin1.prevout = COutPoint(feeCoinbase.GetHash(), 0); vin1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin1);
+
+        // OP_5 authority marker (funded from the SOQ input) — no v7 output at all.
+        CTxOut mark; mark.nValue = 10000;              mark.scriptPubKey = MakeV5Spk(coinbasePkBytes); tx.vout.push_back(mark);
+        CTxOut chg;  chg.nValue  = feeVal - 20000;     chg.scriptPubKey  = coinbaseSpk;                 tx.vout.push_back(chg);  // SOQ change (fee=10000)
+
+        SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);  // v7 USDSOQ input (to be burned)
+        SignInput(tx, 1, coinbaseSpk, feeVal);                // SOQ fee input
+        return tx;
+    }
+
     // v7 USDSOQ input → v1 SOQ output (no USDSOQ out): converting USDSOQ→SOQ, must be rejected.
     CMutableTransaction BuildV7ToSoq(const COutPoint& v7op, CAmount v7Val, const CScript& soqDestSpk)
     {
@@ -438,6 +474,36 @@ BOOST_AUTO_TEST_CASE(dryrun_testblockvalidity_does_not_leak_usdsoq_supply)
     BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalMinted(), mintedBefore);
     BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalBurned(), burnedBefore);
     BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), outBefore);
+}
+
+// ---------------------------------------------------------------------------
+// BUG-20: an AUTHORITY burn must DECREMENT the supply. Before the fix the
+// burned-input count read the coins view AFTER UpdateCoins had already spent
+// the inputs, so nUSDSOQBurned was always 0 and a burn left the supply
+// unchanged (USDSOQ silently un-destroyable). The fix reads the spent prevouts
+// from the block undo. Seed a prior mint of v7Val, burn the whole v7 coin, and
+// assert outstanding drops to 0.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(v7_authority_burn_decrements_supply)
+{
+    const CAmount v7Val = 5 * COIN;
+    {
+        LOCK(cs_main);
+        g_usdsoq_supply.Reset();
+        BOOST_REQUIRE(g_usdsoq_supply.Mint(v7Val)); // the earlier authority mint
+    }
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CMutableTransaction burn = BuildV7Burn(v7op, v7Val, coinbaseTxns[0]);
+    std::vector<CMutableTransaction> txns{burn};
+    CBlock B = CreateAndProcessBlock(txns, coinbaseSpk);
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B.GetHash(),
+        "an authority burn (v7 in, OP_5 marker, no v7 out) must connect");
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalBurned(), v7Val);   // burn was counted
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), 0);       // supply destroyed
+        g_usdsoq_supply.Reset();
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
