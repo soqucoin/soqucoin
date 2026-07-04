@@ -3176,37 +3176,49 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
         }
 
-        // SOQ-AUD2-002 D1: Persist USDSOQ supply delta to global counter + LevelDB
+        // SOQ-AUD2-002 D1: Apply the USDSOQ supply delta to the global counter + LevelDB.
+        //
+        // BUG-18: ConnectBlock runs with fJustCheck=true for VALIDATION-ONLY dry-runs
+        // (TestBlockValidity, called by CreateNewBlock on every getblocktemplate poll).
+        // The old code mutated the GLOBAL g_usdsoq_supply here unconditionally and only
+        // gated the LevelDB persist on !fJustCheck — so each template poll leaked the
+        // in-memory counter with no rollback. After ~140 polls the supply inflated far
+        // past reality, TestBlockValidity then failed, and the pool fell back to mining
+        // empty (coinbase-only) blocks — blocking ALL USDSOQ tx confirmation.
+        //
+        // Fix: validate the delta on a COPY (so overflow/underflow is still detected
+        // against the real current supply on every path), and COMMIT to the global +
+        // LevelDB ONLY on a real connect (!fJustCheck). A discarded dry-run now leaves
+        // the global untouched. DisconnectBlock reverses the committed delta on reorg.
         if (nUSDSOQMinted > 0 || nUSDSOQBurned > 0) {
-            LogPrintf("USDSOQ: block %d supply delta: minted=%d burned=%d net=%d\n",
-                pindex->nHeight, nUSDSOQMinted, nUSDSOQBurned,
-                nUSDSOQMinted - nUSDSOQBurned);
-
-            // Update in-memory supply counter (checked arithmetic)
-            if (nUSDSOQMinted > 0 && !g_usdsoq_supply.Mint(nUSDSOQMinted)) {
+            CUSDSOQSupply supplyAfter = g_usdsoq_supply; // value copy
+            if (nUSDSOQMinted > 0 && !supplyAfter.Mint(nUSDSOQMinted)) {
                 return state.DoS(100,
                     error("ConnectBlock(): USDSOQ supply overflow on mint of %d at block %d",
                         nUSDSOQMinted, pindex->nHeight),
                     REJECT_INVALID, "bad-usdsoq-supply-overflow");
             }
-            if (nUSDSOQBurned > 0 && !g_usdsoq_supply.Burn(nUSDSOQBurned)) {
+            if (nUSDSOQBurned > 0 && !supplyAfter.Burn(nUSDSOQBurned)) {
                 return state.DoS(100,
                     error("ConnectBlock(): USDSOQ supply underflow on burn of %d at block %d",
                         nUSDSOQBurned, pindex->nHeight),
                     REJECT_INVALID, "bad-usdsoq-supply-underflow");
             }
 
-            // Persist to LevelDB for crash recovery
-            if (!fJustCheck && pcoinsdbview) {
-                if (!pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply)) {
+            LogPrintf("USDSOQ: block %d supply delta: minted=%d burned=%d net=%d%s\n",
+                pindex->nHeight, nUSDSOQMinted, nUSDSOQBurned,
+                nUSDSOQMinted - nUSDSOQBurned, fJustCheck ? " (dry-run, not committed)" : "");
+
+            if (!fJustCheck) {
+                g_usdsoq_supply = supplyAfter; // commit only on a real block connect
+                if (pcoinsdbview && !pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply)) {
                     LogPrintf("ERROR: USDSOQ: Failed to persist supply to LevelDB at block %d\n",
                         pindex->nHeight);
                 }
+                LogPrintf("USDSOQ: supply state: total_minted=%d total_burned=%d outstanding=%d\n",
+                    g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
+                    g_usdsoq_supply.Outstanding());
             }
-
-            LogPrintf("USDSOQ: supply state: total_minted=%d total_burned=%d outstanding=%d\n",
-                g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
-                g_usdsoq_supply.Outstanding());
         }
     }
 

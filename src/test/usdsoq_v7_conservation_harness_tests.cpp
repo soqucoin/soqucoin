@@ -148,6 +148,41 @@ struct V7ConservationChainSetup : public TestingSetup {
         return block;
     }
 
+    // Like CreateAndProcessBlock but STOPS before ProcessNewBlock — returns a fully
+    // solved (PoW + commitment) block that is NOT connected, so a caller can run
+    // TestBlockValidity(fJustCheck) against it repeatedly. Used to reproduce BUG-18
+    // (getblocktemplate re-runs the dry-run every poll).
+    CBlock BuildSolvedBlock(const std::vector<CMutableTransaction>& txns, const CScript& spk)
+    {
+        const CChainParams& cp = Params();
+        std::unique_ptr<CBlockTemplate> tmpl = BlockAssembler(cp).CreateNewBlock(spk, true);
+        BOOST_REQUIRE(tmpl != nullptr);
+        CBlock& block = tmpl->block;
+        block.vtx.resize(1);
+        {
+            CMutableTransaction coinbaseMut(*block.vtx[0]);
+            coinbaseMut.vout.erase(
+                std::remove_if(coinbaseMut.vout.begin(), coinbaseMut.vout.end(),
+                    [](const CTxOut& o) {
+                        return o.scriptPubKey.size() >= 38 &&
+                               o.scriptPubKey[0] == OP_RETURN && o.scriptPubKey[1] == 0x24 &&
+                               o.scriptPubKey[2] == 0xaa && o.scriptPubKey[3] == 0x21 &&
+                               o.scriptPubKey[4] == 0xa9 && o.scriptPubKey[5] == 0xed;
+                    }),
+                coinbaseMut.vout.end());
+            coinbaseMut.vin[0].scriptWitness.stack.clear();
+            block.vtx[0] = MakeTransactionRef(std::move(coinbaseMut));
+        }
+        for (const CMutableTransaction& tx : txns)
+            block.vtx.push_back(MakeTransactionRef(tx));
+        GenerateCoinbaseCommitment(block, chainActive.Tip(), cp.GetConsensus(0));
+        unsigned int extraNonce = 0;
+        IncrementExtraNonce(&block, chainActive.Tip(), extraNonce);
+        while (!CheckProofOfWork(block.GetPoWHash(), block.nBits, cp.GetConsensus(0)))
+            ++block.nNonce;
+        return block;
+    }
+
     // A NON-authority tx spending a mature coinbase to a single output `destSpk`,
     // signed with the Dilithium v1 witness path. Fee = 10000 sat in SOQ.
     CMutableTransaction BuildSpendTo(const CTransaction& coinbase, const CScript& destSpk)
@@ -339,6 +374,43 @@ BOOST_AUTO_TEST_CASE(v7_input_to_soq_output_rejected)
     BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() != B.GetHash(),
         "a v7-USDSOQ-input → SOQ-output tx must be rejected by conservation (can't convert "
         "USDSOQ→SOQ); if it connects, the v7 input isn't classified USDSOQ by version");
+}
+
+// ---------------------------------------------------------------------------
+// BUG-18: a VALIDATION-ONLY dry-run (TestBlockValidity → ConnectBlock fJustCheck)
+// must NOT mutate the global USDSOQ supply accumulator. CreateNewBlock runs this
+// on EVERY getblocktemplate poll; the old code leaked the counter each call, so
+// after ~140 polls the supply inflated and the pool mined empty blocks. Here we
+// build a valid v7→v7-send block and TestBlockValidity it many times, asserting
+// the global supply is byte-for-byte unchanged. Before the fix this fails
+// (total_minted grows by v7Val per call).
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(dryrun_testblockvalidity_does_not_leak_usdsoq_supply)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction send = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[0], v7Dest);
+    CBlock B = BuildSolvedBlock({send}, coinbaseSpk); // solved but NOT connected
+
+    LOCK(cs_main);
+    const CAmount mintedBefore = g_usdsoq_supply.TotalMinted();
+    const CAmount burnedBefore = g_usdsoq_supply.TotalBurned();
+    const CAmount outBefore = g_usdsoq_supply.Outstanding();
+
+    // Simulate 25 getblocktemplate polls (each is a TestBlockValidity dry-run).
+    bool anyValid = false;
+    for (int i = 0; i < 25; ++i) {
+        CValidationState st;
+        if (TestBlockValidity(st, Params(), B, chainActive.Tip(), true, true))
+            anyValid = true;
+    }
+    BOOST_CHECK_MESSAGE(anyValid, "the send block must pass TestBlockValidity at least once "
+        "(else this test isn't exercising the supply-delta path)");
+
+    BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalMinted(), mintedBefore);
+    BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalBurned(), burnedBefore);
+    BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), outBefore);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
