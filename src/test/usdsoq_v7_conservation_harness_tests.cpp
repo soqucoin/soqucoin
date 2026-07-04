@@ -289,6 +289,29 @@ struct V7ConservationChainSetup : public TestingSetup {
         return tx;
     }
 
+    // Mirrors the LIVE drill send daf9fd85: one v7 USDSOQ input (full value) SPLIT into
+    // TWO v7 outputs (split0 + (v7Val-split0)) + a SOQ fee input → SOQ change. USDSOQ
+    // in==out exactly across the two outputs; fee paid in SOQ. This is the shape the app
+    // actually produces (send amount + USDSOQ change), which the single-output helper
+    // above does not exercise.
+    CMutableTransaction BuildV7SplitSend(const COutPoint& v7op, CAmount v7Val, CAmount split0,
+                                         const CTransaction& feeCoinbase, const CScript& v7DestSpk)
+    {
+        const CAmount feeVal = feeCoinbase.vout[0].nValue;
+        CMutableTransaction tx; tx.nVersion = 2;
+
+        CTxIn vin0; vin0.prevout = v7op; vin0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin0);
+        CTxIn vin1; vin1.prevout = COutPoint(feeCoinbase.GetHash(), 0); vin1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(vin1);
+
+        CTxOut o0; o0.nValue = split0;          o0.scriptPubKey = v7DestSpk;  tx.vout.push_back(o0); // USDSOQ send
+        CTxOut o1; o1.nValue = v7Val - split0;  o1.scriptPubKey = v7DestSpk;  tx.vout.push_back(o1); // USDSOQ change (v7)
+        CTxOut o2; o2.nValue = feeVal - 10000;  o2.scriptPubKey = coinbaseSpk; tx.vout.push_back(o2); // SOQ change
+
+        SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);
+        SignInput(tx, 1, coinbaseSpk, feeVal);
+        return tx;
+    }
+
     // AUTHORITY BURN: a v7 USDSOQ input is destroyed (no v7 output), the tx carries an
     // OP_5 authority marker so it's exempt from value-conservation, and a SOQ fee input
     // covers the marker + fee. USDSOQ in > USDSOQ out → supply must DROP by the burned
@@ -484,6 +507,30 @@ BOOST_AUTO_TEST_CASE(dryrun_testblockvalidity_does_not_leak_usdsoq_supply)
 // from the block undo. Seed a prior mint of v7Val, burn the whole v7 coin, and
 // assert outstanding drops to 0.
 // ---------------------------------------------------------------------------
+// LIVE REPRO: exact shape of the drill send daf9fd85 — a 1000-unit v7 coin split into
+// 100 + 900 v7 outputs, prior supply minted=1000. Must connect and leave outstanding=1000.
+BOOST_AUTO_TEST_CASE(v7_split_send_connects_with_prior_minted_supply)
+{
+    const CAmount v7Val = 1000 * COIN;
+    {
+        LOCK(cs_main);
+        g_usdsoq_supply.Reset();
+        BOOST_REQUIRE(g_usdsoq_supply.Mint(v7Val));
+    }
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction send = BuildV7SplitSend(v7op, v7Val, 100 * COIN, coinbaseTxns[0], v7Dest);
+    std::vector<CMutableTransaction> txns{send};
+    CBlock B = CreateAndProcessBlock(txns, coinbaseSpk);
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B.GetHash(),
+        "a v7→(v7+v7) split send (the app's real shape) must connect with prior supply>0");
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), v7Val);
+        g_usdsoq_supply.Reset();
+    }
+}
+
 BOOST_AUTO_TEST_CASE(v7_authority_burn_decrements_supply)
 {
     const CAmount v7Val = 5 * COIN;
