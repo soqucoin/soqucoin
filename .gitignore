@@ -173,7 +173,22 @@ soqu-web/
 # Test data with real network info
 test_data/scripts/
 test_data/*_dashboard.html
+
+# Internal operations — NEVER commit to public repo
+# Design logs, deploy runbooks, handoffs contain server IPs, SSH commands,
+# fleet topology, and agent workflow artifacts. Use soqucoin-ops (private).
 design-log/
+**/design-log/
+**/DL-*
+**/*-RUNBOOK*
+**/*-HANDOFF*
+**/*-HANDOVER*
+**/*-handoff*
+**/*-handover*
+**/*deploy*.sh
+!contrib/linearize/*.sh
+
+# AI agent config (local only)
 GEMINI.md
 
 # Lattice-BP++ build artifacts
