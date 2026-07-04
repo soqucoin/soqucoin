@@ -103,6 +103,19 @@ static UniValue getusdsoqstatus(const JSONRPCRequest& request)
     }
     result.pushKV("supply", supply);
 
+    // Authority UTXO outpoint — the head of the authority chain. Every authority
+    // TX (mint/burn/freeze/rotate) after bootstrap MUST spend this exact outpoint
+    // (ConnectBlock + AcceptToMemoryPool both enforce it), so the in-process
+    // signer needs to read it here to build a chaining authority TX. When null
+    // (pre-bootstrap, or pre-enforcement on stagenet where the outpoint is not
+    // persisted), the next authority TX is built in bootstrap mode.
+    UniValue authOutpoint(UniValue::VOBJ);
+    const COutPoint& ao = g_usdsoq_authority_outpoint;
+    authOutpoint.pushKV("is_null", ao.IsNull());
+    authOutpoint.pushKV("txid", ao.IsNull() ? "" : ao.hash.GetHex());
+    authOutpoint.pushKV("vout", ao.IsNull() ? 0 : (int64_t)ao.n);
+    result.pushKV("authority_outpoint", authOutpoint);
+
     return result;
 }
 
