@@ -195,3 +195,66 @@ Then confirm it MINES and `getusdsoqstatus` shows
 ⚠️ Do NOT broadcast ANY further USDSOQ tx (send/burn/mint) until all three
 Hetzner daemons run `5e5876763` — any non-conserving authority tx re-crashes
 the unfixed miners (this is exactly what happened at 16:41 UTC).
+
+---
+
+## 2026-07-04 DEPLOY #3 — enforcement-height recalibration + BUG-22 (commit `92522497e`)
+
+Status when this section was written: burn PROVEN (block 7595, supply 900),
+full 8-instance fleet on `5e5876763`.
+
+**What this deploy carries (two commits on top of `5e5876763`):**
+
+1. **`c7f870cd9` — stagenet `nUSDSOQAuthorityEnforcementHeight` 37201 → 7700**
+   (Casey-ratified 2026-07-04). The stale pre-reset value exempted authority-sig
+   verification AND silently no-opped freeze/unfreeze registry application until
+   ~block 37201. All existing authority txs (mint 6501, send 7077, burn 7595)
+   stay below 7700, so historical validation is unchanged; full enforcement
+   (mainnet-shape) engages at 7700. Mainnet untouched (height 0).
+2. **`92522497e` — BUG-22: ATMP rejects spends of frozen USDSOQ outpoints.**
+   Same divergence class as BUG-21: a frozen-coin spend is script-valid, so
+   without this the first freeze drill's "try to spend the frozen coin" step
+   would have relayed a template-poisoning tx → empty blocks (chain-halting
+   DoS). Regression-tested; found by inspection before any freeze existed.
+   Also fixes the unit-test fixture to wire the `pcoinsdbview` global like
+   production (it was silently NULL in every unit test). Full suite 575/575.
+
+**⏰ DEADLINE: all 8 instances must be restarted on `92522497e` BEFORE block
+7700.** (Tip was 7611 when staged; ~16-20 blocks/h → several hours of margin.)
+If 7700 is somehow crossed first: no immediate risk (only WE create authority
+txs — do NOT fire any freeze/mint/burn until the fleet is uniform), finish the
+rollout, then proceed.
+
+**No reindex this time** — both changes affect only future blocks/mempool
+policy. Plain rolling binary swap + restart, same order and steps as the
+Hetzner completion above (skip step 5's reindex). Staged 2026-07-04:
+- Hetzner (per-box builds, byte-identical x3): `/opt/pool/bin/soqucoind.usdsoqfix`
+  version `v1.4.0.0-9252249`, sha256
+  `cb5e26ec5357296dbcb88c43fd7c718a9ebafc4344f1c5850c42cdfb48f05017`
+- Services (for the DO fleet, copy with lib parity as before):
+  `/usr/local/bin/soqucoind.usdsoqfix` version `v1.4.0.0-92522497e`, sha256
+  `31da956b21287e87765557132d2e05f6d93f09bca3a86fdce5ad674674113998`
+Verify `--version` per node and that `getusdsoqstatus` still shows
+minted 1000 / burned 100 / outstanding 900 after restart.
+
+### FREEZE drill (after fleet uniform on `92522497e` AND tip ≥ 7700)
+
+0. Casey guarded swap of the signer: `/usr/local/bin/soq-signer.freezefix`
+   (sha `a885a6af…`, freeze/unfreeze endpoints) → `/usr/local/bin/soq-signer`,
+   restart `soq-signer`. Also requires `SOQ_SIGNER_AUTHORITY_KEY_FILE` (already
+   set for mint/burn).
+1. Freeze the wallet's 900-USDSOQ UTXO:
+   `POST /api/v1/freeze-usdsoq` with the outpoint
+   `03dd0a3abf5c048732ae5df5cc3fb274df35701798e66e8412afaa292e737eef:1`.
+2. Wait for the freeze tx to MINE; check the node journal for
+   `USDSOQ: FREEZE applied — outpoint …` (this log line only appears ≥ 7700).
+3. Attempt to spend the frozen coin from the app (or a signer send-usdsoq) —
+   expect a CLEAN reject `bad-txns-spend-frozen-usdsoq` at broadcast (BUG-22),
+   chain keeps mining non-empty.
+4. `POST /api/v1/unfreeze-usdsoq` same outpoint → mine → journal
+   `UNFREEZE applied` → repeat the spend → it must now relay and mine.
+5. Supply must remain 900 throughout (freeze/unfreeze are supply-neutral).
+
+⚠️ Ordering note (bead `kp5`): always let a FREEZE confirm before letting
+wallets attempt spends of that outpoint. A spend that enters mempools before
+the freeze confirms is not evicted until the poisoned node restarts.
