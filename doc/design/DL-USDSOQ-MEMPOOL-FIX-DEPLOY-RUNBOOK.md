@@ -258,3 +258,56 @@ minted 1000 / burned 100 / outstanding 900 after restart.
 ⚠️ Ordering note (bead `kp5`): always let a FREEZE confirm before letting
 wallets attempt spends of that outpoint. A spend that enters mempools before
 the freeze confirms is not evicted until the poisoned node restarts.
+
+---
+
+## 2026-07-04 BUG-23 — signer can't chain authority TXs (surfaced by the freeze drill)
+
+**Symptom.** After the enforcement-era mint (block 7705) the freeze call
+returned `bad-usdsoq-authority-outpoint-mempool`. Root cause: the in-process
+signer reads the tracked authority outpoint from `getusdsoqstatus.authority_outpoint`
+to build a chaining authority TX, but that field was never emitted, so
+`getAuthorityOutpoint()` always saw null and built in **bootstrap mode** (spends
+no prior authority UTXO). ConnectBlock + ATMP require every post-bootstrap
+authority TX to spend the tracked outpoint, so the second authority TX on any
+chain that persists the outpoint is rejected.
+
+**Why it hid until now.** Pre-enforcement (height < 7700) the outpoint is tracked
+block-local only and never persisted (`SOQ-REINDEX-002`), so it stayed null and
+bootstrap mode worked for every mint/send/burn this week. The first
+enforcement-era mint persisted it; the follow-on freeze hit the wall.
+
+**Mainnet impact = LAUNCH BLOCKER.** Mainnet `nUSDSOQAuthorityEnforcementHeight`
+is 0, so the outpoint is persisted from the first authority TX — the SECOND
+authority TX on mainnet (e.g. the first burn after the genesis mint) would be
+rejected outright. Must ship before any mainnet USDSOQ activation.
+
+**Fix (`5042b7bc2`).** Add `authority_outpoint {txid, vout, is_null}` to
+`getusdsoqstatus` — the exact shape the signer already expects. Read-only RPC
+field, **no consensus change**, so a node running it does NOT diverge from the
+rest of the fleet.
+
+**Staged (Broadcast only, for the drill).** `64.23.129.28:/usr/local/bin/soqucoind.bug23`
+version `v1.4.0.0-5042b7bc2`, sha256
+`d1a7782491bf1d4dcc27f216e41453411a2d1988e9e1da0c7637f3db1a6d7b18`, built on
+Services (DO lib parity, `ldd` clean). Only the Broadcast node (the one the
+signer's RPC hits) needs it to unblock the freeze drill; the rest of the fleet
+can take it at the next convenient window (non-consensus, no lockstep required,
+no divergence).
+
+### Broadcast swap (Casey — restart is DCG-gated)
+
+```
+ssh root@64.23.129.28
+cp /usr/local/bin/soqucoind /usr/local/bin/soqucoind.bak-bug23-20260704
+cp /usr/local/bin/soqucoind.bug23 /usr/local/bin/soqucoind
+systemctl restart soqucoind-broadcast
+# verify:
+soqucoind ... --version                 # v1.4.0.0-5042b7bc2
+soqucoin-cli -datadir=/var/lib/soqucoin-hot getusdsoqstatus | grep -A3 authority_outpoint
+# expect is_null:false, txid = the current authority chain head
+```
+
+After the swap, the freeze drill resumes automatically: `freeze` →
+`send` (rejected `bad-txns-spend-frozen-usdsoq`) → `unfreeze` → `send` mines →
+`burn` back to outstanding 900.
