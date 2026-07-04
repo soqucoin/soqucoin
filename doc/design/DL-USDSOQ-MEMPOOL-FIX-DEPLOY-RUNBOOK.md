@@ -1,13 +1,13 @@
 # USDSOQ Mempool Crash Fix — Fleet Deploy Runbook (Buddy handoff)
 
-**Fix branch:** `consensus/usdsoq-mempool-crash-fix` (repo `soqucoin/soqucoin`), tip `a982ee25b`
+**Fix branch:** `consensus/usdsoq-mempool-crash-fix` (repo `soqucoin/soqucoin`), tip `5e5876763`
 **Spec:** `doc/design/DL-USDSOQ-MEMPOOL-CRASH-FIX.md`
-**Staged binary (REBUILT — now contains Bug 2 + BUG-18 + BUG-19 + BUG-20):** Services VPS `143.110.229.69:/usr/local/bin/soqucoind.usdsoqfix`
-- version `v1.4.0.0-a982ee25b`, sha256 `095b67c25e558c2c41d067ecbb2838a03c577a455f664257ed8d04cff35597c9`
+**Staged binary (REBUILT — Bug 2 + BUG-18 + BUG-19 + BUG-20 + mempool-flag mirror):** Services VPS `143.110.229.69:/usr/local/bin/soqucoind.usdsoqfix`
+- version `v1.4.0.0-5e5876763`, sha256 `e5049bd89003ed883b2c04a3e0935ff86f75276bedf6e6fa2ed8093c28b2e2c1`
 - Linux x86-64 ELF, built on the Services VPS from the fix branch.
-- ⚠️ Supersedes the earlier `e61e727c…` (Bug2+BUG-18) and `625ecd23…` (Bug2-only) binaries. Deploy THIS one.
+- ⚠️ Supersedes `095b67c2…`, `e61e727c…`, `625ecd23…`. Deploy THIS one.
 
-## What this fixes (FOUR bugs, all in this binary)
+## What this fixes (FIVE bugs, all in this binary)
 
 **Bug 2 — node crash on USDSOQ spend.** A non-conserving USDSOQ spend crashed
 the node (`CTxMemPoolEntry` assert → abort) — remotely-triggerable DoS.
@@ -38,7 +38,20 @@ block undo (same source `DisconnectBlock` uses), gated on `isAuthorityTx`. Suppl
 accounting is now correct for mint (+outputs), pure burn (−inputs), and
 burn-with-change (outputs−inputs = net burned).
 
-All four are **backward-compatible** (block validity rules unchanged for any
+**BUG-21 — mempool accepted txs that block validation rejects (the real empty-block
+cause; found live 2026-07-04).** `AcceptToMemoryPool` omitted `SCRIPT_VERIFY_PAT`,
+`LATTICEFOLD`, `LATTICEBP` and `USDSOQ` — flags `ConnectBlock` enforces — so a v7
+USDSOQ input was verified leniently (anyone-can-spend) at accept time. A mis-signed
+v7 send (app signed the v7 input against the v1 scriptCode → NULLFAIL) therefore
+relayed fine but could never be mined, stalling every block template → empty blocks
+(live tx `daf9fd85`). Now the mempool mirrors ConnectBlock's flags (same activation),
+so such a tx is rejected up front. **Deploy side effect (good): on restart, the
+`mempool.dat` reload re-runs ATMP with the new flags, so the stuck mis-signed
+`daf9fd85` is REJECTED on reload and auto-evicted — no manual mempool clearing
+needed.** (The paired app-signing fix is soqucoin-ops `feat/usdsoq-balance-v7-index`
+— the app now signs v7 inputs against OP_7; both are needed for a real send to work.)
+
+All four consensus bugs are **backward-compatible** (block validity rules unchanged for any
 already-valid block) and verified by unit tests — `mempool_tests`, the v7
 conservation harness (7 cases: the SOQ→v7 rejection, v7→v7 conservation, the
 BUG-18 dry-run-no-leak regression, the BUG-19 `v7_send_connects_with_prior_minted_supply`
@@ -78,7 +91,7 @@ Confirm the full node set from the fleet topology before starting.
 2. Back up the current binary (`cp /usr/local/bin/soqucoind{,.bak-YYYYMMDD}`).
 3. Install the new binary in place.
 4. `systemctl restart soqucoind-<role>` (per node role).
-5. Verify: `soqucoind ... --version` == `v1.4.0.0-a982ee25b`; node reaches the
+5. Verify: `soqucoind ... --version` == `v1.4.0.0-5e5876763`; node reaches the
    current tip and stays up (`getblockcount`, no assertion in the journal).
 
 ## Post-deploy verification (the live proof)
@@ -94,7 +107,8 @@ Confirm the full node set from the fleet topology before starting.
    `getusdsoqsupply`/the balance API shows `outstanding` UNCHANGED across the
    send (a transfer is supply-neutral). Empty blocks around the send = BUG-19 not
    deployed. ⚠️ Do NOT re-broadcast until ALL chain-backing nodes run
-   `a982ee25b` — a mixed fleet with an old node re-inflates the supply.
+   `5e5876763` — a mixed fleet with an old node re-inflates the supply or
+   re-accepts the mis-signed tx.
 3. **Burn drops supply (BUG-20 proof):** run the drill's burn step and confirm
    `outstanding` DECREASES by the burned amount (before this binary a burn
    confirmed but supply stayed flat).
