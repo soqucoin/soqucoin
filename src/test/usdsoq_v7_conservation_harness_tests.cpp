@@ -385,6 +385,33 @@ BOOST_AUTO_TEST_CASE(v7_input_to_soq_output_rejected)
 // the global supply is byte-for-byte unchanged. Before the fix this fails
 // (total_minted grows by v7Val per call).
 // ---------------------------------------------------------------------------
+// BUG-19 repro: match the LIVE state — a prior real mint left outstanding>0 —
+// then validate/connect a plain v7→v7 send. If ConnectBlock's gross-flow supply
+// accounting (transfer outputs counted as minted, inputs as burned) rejects the
+// block, this reproduces the empty-block failure.
+BOOST_AUTO_TEST_CASE(v7_send_connects_with_prior_minted_supply)
+{
+    const CAmount v7Val = 5 * COIN;
+    {
+        LOCK(cs_main);
+        g_usdsoq_supply.Reset();
+        BOOST_REQUIRE(g_usdsoq_supply.Mint(v7Val)); // simulate the earlier authority mint
+    }
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+    CMutableTransaction send = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[0], v7Dest);
+    std::vector<CMutableTransaction> txns{send};
+    CBlock B = CreateAndProcessBlock(txns, coinbaseSpk);
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B.GetHash(),
+        "a v7→v7 send must connect even when prior supply.outstanding>0 — a plain transfer "
+        "must not be rejected by supply accounting (BUG-19)");
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.Outstanding(), v7Val); // transfer is supply-neutral
+        g_usdsoq_supply.Reset();
+    }
+}
+
 BOOST_AUTO_TEST_CASE(dryrun_testblockvalidity_does_not_leak_usdsoq_supply)
 {
     const CAmount v7Val = 5 * COIN;

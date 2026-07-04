@@ -1931,6 +1931,20 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
             const CTransaction& tx = *(block.vtx[i]);
             if (tx.IsCoinBase()) continue;
 
+            // BUG-19: mirror ConnectBlock — only AUTHORITY txs (OP_5 marker) moved the
+            // supply counter, so only they are reversed here. A transfer changed nothing,
+            // so reversing its outputs/inputs would corrupt the supply on reorg (and
+            // desync connect vs disconnect). Detect the authority marker as ConnectBlock does.
+            bool isAuthorityTx = false;
+            for (const auto& txout : tx.vout) {
+                if (txout.scriptPubKey.size() == 34 &&
+                    txout.scriptPubKey[0] == OP_5 && txout.scriptPubKey[1] == 32) {
+                    isAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isAuthorityTx) continue;
+
             // Count USDSOQ outputs being removed (reverses mints)
             for (const auto& txout : tx.vout) {
                 if (txout.IsUSDSOQ()) {
@@ -3145,9 +3159,16 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         // Supply invariant maintained: transfers don't change total supply.
                     }
 
-                    // Only count transparent USDSOQ outputs toward minted supply.
-                    // Confidential outputs don't change total supply (transfers only).
-                    if (txout.IsTransparent()) {
+                    // BUG-19: ONLY authority txs (mint/burn/freeze/rotate — OP_5 marker)
+                    // change the USDSOQ supply. A plain user transfer re-emits existing
+                    // USDSOQ in its outputs and MUST be supply-neutral. Counting every
+                    // transparent USDSOQ output as "minted" inflated the supply by the
+                    // transfer amount on every send (the input-burn loop below can't offset
+                    // it — inputs are already spent in the view by the time it runs, so
+                    // nUSDSOQBurned is always 0 here). That inflated supply then made block
+                    // templates carrying a USDSOQ send fail validation → the pool mined empty
+                    // blocks. Gate minting on isAuthorityTx so only real mints move the counter.
+                    if (isAuthorityTx && txout.IsTransparent()) {
                         nUSDSOQMinted += txout.nValue;
                     }
                     // Confidential outputs: value is hidden in commitment.
