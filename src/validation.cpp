@@ -2751,8 +2751,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 // always open (signatures always required). No unsigned USDSOQ TX
                 // can exist before BIP9 activates USDSOQ, making this safe.
                 //
-                // STAGENET: nUSDSOQAuthorityEnforcementHeight=37201, exempting
-                // blocks 0-37200 which contain pre-authority CLI test mints.
+                // STAGENET: nUSDSOQAuthorityEnforcementHeight=7700 (recalibrated
+                // 2026-07-04 for the reset chain), exempting the pre-enforcement
+                // drill txs (mint 6501, send 7077, burn 7595).
                 if (pindex->nHeight < consensus.nUSDSOQAuthorityEnforcementHeight) {
                     LogPrintf("USDSOQ: Pre-enforcement height %d < %d — "
                               "skipping authority sig verification for tx %s "

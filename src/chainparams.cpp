@@ -999,12 +999,16 @@ public:
         consensus.usdsoqAuthorityThreshold = 2;  // 2-of-3 multisig
 
         // SOQ-I005-STAGENET: Authority signature enforcement height.
-        // Blocks 0–37200 contain pre-authority USDSOQ test mints (created via
-        // CLI `usdsoqmint` RPC before ConnectBlock authority validation existed).
-        // These TXs are structurally valid but lack authority witness signatures.
-        // Authority signature verification is required from block 37201 onward.
+        // RECALIBRATED 2026-07-04 (Casey-ratified) for the reset stagenet chain:
+        // the old 37201 was calibrated for the pre-reset chain's CLI test mints
+        // and, on the reset chain, ALSO silently no-opped freeze/unfreeze
+        // registry application in ConnectBlock until ~block 37201.
+        // Blocks 0–7699 hold the signer-built drill txs (mint 6501, send 7077,
+        // burn 7595) and stay exempt, so historical validation is unchanged.
+        // From 7700 onward: full M-of-N authority signature verification AND
+        // freeze-registry application are enforced (mainnet-shape behavior).
         // See SECURITY_ISSUE_REGISTRY.md SOQ-I005-STAGENET.
-        consensus.nUSDSOQAuthorityEnforcementHeight = 37201;
+        consensus.nUSDSOQAuthorityEnforcementHeight = 7700;
 
         // SOQ-I007-STAGENET: UTXO cost minimum enforcement height.
         // Blocks 0–37200 may contain outputs below UTXO_COST_PER_BYTE minimum
