@@ -154,7 +154,9 @@ so this is minutes-not-hours despite the usual reindex caution.
 **Staged binaries (2026-07-04, built per-box from the branch @ `5e5876763` —
 lib parity guaranteed):** `/opt/pool/bin/soqucoind.usdsoqfix` on each of
 Hillsboro `5.78.192.237`, Nuremberg `116.203.230.200`, Singapore `5.223.50.163`.
-Verify sha256 against the build logs before swapping.
+All three are byte-identical: version `v1.4.0.0-5e58767`, sha256
+`2442b590a9bdbea8be8e0146d4ba3ba94e654c13d429ab58d9420e0c21981b15`.
+(The version string abbreviates the commit to 7 chars — same `5e5876763`.)
 
 ### Per-node completion steps (ROLLING, one box at a time — Casey/coordinated;
 ### stop/restart + reindex are DCG-gated)
