@@ -62,10 +62,10 @@ flowchart LR
     A[Proposal] --> B[Community Discussion]
     B --> C[BIP/SIP Draft]
     C --> D[Code Review]
-    D --> E[Testnet Deployment]
-    E --> F[Miner Signaling]
-    F --> G{95% Threshold?}
-    G -->|Yes| H[Activation]
+    D --> E[Testnet + Stagenet Deployment]
+    E --> F[Security Audit]
+    F --> G{Audit Clear?}
+    G -->|Yes| H[Activation Height Set in Release]
     G -->|No| I[Revise/Reject]
 ```
 
@@ -195,7 +195,7 @@ See [INCIDENT_RESPONSE_PLAN.md](INCIDENT_RESPONSE_PLAN.md) for:
 
 ### Governance Participation
 
-- **Miners:** Signal for/against protocol upgrades
+- **Miners:** Choose whether to mine on upgraded software
 - **Node Operators:** Choose software version to run
 - **Community:** Participate in discussions, provide feedback
 
