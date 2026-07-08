@@ -40,7 +40,7 @@ soqucoin-cli submitauxblock <hash> <auxpow_hex>
 ### Node Information
 
 ```bash
-soqucoin-cli getblockchaininfo    # Chain state, BIP9 deployments
+soqucoin-cli getblockchaininfo    # Chain state, deployment status
 soqucoin-cli getmininginfo        # Current difficulty, hashrate
 soqucoin-cli getnetworkhashps     # Network hash rate estimate
 soqucoin-cli getblockcount        # Current block height

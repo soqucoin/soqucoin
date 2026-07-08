@@ -280,7 +280,7 @@ Force Close (ELTOO):
 
 | Deliverable | Owner | Timeline |
 |-------------|-------|----------|
-| L2SOQ activation via BIP9 soft-fork | Core Team | 2 weeks |
+| L2SOQ activation via flag-day height (post-audit) | Core Team | 2 weeks |
 | Liquidity bootstrapping | Community | Ongoing |
 | Multi-hop channel support | Dev Team | Ongoing |
 
@@ -340,7 +340,7 @@ Force Close (ELTOO):
 - [x] Genesis: Dilithium signatures
 - [x] Genesis: LatticeFold+ verification (ALWAYS_ACTIVE)
 - [x] Genesis: CTV + CSV covenant opcodes (ALWAYS_ACTIVE)
-- [ ] Stage 3: Full PQ privacy primitives (Lattice-BP++, BIP9-gated)
+- [ ] Stage 3: Full PQ privacy primitives (Lattice-BP++, height-gated on mainnet; active on stagenet)
 - [x] Stage 4: Solana bridge operational (SoquShield)
 
 ### Soft Prerequisites

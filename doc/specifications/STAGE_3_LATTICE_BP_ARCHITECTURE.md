@@ -29,8 +29,9 @@ UTXO carries a visibility mode (`TRANSPARENT` or `CONFIDENTIAL`).
 > dual-format provides larger anonymity sets, eliminates peg-in/peg-out linkability, and requires
 > ~40% less code than extension blocks. See §2 for full comparison.
 >
-> **Activation**: BIP9 `NEVER_ACTIVE` on mainnet/stagenet at genesis. Activates via miner signaling
-> after Halborn audit (target: July 2026). Witness version v4 (`OP_4`).
+> **Activation**: flag-day by height (v1.5.0 model). Dormant (`NOT_SCHEDULED`) on mainnet;
+> the activation height is set in a released binary after the Halborn Phase 2 audit clears.
+> Active from height 0 on stagenet/testnet/regtest. Witness version v4 (`OP_4`).
 
 ---
 
@@ -261,7 +262,7 @@ v6-v16: Future (anyone-can-spend until activated)
 | Stealth addresses + View keys | `src/crypto/latticebp/stealth_address.h` | 166 | ✅ Complete |
 | Test suite | `src/crypto/latticebp/test_latticebp.cpp` | 674 | ✅ 16/16 pass |
 | Consensus opcode | `src/script/interpreter.cpp` (v4 handler) | — | ✅ Wired |
-| BIP9 deployment | `src/chainparams.cpp` (DEPLOYMENT_LATTICEBP) | — | ✅ NEVER_ACTIVE |
+| Deployment (flag-day) | `src/chainparams.cpp` (DEPLOYMENT_LATTICEBP) | — | ✅ Dormant on mainnet; active height 0 on test networks |
 
 ### 3.3 LatticeFold+ Synergy
 
@@ -385,7 +386,7 @@ Additional hardening from PAT audit (SOQ-H001 through H030):
 
 - [ ] Witness v4 handler in `VerifyScript()` → `EvalScript()` dispatch
 - [ ] `SCRIPT_VERIFY_LATTICEBP` flag gating
-- [ ] BIP9 `DEPLOYMENT_LATTICEBP` correctly `NEVER_ACTIVE`
+- [ ] `DEPLOYMENT_LATTICEBP` correctly dormant on mainnet (flag-day `NOT_SCHEDULED`)
 - [ ] Mixed-mode balance verification (transparent + confidential)
 - [ ] Per-asset-type balance isolation (`nAssetType`)
 - [ ] Key-image spent set management and reorg handling
@@ -439,6 +440,6 @@ Additional hardening from PAT audit (SOQ-H001 through H030):
 ---
 
 *Soqucoin Lattice-BP++ Privacy Architecture v2.0*
-*Updated April 27, 2026 — Reflects native dual-format design, actual implementation benchmarks, and BIP9 activation model*
+*Updated April 27, 2026 — Reflects native dual-format design, actual implementation benchmarks, and the flag-day height activation model (updated 2026-07-06)*
 *Patent Pending — Soqucoin Labs Inc.*
 *Soqucoin Core Development Team*
