@@ -213,7 +213,7 @@ Payouts are processed every 10 minutes via PPLNS. Minimum payout: 1 SOQ.
 | Block Time | ~60 seconds |
 | Initial Subsidy | 100,000 SOQ |
 | Halving Interval | 250,000 blocks |
-| Consensus Features | Dilithium signatures, USDSOQ opcodes, Lattice-BP++ privacy (BIP9-gated) |
+| Consensus Features | Dilithium signatures, USDSOQ opcodes, Lattice-BP++ privacy (active on stagenet; height-gated on mainnet) |
 
 ### Seed Nodes
 

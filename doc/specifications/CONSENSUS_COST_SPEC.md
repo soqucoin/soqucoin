@@ -17,8 +17,11 @@
 > dual-format transactions**. The `nVisibility` field in `CTxOut` determines whether outputs are transparent
 > (default) or confidential. View keys enable selective disclosure for auditors and exchanges.
 >
-> **Activation Model**: All features use **BIP9 deployment** with `ALWAYS_ACTIVE` (genesis features) or
-> `NEVER_ACTIVE` (pending audit). Height-based staged activation has been replaced. See §9.
+> **Activation Model (v1.5.0)**: genesis features are `ALWAYS_ACTIVE`; every post-launch feature
+> activates by **flag-day height** (`nActivationHeight`): `NOT_SCHEDULED` (dormant) on mainnet
+> pending audit, height 0 (active) on stagenet/testnet/regtest. There is **no BIP9 miner
+> signaling**: Soqucoin is merge-mined, so activation is foundation-scheduled in a released
+> binary after audit clearance. See §9.
 >
 > This document reflects the current mainnet candidate specification.
 
@@ -76,36 +79,41 @@ NIST-standardized quantum resistance and is considered acceptable by the cryptog
 
 ### Feature Activation Architecture
 
-Soqucoin uses **BIP9 deployment flags** for feature activation. All features are either `ALWAYS_ACTIVE`
-(enabled from genesis) or `NEVER_ACTIVE` (gated pending audit). There are no height-based activation
-schedules.
+Soqucoin activates features by **flag-day height** (since v1.5.0). Genesis features are
+`ALWAYS_ACTIVE`; post-launch features carry an `nActivationHeight`: `NOT_SCHEDULED`
+(dormant) on mainnet pending audit, height 0 (active) on stagenet/testnet/regtest.
+There is no BIP9 miner-signaling activation.
 
-| Feature | BIP9 Bit | Witness Version | Mainnet Status | Stagenet Status |
-|---------|----------|-----------------|----------------|-----------------|
+| Feature | Bit | Witness Version | Mainnet Status | Stagenet Status |
+|---------|-----|-----------------|----------------|-----------------|
 | **CSV** | 0 | — | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
 | **SegWit** | 1 | — | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
-| **BatchSig** | 2 | — | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
 | **PAT** (`OP_CHECKPATAGG`) | 3 | v2 (`OP_2`) | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
 | **LatticeFold** (`OP_CHECKFOLDPROOF`) | 28 | v3 (`OP_3`) | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
-| **Lattice-BP++** (`OP_LATTICEBP_RANGEPROOF`) | 5 | v4 (`OP_4`) | NEVER_ACTIVE | NEVER_ACTIVE |
-| **USDSOQ** (`OP_USDSOQ_*`) | 6 | v5 (`OP_5`) | NEVER_ACTIVE | NEVER_ACTIVE |
-| **CTV** (`OP_CHECKTEMPLATEVERIFY`) | — | — | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
-| **L2SOQ** (2-of-2 Dilithium + CTV/CSV) | — | v6 (`OP_6`) | Not Active | Prototype |
+| **Lattice-BP++** (`OP_LATTICEBP_RANGEPROOF`) | 5 | v4 (`OP_4`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **USDSOQ** (`OP_USDSOQ_*`) | 6 | v5 (`OP_5`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **CTV** (`OP_CHECKTEMPLATEVERIFY`) | 7 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **APO** (`SIGHASH_ANYPREVOUT`) | 8 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **CSFS** (`OP_CHECKSIGFROMSTACK`) | 9 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **P2WSH-Dilithium / L2SOQ** | 10 | v6 (`OP_6`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **UTXO Cost** | 11 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **Dilithium Keyhash** (`OP_CHECKDILITHIUMKEYHASH`) | 12 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **V6 Control Flow** | 13 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
 
 > [!NOTE]
 > **Witness version routing** in `VerifyScript()`: v0/v1 = Dilithium, v2 = PAT, v3 = LatticeFold,
 > v4 = Lattice-BP++, v5 = USDSOQ, v6 = L2SOQ (Stagenet prototype), v7-v16 = future (anyone-can-spend). Each handler pushes the witness
 > stack into `EvalScript()` with the corresponding opcode. Flag gating ensures soft fork safety.
 >
-> **`NEVER_ACTIVE` features**: When the flag is not set, transactions using that witness version pass
-> as anyone-can-spend (standard BIP141 behavior). This allows future activation via miner signaling
-> without a hard fork.
+> **Dormant features**: When the enforcement flag is not set, transactions using that witness version
+> pass as anyone-can-spend (standard BIP141 behavior). This allows future activation at a published
+> flag-day height without a hard fork.
 
 ### LatticeFold+ Performance (ALWAYS_ACTIVE from Genesis)
 
 > [!NOTE]
 > **Implementation Status**: LatticeFold+ verifier is implemented (`src/crypto/latticefold/verifier.cpp`)
-> based on ePrint 2025/247 (October revision). BIP9 `ALWAYS_ACTIVE` from genesis on both mainnet and
+> based on ePrint 2025/247 (October revision). `ALWAYS_ACTIVE` from genesis on both mainnet and
 > stagenet. The following are **measured values** from benchmarks, not projections.
 
 LatticeFold+ provides **recursive proof composition** for Dilithium batch verification:
@@ -400,18 +408,18 @@ Standard Bitcoin witness limits were designed for ECDSA (~72 byte signatures). D
 
 > **Note**: Fees are **policy**, not consensus. Miners may include any valid transaction regardless of fee. Fee parameters are subject to review based on mainnet economics.
 
-### UTXO Minimum Output Value (Novel — BIP9-Gated)
+### UTXO Minimum Output Value (Novel — Height-Gated)
 
 | Parameter | Value | Type | Notes |
 |-----------|-------|------|-------|
-| **UTXO_COST_PER_BYTE** | 6,500 sat/byte | **Consensus** (BIP9 bit 11) | Cardano-style minimum output value |
+| **UTXO_COST_PER_BYTE** | 6,500 sat/byte | **Consensus** (bit 11, flag-day) | Cardano-style minimum output value |
 | **Minimum Standard Output** | ~0.00325 SOQ | Derived | 6,500 × 50 bytes (typical P2WPKH output) |
 
 > **SOQ-ARCH-003 (May 25, 2026)**: `UTXO_COST_PER_BYTE` enforces a minimum output value
 > proportional to the output's serialized size. This is a **consensus rule** gated by
-> `DEPLOYMENT_UTXO_COST` (BIP9 bit 11):
-> - **Mainnet**: Dormant (`nStartTime=0`) until Phase 2 audit approval
-> - **Stagenet/Testnet/Regtest**: `ALWAYS_ACTIVE`
+> `DEPLOYMENT_UTXO_COST` (bit 11, flag-day height activation):
+> - **Mainnet**: Dormant (`NOT_SCHEDULED`) until Phase 2 audit approval
+> - **Stagenet/Testnet/Regtest**: Active (height 0)
 >
 > Exemptions: `OP_RETURN` outputs and USDSOQ authority markers (`OP_5`/`0x55`).
 > Rejection code: `bad-txns-output-below-utxo-cost`
@@ -466,40 +474,45 @@ Nodes can adjust, miners can override:
 
 ### Overview
 
-Soqucoin uses **BIP9 deployment flags** for all feature activation. Features are either `ALWAYS_ACTIVE`
-(enabled from genesis block 0) or `NEVER_ACTIVE` (gated pending security audit and miner signaling).
-There is no height-based staged activation.
+Soqucoin activates features by **flag-day height** (v1.5.0, PR #26). Genesis features are
+`ALWAYS_ACTIVE`; post-launch features carry `nActivationHeight`: `NOT_SCHEDULED` (dormant)
+on mainnet until the security audit clears and the foundation ships a release with the
+activation height set, height 0 (active) on the test networks. There is no BIP9
+miner-signaling activation: the chain is merge-mined, so hashpower has no signaling
+constituency, and the real activation precondition (audit clearance) is what a height encodes.
 
 > [!IMPORTANT]
 > **Pre-activation behavior**: Transactions using `NEVER_ACTIVE` witness versions (v4, v5) pass as
 > **anyone-can-spend** per BIP141. This is safe: miners won't mine these transactions, and
-> `fRequireStandard=true` on mainnet/stagenet rejects them from the mempool. Activation via BIP9
-> miner signaling will enable full consensus enforcement without a hard fork.
+> `fRequireStandard=true` on mainnet/stagenet rejects them from the mempool. Setting the
+> activation height in a released binary enables full consensus enforcement without a hard fork.
 
 ### Genesis Features (ALWAYS_ACTIVE)
 
 These features are active from block 0 on both mainnet and stagenet:
 
-| Feature | Opcode/Mechanism | Witness Version | BIP9 Bit | What It Does |
-|---------|------------------|-----------------|----------|-------------|
+| Feature | Opcode/Mechanism | Witness Version | Bit | What It Does |
+|---------|------------------|-----------------|-----|-------------|
 | **Dilithium** | Inline in `VerifyScript()` | v0, v1 | — | NIST FIPS 204 quantum-safe signatures |
 | **PAT** | `OP_CHECKPATAGG` | v2 (`OP_2`) | 3 | Merkle-based signature attestation (up to 256 sigs) |
 | **LatticeFold+** | `OP_CHECKFOLDPROOF` | v3 (`OP_3`) | 28 | Recursive batch verification (512 sigs in ~0.75ms) |
 | **AuxPoW** | Merged mining | — | — | Scrypt AuxPoW with unique Chain ID `0x5351` |
 | **SegWit** | BIP141/143/147 | — | 1 | Witness data segregation |
 | **CSV** | BIP68/112/113 | — | 0 | Relative timelocks |
-| **CTV** | `OP_CHECKTEMPLATEVERIFY` (0xb3) | — | — | BIP 119 covenant hash commitment; enables L2SOQ channel settlement |
 
-### Future Features (NEVER_ACTIVE — Pending Audit)
+### Post-Launch Features (Flag-Day, Dormant on Mainnet Pending Audit)
 
-These features exist in the codebase but are gated behind `NEVER_ACTIVE` BIP9 deployments:
+These features exist in the codebase and are **active on stagenet/testnet/regtest
+(height 0)**; on mainnet they stay dormant (`NOT_SCHEDULED`) until the audit clears
+and a release sets the activation height:
 
-| Feature | Opcode | Witness Version | BIP9 Bit | Status | Audit Target |
-|---------|--------|-----------------|----------|--------|-------------|
-| **Lattice-BP++** | `OP_LATTICEBP_RANGEPROOF` (0xfa) | v4 (`OP_4`) | 5 | Code complete, 16/16 tests pass | July 2026 (Halborn) |
-| **USDSOQ** | `OP_USDSOQ_MINT/BURN/FREEZE` | v5 (`OP_5`) | 6 | Code complete, consensus tests pass | Q3–Q4 2026 (Halborn) |
-| **L2SOQ** | 2-of-2 Dilithium P2WSH + CTV/CSV | v6 (`OP_6`) | — | Prototype active (Stagenet, May 2026) | Post-L1 mainnet audit |
-| **UTXO Cost** | Min output value enforcement | — (output value) | 11 | BIP9 dormant (mainnet), ALWAYS_ACTIVE (test) | Phase 2 audit |
+| Feature | Opcode | Witness Version | Bit | Status | Audit Target |
+|---------|--------|-----------------|-----|--------|-------------|
+| **CTV** | `OP_CHECKTEMPLATEVERIFY` (0xb3) | — | 7 | BIP 119 covenant hash; enables L2SOQ settlement | Advisable |
+| **Lattice-BP++** | `OP_LATTICEBP_RANGEPROOF` (0xfa) | v4 (`OP_4`) | 5 | Code complete, 16/16 tests pass | Phase 2 (Halborn) |
+| **USDSOQ** | `OP_USDSOQ_MINT/BURN/FREEZE` | v5 (`OP_5`) | 6 | Full lifecycle proven live on stagenet (July 2026) | Phase 2 (Halborn) |
+| **L2SOQ / P2WSH-Dilithium** | 2-of-2 Dilithium P2WSH + CTV/CSV | v6 (`OP_6`) | 10 | Live on stagenet (Lightning stack) | Post-L1 mainnet audit |
+| **UTXO Cost** | Min output value enforcement | — (output value) | 11 | Dormant (mainnet), active (test networks) | Phase 2 audit |
 
 **Lattice-BP++ (SOQ-P003)**: Verifies lattice-based range proofs (Module-LWE/SIS, n=256, q=8380417, k=4)
 proving transaction amounts ∈ [0, 2^64). Fiat-Shamir binds to sighash + pubkey_hash. Three-mode build guard
@@ -543,7 +556,7 @@ LatticeFold+ provides **recursive proof composition** for Dilithium batch verifi
 
 ### Upgrade & Security Response Policy
 
-- **BIP9 deployments are consensus-frozen** once a tagged release is published
+- **Deployment configuration is consensus-frozen** once a tagged release is published
 - **Activation changes require a new release** with minimum 2-week upgrade window
 - **Security response**: Critical vulnerabilities trigger coordinated disclosure to major miners/exchanges within 24 hours, followed by emergency release
 - **Release signing**: All binaries signed by core maintainers; reproducible builds available
@@ -583,7 +596,7 @@ LatticeFold+ provides **recursive proof composition** for Dilithium batch verifi
 | **Expensive Operations** | Per-op verification costs | Consensus |
 | **Block Size Attacks** | MAX_BLOCK_WEIGHT = 4 MB | Consensus |
 | **Dust Attacks** | DEFAULT_HARD_DUST_LIMIT | Policy |
-| **UTXO Bloat** | UTXO_COST_PER_BYTE = 6,500 (BIP9 bit 11) | Consensus (BIP9-gated) |
+| **UTXO Bloat** | UTXO_COST_PER_BYTE = 6,500 (bit 11) | Consensus (height-gated) |
 
 ---
 
@@ -873,12 +886,12 @@ Soqucoin implements view key functionality (Lattice-BP++ activation) enabling:
 For Halborn audit review, verify:
 1. **No mandatory privacy enforcement** in consensus (`src/validation.cpp`)
 2. **Opt-in flag gating** for Lattice-BP++ (`VerifyScript()` witness v4 handler)
-3. **BIP9 deployment gating** — `DEPLOYMENT_LATTICEBP` must be `NEVER_ACTIVE` before activation
+3. **Deployment gating** — `DEPLOYMENT_LATTICEBP` must remain dormant (`NOT_SCHEDULED`) on mainnet before activation
 4. **Default transparency** maintained for base transactions (`nVisibility=0`)
 
 ---
 
 *Soqucoin Protocol Parameters Specification v4.0*
-*Updated May 20, 2026 — Reflects BIP9 activation model, L2SOQ Stagenet prototype, CTV/CSV covenant opcodes, witness v6 allocation, and USDSOQ code completion*
+*Updated 2026-07-06 — Reflects the flag-day height activation model (v1.5.0, PR #26), L2SOQ Stagenet prototype, CTV/CSV covenant opcodes, witness v6 allocation, and USDSOQ code completion*
 *Soqucoin Core Development Team*
 
