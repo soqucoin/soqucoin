@@ -1,5 +1,5 @@
 /**
- * PAT (Practical Aggregation Technique) - Logarithmic Merkle-based Signature Aggregation
+ * PAT (Practical Attestation Technique) - Logarithmic Merkle-based Signature Aggregation
  *
  * OVERVIEW
  * ========
@@ -104,7 +104,7 @@
  *
  * REFERENCES
  * ==========
- * - Soqucoin Whitepaper Section 4.2: "Practical Aggregation Technique"
+ * - Soqucoin Whitepaper Section 4.2: "Practical Attestation Technique"
  * - Test Vectors: test/pat_tests.cpp
  * - Wire Format Spec: doc/pat-specification.md
  * - Integration Tests: test/pat_script_tests.cpp
