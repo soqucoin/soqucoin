@@ -126,8 +126,11 @@ UniValue createbatchtransaction(const JSONRPCRequest& request)
     // The user code uses LatticeFoldVerifier::IsEnabled().
 
     if (use_fold) {
-        // Off-chain prover assumed (e.g. via latticefold-prover CLI tool we ship)
-        // Here we just placeholder the proof – real wallet would call external prover or embedded lightweight one
+        // NOTE: no LatticeFold+ prover exists yet. Prover development was
+        // deliberately deferred to Phase 2 alongside Lattice-BP++ (the
+        // extension audit covered the verifier only); see bead
+        // soqucoin-build-pq-privacy-system-w1d for status and scope.
+        // Until it ships, witness v3 spends cannot be constructed.
         // batch_proof = LatticeFoldVerifier::CreatePlaceholderProof(tx); // 1.38 kB
         // tx.vin[0].scriptSig = CScript() << OP_FALSE << OP_IF << OP_PUSHBYTES_23 << "soqucoin/latticefold+v1" << OP_ELSE << batch_proof << OP_ENDIF;
 
