@@ -177,16 +177,22 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 1199145601; // January 1, 2008
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999;   // December 31, 2008
 
-        // Deployment of BIP68, BIP112, and BIP113.
-        // XXX: BIP heights and hashes all need to be updated to Soqucoin values
+        // Deployment of BIP68, BIP112, and BIP113 (CSV) and SegWit (BIP141/143/147).
+        // g7c: these are the BASE witness framework the entire Dilithium model rides on.
+        // They must be active from genesis on mainnet. The inherited Bitcoin/Dogecoin
+        // BIP9 windows below (real 2016/2017 timestamps, SegWit nTimeout=0) resolve to
+        // THRESHOLD_FAILED on a 2026-genesis chain, which would leave every witness
+        // program (v0-v7: all Dilithium/PAT/LatticeFold outputs) anyone-can-spend.
+        // BIP9 signaling cannot activate them either (AuxPoW chain-id occupies the
+        // version high bits — see DL-P96). So they are set ALWAYS_ACTIVE, matching the
+        // live stagenet config. See DL-G7C-SEGWIT-CSV-GENESIS-ACTIVATION.md.
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 1462060800; // May 1st, 2016
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 1493596800;   // May 1st, 2017
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // Deployment of SegWit (BIP141, BIP143, and BIP147)
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
-        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = 1479168000; // November 15th, 2016.
-        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = 0;            // Disabled
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].bit = 3;

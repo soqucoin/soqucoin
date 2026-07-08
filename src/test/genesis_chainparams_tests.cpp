@@ -211,6 +211,34 @@ BOOST_AUTO_TEST_CASE(regtest_critical_deployments_active)
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
 }
 
+// g7c regression guard: the BASE witness framework (SegWit + CSV) must be
+// active from genesis on MAINNET. If these ever revert to the inherited
+// Bitcoin/Dogecoin BIP9 windows (real timestamps / SegWit nTimeout=0), they
+// resolve to THRESHOLD_FAILED on a post-2017 genesis chain and every witness
+// program (v0-v7: all Dilithium/PAT/LatticeFold outputs) becomes
+// anyone-can-spend. See DL-G7C-SEGWIT-CSV-GENESIS-ACTIVATION.md.
+BOOST_AUTO_TEST_CASE(mainnet_witness_framework_active_from_genesis)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const Consensus::Params& consensus = Params().GetConsensus(0);
+
+    // SegWit must be ALWAYS_ACTIVE (nStartTime == -1, nTimeout == NO_TIMEOUT)
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime,
+                      Consensus::BIP9Deployment::ALWAYS_ACTIVE);
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout,
+                      Consensus::BIP9Deployment::NO_TIMEOUT);
+
+    // CSV must be ALWAYS_ACTIVE (BIP68/112/113 — L2SOQ force-close depends on it)
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime,
+                      Consensus::BIP9Deployment::ALWAYS_ACTIVE);
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout,
+                      Consensus::BIP9Deployment::NO_TIMEOUT);
+
+    // Belt-and-suspenders: the SegWit nTimeout must never be 0 (the specific
+    // "Disabled" value that also suppresses the coinbase witness commitment).
+    BOOST_CHECK(consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout != 0);
+}
+
 // ============================================================================
 // Subsidy Calculation Tests
 //
