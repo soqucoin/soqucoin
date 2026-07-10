@@ -79,6 +79,16 @@ static CScript MakeV5Spk(const std::vector<unsigned char>& rawPubkey)
     return spk;
 }
 
+// V4 confidential scriptPubKey: OP_4 <32-byte commitment>. IsConfidential() true.
+static CScript MakeV4Spk(const std::vector<unsigned char>& rawPubkey)
+{
+    uint256 pkHash;
+    CSHA256().Write(rawPubkey.data(), rawPubkey.size()).Finalize(pkHash.begin());
+    CScript spk;
+    spk << OP_4 << std::vector<unsigned char>(pkHash.begin(), pkHash.end());
+    return spk;
+}
+
 // 0x00-prefixed pubkey for the trailing witness item (FIPS 204 Table 3).
 static std::vector<unsigned char> Prefixed(const std::vector<unsigned char>& rawPubkey)
 {
@@ -253,6 +263,25 @@ struct V7ConservationChainSetup : public TestingSetup {
             c->vout[0].nValue       = value;
             c->vout[0].scriptPubKey = MakeV7Spk(coinbasePkBytes);
             // Phase 4: nVisibility/nAssetType bytes removed; classification is structural (v7 witness = USDSOQ)
+        }
+        return COutPoint(txid, 0);
+    }
+
+    // Seed a confidential v4 coin directly into the UTXO set (Option B negative
+    // test — an exotic input that a transparent USDSOQ transfer must not mix in).
+    COutPoint SeedV4Coin(CAmount value)
+    {
+        uint256 txid = uint256S("0000000000000000000000000000000000000000000000000000000000007c04");
+        {
+            LOCK(cs_main);
+            CCoinsModifier c = pcoinsTip->ModifyCoins(txid);
+            c->Clear();
+            c->fCoinBase = false;
+            c->nHeight   = 1;
+            c->nVersion  = 2;
+            c->vout.resize(1);
+            c->vout[0].nValue       = value;
+            c->vout[0].scriptPubKey = MakeV4Spk(coinbasePkBytes);
         }
         return COutPoint(txid, 0);
     }
@@ -647,6 +676,87 @@ BOOST_AUTO_TEST_CASE(mempool_rejects_spend_of_frozen_v7_outpoint)
     BOOST_CHECK_MESSAGE(ok2, "the identical tx must be ACCEPTED once unfrozen, got: "
         + state2.GetRejectReason());
     BOOST_CHECK(mempool.exists(spend.GetHash()));
+}
+
+// ---------------------------------------------------------------------------
+// e2n: freeze enforcement must be LIVE at CONSENSUS (ConnectBlock), not only at
+// mempool. The old ConnectBlock freeze guard iterated the coins VIEW in the
+// second pass — but UpdateCoins (first pass) had already spent every input, so
+// its `!IsAvailable() → continue` skipped every input: DEAD CODE. Freeze was
+// thus enforced only at mempool (BUG-22 ATMP mirror), so a block assembled
+// off-mempool could spend a frozen coin. The fix reads prevouts from block undo
+// (like the burn loop). This drives a real block: freeze a v7 outpoint, mine a
+// spend of it → block MUST be rejected; then unfreeze and mine → it MUST connect
+// (isolates the freeze guard as the cause). Before the fix, the first block
+// connects (freeze not enforced) and this test fails.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(connectblock_rejects_spend_of_frozen_v7_outpoint)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    CScript v7Dest = MakeV7Spk(coinbasePkBytes);
+
+    {
+        LOCK(cs_main);
+        BOOST_REQUIRE(pcoinsdbview->WriteFrozenOutpoint(v7op));
+        BOOST_REQUIRE(pcoinsdbview->IsFrozenOutpoint(v7op));
+    }
+
+    const uint256 tipBefore = chainActive.Tip()->GetBlockHash();
+    CMutableTransaction frozenSpend = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[0], v7Dest);
+    CBlock B = CreateAndProcessBlock({frozenSpend}, coinbaseSpk);
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() != B.GetHash(),
+        "a block spending a registry-frozen USDSOQ outpoint MUST be rejected at "
+        "ConnectBlock (e2n: freeze enforced at consensus, not only mempool)");
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == tipBefore,
+        "tip must be unchanged after the frozen-spend block is rejected");
+
+    // Unfreeze → the same (still-unspent) v7op must now be spendable in a block,
+    // proving the rejection was the freeze guard and not an incidental failure.
+    {
+        LOCK(cs_main);
+        BOOST_REQUIRE(pcoinsdbview->EraseFrozenOutpoint(v7op));
+        BOOST_REQUIRE(!pcoinsdbview->IsFrozenOutpoint(v7op));
+    }
+    CMutableTransaction okSpend = BuildV7ToV7Send(v7op, v7Val, coinbaseTxns[1], v7Dest);
+    CBlock B2 = CreateAndProcessBlock({okSpend}, coinbaseSpk);
+    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() == B2.GetHash(),
+        "once unfrozen, the identical v7 spend must connect");
+}
+
+// ---------------------------------------------------------------------------
+// Option B (0r2/e2n): a transparent USDSOQ transfer may spend v7 USDSOQ inputs
+// and transparent native-SOQ fee inputs, but NOT exotic inputs (e.g. confidential
+// v4). The positive path (v7 + SOQ fee connects) is covered by
+// v7_to_v7_send_conserves. Here a CONSERVING tx (USDSOQ in==out) that mixes a v4
+// confidential input into a v7 transfer must be rejected by CheckTxInputs with
+// bad-txns-usdsoq-input-mismatch. Driven through Consensus::CheckTxInputs directly
+// to isolate the rule from script/policy checks, and to prove it lives in the
+// single chokepoint shared by ConnectBlock and mempool.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(checktxinputs_rejects_exotic_input_in_usdsoq_transfer)
+{
+    const CAmount v7Val = 5 * COIN;
+    COutPoint v7op = SeedV7Coin(v7Val, 0x00);
+    COutPoint v4op = SeedV4Coin(1 * COIN);   // confidential input mixed in as "fee"
+
+    CMutableTransaction tx; tx.nVersion = 2;
+    { CTxIn in; in.prevout = v7op; in.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(in); }
+    { CTxIn in; in.prevout = v4op; in.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(in); }
+    // USDSOQ out == in (conserves); the v4 input's value falls to fee.
+    { CTxOut o; o.nValue = v7Val; o.scriptPubKey = MakeV7Spk(coinbasePkBytes); tx.vout.push_back(o); }
+
+    CValidationState state;
+    bool ok;
+    {
+        LOCK(cs_main);
+        ok = Consensus::CheckTxInputs(Params(), CTransaction(tx), state, *pcoinsTip,
+                                      chainActive.Height() + 1);
+    }
+    BOOST_CHECK_MESSAGE(!ok,
+        "a conserving USDSOQ transfer that mixes a confidential v4 input must be rejected");
+    BOOST_CHECK_MESSAGE(state.GetRejectReason() == "bad-txns-usdsoq-input-mismatch",
+        "reject reason must be Option-B input isolation, got: " + state.GetRejectReason());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
