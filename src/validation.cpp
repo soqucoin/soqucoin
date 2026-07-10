@@ -1657,6 +1657,41 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
                 strprintf("USDSOQ in (%s) != USDSOQ out (%s)",
                     FormatMoney(nUSDSOQIn), FormatMoney(nUSDSOQOut)));
         }
+
+        // Input-type isolation (Option B — beads 0r2/e2n). A transparent USDSOQ
+        // transfer (any v7 output) may spend ONLY:
+        //   * v7 USDSOQ inputs (the asset being moved), and
+        //   * transparent native-SOQ (v1) inputs (to pay the SOQ fee).
+        // Conservation (above) already guarantees USDSOQ cannot be forged or
+        // converted; this additionally forbids exotic inputs (e.g. confidential
+        // v4) being mixed into a transparent USDSOQ transfer, keeping such
+        // transfers wholly transparent.
+        //
+        // WHY HERE (not ConnectBlock): CheckTxInputs runs with inputs still
+        // available in BOTH validation paths — ConnectBlock's first pass
+        // (via CheckInputs, before UpdateCoins spends them) AND mempool accept
+        // (ATMP → CheckInputs). Enforcing from this single chokepoint makes the
+        // rule LIVE in both, so mempool policy and consensus can never diverge.
+        // The prior ConnectBlock-only rule lived in the SECOND pass, after
+        // UpdateCoins had already spent every input, so its
+        // `!coins->IsAvailable() → continue` guard made it DEAD CODE — it never
+        // rejected anything, which is why a SOQ-fee transfer already connected
+        // and why there was never an actual mempool-poison from it (bead 0r2).
+        // Authority (mint/burn/freeze/rotate) txs are exempt (outer guard).
+        if (nUSDSOQOut > 0) {
+            for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                const COutPoint& prevout = tx.vin[i].prevout;
+                const CTxOut& prevOut = inputs.AccessCoins(prevout.hash)->vout[prevout.n];
+                if (!prevOut.IsUSDSOQ() &&
+                    !(prevOut.IsNativeSOQ() && prevOut.IsTransparent())) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-txns-usdsoq-input-mismatch", false,
+                        strprintf("USDSOQ transfer input %s:%u is neither a v7 "
+                            "USDSOQ input nor a transparent SOQ fee input",
+                            prevout.hash.ToString(), prevout.n));
+                }
+            }
+        }
     }
 
     return true;
@@ -2728,14 +2763,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             const CTransaction& tx = *(block.vtx[i]);
             if (tx.IsCoinBase()) continue;
 
-            // Determine if this tx has USDSOQ outputs
-            bool txHasUSDSOQ = false;
-            for (const auto& txout : tx.vout) {
-                if (txout.IsUSDSOQ()) {
-                    txHasUSDSOQ = true;
-                    break;
-                }
-            }
+            // (Input-type isolation that formerly read this per-tx "has USDSOQ
+            // output" flag now lives in Consensus::CheckTxInputs (Option B),
+            // enforced live in both the connect and mempool paths — bead 0r2/e2n.)
 
             // =============================================================
             // SOQ-I005: Authority TX detection and M-of-N Dilithium
@@ -3087,51 +3117,35 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 }
             }
 
-            // Input-side validation for non-coinbase transactions
-            for (const auto& txin : tx.vin) {
-                const CCoins* coins = view.AccessCoins(txin.prevout.hash);
-                if (!coins || !coins->IsAvailable(txin.prevout.n))
-                    continue;  // Already caught by HaveInputs check above
-
-                const CTxOut& prevOut = coins->vout[txin.prevout.n];
-
-                // Frozen UTXO guard: reject spending any frozen USDSOQ output.
-                // Checks BOTH:
-                //   1. Legacy: nVisibility high-bit (0x80) — existing chain data
-                //   2. Registry: DB_USDSOQ_FROZEN set — new freeze-registry ops
-                //
-                // Both paths remain active during migration. Once all legacy
-                // frozen UTXOs are re-frozen via the registry (Phase 2),
-                // the nVisibility check can be removed.
-                //
-                // H3 FIX (June 3, 2026): Only enforce freeze on USDSOQ outputs.
-                // If a SOQ output somehow gets the frozen bit set (corruption),
-                // it must NOT become permanently unspendable.
-                if (prevOut.IsUSDSOQ()) {
-                    // Phase 4: freeze enforcement via registry only (nVisibility bit removed)
-                    bool frozenByRegistry = pcoinsdbview &&
-                        pcoinsdbview->IsFrozenOutpoint(txin.prevout);
-                    if (frozenByRegistry) {
+            // Frozen-UTXO guard (registry): reject any spend of a frozen USDSOQ
+            // outpoint. Reads prevouts from the block UNDO data, NOT the coins
+            // view, because by this second pass UpdateCoins (first pass) has
+            // already spent every input — the same reason the burn loop below
+            // reads undo. This runs in fJustCheck too, so TestBlockValidity
+            // rejects a template carrying a frozen spend.
+            //
+            // e2n FIX: the previous freeze guard here iterated the coins VIEW and
+            // bailed via `!coins->IsAvailable() → continue` on every (already
+            // spent) input — it was DEAD CODE, so freeze was enforced ONLY at
+            // mempool (BUG-22, the ATMP mirror). A miner assembling a block
+            // off-mempool could therefore spend a frozen coin. Reading undo makes
+            // consensus enforcement LIVE, matching the ATMP check. Applies to ALL
+            // txs (a freeze blocks even an authority burn of that outpoint),
+            // USDSOQ prevouts only. Input-type isolation formerly co-located here
+            // now lives in Consensus::CheckTxInputs (Option B), enforced live in
+            // both the connect and mempool paths from one chokepoint.
+            if (i > 0 && (i - 1) < blockundo.vtxundo.size()) {
+                const CTxUndo& txundoFreeze = blockundo.vtxundo[i - 1];
+                for (unsigned int j = 0;
+                     j < tx.vin.size() && j < txundoFreeze.vprevout.size(); j++) {
+                    const CTxOut& prevOut = txundoFreeze.vprevout[j].txout;
+                    if (prevOut.IsUSDSOQ() && pcoinsdbview &&
+                        pcoinsdbview->IsFrozenOutpoint(tx.vin[j].prevout)) {
                         return state.DoS(100,
                             error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u"
                                   " (registry)",
-                                txin.prevout.hash.ToString(), txin.prevout.n),
+                                tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n),
                             REJECT_INVALID, "bad-txns-spend-frozen-usdsoq");
-                    }
-                }
-
-                // Asset isolation on inputs: if ANY output is USDSOQ,
-                // ALL inputs must also be USDSOQ (or this is a mint tx).
-                // MINT transactions have no USDSOQ inputs by definition
-                // (they create new supply from authority-signed witness).
-                // NOTE: isAuthorityTx was already determined by SOQ-I005
-                // authority detection above — no need to re-scan outputs.
-                if (txHasUSDSOQ && !prevOut.IsUSDSOQ()) {
-                    if (!isAuthorityTx) {
-                        return state.DoS(100,
-                            error("ConnectBlock(): USDSOQ tx has non-USDSOQ input %s:%u",
-                                txin.prevout.hash.ToString(), txin.prevout.n),
-                            REJECT_INVALID, "bad-txns-usdsoq-input-mismatch");
                     }
                 }
             }
