@@ -218,3 +218,6 @@ configure~
 
 # SLB state (don't commit pending requests)
 .slb/
+
+# Wrangler local cache
+.wrangler/
