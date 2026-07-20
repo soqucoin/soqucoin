@@ -218,6 +218,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;  // Not started
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;    // Never activates
 
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ — NOT ACTIVE on mainnet (dormant pending Phase 2 audit)
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].bit = 14;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nTimeout = 0;    // Never activates
+
         // SOQ-COV-012 [DOC]: Covenant opcode BIP9 activation — MAINNET
         // ============================================================
         // CTV (BIP 119), APO (BIP 118), and CSFS (BIP 348) are NOT YET
@@ -289,6 +294,7 @@ public:
         // CSV/SegWit stay on the historical BIP9 windows.)
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = Consensus::BIP9Deployment::NOT_SCHEDULED;
@@ -493,6 +499,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ — ACTIVE for integration testing; mainnet dormant.
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].bit = 14;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight = 0;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].bit = 7;
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
@@ -733,6 +745,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ — ALWAYS_ACTIVE for regtest (consensus-native asset tests)
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].bit = 14;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight = 0;
 
         // p96 / Option D: height-gated activation, height 0 = active from genesis
         // (equivalent to the ALWAYS_ACTIVE test behavior above). See CMainParams.
@@ -980,6 +998,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ — ALWAYS_ACTIVE on stagenet (consensus-native asset integration)
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].bit = 14;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight = 0;
 
         // p96 / Option D: height-gated activation, height 0 = active from genesis
         // (equivalent to the ALWAYS_ACTIVE test behavior above — the live stagenet's

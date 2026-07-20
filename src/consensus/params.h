@@ -31,6 +31,7 @@ enum DeploymentPos {
     DEPLOYMENT_UTXO_COST,       // SOQ-ARCH-003: Consensus-enforced minimum UTXO value (bit 11) — Cardano-style utxoCostPerByte
     DEPLOYMENT_DILITHIUM_KEYHASH, // OP_CHECKDILITHIUMKEYHASH (bit 12) — key-committed Dilithium sig verify, eLTOO 2-of-2 multisig
     DEPLOYMENT_V6_CONTROLFLOW, // DL-V6-CONTROLFLOW-RESTORE (bit 13) — IF/CLTV/CSV/DROP/SHA256/EQUAL in v6 EvalScript (eLTOO ratchet, HTLC)
+    DEPLOYMENT_BTCSOQ,     // DL-BTCSOQ-CONSENSUS-NATIVE: Bitcoin-backed consensus asset (bit 14)
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };
@@ -165,6 +166,16 @@ struct Params {
      *
      *  See SECURITY_ISSUE_REGISTRY.md SOQ-I005-STAGENET for full rationale. */
     int32_t nUSDSOQAuthorityEnforcementHeight = 0;
+
+    /** BTCSOQ issuer authority (DL-BTCSOQ-CONSENSUS-NATIVE). Mirrors the USDSOQ
+     *  authority: M-of-N Dilithium ML-DSA-44 public keys (hex, 1312 bytes) for
+     *  MINT/BURN/FREEZE/ROTATE, loaded on activation. Empty = no authority
+     *  (mainnet at genesis, deployment NOT_SCHEDULED). */
+    std::vector<std::string> btcsoqAuthorityKeys;
+    uint32_t btcsoqAuthorityThreshold = 0;
+    /** Height before which BTCSOQ authority TXs skip signature verification
+     *  (stagenet bootstrap exemption). Mainnet = 0 (enforced from activation). */
+    int32_t nBTCSOQAuthorityEnforcementHeight = 0;
 
     /** SOQ-I007-STAGENET: UTXO cost minimum enforcement height.
      *  Before this height, the UTXO_COST_PER_BYTE minimum is not enforced
