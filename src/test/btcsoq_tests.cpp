@@ -9,6 +9,8 @@
 
 #include "consensus/btcsoq.h"
 #include "amount.h"
+#include "primitives/transaction.h"
+#include "script/script.h"
 #include "test/test_bitcoin.h"
 #include "uint256.h"
 
@@ -140,6 +142,137 @@ BOOST_AUTO_TEST_CASE(minted_outpoint_key_is_deterministic_and_distinct)
     BOOST_CHECK_EQUAL(k0.size(), 36u);
     BOOST_CHECK(k0 == k0b);   // deterministic
     BOOST_CHECK(!(k0 == k1)); // different vout -> different key
+}
+
+// ---- BURN payload ----
+BOOST_AUTO_TEST_CASE(burn_payload_roundtrip_and_rejects)
+{
+    uint256 release = uint256S("aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899");
+    CAmount sats = 15000;
+
+    std::vector<uint8_t> p = BuildBTCSOQBurnPayload(release, sats);
+    BOOST_CHECK_EQUAL(p.size(), BTCSOQ_BURN_PAYLOAD_LEN);
+
+    uint256 r2; CAmount s2;
+    BOOST_CHECK(ParseBTCSOQBurnPayload(p, r2, s2));
+    BOOST_CHECK(r2 == release);
+    BOOST_CHECK_EQUAL(s2, sats);
+
+    // wrong length
+    std::vector<uint8_t> short_p(BTCSOQ_BURN_PAYLOAD_LEN - 1, 0x00);
+    BOOST_CHECK(!ParseBTCSOQBurnPayload(short_p, r2, s2));
+
+    // zero sats
+    std::vector<uint8_t> zero = BuildBTCSOQBurnPayload(release, 0);
+    BOOST_CHECK(!ParseBTCSOQBurnPayload(zero, r2, s2));
+
+    // above 21M BTC in sats
+    std::vector<uint8_t> over = BuildBTCSOQBurnPayload(release, 1);
+    for (int i = 0; i < 8; ++i) over[32 + i] = 0xff;
+    BOOST_CHECK(!ParseBTCSOQBurnPayload(over, r2, s2));
+}
+
+// ---- signed OP_RETURN op envelope ----
+static CScript MakeBTCSOQOpReturn(uint8_t tag, size_t payloadLen, uint8_t fill = 0x11)
+{
+    std::vector<unsigned char> data;
+    data.push_back(tag);
+    data.insert(data.end(), payloadLen, fill);
+    return CScript() << OP_RETURN << data;
+}
+
+BOOST_AUTO_TEST_CASE(authority_op_envelope_parses_each_op)
+{
+    uint8_t tag = 0;
+    std::vector<uint8_t> payload;
+
+    // MINT (76-byte payload)
+    {
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(BTCSOQ_OP_MINT, BTCSOQ_MINT_PAYLOAD_LEN));
+        BOOST_CHECK(ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+        BOOST_CHECK_EQUAL(tag, BTCSOQ_OP_MINT);
+        BOOST_CHECK_EQUAL(payload.size(), BTCSOQ_MINT_PAYLOAD_LEN);
+    }
+    // BURN (40-byte payload)
+    {
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(BTCSOQ_OP_BURN, BTCSOQ_BURN_PAYLOAD_LEN));
+        BOOST_CHECK(ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+        BOOST_CHECK_EQUAL(tag, BTCSOQ_OP_BURN);
+        BOOST_CHECK_EQUAL(payload.size(), BTCSOQ_BURN_PAYLOAD_LEN);
+    }
+    // FREEZE (37-byte payload, USDSOQ freeze layout inside the envelope)
+    {
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(BTCSOQ_OP_FREEZE, FREEZE_OP_PAYLOAD_LEN));
+        BOOST_CHECK(ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+        BOOST_CHECK_EQUAL(tag, BTCSOQ_OP_FREEZE);
+        BOOST_CHECK_EQUAL(payload.size(), FREEZE_OP_PAYLOAD_LEN);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(authority_op_envelope_rejects)
+{
+    uint8_t tag = 0;
+    std::vector<uint8_t> payload;
+
+    // ROTATE (0x62) has no wired semantics — must not be recognized
+    {
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(BTCSOQ_OP_ROTATE, 76));
+        BOOST_CHECK(!ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+    }
+    // wrong payload length for the tag
+    {
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(BTCSOQ_OP_MINT, BTCSOQ_MINT_PAYLOAD_LEN - 1));
+        BOOST_CHECK(!ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+    }
+    // unknown tag byte
+    {
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(0x7f, BTCSOQ_MINT_PAYLOAD_LEN));
+        BOOST_CHECK(!ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+    }
+    // two well-formed ops in one tx — single-action invariant fails the parse
+    {
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(BTCSOQ_OP_MINT, BTCSOQ_MINT_PAYLOAD_LEN));
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(BTCSOQ_OP_BURN, BTCSOQ_BURN_PAYLOAD_LEN));
+        BOOST_CHECK(!ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+    }
+    // trailing push after the payload — strict envelope rejects
+    {
+        std::vector<unsigned char> data;
+        data.push_back(BTCSOQ_OP_BURN);
+        data.insert(data.end(), BTCSOQ_BURN_PAYLOAD_LEN, 0x22);
+        CScript withTrailer = CScript() << OP_RETURN << data
+                                        << std::vector<unsigned char>{0x01};
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(0, withTrailer);
+        BOOST_CHECK(!ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+    }
+    // a non-OP_RETURN output alongside a valid op does not disturb the parse
+    {
+        CMutableTransaction mtx;
+        mtx.vout.emplace_back(1000, CScript() << OP_TRUE);
+        mtx.vout.emplace_back(0, MakeBTCSOQOpReturn(BTCSOQ_OP_BURN, BTCSOQ_BURN_PAYLOAD_LEN));
+        BOOST_CHECK(ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
+        BOOST_CHECK_EQUAL(tag, BTCSOQ_OP_BURN);
+    }
+}
+
+// ---- recipient commitment ----
+BOOST_AUTO_TEST_CASE(recipient_commitment_binds_exact_script)
+{
+    CScript a = CScript() << OP_8 << std::vector<unsigned char>(32, 0xaa);
+    CScript b = CScript() << OP_8 << std::vector<unsigned char>(32, 0xab);
+
+    uint256 ca = ComputeBTCSOQRecipientCommitment(a);
+    BOOST_CHECK(ca == ComputeBTCSOQRecipientCommitment(a));  // deterministic
+    BOOST_CHECK(ca != ComputeBTCSOQRecipientCommitment(b));  // any script change breaks it
+    BOOST_CHECK(!ca.IsNull());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

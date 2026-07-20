@@ -168,6 +168,12 @@ enum {
     // When clear, those opcodes remain no-ops (unchanged behaviour).
     SCRIPT_VERIFY_V6_CONTROLFLOW = (1U << 26),
 
+    // DL-BTCSOQ-CONSENSUS-NATIVE: Enable BTCSOQ consensus enforcement
+    // (witness v9 authority marker + v8 asset outputs). Gated behind
+    // DEPLOYMENT_BTCSOQ (bit 14). Consumed by ConnectBlock's BTCSOQ money-path
+    // (Step 2C); interpreter witness-v8 dispatch lands in Step 2D.
+    SCRIPT_VERIFY_BTCSOQ = (1U << 27),
+
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),

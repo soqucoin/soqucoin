@@ -194,7 +194,10 @@ public:
 
     //! Returns true if this output is a v8 BTCSOQ holding (OP_8 <SHA256(pubkey)>).
     //! BTCSOQ is the Bitcoin-backed consensus asset (DL-BTCSOQ-CONSENSUS-NATIVE).
-    //! Spent via the v1 single-key Dilithium path, like USDSOQ v7. v5 = shared authority output.
+    //! Spent via the v1 single-key Dilithium path, like USDSOQ v7. The BTCSOQ
+    //! authority marker is witness v9 (OP_9 <32>) — deliberately DISTINCT from the
+    //! USDSOQ v5 marker so each asset's enforcement routes on an unforgeable,
+    //! sighash-covered output (never on malleable witness tags). See consensus/btcsoq.h.
     bool IsV8BTCSOQHolding() const {
         return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_8 && scriptPubKey[1] == 32;
     }

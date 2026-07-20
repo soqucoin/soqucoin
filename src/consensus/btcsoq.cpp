@@ -10,6 +10,8 @@
 #include "consensus/btcsoq.h"
 #include "amount.h"
 #include "crypto/sha256.h"
+#include "primitives/transaction.h"
+#include "script/script.h"
 extern "C" {
 #include "crypto/dilithium/api.h"
 }
@@ -212,6 +214,100 @@ bool ParseBTCSOQMintPayload(
 
     memcpy(recipient.begin(), &payload[44], 32);
     return true;
+}
+
+std::vector<uint8_t> BuildBTCSOQBurnPayload(
+    const uint256& releaseScriptHash, CAmount sats)
+{
+    std::vector<uint8_t> p;
+    p.reserve(BTCSOQ_BURN_PAYLOAD_LEN);
+    p.insert(p.end(), releaseScriptHash.begin(), releaseScriptHash.end());  // 32
+    put_u64_le(p, (uint64_t)sats);                                          // 8
+    return p;
+}
+
+bool ParseBTCSOQBurnPayload(
+    const std::vector<uint8_t>& payload,
+    uint256& releaseScriptHash, CAmount& sats)
+{
+    if (payload.size() != BTCSOQ_BURN_PAYLOAD_LEN) return false;
+
+    memcpy(releaseScriptHash.begin(), &payload[0], 32);
+
+    uint64_t s = 0;
+    for (int i = 0; i < 8; ++i) s |= ((uint64_t)payload[32 + i]) << (8 * i);
+    if (s > (uint64_t)BTCSOQ_MAX_SATS) return false;
+    sats = (CAmount)s;
+    if (sats <= 0) return false;
+    return true;
+}
+
+// =========================================================================
+// Signed OP_RETURN op envelope — see the header for the wire format and the
+// rationale (the authority sighash covers outputs, not witness data, so the
+// op tag and payload MUST live output-side to be authenticated).
+// =========================================================================
+
+//! Expected payload length (excluding the tag byte) for a recognized op tag,
+//! or 0 if the tag has no wired semantics (0x62 ROTATE, unknown bytes).
+static size_t BTCSOQOpPayloadLen(uint8_t tag)
+{
+    switch (tag) {
+    case BTCSOQ_OP_MINT:   return BTCSOQ_MINT_PAYLOAD_LEN;
+    case BTCSOQ_OP_BURN:   return BTCSOQ_BURN_PAYLOAD_LEN;
+    case BTCSOQ_OP_FREEZE: return FREEZE_OP_PAYLOAD_LEN;
+    default:               return 0;
+    }
+}
+
+bool ParseBTCSOQAuthorityOp(
+    const CTransaction& tx, uint8_t& tag, std::vector<uint8_t>& payload)
+{
+    bool found = false;
+
+    for (const auto& txout : tx.vout) {
+        const CScript& script = txout.scriptPubKey;
+
+        if (script.size() < 2 || script[0] != OP_RETURN)
+            continue;
+
+        // Strict envelope: OP_RETURN followed by exactly one data push.
+        CScript::const_iterator pc = script.begin();
+        opcodetype opcode;
+        std::vector<uint8_t> push;
+
+        ++pc;  // skip OP_RETURN
+        if (!script.GetOp(pc, opcode, push))
+            continue;
+        if (pc != script.end())
+            continue;  // trailing opcodes/pushes — not a BTCSOQ op
+
+        if (push.empty())
+            continue;
+        const uint8_t candidateTag = push[0];
+        const size_t expectedLen = BTCSOQOpPayloadLen(candidateTag);
+        if (expectedLen == 0 || push.size() != 1 + expectedLen)
+            continue;
+
+        // Single-action invariant: a second well-formed op fails the parse
+        // (mirrors ParseUSDSOQFreezeOp — an ambiguous tx must never be
+        // interpreted as either op).
+        if (found)
+            return false;
+
+        tag = candidateTag;
+        payload.assign(push.begin() + 1, push.end());
+        found = true;
+    }
+
+    return found;
+}
+
+uint256 ComputeBTCSOQRecipientCommitment(const CScript& scriptPubKey)
+{
+    uint256 out;
+    CSHA256().Write(scriptPubKey.data(), scriptPubKey.size()).Finalize(out.begin());
+    return out;
 }
 
 std::vector<uint8_t> BTCSOQMintedOutpointKey(const uint256& btcTxid, uint32_t btcVout)

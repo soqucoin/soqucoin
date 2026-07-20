@@ -31,6 +31,10 @@
 #include <cstdint>
 #include <vector>
 
+class CTransaction;
+class COutPoint;
+class CScript;
+
 // =========================================================================
 // Asset type — extends the shared set defined in usdsoq.h
 // =========================================================================
@@ -41,13 +45,29 @@
 static constexpr uint8_t ASSET_TYPE_BTCSOQ = 0x02;  // Bitcoin-backed asset
 
 // =========================================================================
-// Authority op tags (first byte of the witness authority tag slot)
-// Distinct from the USDSOQ OP_5 (0x55) marker so the two asset ops can never
-// be confused by the ConnectBlock dispatcher.
+// Authority marker and op tags.
+//
+// The BTCSOQ authority marker output is witness v9: OP_9 <SHA256(concat keys)>.
+// It is deliberately a DIFFERENT witness version from the USDSOQ authority
+// marker (v5): the marker output is the unforgeable, sighash-covered fact that
+// routes a transaction to exactly one asset's enforcement block. Partitioning
+// on a witness tag instead would be attacker-malleable (witness data is not
+// covered by any signature) and would require tag-conditional routing inside
+// the audited USDSOQ path. A transaction carrying BOTH a v5 and a v9 marker
+// output is consensus-invalid (bad-txns-dual-authority-marker).
+//
+// The op tag + payload ride a signed OP_RETURN output (see
+// ParseBTCSOQAuthorityOp below), NOT the witness: the authority M-of-N
+// signature covers the transaction sighash, so only output-side data is
+// authenticated. A witness-side payload could be mutated in flight (e.g.
+// rewriting the bound btc_txid:vout of a MINT), desyncing the deposit ledger.
+// The witness tag slot [2] still carries a copy of the op tag for cheap
+// authority-witness detection; consensus requires it to EQUAL the OP_RETURN
+// tag so there is a single source of truth.
 // =========================================================================
 static constexpr uint8_t BTCSOQ_OP_MINT    = 0x60;  // create supply against a BTC deposit
 static constexpr uint8_t BTCSOQ_OP_BURN     = 0x61;  // destroy supply, record release intent
-static constexpr uint8_t BTCSOQ_OP_ROTATE   = 0x62;  // rotate issuer authority key set
+static constexpr uint8_t BTCSOQ_OP_ROTATE   = 0x62;  // rotate issuer authority key set (NOT yet wired — rejected by consensus)
 static constexpr uint8_t BTCSOQ_OP_FREEZE   = 0x63;  // add/remove outpoint from frozen set
 
 // =========================================================================
@@ -58,6 +78,15 @@ static constexpr uint8_t BTCSOQ_OP_FREEZE   = 0x63;  // add/remove outpoint from
 // being replayed to a different recipient.
 // =========================================================================
 static constexpr size_t BTCSOQ_MINT_PAYLOAD_LEN = 32 + 4 + 8 + 32;  // 76 bytes
+
+// =========================================================================
+// BURN (redeem) payload wire format
+//   [release_scripthash:32][sats:8 LE]
+// release_scripthash names the Bitcoin script the gateway must release to;
+// sats MUST equal the total BTCSOQ input value burned by the transaction, so
+// the signed release intent can never disagree with the consensus burn.
+// =========================================================================
+static constexpr size_t BTCSOQ_BURN_PAYLOAD_LEN = 32 + 8;  // 40 bytes
 
 // =========================================================================
 // CBTCSOQSupply — deterministic supply counter (identical semantics to
@@ -144,13 +173,50 @@ bool ParseBTCSOQMintPayload(
     const std::vector<uint8_t>& payload,
     uint256& btcTxid, uint32_t& btcVout, CAmount& sats, uint256& recipient);
 
+//! Serialize a BURN payload. Returns a BTCSOQ_BURN_PAYLOAD_LEN-byte vector.
+std::vector<uint8_t> BuildBTCSOQBurnPayload(
+    const uint256& releaseScriptHash, CAmount sats);
+
+//! Parse a BURN payload. Returns false unless the payload is exactly
+//! BTCSOQ_BURN_PAYLOAD_LEN bytes and sats is a positive in-range amount.
+bool ParseBTCSOQBurnPayload(
+    const std::vector<uint8_t>& payload,
+    uint256& releaseScriptHash, CAmount& sats);
+
+// =========================================================================
+// Signed OP_RETURN op envelope.
+//
+// A BTCSOQ authority transaction carries exactly one OP_RETURN output whose
+// single data push is [op_tag:1][payload], where op_tag selects the operation
+// and the payload length is fixed per op:
+//   MINT   (0x60): BTCSOQ_MINT_PAYLOAD_LEN   (76)  → push 77, script 80 bytes
+//   BURN   (0x61): BTCSOQ_BURN_PAYLOAD_LEN   (40)  → push 41
+//   FREEZE (0x63): FREEZE_OP_PAYLOAD_LEN     (37)  → push 38 (same layout as
+//                  the USDSOQ freeze payload: [freeze_op:1][txid:32][vout:4])
+// ROTATE (0x62) has no wired semantics yet; a 0x62 push is not recognized, so
+// an authority tx carrying one fails the mandatory-op check in ConnectBlock.
+// All sizes stay within the 83-byte OP_RETURN relay-standardness budget.
+// =========================================================================
+
+//! Scan tx.vout for the BTCSOQ authority op OP_RETURN. Returns true iff
+//! exactly one well-formed op is present (mirrors the USDSOQ freeze parser's
+//! single-action invariant: a second well-formed op fails the parse).
+//! On success fills `tag` and `payload` (payload excludes the tag byte).
+//! Pure function — no chain state, safe to unit-test.
+bool ParseBTCSOQAuthorityOp(
+    const CTransaction& tx, uint8_t& tag, std::vector<uint8_t>& payload);
+
+//! SHA256 of the serialized scriptPubKey bytes of the mint recipient output.
+//! This is the 32-byte recipient_commitment carried in the MINT payload; it
+//! binds the authority signature to the exact receiving script.
+uint256 ComputeBTCSOQRecipientCommitment(const CScript& scriptPubKey);
+
 // =========================================================================
 // Anti-replay: the DB key that marks a Bitcoin deposit as already minted.
 // ConnectBlock rejects any MINT whose (btc_txid, btc_vout) is already present
 // in the DB set DB_BTCSOQ_MINTED_OUTPOINTS. A missed check here is a double
 // mint, which is supply inflation, so this is a Phase 2 audit focus.
 // =========================================================================
-class COutPoint;
 //! Deterministic 36-byte key (txid || vout LE) for the minted-outpoint set.
 std::vector<uint8_t> BTCSOQMintedOutpointKey(const uint256& btcTxid, uint32_t btcVout);
 
