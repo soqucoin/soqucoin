@@ -15,10 +15,12 @@
 // mints. In Tier A the authority's signature attests the deposit; a future
 // Tier C would replace that attestation with an in-consensus Bitcoin SPV proof.
 //
-// All operations are BIP9-gated via DEPLOYMENT_BTCSOQ and are NEVER_ACTIVE on
-// mainnet at genesis. Stagenet activates for testing; mainnet activates by
-// signaled flag height only after the Phase 2 audit. Classification is
-// STRUCTURAL (script shape), never via CTxOut extension bytes.
+// All operations are gated on DEPLOYMENT_BTCSOQ, a flag-height deployment
+// (p96/Option D: DeploymentActiveAtHeight, no miner signaling). Mainnet ships
+// it NOT_SCHEDULED (dormant); test nets activate from genesis. Mainnet
+// activation is a coordinated flag-height release, only after the Phase 2
+// audit. Classification is STRUCTURAL (script shape), never via CTxOut
+// extension bytes.
 
 #ifndef SOQUCOIN_CONSENSUS_BTCSOQ_H
 #define SOQUCOIN_CONSENSUS_BTCSOQ_H

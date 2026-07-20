@@ -9,8 +9,12 @@
 
 #include "consensus/btcsoq.h"
 #include "amount.h"
+#include "policy/policy.h"
 #include "primitives/transaction.h"
+#include "script/interpreter.h"
 #include "script/script.h"
+#include "script/script_error.h"
+#include "script/standard.h"
 #include "test/test_bitcoin.h"
 #include "uint256.h"
 
@@ -261,6 +265,93 @@ BOOST_AUTO_TEST_CASE(authority_op_envelope_rejects)
         BOOST_CHECK(ParseBTCSOQAuthorityOp(CTransaction(mtx), tag, payload));
         BOOST_CHECK_EQUAL(tag, BTCSOQ_OP_BURN);
     }
+}
+
+// ---- Step 2D: script-layer classification, policy, and dispatch gating ----
+
+static CScript WitnessScript(opcodetype version, uint8_t fill)
+{
+    return CScript() << version << std::vector<unsigned char>(32, fill);
+}
+
+BOOST_AUTO_TEST_CASE(solver_classifies_v8_and_v9)
+{
+    txnouttype whichType;
+    std::vector<std::vector<unsigned char>> vSolutions;
+
+    BOOST_CHECK(Solver(WitnessScript(OP_8, 0xaa), whichType, vSolutions));
+    BOOST_CHECK(whichType == TX_WITNESS_V8_BTCSOQ);
+
+    BOOST_CHECK(Solver(WitnessScript(OP_9, 0xbb), whichType, vSolutions));
+    BOOST_CHECK(whichType == TX_WITNESS_V9_BTCSOQ_AUTHORITY);
+
+    // v10 remains unrecognized (future witness)
+    BOOST_CHECK(!Solver(WitnessScript(OP_10, 0xcc), whichType, vSolutions));
+}
+
+BOOST_AUTO_TEST_CASE(policy_accepts_v8_v9_rejects_v10)
+{
+    txnouttype whichType;
+    BOOST_CHECK(::IsStandard(WitnessScript(OP_8, 0x01), whichType, true));
+    BOOST_CHECK(whichType == TX_WITNESS_V8_BTCSOQ);
+    BOOST_CHECK(::IsStandard(WitnessScript(OP_9, 0x02), whichType, true));
+    BOOST_CHECK(whichType == TX_WITNESS_V9_BTCSOQ_AUTHORITY);
+    // Future witness versions stay policy-rejected until their soft fork.
+    BOOST_CHECK(!::IsStandard(WitnessScript(OP_10, 0x03), whichType, true));
+}
+
+BOOST_AUTO_TEST_CASE(verifyscript_gates_v8_and_v9)
+{
+    ScriptError err = SCRIPT_ERR_OK;
+    BaseSignatureChecker checker;
+    CScriptWitness wit;
+    wit.stack.push_back({0x01});  // arbitrary junk witness
+
+    // v9 marker: pre-activation = anyone-can-spend (soft-fork safe)
+    BOOST_CHECK(VerifyScript(CScript(), WitnessScript(OP_9, 0x11), &wit, 0, checker, &err));
+
+    // v9 marker: active = default-deny (authority txs never reach VerifyScript,
+    // so any evaluated v9 spend is a non-authority marker theft attempt)
+    BOOST_CHECK(!VerifyScript(CScript(), WitnessScript(OP_9, 0x11), &wit,
+                              SCRIPT_VERIFY_BTCSOQ, checker, &err));
+    BOOST_CHECK(err == SCRIPT_ERR_BTCSOQ_MARKER_SPEND);
+
+    // v8 holding: pre-activation = anyone-can-spend
+    BOOST_CHECK(VerifyScript(CScript(), WitnessScript(OP_8, 0x22), &wit, 0, checker, &err));
+
+    // v8 holding: active = requires the v1 Dilithium witness shape
+    // ([sig, pubkey]); a junk 1-item witness must fail structurally.
+    BOOST_CHECK(!VerifyScript(CScript(), WitnessScript(OP_8, 0x22), &wit,
+                              SCRIPT_VERIFY_BTCSOQ, checker, &err));
+    BOOST_CHECK(err == SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+
+    // v8 active with the right shape but wrong pubkey (hash mismatch) fails.
+    CScriptWitness wit2;
+    wit2.stack.push_back(std::vector<unsigned char>(2421, 0x00));  // sig-sized junk
+    wit2.stack.push_back(std::vector<unsigned char>(1313, 0x00));  // 0x00-prefixed pubkey-sized junk
+    BOOST_CHECK(!VerifyScript(CScript(), WitnessScript(OP_8, 0x22), &wit2,
+                              SCRIPT_VERIFY_BTCSOQ, checker, &err));
+    BOOST_CHECK(err == SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+}
+
+// ---- witness tag strictness ----
+BOOST_AUTO_TEST_CASE(witness_tag_requires_exactly_one_byte)
+{
+    // The tag item must be exactly 1 byte: the CheckInputs authority skip
+    // requires size()==1, so the consensus-side reader must agree or an
+    // unsigned-witness malleation could desync the two (2D review finding).
+    std::vector<std::vector<uint8_t>> stack(6);
+    stack[2] = {BTCSOQ_OP_MINT};
+    BOOST_CHECK_EQUAL(GetBTCSOQWitnessTag(stack), BTCSOQ_OP_MINT);
+
+    stack[2] = {BTCSOQ_OP_MINT, 0x00};  // padded tag — must NOT parse
+    BOOST_CHECK_EQUAL(GetBTCSOQWitnessTag(stack), 0x00);
+
+    stack[2].clear();                   // empty tag item
+    BOOST_CHECK_EQUAL(GetBTCSOQWitnessTag(stack), 0x00);
+
+    std::vector<std::vector<uint8_t>> shortStack(2);
+    BOOST_CHECK_EQUAL(GetBTCSOQWitnessTag(shortStack), 0x00);
 }
 
 // ---- recipient commitment ----

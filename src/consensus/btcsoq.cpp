@@ -325,7 +325,11 @@ std::vector<uint8_t> BTCSOQMintedOutpointKey(const uint256& btcTxid, uint32_t bt
 
 uint8_t GetBTCSOQWitnessTag(const std::vector<std::vector<uint8_t>>& witnessStack)
 {
-    if (witnessStack.size() < 3 || witnessStack[2].empty()) return 0x00;
+    // The tag item must be EXACTLY one byte. The CheckInputs authority skip
+    // requires stack[2].size() == 1, so accepting a longer item here would let
+    // a relay attacker malleate the (unsigned) tag item to desync the skip
+    // predicate from the consensus verifier (2D review finding).
+    if (witnessStack.size() < 3 || witnessStack[2].size() != 1) return 0x00;
     return witnessStack[2][0];
 }
 

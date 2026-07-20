@@ -839,7 +839,17 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                 }
             }
 
-            if (isBTCSOQAuthorityTx) {
+            // Deployment gate (2D review finding): pre-activation, ConnectBlock
+            // treats v9 as anyone-can-spend, so these mirrors must be dormant
+            // too — otherwise the mempool rejects (with a ban score) a tx that
+            // consensus would accept. Evaluated at the next block's height,
+            // matching the mempool script-flag computation below.
+            const int nBTCSOQNextHeight = chainActive.Height() + 1;
+            const bool fBTCSOQActive = Consensus::DeploymentActiveAtHeight(
+                nBTCSOQNextHeight, Params().GetConsensus(nBTCSOQNextHeight),
+                Consensus::DEPLOYMENT_BTCSOQ);
+
+            if (isBTCSOQAuthorityTx && fBTCSOQActive) {
                 // Default-deny: no configured authority ⇒ no valid authority tx.
                 if (!g_btcsoq_authority.IsInitialized()) {
                     return state.DoS(100, false, REJECT_INVALID,
@@ -4521,8 +4531,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 // Skip USDSOQ authority marker outputs (0-value by design, OP_5 witness v5)
                 if (txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x55)
                     continue;
-                // Skip BTCSOQ authority marker outputs (0-value by design, OP_9 witness v9)
-                if (txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x59)
+                // Skip BTCSOQ authority marker outputs (0-value by design, OP_9 witness v9).
+                // Requires the full marker shape (32-byte program) so non-marker
+                // 34-byte scripts starting 0x59 stay subject to the floor.
+                if (txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x59 &&
+                    txout.scriptPubKey[1] == 32)
                     continue;
                 // Calculate minimum value based on serialized output size
                 size_t nOutputSize = ::GetSerializeSize(txout, SER_NETWORK, PROTOCOL_VERSION);

@@ -63,6 +63,8 @@ enum txnouttype {
     TX_WITNESS_V5_AUTHORITY,   // SOQ-AUD2-002: USDSOQ mint/burn/freeze authority marker
     TX_WITNESS_V6_COVENANT,    // SOQ-AUD2-009: P2WSH-Dilithium covenant script execution
     TX_WITNESS_V7_USDSOQ,      // CTxOut Phase 4: USDSOQ holding (OP_7 + 32-byte hash), spent via v1 path
+    TX_WITNESS_V8_BTCSOQ,      // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ holding (OP_8 + 32-byte hash), spent via v1 path
+    TX_WITNESS_V9_BTCSOQ_AUTHORITY, // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ authority marker (OP_9 + 32-byte hash)
 };
 
 class CNoDestination

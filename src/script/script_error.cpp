@@ -40,6 +40,8 @@ const char* ScriptErrorString(const ScriptError serror)
         return "USDSOQ invalid opcode or malformed witness data";
     case SCRIPT_ERR_USDSOQ_FROZEN_UTXO:
         return "Attempt to spend a frozen USDSOQ UTXO";
+    case SCRIPT_ERR_BTCSOQ_MARKER_SPEND:
+        return "BTCSOQ authority marker may only be spent by an authority transaction";
     case SCRIPT_ERR_CHECKTEMPLATEVERIFY:
         return "OP_CHECKTEMPLATEVERIFY hash mismatch";
     case SCRIPT_ERR_CHECKSIGFROMSTACK:

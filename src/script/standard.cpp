@@ -48,6 +48,10 @@ const char* GetTxnOutputType(txnouttype t)
         return "witness_v6_covenant";
     case TX_WITNESS_V7_USDSOQ:
         return "witness_v7_usdsoq";
+    case TX_WITNESS_V8_BTCSOQ:
+        return "witness_v8_btcsoq";
+    case TX_WITNESS_V9_BTCSOQ_AUTHORITY:
+        return "witness_v9_btcsoq_authority";
     }
     return NULL;
 }
@@ -114,6 +118,18 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
         // CTxOut Phase 4: witness v7 = USDSOQ holding (OP_7 + 32-byte hash), spent via the v1 path
         if (witnessversion == 7 && witnessprogram.size() == 32) {
             typeRet = TX_WITNESS_V7_USDSOQ;
+            vSolutionsRet.push_back(witnessprogram);
+            return true;
+        }
+        // DL-BTCSOQ-CONSENSUS-NATIVE: witness v8 = BTCSOQ holding, spent via the v1 path
+        if (witnessversion == 8 && witnessprogram.size() == 32) {
+            typeRet = TX_WITNESS_V8_BTCSOQ;
+            vSolutionsRet.push_back(witnessprogram);
+            return true;
+        }
+        // DL-BTCSOQ-CONSENSUS-NATIVE: witness v9 = BTCSOQ authority marker
+        if (witnessversion == 9 && witnessprogram.size() == 32) {
+            typeRet = TX_WITNESS_V9_BTCSOQ_AUTHORITY;
             vSolutionsRet.push_back(witnessprogram);
             return true;
         }
