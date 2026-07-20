@@ -13,6 +13,7 @@
 #include "consensus/consensus.h"
 #include "consensus/merkle.h"
 #include "consensus/usdsoq.h"
+#include "consensus/btcsoq.h"
 #include "consensus/privacy.h"
 #include "consensus/block_accumulator.h"
 #include "consensus/validation.h"
@@ -234,6 +235,13 @@ CUSDSOQSupply g_usdsoq_supply;
 // Updated in ConnectBlock (advance to new outpoint) and DisconnectBlock (revert).
 // Persisted to LevelDB. Protected by cs_main.
 COutPoint g_usdsoq_authority_outpoint;
+
+// DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ consensus globals (mirror USDSOQ). Protected by cs_main.
+// Initialized from Consensus::Params on DEPLOYMENT_BTCSOQ activation; updated in
+// ConnectBlock/DisconnectBlock (Step 2C); persisted to LevelDB.
+CBTCSOQAuthority g_btcsoq_authority;
+CBTCSOQSupply    g_btcsoq_supply;
+COutPoint        g_btcsoq_authority_outpoint;
 
 enum FlushStateMode {
     FLUSH_STATE_NONE,

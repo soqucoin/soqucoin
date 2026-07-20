@@ -1691,6 +1691,29 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                     } else {
                         LogPrintf("USDSOQ: No authority outpoint in DB (genesis or pre-bootstrap)\n");
                     }
+
+                    // DL-BTCSOQ-CONSENSUS-NATIVE: Restore BTCSOQ supply/authority/outpoint.
+                    // Chainparams-based authority init happens lazily in ConnectBlock on
+                    // activation (Step 2C); here we only restore persisted state.
+                    CBTCSOQAuthority persistedBTCSOQAuthority;
+                    if (pcoinsdbview->ReadBTCSOQAuthority(persistedBTCSOQAuthority)) {
+                        g_btcsoq_authority = persistedBTCSOQAuthority;
+                        LogPrintf("BTCSOQ: Restored authority from DB: %d-of-%d\n",
+                                  g_btcsoq_authority.GetThreshold(), g_btcsoq_authority.GetKeyCount());
+                    }
+                    CBTCSOQSupply persistedBTCSOQSupply;
+                    if (pcoinsdbview->ReadBTCSOQSupply(persistedBTCSOQSupply)) {
+                        g_btcsoq_supply = persistedBTCSOQSupply;
+                        LogPrintf("BTCSOQ: Restored supply from DB: total_minted=%d total_burned=%d outstanding=%d\n",
+                                  g_btcsoq_supply.TotalMinted(), g_btcsoq_supply.TotalBurned(),
+                                  g_btcsoq_supply.Outstanding());
+                    } else {
+                        LogPrintf("BTCSOQ: No supply data in DB (genesis or pre-activation)\n");
+                    }
+                    COutPoint persistedBTCSOQOutpoint;
+                    if (pcoinsdbview->ReadBTCSOQAuthorityOutpoint(persistedBTCSOQOutpoint)) {
+                        g_btcsoq_authority_outpoint = persistedBTCSOQOutpoint;
+                    }
                 }
 
                 uiInterface.InitMessage(_("Verifying blocks..."));
