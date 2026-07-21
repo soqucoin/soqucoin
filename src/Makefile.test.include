@@ -145,6 +145,7 @@ BITCOIN_TESTS =\
   test/usdsoq_authority_tests.cpp \
   test/btcsoq_tests.cpp \
   test/btcsoq_lifecycle_harness_tests.cpp \
+  test/btcsoq_demo_loop_tests.cpp \
   test/keyimage_tests.cpp \
   test/privacy_integration_tests.cpp \
   test/block_accumulator_tests.cpp \
