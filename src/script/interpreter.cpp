@@ -1575,14 +1575,34 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                               scriptPubKey[0] == OP_7 &&
                               scriptPubKey[1] == 32);
 
-    // Future witness versions (v8-v16): anyone-can-spend until soft fork.
-    // NOTE: v6 (P2WSH-Dilithium) and v7 (USDSOQ holding) are carved out above.
+    // DL-BTCSOQ-CONSENSUS-NATIVE (Step 2D): BTCSOQ holding (witness v8). A v8
+    // output holds BTCSOQ value and is spent via the SAME audited v1 single-key
+    // Dilithium path as v7 USDSOQ; the witness version is the asset
+    // discriminator (CTxOut::IsBTCSOQ). Gated by SCRIPT_VERIFY_BTCSOQ
+    // (soft-fork safe — anyone-can-spend until active).
+    bool is_btcsoq_holding = (scriptPubKey.size() == 34 &&
+                              scriptPubKey[0] == OP_8 &&
+                              scriptPubKey[1] == 32);
+
+    // DL-BTCSOQ-CONSENSUS-NATIVE (Step 2D): BTCSOQ authority marker (witness
+    // v9). Authority transactions are verified whole-tx in ConnectBlock
+    // (M-of-N ML-DSA over the sighash) and SKIP per-input script verification
+    // entirely (CheckInputs), so any v9 spend that reaches VerifyScript is by
+    // definition a NON-authority spend — which consensus forbids
+    // (bad-btcsoq-marker-spend). The script layer therefore default-denies.
+    bool is_btcsoq_authority = (scriptPubKey.size() == 34 &&
+                                scriptPubKey[0] == OP_9 &&
+                                scriptPubKey[1] == 32);
+
+    // Future witness versions (v10-v16): anyone-can-spend until soft fork.
+    // NOTE: v6 (P2WSH-Dilithium), v7 (USDSOQ holding), v8 (BTCSOQ holding)
+    // and v9 (BTCSOQ authority marker) are carved out above.
     bool is_future_witness = (scriptPubKey.size() == 34 &&
-                              scriptPubKey[0] >= OP_8 &&
+                              scriptPubKey[0] >= OP_10 &&
                               scriptPubKey[0] <= OP_16 &&
                               scriptPubKey[1] == 32);
 
-    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium && !is_usdsoq_holding) {
+    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium && !is_usdsoq_holding && !is_btcsoq_holding && !is_btcsoq_authority) {
         return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
@@ -1805,6 +1825,31 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         // witness [sig, pubkey], SHA256(pubkey) == the 32-byte program, CheckSig over scriptPubKey.
         // Fall through to the Dilithium verification below (no duplicate crypto). The asset type
         // (USDSOQ) is carried by the v7 version itself (IsUSDSOQ) and enforced in ConnectBlock.
+    }
+
+    // DL-BTCSOQ-CONSENSUS-NATIVE (Step 2D): BTCSOQ holding (witness v8) —
+    // identical pattern to v7 above: flag-gated, then the audited single-key
+    // Dilithium fall-through. Ownership is post-quantum (ML-DSA-44); value
+    // conservation and mint/burn authorization are enforced in ConnectBlock.
+    if (is_btcsoq_holding) {
+        if (!(flags & SCRIPT_VERIFY_BTCSOQ)) {
+            return set_success(serror);  // Not active yet — anyone-can-spend (soft-fork safe)
+        }
+        // Fall through to the Dilithium verification below.
+    }
+
+    // DL-BTCSOQ-CONSENSUS-NATIVE (Step 2D): BTCSOQ authority marker (witness
+    // v9). Default-deny when active: authority txs never reach VerifyScript
+    // (whole-tx skip in CheckInputs + full M-of-N verification in
+    // ConnectBlock), so anything evaluated here is a non-authority spend of
+    // the marker chain, which consensus already rejects
+    // (bad-btcsoq-marker-spend). Rejecting here too keeps the script layer,
+    // mempool, and consensus aligned in the same direction.
+    if (is_btcsoq_authority) {
+        if (!(flags & SCRIPT_VERIFY_BTCSOQ)) {
+            return set_success(serror);  // Not active yet — anyone-can-spend (soft-fork safe)
+        }
+        return set_error(serror, SCRIPT_ERR_BTCSOQ_MARKER_SPEND);
     }
 
     if (is_future_witness) {

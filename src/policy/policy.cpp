@@ -63,12 +63,17 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
     //   OP_5 (0x55) = witness v5 = USDSOQ authority operations
     //   OP_6 (0x56) = witness v6 = P2WSH-Dilithium covenant script execution
     //   OP_7 (0x57) = witness v7 = USDSOQ holding (CTxOut Phase 4; spent via the v1 path)
-    // All ALWAYS_ACTIVE on stagenet and BIP9-gated on mainnet.
+    //   OP_8 (0x58) = witness v8 = BTCSOQ holding (DL-BTCSOQ-CONSENSUS-NATIVE; v1 spend path)
+    //   OP_9 (0x59) = witness v9 = BTCSOQ authority marker
+    // All ALWAYS_ACTIVE on stagenet; on mainnet each is a flag-height
+    // deployment (p96/Option D), shipped dormant until a height is scheduled.
     if (scriptPubKey.size() == 34 &&
         scriptPubKey[0] >= 0x52 && scriptPubKey[0] <= 0x60 &&  // OP_2 through OP_16
         scriptPubKey[0] != 0x55 &&                              // except OP_5 (USDSOQ authority)
         scriptPubKey[0] != 0x56 &&                              // except OP_6 (P2WSH-Dilithium)
         scriptPubKey[0] != 0x57 &&                              // except OP_7 (USDSOQ holding)
+        scriptPubKey[0] != 0x58 &&                              // except OP_8 (BTCSOQ holding)
+        scriptPubKey[0] != 0x59 &&                              // except OP_9 (BTCSOQ authority)
         scriptPubKey[1] == 32) {
         return false;
     }
@@ -125,6 +130,8 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
         else if (whichType == TX_WITNESS_V5_AUTHORITY) {
             // Authority marker outputs are 0-value by design — not dust.
             // They serve as on-chain audit trail for USDSOQ operations.
+        } else if (whichType == TX_WITNESS_V9_BTCSOQ_AUTHORITY) {
+            // Same rule for the BTCSOQ authority marker (0-value by design).
         } else if ((whichType == TX_MULTISIG) && (!fIsBareMultisigStd)) {
             reason = "bare-multisig";
             return false;
@@ -139,11 +146,19 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
         // dust limit but fail ConnectBlock's consensus UTXO cost enforcement.
         // Without this, such TXs sit in the mempool forever — every block
         // template includes them, every block attempt fails, and mining stalls.
-        // Exemptions mirror ConnectBlock (validation.cpp L2836-2841):
+        // Exemptions mirror ConnectBlock's UTXO-cost exemption list exactly:
         //   - Unspendable outputs (OP_RETURN) — not in UTXO set
         //   - USDSOQ authority markers (OP_5, 0-value by design)
+        //   - BTCSOQ authority markers (OP_9 <32>, 0-value by design)
+        // NOTE: v8 BTCSOQ holdings are NOT exempt — they carry sat-denominated
+        // value and are subject to the same UTXO-cost floor as any output,
+        // matching ConnectBlock exactly (open product question recorded in
+        // bead uen6: 6500/byte ⇒ ~279,500-sat minimum per v8 UTXO on nets
+        // where UTXO_COST is active; mainnet ships it NOT_SCHEDULED).
         if (!txout.scriptPubKey.IsUnspendable() &&
-            !(txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x55)) {
+            !(txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x55) &&
+            !(txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x59 &&
+              txout.scriptPubKey[1] == 32)) {
             size_t nOutputSize = ::GetSerializeSize(txout, SER_NETWORK, PROTOCOL_VERSION);
             CAmount nMinUtxoValue = UTXO_COST_PER_BYTE * static_cast<CAmount>(nOutputSize);
             if (txout.nValue < nMinUtxoValue) {

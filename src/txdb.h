@@ -8,6 +8,7 @@
 
 #include "coins.h"
 #include "consensus/usdsoq.h"
+#include "consensus/btcsoq.h"
 #include "dbwrapper.h"
 #include "chain.h"
 #include "primitives/transaction.h"
@@ -129,6 +130,22 @@ public:
 
     //! Unfreeze an outpoint (authority UNFREEZE op, or DisconnectBlock reversal of a FREEZE).
     bool EraseFrozenOutpoint(const COutPoint &outpoint);
+
+    // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ consensus-native asset persistence (mirrors USDSOQ).
+    bool ReadBTCSOQSupply(CBTCSOQSupply &supply) const;
+    bool WriteBTCSOQSupply(const CBTCSOQSupply &supply);
+    bool ReadBTCSOQAuthority(CBTCSOQAuthority &authority) const;
+    bool WriteBTCSOQAuthority(const CBTCSOQAuthority &authority);
+    bool ReadBTCSOQAuthorityOutpoint(COutPoint &outpoint) const;
+    bool WriteBTCSOQAuthorityOutpoint(const COutPoint &outpoint);
+    //! BTCSOQ frozen-outpoint set (presence == frozen).
+    bool IsBTCSOQFrozen(const COutPoint &outpoint) const;
+    bool WriteBTCSOQFrozen(const COutPoint &outpoint);
+    bool EraseBTCSOQFrozen(const COutPoint &outpoint);
+    //! BTCSOQ minted-Bitcoin-outpoint set — anti-replay (presence == already minted).
+    bool IsBTCSOQMinted(const COutPoint &btcOutpoint) const;
+    bool WriteBTCSOQMinted(const COutPoint &btcOutpoint);
+    bool EraseBTCSOQMinted(const COutPoint &btcOutpoint);
 };
 
 /** Specialization of CCoinsViewCursor to iterate over a CCoinsViewDB */

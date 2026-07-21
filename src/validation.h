@@ -584,6 +584,14 @@ extern CUSDSOQSupply g_usdsoq_supply;
  *  Persisted to LevelDB for crash recovery. */
 extern COutPoint g_usdsoq_authority_outpoint;
 
+/** DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ consensus globals (protected by cs_main).
+ *  Mirror the USDSOQ authority/supply/outpoint. Persisted to LevelDB. */
+class CBTCSOQAuthority;  // Forward declaration
+extern CBTCSOQAuthority g_btcsoq_authority;
+class CBTCSOQSupply;     // Forward declaration
+extern CBTCSOQSupply g_btcsoq_supply;
+extern COutPoint g_btcsoq_authority_outpoint;
+
 /**
  * Return the spend height, which is one more than the inputs.GetBestBlock().
  * While checking, GetBestBlock() refers to the parent block. (protected by cs_main)

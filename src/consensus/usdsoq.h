@@ -31,7 +31,8 @@ static constexpr uint8_t ASSET_TYPE_SOQ    = 0x00;  // Native SOQ
 static constexpr uint8_t ASSET_TYPE_USDSOQ = 0x01;  // USDSOQ stablecoin
 
 // Maximum valid asset type (for field validation in CheckTransaction)
-static constexpr uint8_t ASSET_TYPE_MAX    = 0x01;
+// 0x02 = ASSET_TYPE_BTCSOQ (consensus/btcsoq.h)
+static constexpr uint8_t ASSET_TYPE_MAX    = 0x02;
 
 // =========================================================================
 // Visibility mode constants — shared between USDSOQ and privacy layers

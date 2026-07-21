@@ -70,6 +70,11 @@ const struct BIP9DeploymentInfo VersionBitsDeploymentInfo[] = {
         // DL-V6-CONTROLFLOW-RESTORE: must match DEPLOYMENT_V6_CONTROLFLOW (params.h index 13).
         /*.name =*/"v6_controlflow",
         /*.gbt_force =*/true,
+    },
+    {
+        // DL-BTCSOQ-CONSENSUS-NATIVE: must match DEPLOYMENT_BTCSOQ (params.h index 14).
+        /*.name =*/"btcsoq",
+        /*.gbt_force =*/true,
     }};
 
 // Compile-time guard: the VersionBitsDeploymentInfo array is indexed by the

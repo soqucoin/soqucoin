@@ -45,6 +45,14 @@ static const char DB_USDSOQ_AUTH_OUTPOINT = 'O';
 // Replaces the overloaded nVisibility 0x80 freeze bit. 'Z' is unused ('F' = DB_FLAG).
 static const char DB_USDSOQ_FROZEN = 'Z';
 
+// DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ persistence keys. Fresh chars, no collision
+// with c/f/t/b/B/F/R/l (standard) or U/K/A/O/Z (USDSOQ + key-image).
+static const char DB_BTCSOQ_SUPPLY = 'Q';          // supply counter
+static const char DB_BTCSOQ_AUTHORITY = 'Y';       // issuer authority key set
+static const char DB_BTCSOQ_AUTH_OUTPOINT = 'P';   // tracked authority UTXO outpoint
+static const char DB_BTCSOQ_FROZEN = 'X';          // frozen-outpoint set (DB_BTCSOQ_FROZEN + COutPoint)
+static const char DB_BTCSOQ_MINTED = 'M';          // anti-replay: Bitcoin deposit outpoints already minted
+
 CCoinsViewDB::CCoinsViewDB(size_t nCacheSize, bool fMemory, bool fWipe) : db(GetDataDir() / "chainstate", nCacheSize, fMemory, fWipe, true) 
 {
 }
@@ -181,6 +189,50 @@ bool CCoinsViewDB::WriteFrozenOutpoint(const COutPoint &outpoint) {
 
 bool CCoinsViewDB::EraseFrozenOutpoint(const COutPoint &outpoint) {
     return db.Erase(std::make_pair(DB_USDSOQ_FROZEN, outpoint));
+}
+
+// DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ supply / authority / outpoint persistence
+bool CCoinsViewDB::ReadBTCSOQSupply(CBTCSOQSupply &supply) const {
+    return db.Read(DB_BTCSOQ_SUPPLY, supply);
+}
+bool CCoinsViewDB::WriteBTCSOQSupply(const CBTCSOQSupply &supply) {
+    return db.Write(DB_BTCSOQ_SUPPLY, supply);
+}
+bool CCoinsViewDB::ReadBTCSOQAuthority(CBTCSOQAuthority &authority) const {
+    return db.Read(DB_BTCSOQ_AUTHORITY, authority);
+}
+bool CCoinsViewDB::WriteBTCSOQAuthority(const CBTCSOQAuthority &authority) {
+    return db.Write(DB_BTCSOQ_AUTHORITY, authority);
+}
+bool CCoinsViewDB::ReadBTCSOQAuthorityOutpoint(COutPoint &outpoint) const {
+    return db.Read(DB_BTCSOQ_AUTH_OUTPOINT, outpoint);
+}
+bool CCoinsViewDB::WriteBTCSOQAuthorityOutpoint(const COutPoint &outpoint) {
+    return db.Write(DB_BTCSOQ_AUTH_OUTPOINT, outpoint);
+}
+
+// BTCSOQ frozen-outpoint set (GENIUS-style freeze; mirrors the USDSOQ set)
+bool CCoinsViewDB::IsBTCSOQFrozen(const COutPoint &outpoint) const {
+    return db.Exists(std::make_pair(DB_BTCSOQ_FROZEN, outpoint));
+}
+bool CCoinsViewDB::WriteBTCSOQFrozen(const COutPoint &outpoint) {
+    return db.Write(std::make_pair(DB_BTCSOQ_FROZEN, outpoint), (uint8_t)1);
+}
+bool CCoinsViewDB::EraseBTCSOQFrozen(const COutPoint &outpoint) {
+    return db.Erase(std::make_pair(DB_BTCSOQ_FROZEN, outpoint));
+}
+
+// BTCSOQ minted-Bitcoin-outpoint set — anti-replay. Presence == this Bitcoin
+// deposit has already backed a mint, so it can never back a second one.
+// Keyed by the Bitcoin (txid, vout) carried as a COutPoint.
+bool CCoinsViewDB::IsBTCSOQMinted(const COutPoint &btcOutpoint) const {
+    return db.Exists(std::make_pair(DB_BTCSOQ_MINTED, btcOutpoint));
+}
+bool CCoinsViewDB::WriteBTCSOQMinted(const COutPoint &btcOutpoint) {
+    return db.Write(std::make_pair(DB_BTCSOQ_MINTED, btcOutpoint), (uint8_t)1);
+}
+bool CCoinsViewDB::EraseBTCSOQMinted(const COutPoint &btcOutpoint) {
+    return db.Erase(std::make_pair(DB_BTCSOQ_MINTED, btcOutpoint));
 }
 
 bool CCoinsViewDBCursor::GetKey(uint256 &key) const

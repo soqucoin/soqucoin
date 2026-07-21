@@ -13,6 +13,7 @@
 #include "consensus/consensus.h"
 #include "consensus/merkle.h"
 #include "consensus/usdsoq.h"
+#include "consensus/btcsoq.h"
 #include "consensus/privacy.h"
 #include "consensus/block_accumulator.h"
 #include "consensus/validation.h"
@@ -234,6 +235,23 @@ CUSDSOQSupply g_usdsoq_supply;
 // Updated in ConnectBlock (advance to new outpoint) and DisconnectBlock (revert).
 // Persisted to LevelDB. Protected by cs_main.
 COutPoint g_usdsoq_authority_outpoint;
+
+// DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ consensus globals (mirror USDSOQ). Protected by cs_main.
+// Initialized from Consensus::Params on DEPLOYMENT_BTCSOQ activation; updated in
+// ConnectBlock/DisconnectBlock (Step 2C); persisted to LevelDB.
+CBTCSOQAuthority g_btcsoq_authority;
+CBTCSOQSupply    g_btcsoq_supply;
+COutPoint        g_btcsoq_authority_outpoint;
+
+// DL-BTCSOQ-CONSENSUS-NATIVE: the BTCSOQ authority marker is witness v9
+// (OP_9 <32-byte authority keyhash>) — deliberately DISTINCT from the USDSOQ
+// v5 marker. Each asset's enforcement routes on its own unforgeable,
+// sighash-covered output marker; witness tags are never used for routing
+// (witness data is not signed and is therefore malleable in flight).
+static bool IsBTCSOQAuthorityMarker(const CScript& spk)
+{
+    return spk.size() == 34 && spk[0] == OP_9 && spk[1] == 32;
+}
 
 enum FlushStateMode {
     FLUSH_STATE_NONE,
@@ -553,14 +571,38 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state, bool fChe
     // No nVisibility/nAssetType bytes exist; classification is structural.
     {
         bool hasUSDSOQ = false;
+        bool hasBTCSOQ = false;
+        bool hasUSDSOQAuthority = false;
+        bool hasBTCSOQAuthority = false;
 
         for (const auto& txout : tx.vout) {
             if (txout.IsUSDSOQ()) hasUSDSOQ = true;
+            if (txout.IsBTCSOQ()) hasBTCSOQ = true;
+            const CScript& spk = txout.scriptPubKey;
+            if (spk.size() == 34 && spk[0] == OP_5 && spk[1] == 32) hasUSDSOQAuthority = true;
+            if (IsBTCSOQAuthorityMarker(spk)) hasBTCSOQAuthority = true;
         }
 
         // Coinbase outputs must be native SOQ — cannot mint USDSOQ via mining
         if (tx.IsCoinBase() && hasUSDSOQ) {
             return state.DoS(100, false, REJECT_INVALID, "bad-cb-usdsoq-asset");
+        }
+
+        // DL-BTCSOQ-CONSENSUS-NATIVE: same rule for BTCSOQ (v8), and the v9
+        // authority marker is also forbidden in a coinbase — a coinbase-born
+        // marker UTXO could otherwise serve as a bootstrap-fallback prevout.
+        // (Unlike USDSOQ, BTCSOQ has no legacy chain, so this is strict from
+        // genesis on every network.)
+        if (tx.IsCoinBase() && (hasBTCSOQ || hasBTCSOQAuthority)) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-cb-btcsoq-asset");
+        }
+
+        // A transaction may carry at most ONE asset's authority marker. Each
+        // marker grants that asset's ex-nihilo exemption and routes to that
+        // asset's ConnectBlock enforcement; allowing both on one tx would
+        // require reasoning about stacked exemptions, so it is simply invalid.
+        if (hasUSDSOQAuthority && hasBTCSOQAuthority) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-txns-dual-authority-marker");
         }
     }
 
@@ -777,6 +819,247 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             }
         }
 
+        // =====================================================================
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ authority-tx mempool guards.
+        // Mirrors the USDSOQ outpoint-chain check above, PLUS the checks that
+        // ConnectBlock enforces but USDSOQ policy historically did not mirror
+        // (the accept-then-reject template-poison class — an invalid authority
+        // tx sitting in the mempool makes TestBlockValidity fail and the pool
+        // mine empty blocks): op-envelope validity, double-mint anti-replay,
+        // witness/op tag equality, and M-of-N ML-DSA signature verification.
+        // Every rejection here has an identical ConnectBlock twin, so policy
+        // remains a strict subset of consensus.
+        // =====================================================================
+        {
+            bool isBTCSOQAuthorityTx = false;
+            for (const auto& txout : tx.vout) {
+                if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+                    isBTCSOQAuthorityTx = true;
+                    break;
+                }
+            }
+
+            // Deployment gate (2D review finding): pre-activation, ConnectBlock
+            // treats v9 as anyone-can-spend, so these mirrors must be dormant
+            // too — otherwise the mempool rejects (with a ban score) a tx that
+            // consensus would accept. Evaluated at the next block's height,
+            // matching the mempool script-flag computation below.
+            const int nBTCSOQNextHeight = chainActive.Height() + 1;
+            const bool fBTCSOQActive = Consensus::DeploymentActiveAtHeight(
+                nBTCSOQNextHeight, Params().GetConsensus(nBTCSOQNextHeight),
+                Consensus::DEPLOYMENT_BTCSOQ);
+
+            if (isBTCSOQAuthorityTx && fBTCSOQActive) {
+                // Default-deny: no configured authority ⇒ no valid authority tx.
+                if (!g_btcsoq_authority.IsInitialized()) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-authority-unavailable", false,
+                        "BTCSOQ authority TX rejected: authority key set not initialized");
+                }
+
+                // Non-bootstrap: must spend the tracked authority outpoint.
+                if (!g_btcsoq_authority_outpoint.IsNull()) {
+                    bool spendsBTCSOQAuthOutpoint = false;
+                    for (const auto& txin : tx.vin) {
+                        if (txin.prevout == g_btcsoq_authority_outpoint) {
+                            spendsBTCSOQAuthOutpoint = true;
+                            break;
+                        }
+                    }
+                    if (!spendsBTCSOQAuthOutpoint) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-authority-outpoint-mempool", false,
+                            strprintf("BTCSOQ authority TX %s rejected from mempool: "
+                                "does not spend tracked authority UTXO %s:%u",
+                                hash.ToString(),
+                                g_btcsoq_authority_outpoint.hash.ToString(),
+                                g_btcsoq_authority_outpoint.n));
+                    }
+                } else if (pcoinsdbview) {
+                    // Bootstrap re-entry guard (H2 pattern): if LevelDB already
+                    // has an outpoint while memory is null, this node's state is
+                    // damaged — never let a bootstrap tx into the mempool.
+                    COutPoint dbOutpoint;
+                    if (pcoinsdbview->ReadBTCSOQAuthorityOutpoint(dbOutpoint) &&
+                        !dbOutpoint.IsNull()) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-bootstrap-reentry", false,
+                            "BTCSOQ bootstrap rejected: authority outpoint exists in DB");
+                    }
+                }
+
+                // The signed op envelope must parse to exactly one op.
+                uint8_t btcsoqTag = 0;
+                std::vector<uint8_t> btcsoqPayload;
+                if (!ParseBTCSOQAuthorityOp(tx, btcsoqTag, btcsoqPayload)) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-missing-op", false,
+                        "BTCSOQ authority TX lacks a single well-formed op OP_RETURN");
+                }
+
+                // Op-binding mirrors of ConnectBlock (review finding: without
+                // these, an internally-inconsistent-but-signed authority op
+                // would sit in the mempool poisoning every block template).
+                // v8 sums come from the live coins view (inputs unspent here).
+                CAmount nAtmpV8Out = 0;
+                int nAtmpV8OutputIndex = -1;
+                unsigned int nAtmpV8OutputCount = 0;
+                for (size_t o = 0; o < tx.vout.size(); ++o) {
+                    if (tx.vout[o].IsConfidential()) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-authority-must-be-transparent", false,
+                            "BTCSOQ authority TX carries a confidential output");
+                    }
+                    if (tx.vout[o].IsBTCSOQ()) {
+                        nAtmpV8Out += tx.vout[o].nValue;
+                        nAtmpV8OutputIndex = static_cast<int>(o);
+                        ++nAtmpV8OutputCount;
+                    }
+                }
+                CAmount nAtmpV8In = 0;
+                for (const auto& txin : tx.vin) {
+                    const CCoins* c = view.AccessCoins(txin.prevout.hash);
+                    if (c && c->IsAvailable(txin.prevout.n) &&
+                        c->vout[txin.prevout.n].IsBTCSOQ()) {
+                        nAtmpV8In += c->vout[txin.prevout.n].nValue;
+                    }
+                }
+                if (nAtmpV8Out > 0 && btcsoqTag != BTCSOQ_OP_MINT) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-unbound-mint", false,
+                        "BTCSOQ authority TX creates v8 outputs under a non-MINT op");
+                }
+                if (nAtmpV8In > 0 && btcsoqTag != BTCSOQ_OP_BURN) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-unbound-burn", false,
+                        "BTCSOQ authority TX spends v8 inputs under a non-BURN op");
+                }
+
+                if (btcsoqTag == BTCSOQ_OP_MINT) {
+                    uint256 btcTxid, mintRecipient;
+                    uint32_t btcVout = 0;
+                    CAmount mintSats = 0;
+                    if (!ParseBTCSOQMintPayload(btcsoqPayload, btcTxid, btcVout,
+                                                mintSats, mintRecipient)) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-mint-payload", false,
+                            "BTCSOQ MINT payload malformed");
+                    }
+                    if (nAtmpV8OutputCount != 1) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-mint-outputs", false,
+                            "BTCSOQ MINT must create exactly one v8 output");
+                    }
+                    if (tx.vout[nAtmpV8OutputIndex].nValue != mintSats) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-mint-amount", false,
+                            "BTCSOQ MINT output value != attested deposit sats");
+                    }
+                    if (ComputeBTCSOQRecipientCommitment(
+                            tx.vout[nAtmpV8OutputIndex].scriptPubKey) != mintRecipient) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-mint-recipient", false,
+                            "BTCSOQ MINT recipient script does not match signed commitment");
+                    }
+                    if (pcoinsdbview &&
+                        pcoinsdbview->IsBTCSOQMinted(COutPoint(btcTxid, btcVout))) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-double-mint", false,
+                            strprintf("Bitcoin deposit %s:%u already minted",
+                                btcTxid.ToString(), btcVout));
+                    }
+                } else if (btcsoqTag == BTCSOQ_OP_BURN) {
+                    uint256 releaseScriptHash;
+                    CAmount burnSats = 0;
+                    if (!ParseBTCSOQBurnPayload(btcsoqPayload, releaseScriptHash, burnSats)) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-burn-payload", false,
+                            "BTCSOQ BURN payload malformed");
+                    }
+                    if (nAtmpV8In <= 0) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-burn-empty", false,
+                            "BTCSOQ BURN spends no v8 inputs");
+                    }
+                    if (nAtmpV8In != burnSats) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-burn-amount", false,
+                            "BTCSOQ BURN release intent != v8 input sum");
+                    }
+                }
+
+                // M-of-N ML-DSA authority signature verification (mempool
+                // mirror of the ConnectBlock check). The authority input is
+                // the tracked-outpoint spender, or — bootstrap only — input 0
+                // signed against this tx's own v9 marker output script.
+                int nBTCSOQAuthInput = -1;
+                CScript btcsoqScriptCode;
+                if (!g_btcsoq_authority_outpoint.IsNull()) {
+                    for (unsigned int k = 0; k < tx.vin.size(); ++k) {
+                        if (tx.vin[k].prevout == g_btcsoq_authority_outpoint) {
+                            nBTCSOQAuthInput = static_cast<int>(k);
+                            const CCoins* ac = view.AccessCoins(tx.vin[k].prevout.hash);
+                            if (ac && ac->IsAvailable(tx.vin[k].prevout.n)) {
+                                btcsoqScriptCode = ac->vout[tx.vin[k].prevout.n].scriptPubKey;
+                            } else {
+                                uint256 keyHash = ComputeAuthorityKeyHash(
+                                    g_btcsoq_authority.GetKeys());
+                                btcsoqScriptCode.clear();
+                                btcsoqScriptCode << OP_9;
+                                btcsoqScriptCode << std::vector<unsigned char>(
+                                    keyHash.begin(), keyHash.end());
+                            }
+                            break;
+                        }
+                    }
+                } else {
+                    nBTCSOQAuthInput = 0;
+                    for (const auto& txout : tx.vout) {
+                        if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+                            btcsoqScriptCode = txout.scriptPubKey;
+                            break;
+                        }
+                    }
+                }
+                if (nBTCSOQAuthInput < 0 ||
+                    static_cast<size_t>(nBTCSOQAuthInput) >= tx.vin.size() ||
+                    tx.vin[nBTCSOQAuthInput].scriptWitness.IsNull()) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-authority-sig", false,
+                        "BTCSOQ authority TX has no verifiable authority input witness");
+                }
+                const CScriptWitness& btcsoqWit = tx.vin[nBTCSOQAuthInput].scriptWitness;
+
+                // The (unsigned) witness tag must agree with the signed
+                // OP_RETURN tag — one source of truth for the op selector.
+                if (GetBTCSOQWitnessTag(btcsoqWit.stack) != btcsoqTag) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-tag-mismatch", false,
+                        "BTCSOQ witness tag does not match signed op tag");
+                }
+
+                std::vector<std::vector<uint8_t>> btcsoqSigs =
+                    ExtractBTCSOQWitnessSignatures(btcsoqWit.stack);
+                if (btcsoqSigs.empty()) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-authority-sig", false,
+                        "BTCSOQ authority TX has no signatures in witness");
+                }
+                PrecomputedTransactionData btcsoqTxdata(tx);
+                uint256 btcsoqSighash = SignatureHash(
+                    btcsoqScriptCode, tx, nBTCSOQAuthInput, SIGHASH_ALL,
+                    CAmount(0), SIGVERSION_WITNESS_V0, &btcsoqTxdata);
+                std::vector<uint8_t> btcsoqSighashBytes(
+                    btcsoqSighash.begin(), btcsoqSighash.end());
+                if (!g_btcsoq_authority.VerifyAuthoritySignatures(
+                        btcsoqSighashBytes, btcsoqSigs)) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-authority-sig", false,
+                        "BTCSOQ authority signature verification failed (M-of-N not met)");
+                }
+            }
+        }
+
         int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
 
         // SOQ-ARCH-002: Asset-aware fee computation.
@@ -861,6 +1144,51 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             }
         }
 
+        // DL-BTCSOQ-CONSENSUS-NATIVE: the identical remotely-triggerable crash
+        // class exists for BTCSOQ — a non-conserving v8 spend would trip
+        // CTxMemPoolEntry's `assert(inChainInputValue <= nValueIn)` below and
+        // abort() the daemon. Enforce v8 conservation HERE, before the entry
+        // is constructed, exactly as the USDSOQ guard above. Authority txs
+        // (v9 marker) mint/burn ex nihilo and are exempt, matching
+        // Consensus::CheckTxInputs.
+        {
+            bool isBTCSOQAuthTx = false;
+            for (const auto& txout : tx.vout) {
+                if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+                    isBTCSOQAuthTx = true;
+                    break;
+                }
+            }
+            if (!isBTCSOQAuthTx) {
+                CAmount nBTCSOQIn = 0, nBTCSOQOut = 0;
+                for (const auto& txin : tx.vin) {
+                    const CCoins* c = view.AccessCoins(txin.prevout.hash);
+                    if (!c || !c->IsAvailable(txin.prevout.n)) continue;
+                    // Marker-chain guard (mempool mirror of the ConnectBlock
+                    // bad-btcsoq-marker-spend rule): only an authority tx may
+                    // spend a v9 marker UTXO.
+                    if (IsBTCSOQAuthorityMarker(c->vout[txin.prevout.n].scriptPubKey)) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-btcsoq-marker-spend", false,
+                            strprintf("non-authority tx spends BTCSOQ authority marker %s:%u",
+                                txin.prevout.hash.ToString(), txin.prevout.n));
+                    }
+                    if (c->vout[txin.prevout.n].IsBTCSOQ()) {
+                        nBTCSOQIn += c->vout[txin.prevout.n].nValue;
+                    }
+                }
+                for (const auto& txout : tx.vout) {
+                    if (txout.IsBTCSOQ()) nBTCSOQOut += txout.nValue;
+                }
+                if (nBTCSOQIn != nBTCSOQOut) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-txns-btcsoq-not-conserved", false,
+                        strprintf("BTCSOQ in (%s) != BTCSOQ out (%s)",
+                            FormatMoney(nBTCSOQIn), FormatMoney(nBTCSOQOut)));
+                }
+            }
+        }
+
         // BUG-22: Frozen-UTXO guard must ALSO run at mempool acceptance.
         // ConnectBlock rejects any spend of a registry-frozen USDSOQ output
         // (bad-txns-spend-frozen-usdsoq), but without this mirror a frozen-coin
@@ -880,6 +1208,17 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                 return state.DoS(100, false, REJECT_INVALID,
                     "bad-txns-spend-frozen-usdsoq", false,
                     strprintf("input %s:%u is a frozen USDSOQ outpoint",
+                        txin.prevout.hash.ToString(), txin.prevout.n));
+            }
+            // DL-BTCSOQ-CONSENSUS-NATIVE: mirror for the BTCSOQ frozen
+            // registry (same BUG-22 template-poison class; applies to ALL
+            // txs, v8 prevouts only, registry lookup via pcoinsdbview).
+            if (c && c->IsAvailable(txin.prevout.n) &&
+                c->vout[txin.prevout.n].IsBTCSOQ() &&
+                pcoinsdbview && pcoinsdbview->IsBTCSOQFrozen(txin.prevout)) {
+                return state.DoS(100, false, REJECT_INVALID,
+                    "bad-txns-spend-frozen-btcsoq", false,
+                    strprintf("input %s:%u is a frozen BTCSOQ outpoint",
                         txin.prevout.hash.ToString(), txin.prevout.n));
             }
         }
@@ -1132,6 +1471,9 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                 scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEFOLD;
             if (v6active(Consensus::DEPLOYMENT_LATTICEBP))         scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEBP;
             if (v6active(Consensus::DEPLOYMENT_USDSOQ))            scriptVerifyFlags |= SCRIPT_VERIFY_USDSOQ;
+            // DL-BTCSOQ-CONSENSUS-NATIVE: same height-gated (p96/Option D)
+            // activation model as USDSOQ — mempool flags match ConnectBlock.
+            if (v6active(Consensus::DEPLOYMENT_BTCSOQ))            scriptVerifyFlags |= SCRIPT_VERIFY_BTCSOQ;
         }
 
         // Check against previous transactions
@@ -1589,7 +1931,24 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             break;
         }
     }
-    if (isAuthorityTx) {
+
+    // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ authority txs (witness v9 marker) mint
+    // v8 outputs ex nihilo exactly as USDSOQ authority txs mint v7, so the same
+    // SOQ-only value-balance recompute applies. The exemptions are PER-ASSET:
+    // a v9 marker does NOT exempt a tx from USDSOQ conservation below, and a v5
+    // marker does NOT exempt BTCSOQ conservation — each exemption is granted
+    // only by that asset's own unforgeable marker, whose operation is then
+    // fully verified (M-of-N ML-DSA + op binding) in ConnectBlock. A tx cannot
+    // carry both markers (bad-txns-dual-authority-marker in CheckTransaction).
+    bool isBTCSOQAuthorityTx = false;
+    for (const auto& txout : tx.vout) {
+        if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+            isBTCSOQAuthorityTx = true;
+            break;
+        }
+    }
+
+    if (isAuthorityTx || isBTCSOQAuthorityTx) {
         // Recompute output value counting only SOQ outputs
         nValueOut = 0;
         for (const auto& txout : tx.vout) {
@@ -1694,6 +2053,61 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
         }
     }
 
+    // DL-BTCSOQ-CONSENSUS-NATIVE: per-asset conservation for BTCSOQ, mirroring
+    // the USDSOQ rule above. For non-authority (no v9 marker) transactions:
+    //   BTCSOQ_in == BTCSOQ_out  (no surplus, no deficit)
+    // Enforced from this single chokepoint in BOTH the connect path
+    // (ConnectBlock → CheckInputs) and mempool accept (ATMP → CheckInputs),
+    // so policy and consensus can never diverge (Option B pattern).
+    // DEPLOYMENT POSTURE: like the USDSOQ rule above, this is structural and
+    // NOT deployment-gated. On mainnet (BTCSOQ NOT_SCHEDULED) no v8 UTXOs
+    // exist, so v8 inputs are impossible and any tx CREATING v8 outputs fails
+    // this rule (out > in = 0) — i.e. the v8 witness shape is RESERVED from
+    // genesis, exactly the USDSOQ v7 posture. Fleet upgrades are coordinated
+    // flag-day releases, so there is no mixed-version mining window.
+    if (!isBTCSOQAuthorityTx) {
+        CAmount nBTCSOQIn = 0;
+        CAmount nBTCSOQOut = 0;
+        for (unsigned int i = 0; i < tx.vin.size(); i++) {
+            const COutPoint& prevout = tx.vin[i].prevout;
+            const CCoins* coins = inputs.AccessCoins(prevout.hash);
+            assert(coins);
+            if (coins->vout[prevout.n].IsBTCSOQ()) {
+                nBTCSOQIn += coins->vout[prevout.n].nValue;
+            }
+        }
+        for (const auto& txout : tx.vout) {
+            if (txout.IsBTCSOQ()) {
+                nBTCSOQOut += txout.nValue;
+            }
+        }
+        if (nBTCSOQIn != nBTCSOQOut) {
+            return state.DoS(100, false, REJECT_INVALID,
+                "bad-txns-btcsoq-not-conserved", false,
+                strprintf("BTCSOQ in (%s) != BTCSOQ out (%s)",
+                    FormatMoney(nBTCSOQIn), FormatMoney(nBTCSOQOut)));
+        }
+
+        // Input-type isolation, mirroring the USDSOQ Option B rule: a BTCSOQ
+        // transfer (any v8 output) may spend ONLY v8 BTCSOQ inputs (the asset
+        // being moved) and transparent native-SOQ inputs (the fee). This keeps
+        // v7/v4 and other exotic input types out of BTCSOQ transfers entirely.
+        if (nBTCSOQOut > 0) {
+            for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                const COutPoint& prevout = tx.vin[i].prevout;
+                const CTxOut& prevOut = inputs.AccessCoins(prevout.hash)->vout[prevout.n];
+                if (!prevOut.IsBTCSOQ() &&
+                    !(prevOut.IsNativeSOQ() && prevOut.IsTransparent())) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-txns-btcsoq-input-mismatch", false,
+                        strprintf("BTCSOQ transfer input %s:%u is neither a v8 "
+                            "BTCSOQ input nor a transparent SOQ fee input",
+                            prevout.hash.ToString(), prevout.n));
+                }
+            }
+        }
+    }
+
     return true;
 }
 } // namespace Consensus
@@ -1759,7 +2173,40 @@ bool CheckInputs(const CTransaction& tx, CValidationState& state, const CCoinsVi
                 }
             }
 
-            if (!isAuthorityTx) {
+            // DL-BTCSOQ-CONSENSUS-NATIVE: identical skip for BTCSOQ authority
+            // txs. H1 pattern preserved: the unforgeable v9 marker OUTPUT is
+            // required before the witness layout is even examined, so a
+            // non-authority tx cannot forge the witness shape to bypass
+            // standard script verification. The M-of-N ML-DSA consensus
+            // verification for these txs runs in ConnectBlock's BTCSOQ block
+            // (and is mirrored at mempool accept).
+            bool isBTCSOQAuthorityTx = false;
+            bool hasBTCSOQAuthorityOutput = false;
+            for (const auto& txout : tx.vout) {
+                if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+                    hasBTCSOQAuthorityOutput = true;
+                    break;
+                }
+            }
+            if (hasBTCSOQAuthorityOutput) {
+                for (unsigned int i = 0; i < tx.vin.size(); i++) {
+                    const auto& wit = tx.vin[i].scriptWitness;
+                    if (!wit.IsNull() && wit.stack.size() >= 6 &&
+                        wit.stack[2].size() == 1 &&
+                        wit.stack[2][0] >= BTCSOQ_OP_MINT &&
+                        wit.stack[2][0] <= BTCSOQ_OP_FREEZE) {
+                        for (size_t j = 4; j < wit.stack.size() - 1; ++j) {
+                            if (wit.stack[j].size() == 2420) {
+                                isBTCSOQAuthorityTx = true;
+                                break;
+                            }
+                        }
+                        if (isBTCSOQAuthorityTx) break;
+                    }
+                }
+            }
+
+            if (!isAuthorityTx && !isBTCSOQAuthorityTx) {
                 for (unsigned int i = 0; i < tx.vin.size(); i++) {
                     const COutPoint& prevout = tx.vin[i].prevout;
                     const CCoins* coins = inputs.AccessCoins(prevout.hash);
@@ -2236,6 +2683,212 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
         }
     }
 
+    // =========================================================================
+    // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ reversal on reorg.
+    // Symmetric inverse of ConnectBlock's BTCSOQ enforcement block, mirroring
+    // the USDSOQ reversal sections above (C1/C2, BUG-19, R1 patterns):
+    //   1. Supply: count the same deltas ConnectBlock counted (v8 outputs of
+    //      v9-authority txs = mints, v8 inputs from undo = burns) and apply the
+    //      INVERSE ops to the in-memory counter, then persist.
+    //   2. Authority outpoint: revert to the prevout the block's first
+    //      authority tx spent.
+    //   3. Freeze registry: invert applied freeze/unfreeze ops (R1 guards).
+    //   4. Minted-deposit set: ERASE the Bitcoin outpoints this block's MINTs
+    //      recorded. CONSENSUS-CRITICAL: without this, the same mint tx could
+    //      never reconnect on the new chain after a reorg (its deposit would
+    //      still be marked minted), forking any node that replayed it.
+    // =========================================================================
+    {
+        CAmount nBTCSOQReversedMint = 0;
+        CAmount nBTCSOQReversedBurn = 0;
+
+        for (int i = block.vtx.size() - 1; i >= 0; i--) {
+            const CTransaction& tx = *(block.vtx[i]);
+            if (tx.IsCoinBase()) continue;
+
+            // Only v9-authority txs moved the supply counter (BUG-19 mirror).
+            bool isBTCSOQAuthorityTx = false;
+            for (const auto& txout : tx.vout) {
+                if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+                    isBTCSOQAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isBTCSOQAuthorityTx) continue;
+
+            for (const auto& txout : tx.vout) {
+                if (txout.IsBTCSOQ()) {
+                    nBTCSOQReversedMint += txout.nValue;
+                }
+            }
+            if (i > 0) {
+                const CTxUndo& txundo = blockUndo.vtxundo[i - 1];
+                for (unsigned int j = 0; j < tx.vin.size(); j++) {
+                    if (j < txundo.vprevout.size()) {
+                        const CTxOut& restoredOut = txundo.vprevout[j].txout;
+                        if (restoredOut.IsBTCSOQ()) {
+                            nBTCSOQReversedBurn += restoredOut.nValue;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (nBTCSOQReversedMint > 0 || nBTCSOQReversedBurn > 0) {
+            LogPrintf("BTCSOQ: reorg reversal at block %d: reversed_mint=%d reversed_burn=%d\n",
+                pindex->nHeight, nBTCSOQReversedMint, nBTCSOQReversedBurn);
+
+            if (nBTCSOQReversedMint > 0) {
+                if (!g_btcsoq_supply.UndoMint(nBTCSOQReversedMint)) {
+                    LogPrintf("ERROR: BTCSOQ: UndoMint(%d) failed at block %d — supply invariant violation\n",
+                        nBTCSOQReversedMint, pindex->nHeight);
+                    fClean = false;
+                }
+            }
+            if (nBTCSOQReversedBurn > 0) {
+                if (!g_btcsoq_supply.UndoBurn(nBTCSOQReversedBurn)) {
+                    LogPrintf("ERROR: BTCSOQ: UndoBurn(%d) failed at block %d — supply invariant violation\n",
+                        nBTCSOQReversedBurn, pindex->nHeight);
+                    fClean = false;
+                }
+            }
+
+            if (pcoinsdbview) {
+                if (!pcoinsdbview->WriteBTCSOQSupply(g_btcsoq_supply)) {
+                    LogPrintf("ERROR: BTCSOQ: Failed to persist supply after reorg at block %d\n",
+                        pindex->nHeight);
+                }
+            }
+
+            LogPrintf("BTCSOQ: supply after reorg reversal: total_minted=%d total_burned=%d outstanding=%d\n",
+                g_btcsoq_supply.TotalMinted(), g_btcsoq_supply.TotalBurned(),
+                g_btcsoq_supply.Outstanding());
+        }
+    }
+
+    // BTCSOQ authority outpoint reversal: the block's FIRST v9-authority tx
+    // spent the pre-block tracked outpoint (ConnectBlock enforces this), so
+    // reverting to that input's prevout restores the pre-block chain state.
+    // ApplyTxInUndo above has already restored the spent coins to the view.
+    {
+        for (const auto& ptx : block.vtx) {
+            const CTransaction& tx = *ptx;
+            if (tx.IsCoinBase()) continue;
+
+            bool hasBTCSOQAuthorityOutput = false;
+            for (const auto& txout : tx.vout) {
+                if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+                    hasBTCSOQAuthorityOutput = true;
+                    break;
+                }
+            }
+
+            if (hasBTCSOQAuthorityOutput) {
+                bool fRevertedToPrevout = false;
+                for (unsigned int k = 0; k < tx.vin.size(); ++k) {
+                    const CCoins* coins = view.AccessCoins(tx.vin[k].prevout.hash);
+                    if (coins && coins->IsAvailable(tx.vin[k].prevout.n)) {
+                        const CScript& prevSpk = coins->vout[tx.vin[k].prevout.n].scriptPubKey;
+                        if (IsBTCSOQAuthorityMarker(prevSpk)) {
+                            g_btcsoq_authority_outpoint = tx.vin[k].prevout;
+                            if (pcoinsdbview) {
+                                pcoinsdbview->WriteBTCSOQAuthorityOutpoint(
+                                    g_btcsoq_authority_outpoint);
+                            }
+                            LogPrintf("BTCSOQ: reorg reversal — authority outpoint reverted to %s:%u\n",
+                                g_btcsoq_authority_outpoint.hash.ToString(),
+                                g_btcsoq_authority_outpoint.n);
+                            fRevertedToPrevout = true;
+                            break;
+                        }
+                    }
+                }
+                if (!fRevertedToPrevout) {
+                    // No v9 marker input restored ⇒ this was the BOOTSTRAP
+                    // authority tx. Disconnecting it must return the chain to
+                    // the pre-bootstrap state: a NULL outpoint, so the next
+                    // authority tx takes the bootstrap path again. (Review
+                    // finding; the USDSOQ reversal inherits this gap — fixed
+                    // here for BTCSOQ, which has no legacy chain to match.)
+                    g_btcsoq_authority_outpoint = COutPoint();
+                    if (pcoinsdbview) {
+                        pcoinsdbview->WriteBTCSOQAuthorityOutpoint(
+                            g_btcsoq_authority_outpoint);
+                    }
+                    LogPrintf("BTCSOQ: reorg reversal — bootstrap disconnected, "
+                              "authority outpoint reverted to null\n");
+                }
+                break;  // first authority tx spends the pre-block outpoint
+            }
+        }
+    }
+
+    // BTCSOQ freeze-registry inversion + minted-deposit erasure. Both reverse
+    // only what ConnectBlock actually applied, so both carry the R1 guards:
+    // v9-authority txs only, at/after the enforcement height (pre-enforcement
+    // blocks never had ops applied — a forged envelope in a non-authority tx
+    // must not be able to erase a legitimate freeze or minted-deposit entry).
+    if (pcoinsdbview) {
+        const Consensus::Params& btcsoqDisconnectConsensus =
+            Params().GetConsensus(pindex->nHeight);
+        unsigned int nBTCSOQReversedOps = 0;
+        for (const auto& ptx : block.vtx) {
+            const CTransaction& tx = *ptx;
+            if (tx.IsCoinBase()) continue;
+
+            if (pindex->nHeight < btcsoqDisconnectConsensus.nBTCSOQAuthorityEnforcementHeight)
+                continue;
+
+            bool isBTCSOQAuthorityTx = false;
+            for (const auto& o : tx.vout) {
+                if (IsBTCSOQAuthorityMarker(o.scriptPubKey)) {
+                    isBTCSOQAuthorityTx = true;
+                    break;
+                }
+            }
+            if (!isBTCSOQAuthorityTx) continue;
+
+            uint8_t btcsoqTag = 0;
+            std::vector<uint8_t> btcsoqPayload;
+            if (!ParseBTCSOQAuthorityOp(tx, btcsoqTag, btcsoqPayload)) continue;
+
+            if (btcsoqTag == BTCSOQ_OP_MINT) {
+                uint256 btcTxid, mintRecipient;
+                uint32_t btcVout = 0;
+                CAmount mintSats = 0;
+                if (ParseBTCSOQMintPayload(btcsoqPayload, btcTxid, btcVout,
+                                           mintSats, mintRecipient)) {
+                    // The mint is being disconnected — the Bitcoin deposit is
+                    // no longer consumed and MUST become mintable again.
+                    pcoinsdbview->EraseBTCSOQMinted(COutPoint(btcTxid, btcVout));
+                    nBTCSOQReversedOps++;
+                }
+            } else if (btcsoqTag == BTCSOQ_OP_FREEZE) {
+                uint8_t freezeOp = btcsoqPayload[0];
+                if (freezeOp != FREEZE_OP_FREEZE && freezeOp != FREEZE_OP_UNFREEZE)
+                    continue;
+                uint256 freezeTxid;
+                memcpy(freezeTxid.begin(), &btcsoqPayload[1], 32);
+                uint32_t freezeVout = (uint32_t)btcsoqPayload[33]
+                                    | ((uint32_t)btcsoqPayload[34] << 8)
+                                    | ((uint32_t)btcsoqPayload[35] << 16)
+                                    | ((uint32_t)btcsoqPayload[36] << 24);
+                COutPoint freezeTarget(freezeTxid, freezeVout);
+                if (freezeOp == FREEZE_OP_FREEZE) {
+                    pcoinsdbview->EraseBTCSOQFrozen(freezeTarget);   // undo the freeze
+                } else {
+                    pcoinsdbview->WriteBTCSOQFrozen(freezeTarget);   // re-freeze
+                }
+                nBTCSOQReversedOps++;
+            }
+        }
+
+        if (nBTCSOQReversedOps > 0) {
+            LogPrintf("BTCSOQ: reorg at block %d reversed %u registry ops\n",
+                pindex->nHeight, nBTCSOQReversedOps);
+        }
+    }
+
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
@@ -2518,6 +3171,34 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             } else {
                 LogPrintf("USDSOQ: WARNING: Authority initialization failed (threshold=%u, keys=%u)\n",
                           consensus.usdsoqAuthorityThreshold, keys.size());
+            }
+        }
+    }
+
+    // DL-BTCSOQ-CONSENSUS-NATIVE: Start enforcing the BTCSOQ money-path.
+    // Same height-gated activation model as USDSOQ (mainnet ships
+    // NOT_SCHEDULED / dormant; test nets active from genesis).
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_BTCSOQ)) {
+        flags |= SCRIPT_VERIFY_BTCSOQ;
+
+        // Lazy-initialize the BTCSOQ issuer authority from Consensus::Params.
+        if (!g_btcsoq_authority.IsInitialized() && !consensus.btcsoqAuthorityKeys.empty()) {
+            std::vector<std::vector<uint8_t>> btcsoqKeys;
+            for (const auto& hexKey : consensus.btcsoqAuthorityKeys) {
+                std::vector<uint8_t> key = ParseHex(hexKey);
+                if (key.size() == DILITHIUM_PUBKEY_SIZE) {
+                    btcsoqKeys.push_back(key);
+                } else {
+                    LogPrintf("BTCSOQ: WARNING: Skipping authority key with invalid size %u (expected %u)\n",
+                              key.size(), DILITHIUM_PUBKEY_SIZE);
+                }
+            }
+            if (g_btcsoq_authority.Initialize(btcsoqKeys, consensus.btcsoqAuthorityThreshold)) {
+                LogPrintf("BTCSOQ: Authority initialized: %u-of-%u Dilithium multisig\n",
+                          consensus.btcsoqAuthorityThreshold, btcsoqKeys.size());
+            } else {
+                LogPrintf("BTCSOQ: WARNING: Authority initialization failed (threshold=%u, keys=%u)\n",
+                          consensus.btcsoqAuthorityThreshold, btcsoqKeys.size());
             }
         }
     }
@@ -3312,6 +3993,509 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     // =========================================================================
+    // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ Consensus Enforcement
+    // Parallel sibling of the USDSOQ block above — the audited USDSOQ path is
+    // untouched; BTCSOQ routes on its own unforgeable witness-v9 authority
+    // marker (OP_9 <32>). When DEPLOYMENT_BTCSOQ is active, enforce:
+    //   1. M-of-N ML-DSA-44 authority signature verification
+    //   2. Authority UTXO chain tracking (Option D pattern; STRICT — no
+    //      legacy input-enforcement window: BTCSOQ has no legacy chain)
+    //   3. The signed OP_RETURN op envelope (tag + payload are sighash-covered;
+    //      the witness tag must EQUAL the signed tag)
+    //   4. MINT deposit binding: exactly one v8 output, value == payload sats,
+    //      SHA256(recipient scriptPubKey) == payload commitment, and the
+    //      (btc_txid, btc_vout) deposit never minted before (DB set + in-block
+    //      set). A missed check here is a double mint = supply inflation.
+    //   5. BURN binding: signed release intent sats == v8 input sum burned.
+    //   6. Frozen v8 UTXO spend rejection (undo-based, live in fJustCheck)
+    //   7. Per-block supply delta (copy-validate, commit iff !fJustCheck)
+    // Asset-flow/op binding: v8 outputs REQUIRE the signed MINT tag and v8
+    // inputs REQUIRE the signed BURN tag, so no authority op can move supply
+    // outside its declared, signed operation.
+    //
+    // COMMIT DISCIPLINE (review finding, 2C): this block only VALIDATES and
+    // collects side effects into the btcsoqPending* containers below. Nothing
+    // is written to LevelDB or the globals here — the commit happens in one
+    // place after EVERY ConnectBlock gate has passed (just after the
+    // fJustCheck early-return). Direct mid-validation writes could otherwise
+    // permanently strand a Bitcoin deposit in the minted set and inflate the
+    // supply counter on a block that fails a LATER check (e.g. UTXO_COST) and
+    // is never connected.
+    // =========================================================================
+    std::vector<COutPoint> btcsoqPendingMintedDeposits;
+    std::vector<std::pair<uint8_t, COutPoint>> btcsoqPendingFreezeOps;
+    bool btcsoqCommitSupply = false;
+    CBTCSOQSupply btcsoqPendingSupply;
+    bool btcsoqCommitOutpoint = false;
+    COutPoint btcsoqPendingOutpoint;
+    if (flags & SCRIPT_VERIFY_BTCSOQ) {
+        CAmount nBTCSOQMinted = 0;
+        CAmount nBTCSOQBurned = 0;
+
+        // Local authority outpoint tracker (fJustCheck-safe, mirrors USDSOQ).
+        COutPoint localBTCSOQAuthOutpoint = g_btcsoq_authority_outpoint;
+
+        // In-block anti-replay: two MINTs binding the same Bitcoin deposit in
+        // ONE block would each pass the (not-yet-written) DB check alone.
+        std::set<COutPoint> blockMintedDeposits;
+
+        // In-block freeze view: FREEZE/UNFREEZE ops earlier in this block must
+        // be visible to the frozen-spend guard for later txs in BOTH the
+        // fJustCheck and real passes (review finding: consulting only the
+        // committed DB made TestBlockValidity accept a freeze-then-spend block
+        // that a real connect rejected).
+        std::set<COutPoint> blockFrozenAdd;
+        std::set<COutPoint> blockFrozenRemove;
+
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            const CTransaction& tx = *(block.vtx[i]);
+            if (tx.IsCoinBase()) continue;
+
+            bool isBTCSOQAuthorityTx = false;
+            int nBTCSOQAuthorityOutputIndex = -1;
+            for (size_t j = 0; j < tx.vout.size(); ++j) {
+                if (IsBTCSOQAuthorityMarker(tx.vout[j].scriptPubKey)) {
+                    isBTCSOQAuthorityTx = true;
+                    nBTCSOQAuthorityOutputIndex = static_cast<int>(j);
+                    break;
+                }
+            }
+
+            // Per-tx v8 sums. Outputs read from the tx; inputs read from the
+            // block UNDO data — UpdateCoins (first pass) has already spent
+            // every input in the coins view by this second pass (the BUG-20
+            // lesson), and undo is the same source DisconnectBlock uses, so
+            // connect and disconnect stay symmetric on reorg.
+            CAmount nTxV8Out = 0;
+            int nV8OutputIndex = -1;
+            unsigned int nV8OutputCount = 0;
+            for (size_t j = 0; j < tx.vout.size(); ++j) {
+                if (tx.vout[j].IsBTCSOQ()) {
+                    nTxV8Out += tx.vout[j].nValue;
+                    nV8OutputIndex = static_cast<int>(j);
+                    ++nV8OutputCount;
+                }
+            }
+            CAmount nTxV8In = 0;
+            if (i > 0 && (i - 1) < blockundo.vtxundo.size()) {
+                const CTxUndo& txundoV8 = blockundo.vtxundo[i - 1];
+                for (unsigned int j = 0;
+                     j < tx.vin.size() && j < txundoV8.vprevout.size(); j++) {
+                    const CTxOut& prevOut = txundoV8.vprevout[j].txout;
+                    // Marker-chain guard: only a BTCSOQ authority tx may spend
+                    // a v9 marker UTXO. Until Step 2D wires witness v9 into
+                    // the interpreter, v9 programs are anyone-can-spend at the
+                    // script layer — without this consensus check a miner
+                    // could sever the authority outpoint chain.
+                    if (IsBTCSOQAuthorityMarker(prevOut.scriptPubKey) &&
+                        !isBTCSOQAuthorityTx) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): non-authority tx %s spends BTCSOQ "
+                                  "authority marker %s:%u",
+                                tx.GetHash().ToString(),
+                                tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n),
+                            REJECT_INVALID, "bad-btcsoq-marker-spend");
+                    }
+                    if (!prevOut.IsBTCSOQ()) continue;
+                    nTxV8In += prevOut.nValue;
+                    // Frozen-registry guard: LIVE, undo-based (e2n pattern),
+                    // applies to ALL txs (a freeze blocks even an authority
+                    // burn of that outpoint), runs in fJustCheck too. The
+                    // committed DB set is overlaid with this block's own
+                    // freeze/unfreeze ops so both passes see the same state.
+                    bool fFrozen = blockFrozenAdd.count(tx.vin[j].prevout) > 0 ||
+                        (pcoinsdbview &&
+                         pcoinsdbview->IsBTCSOQFrozen(tx.vin[j].prevout) &&
+                         blockFrozenRemove.count(tx.vin[j].prevout) == 0);
+                    if (fFrozen) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): attempt to spend frozen BTCSOQ "
+                                  "UTXO %s:%u (registry)",
+                                tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n),
+                            REJECT_INVALID, "bad-txns-spend-frozen-btcsoq");
+                    }
+                }
+            }
+
+            if (!isBTCSOQAuthorityTx) {
+                // Non-authority tx: v8 conservation (in == out) was enforced in
+                // Consensus::CheckTxInputs during the first pass. Nothing to do.
+                continue;
+            }
+
+            // ------------------ BTCSOQ authority transaction ------------------
+
+            // Default-deny: no configured authority ⇒ no valid authority tx.
+            // (Deliberately STRICTER than USDSOQ, which skips verification when
+            // uninitialized — BTCSOQ has no pre-authority history to tolerate.)
+            if (!g_btcsoq_authority.IsInitialized()) {
+                return state.DoS(100,
+                    error("ConnectBlock(): BTCSOQ authority tx %s at block %d but the "
+                          "authority key set is not initialized",
+                        tx.GetHash().ToString(), pindex->nHeight),
+                    REJECT_INVALID, "bad-btcsoq-authority-unavailable");
+            }
+
+            // Authority ops must be fully transparent (supply auditability —
+            // the mint/burn boundary must never be hidden; GENIUS §4(a)(2)).
+            for (const auto& txout : tx.vout) {
+                if (txout.IsConfidential()) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): BTCSOQ authority tx %s carries a "
+                              "confidential (v4) output",
+                            tx.GetHash().ToString()),
+                        REJECT_INVALID, "bad-btcsoq-authority-must-be-transparent");
+                }
+            }
+
+            if (pindex->nHeight < consensus.nBTCSOQAuthorityEnforcementHeight) {
+                // Pre-enforcement window. Ships as 0 on EVERY network (BTCSOQ
+                // has no legacy chain), so this branch is dead unless a future
+                // stagenet drill sets it. SOQ-REINDEX-002 pattern: track the
+                // outpoint locally only, never persist.
+                LogPrintf("BTCSOQ: Pre-enforcement height %d < %d — skipping authority "
+                          "verification for tx %s\n",
+                    pindex->nHeight, consensus.nBTCSOQAuthorityEnforcementHeight,
+                    tx.GetHash().ToString());
+                if (nBTCSOQAuthorityOutputIndex >= 0) {
+                    localBTCSOQAuthOutpoint = COutPoint(
+                        tx.GetHash(), nBTCSOQAuthorityOutputIndex);
+                }
+            } else {
+                // ---- Strict path (all networks, from genesis) ----
+
+                // 1. The signed op envelope is MANDATORY. This is also where a
+                //    ROTATE (0x62) or unknown tag fails: the parser recognizes
+                //    only MINT/BURN/FREEZE until rotation semantics are wired.
+                uint8_t btcsoqTag = 0;
+                std::vector<uint8_t> btcsoqPayload;
+                if (!ParseBTCSOQAuthorityOp(tx, btcsoqTag, btcsoqPayload)) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): BTCSOQ authority tx %s lacks a single "
+                              "well-formed op OP_RETURN",
+                            tx.GetHash().ToString()),
+                        REJECT_INVALID, "bad-btcsoq-missing-op");
+                }
+
+                // 2. Asset flows must match the signed op.
+                if (nTxV8Out > 0 && btcsoqTag != BTCSOQ_OP_MINT) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): BTCSOQ authority tx %s creates v8 outputs "
+                              "under non-MINT op 0x%02x",
+                            tx.GetHash().ToString(), btcsoqTag),
+                        REJECT_INVALID, "bad-btcsoq-unbound-mint");
+                }
+                if (nTxV8In > 0 && btcsoqTag != BTCSOQ_OP_BURN) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): BTCSOQ authority tx %s spends v8 inputs "
+                              "under non-BURN op 0x%02x",
+                            tx.GetHash().ToString(), btcsoqTag),
+                        REJECT_INVALID, "bad-btcsoq-unbound-burn");
+                }
+
+                // 3. Find the authority input. STRICT: when an outpoint chain
+                //    exists, the tx MUST spend it — there is no legacy
+                //    "authority tx without authority input" window for BTCSOQ.
+                int nAuthorityInputIndex = -1;
+                CScript authorityScriptCode;
+                if (!localBTCSOQAuthOutpoint.IsNull()) {
+                    for (unsigned int k = 0; k < tx.vin.size(); ++k) {
+                        if (tx.vin[k].prevout == localBTCSOQAuthOutpoint) {
+                            nAuthorityInputIndex = static_cast<int>(k);
+                            const CCoins* authCoins =
+                                view.AccessCoins(tx.vin[k].prevout.hash);
+                            if (authCoins && authCoins->IsAvailable(tx.vin[k].prevout.n)) {
+                                authorityScriptCode =
+                                    authCoins->vout[tx.vin[k].prevout.n].scriptPubKey;
+                            } else if (i > 0 && (i - 1) < blockundo.vtxundo.size() &&
+                                       k < blockundo.vtxundo[i - 1].vprevout.size()) {
+                                // Already spent by UpdateCoins (first pass) —
+                                // read the REAL prevout script from the block
+                                // undo (review finding: recomputing
+                                // OP_9 <keyhash> assumed the marker always
+                                // carries the canonical keyhash; the undo
+                                // prevout is the actual signed-against script
+                                // and keeps consensus identical to the
+                                // mempool mirror, which reads the live coin).
+                                authorityScriptCode = blockundo.vtxundo[i - 1]
+                                    .vprevout[k].txout.scriptPubKey;
+                            } else {
+                                return state.DoS(100,
+                                    error("ConnectBlock(): BTCSOQ authority tx %s marker "
+                                          "prevout unavailable in view and undo",
+                                        tx.GetHash().ToString()),
+                                    REJECT_INVALID, "bad-btcsoq-authority-sig");
+                            }
+                            break;
+                        }
+                    }
+                    if (nAuthorityInputIndex < 0) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ authority tx %s does not spend "
+                                  "the tracked authority UTXO (expected %s:%u)",
+                                tx.GetHash().ToString(),
+                                localBTCSOQAuthOutpoint.hash.ToString(),
+                                localBTCSOQAuthOutpoint.n),
+                            REJECT_INVALID, "bad-btcsoq-authority-outpoint");
+                    }
+                } else {
+                    // BOOTSTRAP: first authority tx ever. H2 pattern: if
+                    // LevelDB already has an outpoint while memory is null,
+                    // this node's state is damaged — reject re-entry.
+                    if (pcoinsdbview) {
+                        COutPoint dbOutpoint;
+                        if (pcoinsdbview->ReadBTCSOQAuthorityOutpoint(dbOutpoint) &&
+                            !dbOutpoint.IsNull()) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): BTCSOQ bootstrap re-entry rejected — "
+                                      "authority outpoint already exists in DB (%s:%u) but "
+                                      "in-memory is null. Run -reindex to repair.",
+                                    dbOutpoint.hash.ToString(), dbOutpoint.n),
+                                REJECT_INVALID, "bad-btcsoq-bootstrap-reentry");
+                        }
+                    }
+                    // Input 0 carries the authority witness; the sighash is
+                    // computed against the new v9 marker output script (no
+                    // prior marker prevout exists).
+                    nAuthorityInputIndex = 0;
+                    authorityScriptCode =
+                        tx.vout[nBTCSOQAuthorityOutputIndex].scriptPubKey;
+                }
+
+                // 4. Verify M-of-N ML-DSA-44 authority signatures over the
+                //    BIP143 sighash (SIGHASH_ALL binds every input and output).
+                if (tx.vin[nAuthorityInputIndex].scriptWitness.IsNull()) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): BTCSOQ authority tx %s has no witness on "
+                              "authority input %d",
+                            tx.GetHash().ToString(), nAuthorityInputIndex),
+                        REJECT_INVALID, "bad-btcsoq-authority-sig");
+                }
+                const CScriptWitness& authWitness =
+                    tx.vin[nAuthorityInputIndex].scriptWitness;
+
+                // The (unsigned) witness tag must agree with the signed
+                // OP_RETURN tag — a single source of truth for the op selector.
+                if (GetBTCSOQWitnessTag(authWitness.stack) != btcsoqTag) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): BTCSOQ authority tx %s witness tag does "
+                              "not match signed op tag 0x%02x",
+                            tx.GetHash().ToString(), btcsoqTag),
+                        REJECT_INVALID, "bad-btcsoq-tag-mismatch");
+                }
+
+                std::vector<std::vector<uint8_t>> sigs =
+                    ExtractBTCSOQWitnessSignatures(authWitness.stack);
+                if (sigs.empty()) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): BTCSOQ authority tx %s has no signatures "
+                              "in witness", tx.GetHash().ToString()),
+                        REJECT_INVALID, "bad-btcsoq-authority-sig");
+                }
+
+                PrecomputedTransactionData btcsoqTxdata(tx);
+                uint256 sighash = SignatureHash(
+                    authorityScriptCode, tx,
+                    nAuthorityInputIndex, SIGHASH_ALL,
+                    CAmount(0),  // Authority marker UTXOs are 0-value
+                    SIGVERSION_WITNESS_V0, &btcsoqTxdata);
+                std::vector<uint8_t> sighashBytes(sighash.begin(), sighash.end());
+                if (!g_btcsoq_authority.VerifyAuthoritySignatures(sighashBytes, sigs)) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): BTCSOQ authority signature verification "
+                              "FAILED for tx %s at block %d (M-of-N threshold not met)",
+                            tx.GetHash().ToString(), pindex->nHeight),
+                        REJECT_INVALID, "bad-btcsoq-authority-sig");
+                }
+                LogPrintf("BTCSOQ: Authority signature verified for tx %s "
+                          "(%u sigs, threshold=%u, op=0x%02x) at block %d\n",
+                    tx.GetHash().ToString(), sigs.size(),
+                    g_btcsoq_authority.GetThreshold(), btcsoqTag, pindex->nHeight);
+
+                // 5. Op-specific enforcement.
+                if (btcsoqTag == BTCSOQ_OP_MINT) {
+                    uint256 btcTxid, mintRecipient;
+                    uint32_t btcVout = 0;
+                    CAmount mintSats = 0;
+                    if (!ParseBTCSOQMintPayload(btcsoqPayload, btcTxid, btcVout,
+                                                mintSats, mintRecipient)) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ MINT tx %s has malformed payload",
+                                tx.GetHash().ToString()),
+                            REJECT_INVALID, "bad-btcsoq-mint-payload");
+                    }
+                    // Exactly ONE v8 output, worth exactly the attested sats,
+                    // paying exactly the committed recipient script.
+                    if (nV8OutputCount != 1) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ MINT tx %s has %u v8 outputs "
+                                  "(exactly 1 required)",
+                                tx.GetHash().ToString(), nV8OutputCount),
+                            REJECT_INVALID, "bad-btcsoq-mint-outputs");
+                    }
+                    if (tx.vout[nV8OutputIndex].nValue != mintSats) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ MINT tx %s output value %d != "
+                                  "attested deposit %d sats",
+                                tx.GetHash().ToString(),
+                                tx.vout[nV8OutputIndex].nValue, mintSats),
+                            REJECT_INVALID, "bad-btcsoq-mint-amount");
+                    }
+                    if (ComputeBTCSOQRecipientCommitment(
+                            tx.vout[nV8OutputIndex].scriptPubKey) != mintRecipient) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ MINT tx %s recipient script does "
+                                  "not match the signed recipient commitment",
+                                tx.GetHash().ToString()),
+                            REJECT_INVALID, "bad-btcsoq-mint-recipient");
+                    }
+                    // Anti-replay: one Bitcoin deposit backs at most one mint,
+                    // ever. Checked against the persisted set AND the in-block
+                    // set; recorded only on a real connect.
+                    COutPoint deposit(btcTxid, btcVout);
+                    if (blockMintedDeposits.count(deposit) ||
+                        (pcoinsdbview && pcoinsdbview->IsBTCSOQMinted(deposit))) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ MINT tx %s double-mints Bitcoin "
+                                  "deposit %s:%u",
+                                tx.GetHash().ToString(), btcTxid.ToString(), btcVout),
+                            REJECT_INVALID, "bad-btcsoq-double-mint");
+                    }
+                    blockMintedDeposits.insert(deposit);
+                    btcsoqPendingMintedDeposits.push_back(deposit);
+                    LogPrintf("BTCSOQ: MINT verified — deposit %s:%u → %d base units "
+                              "at block %d%s\n",
+                        btcTxid.ToString(), btcVout, mintSats, pindex->nHeight,
+                        fJustCheck ? " (dry-run)" : "");
+                } else if (btcsoqTag == BTCSOQ_OP_BURN) {
+                    uint256 releaseScriptHash;
+                    CAmount burnSats = 0;
+                    if (!ParseBTCSOQBurnPayload(btcsoqPayload, releaseScriptHash,
+                                                burnSats)) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ BURN tx %s has malformed payload",
+                                tx.GetHash().ToString()),
+                            REJECT_INVALID, "bad-btcsoq-burn-payload");
+                    }
+                    if (nTxV8In <= 0) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ BURN tx %s burns no v8 inputs",
+                                tx.GetHash().ToString()),
+                            REJECT_INVALID, "bad-btcsoq-burn-empty");
+                    }
+                    // The signed release intent must equal the consensus burn.
+                    if (nTxV8In != burnSats) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ BURN tx %s release intent %d != "
+                                  "v8 input sum %d",
+                                tx.GetHash().ToString(), burnSats, nTxV8In),
+                            REJECT_INVALID, "bad-btcsoq-burn-amount");
+                    }
+                    LogPrintf("BTCSOQ: BURN verified — %d base units, release intent %s "
+                              "at block %d%s\n",
+                        burnSats, releaseScriptHash.ToString(), pindex->nHeight,
+                        fJustCheck ? " (dry-run)" : "");
+                } else if (btcsoqTag == BTCSOQ_OP_FREEZE) {
+                    // Payload: [freeze_op:1][txid:32][vout:4 LE] — the USDSOQ
+                    // freeze layout inside the BTCSOQ envelope.
+                    uint8_t freezeOp = btcsoqPayload[0];
+                    if (freezeOp != FREEZE_OP_FREEZE && freezeOp != FREEZE_OP_UNFREEZE) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): BTCSOQ FREEZE tx %s has unknown "
+                                  "freeze op 0x%02x",
+                                tx.GetHash().ToString(), freezeOp),
+                            REJECT_INVALID, "bad-btcsoq-freeze-payload");
+                    }
+                    uint256 freezeTxid;
+                    memcpy(freezeTxid.begin(), &btcsoqPayload[1], 32);
+                    uint32_t freezeVout = (uint32_t)btcsoqPayload[33]
+                                        | ((uint32_t)btcsoqPayload[34] << 8)
+                                        | ((uint32_t)btcsoqPayload[35] << 16)
+                                        | ((uint32_t)btcsoqPayload[36] << 24);
+                    COutPoint freezeTarget(freezeTxid, freezeVout);
+                    // Decide the op's effect NOW, identically in both the
+                    // fJustCheck and real passes; the DB apply is deferred to
+                    // the single post-gate commit point.
+                    if (freezeOp == FREEZE_OP_FREEZE) {
+                        // Defense-in-depth: only freeze live v8 UTXOs;
+                        // skip + log otherwise (the authority tx itself is
+                        // valid — mirror the USDSOQ Q3 rule).
+                        const CCoins* targetCoins = view.AccessCoins(freezeTarget.hash);
+                        if (!targetCoins || !targetCoins->IsAvailable(freezeTarget.n) ||
+                            !targetCoins->vout[freezeTarget.n].IsBTCSOQ()) {
+                            LogPrintf("BTCSOQ: FREEZE target %s:%u is not a live v8 "
+                                      "UTXO at block %d — skipping\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight);
+                        } else {
+                            btcsoqPendingFreezeOps.emplace_back(FREEZE_OP_FREEZE, freezeTarget);
+                            blockFrozenAdd.insert(freezeTarget);
+                            blockFrozenRemove.erase(freezeTarget);
+                            LogPrintf("BTCSOQ: FREEZE accepted — %s:%u at block %d%s\n",
+                                freezeTarget.hash.ToString(), freezeTarget.n,
+                                pindex->nHeight, fJustCheck ? " (dry-run)" : "");
+                        }
+                    } else {
+                        btcsoqPendingFreezeOps.emplace_back(FREEZE_OP_UNFREEZE, freezeTarget);
+                        blockFrozenRemove.insert(freezeTarget);
+                        blockFrozenAdd.erase(freezeTarget);
+                        LogPrintf("BTCSOQ: UNFREEZE accepted — %s:%u at block %d%s\n",
+                            freezeTarget.hash.ToString(), freezeTarget.n,
+                            pindex->nHeight, fJustCheck ? " (dry-run)" : "");
+                    }
+                }
+
+                // 6. Advance the authority outpoint chain (local always;
+                //    global + LevelDB deferred to the post-gate commit point).
+                if (nBTCSOQAuthorityOutputIndex >= 0) {
+                    COutPoint prevAuthOutpoint = localBTCSOQAuthOutpoint;
+                    localBTCSOQAuthOutpoint = COutPoint(
+                        tx.GetHash(), nBTCSOQAuthorityOutputIndex);
+                    btcsoqCommitOutpoint = true;
+                    btcsoqPendingOutpoint = localBTCSOQAuthOutpoint;
+                    LogPrintf("BTCSOQ: Authority outpoint updated: %s:%u → %s:%u%s\n",
+                        prevAuthOutpoint.hash.ToString(), prevAuthOutpoint.n,
+                        localBTCSOQAuthOutpoint.hash.ToString(),
+                        localBTCSOQAuthOutpoint.n,
+                        fJustCheck ? " (dry-run)" : "");
+                }
+            } // end strict path
+
+            // 7. Supply accounting — authority txs only (BUG-19/BUG-20 class:
+            //    plain transfers are supply-neutral and never counted).
+            nBTCSOQMinted += nTxV8Out;
+            nBTCSOQBurned += nTxV8In;
+        }
+
+        // Apply the delta on a COPY; commit only on a real connect (BUG-18:
+        // fJustCheck dry-runs must never leak into the global counter).
+        if (nBTCSOQMinted > 0 || nBTCSOQBurned > 0) {
+            CBTCSOQSupply supplyAfter = g_btcsoq_supply; // value copy
+            if (nBTCSOQMinted > 0 && !supplyAfter.Mint(nBTCSOQMinted)) {
+                return state.DoS(100,
+                    error("ConnectBlock(): BTCSOQ supply overflow on mint of %d at block %d",
+                        nBTCSOQMinted, pindex->nHeight),
+                    REJECT_INVALID, "bad-btcsoq-supply-overflow");
+            }
+            if (nBTCSOQBurned > 0 && !supplyAfter.Burn(nBTCSOQBurned)) {
+                return state.DoS(100,
+                    error("ConnectBlock(): BTCSOQ supply underflow on burn of %d at block %d",
+                        nBTCSOQBurned, pindex->nHeight),
+                    REJECT_INVALID, "bad-btcsoq-supply-underflow");
+            }
+
+            LogPrintf("BTCSOQ: block %d supply delta: minted=%d burned=%d net=%d%s\n",
+                pindex->nHeight, nBTCSOQMinted, nBTCSOQBurned,
+                nBTCSOQMinted - nBTCSOQBurned, fJustCheck ? " (dry-run, not committed)" : "");
+
+            // Commit deferred to the post-gate commit point (BUG-18 discipline
+            // plus the 2C review's atomicity finding).
+            btcsoqCommitSupply = true;
+            btcsoqPendingSupply = supplyAfter;
+        }
+    }
+
+    // =========================================================================
     // SOQ-ARCH-003: Consensus-Enforced Minimum UTXO Value (BIP9-Gated)
     // When DEPLOYMENT_UTXO_COST is active, reject outputs whose value is below
     // UTXO_COST_PER_BYTE × serialized_output_size. This is the Cardano-style
@@ -3346,6 +4530,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     continue;
                 // Skip USDSOQ authority marker outputs (0-value by design, OP_5 witness v5)
                 if (txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x55)
+                    continue;
+                // Skip BTCSOQ authority marker outputs (0-value by design, OP_9 witness v9).
+                // Requires the full marker shape (32-byte program) so non-marker
+                // 34-byte scripts starting 0x59 stay subject to the floor.
+                if (txout.scriptPubKey.size() == 34 && txout.scriptPubKey[0] == 0x59 &&
+                    txout.scriptPubKey[1] == 32)
                     continue;
                 // Calculate minimum value based on serialized output size
                 size_t nOutputSize = ::GetSerializeSize(txout, SER_NETWORK, PROTOCOL_VERSION);
@@ -3557,6 +4747,53 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     if (fJustCheck)
         return true;
+
+    // =========================================================================
+    // DL-BTCSOQ-CONSENSUS-NATIVE: commit BTCSOQ side effects. This is the ONLY
+    // place BTCSOQ chainstate (minted-deposit set, freeze registry, supply
+    // counter, authority outpoint) is written. It sits after every validation
+    // gate and after the fJustCheck early-return, so a block that fails any
+    // check above leaves no BTCSOQ trace, and dry-runs never touch state.
+    // =========================================================================
+    if (pcoinsdbview) {
+        for (const auto& deposit : btcsoqPendingMintedDeposits) {
+            if (!pcoinsdbview->WriteBTCSOQMinted(deposit)) {
+                LogPrintf("ERROR: BTCSOQ: Failed to persist minted deposit %s:%u at block %d\n",
+                    deposit.hash.ToString(), deposit.n, pindex->nHeight);
+            }
+        }
+        for (const auto& op : btcsoqPendingFreezeOps) {
+            if (op.first == FREEZE_OP_FREEZE) {
+                if (!pcoinsdbview->WriteBTCSOQFrozen(op.second)) {
+                    LogPrintf("ERROR: BTCSOQ: Failed to write frozen outpoint %s:%u at block %d\n",
+                        op.second.hash.ToString(), op.second.n, pindex->nHeight);
+                }
+            } else {
+                if (!pcoinsdbview->EraseBTCSOQFrozen(op.second)) {
+                    LogPrintf("ERROR: BTCSOQ: Failed to erase frozen outpoint %s:%u at block %d\n",
+                        op.second.hash.ToString(), op.second.n, pindex->nHeight);
+                }
+            }
+        }
+    }
+    if (btcsoqCommitOutpoint) {
+        g_btcsoq_authority_outpoint = btcsoqPendingOutpoint;
+        if (pcoinsdbview &&
+            !pcoinsdbview->WriteBTCSOQAuthorityOutpoint(g_btcsoq_authority_outpoint)) {
+            LogPrintf("ERROR: BTCSOQ: Failed to persist authority outpoint at block %d\n",
+                pindex->nHeight);
+        }
+    }
+    if (btcsoqCommitSupply) {
+        g_btcsoq_supply = btcsoqPendingSupply;
+        if (pcoinsdbview && !pcoinsdbview->WriteBTCSOQSupply(g_btcsoq_supply)) {
+            LogPrintf("ERROR: BTCSOQ: Failed to persist supply to LevelDB at block %d\n",
+                pindex->nHeight);
+        }
+        LogPrintf("BTCSOQ: supply state: total_minted=%d total_burned=%d outstanding=%d\n",
+            g_btcsoq_supply.TotalMinted(), g_btcsoq_supply.TotalBurned(),
+            g_btcsoq_supply.Outstanding());
+    }
 
     // Write undo information to disk
     if (pindex->GetUndoPos().IsNull() || !pindex->IsValid(BLOCK_VALID_SCRIPTS)) {

@@ -192,8 +192,23 @@ public:
     //! Returns true if this output carries USDSOQ (witness v7).
     bool IsUSDSOQ() const { return IsV7USDSOQHolding(); }
 
-    //! Returns true if this output carries native SOQ (i.e. not USDSOQ).
-    bool IsNativeSOQ() const { return !IsUSDSOQ(); }
+    //! Returns true if this output is a v8 BTCSOQ holding (OP_8 <SHA256(pubkey)>).
+    //! BTCSOQ is the Bitcoin-backed consensus asset (DL-BTCSOQ-CONSENSUS-NATIVE).
+    //! Spent via the v1 single-key Dilithium path, like USDSOQ v7. The BTCSOQ
+    //! authority marker is witness v9 (OP_9 <32>) — deliberately DISTINCT from the
+    //! USDSOQ v5 marker so each asset's enforcement routes on an unforgeable,
+    //! sighash-covered output (never on malleable witness tags). See consensus/btcsoq.h.
+    bool IsV8BTCSOQHolding() const {
+        return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_8 && scriptPubKey[1] == 32;
+    }
+
+    //! Returns true if this output carries BTCSOQ (witness v8).
+    bool IsBTCSOQ() const { return IsV8BTCSOQHolding(); }
+
+    //! Returns true if this output carries native SOQ (i.e. neither USDSOQ nor BTCSOQ).
+    //! MUST exclude every non-SOQ asset: the per-asset fee filter treats "native SOQ"
+    //! value as miner-claimable, so a missing exclusion silently inflates SOQ fees.
+    bool IsNativeSOQ() const { return !IsUSDSOQ() && !IsBTCSOQ(); }
 
     //! Returns true if this output is confidential (witness v4, Lattice-BP++).
     bool IsConfidential() const {

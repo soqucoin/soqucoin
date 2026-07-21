@@ -218,6 +218,11 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = 0;  // Not started
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = 0;    // Never activates
 
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ — NOT ACTIVE on mainnet (dormant pending Phase 2 audit)
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].bit = 14;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nTimeout = 0;    // Never activates
+
         // SOQ-COV-012 [DOC]: Covenant opcode BIP9 activation — MAINNET
         // ============================================================
         // CTV (BIP 119), APO (BIP 118), and CSFS (BIP 348) are NOT YET
@@ -289,6 +294,7 @@ public:
         // CSV/SegWit stay on the historical BIP9 windows.)
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nActivationHeight             = Consensus::BIP9Deployment::NOT_SCHEDULED;
@@ -493,6 +499,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ — ACTIVE for integration testing; mainnet dormant.
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].bit = 14;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight = 0;
 
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].bit = 7;
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
@@ -733,6 +745,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ — ALWAYS_ACTIVE for regtest (consensus-native asset tests)
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].bit = 14;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight = 0;
 
         // p96 / Option D: height-gated activation, height 0 = active from genesis
         // (equivalent to the ALWAYS_ACTIVE test behavior above). See CMainParams.
@@ -981,6 +999,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ — ALWAYS_ACTIVE on stagenet (consensus-native asset integration)
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].bit = 14;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight = 0;
+
         // p96 / Option D: height-gated activation, height 0 = active from genesis
         // (equivalent to the ALWAYS_ACTIVE test behavior above — the live stagenet's
         // historical blocks validate identically). See CMainParams.
@@ -1003,6 +1027,22 @@ public:
             "0e6734d74cb357881de3eafdeb0055bb88dd1de103a08f2bc4af58bdb0f4444a9102e6b5fcbb2ca26d8e8b59f9fef2ac6df6a3419433fe2b581fb95df5b10b2c3c6ba0c7fd6325014a6e5bcc229f632d004ea0ae5296f63331c9a65c7721800a8045bedfa774a6e1c9512927ae093f7c005001a381c12479c709b954ad5c2eb099d10c18e41f2aa42ef15e004bf5a1cefc4e658c506c588d2c3edabade9259d7db1e774505ab011202f637e237395e2a904271a42a8c9b3f39fedcaf6abb6c040c24142cdb4c6dd07eb5f35cb6880d2df0a6bd0a288544ecc7e7f3a87556c4f0019876e3b96faca222ba78e0ec7c02c5ad27481ce8d9e0e29975bd022fd68ad24a40636f168880249d0b0952e173a0920b5a52717b29b19b9d9cc1a9910857de49b92d995b7e035fab7fad7f23c8c391577d3ec2dfe9bb36600d607fae6fd7a5eb72c41cf0bb116de1f643199018233427cbabbd539290bf869c53d77c78ecf43b0ee5baa9127efc26cc765d2501645d16655afe7e0808982a896d80d05bea06aaecbafa804a57b667fec53527564857e5637c349a9c87de1fe684a6900f656a0734619e6bec0a5721cd9f4cc4bcee986445c20da3e96ce11039d8ac6f17e4d346a787e4487bae0719912da2d720919956532639b5526ef957b6bd9c9e6ae8e448966102e97a67e7a833e397b1ad3730f1447f292496cd0ab81269aadf5b464c4a5f569235b9aa612e39d1f7e01f4404aec0f5e96f16f33c13eeefbd66672768846e791ac4333a88055e4110d4e1d3760e2c45b6460b955ad30d23e4b82d7f2743d33b4440b3fba289fc13d10a19c4c7630cca75abc1e344958f5a06bf169dc7797958240f311a298d839b9d1f42b0b99ba3296206e596afd669fd7cb078641df98a0e2a20b41c96716bdf522a15211d0b85e43aba90a05166787e855b3aa776f17644b71a7cb5526db80ac6c2e6a4ca0f1da8ab13dc6ed4daf3394a73bfb7a2ec648b4037b1036bd8734a0134a42f3bd76442fa14405477516272a7b2630f0e95afc99d568bc3cf640369b09acb456b06abaaa2d2553bbd5df700ef848d38777dcbf9b7b0ab781bf67c3bece1794cbd516f15165907f829910772c2a8effd31541a8995d66fa71289acfb1d24e9bd29ea4a457c9fac7e8583d5eb6d605667b95a3c868acabdd2ca9cbe1d6f91378737b8d36ef99ff5dbd7162e702315fdf1e42faa3c3e9bcb04a83adeb30628e85d2a0f021e57a21f53142bfe128c8beeb23a0d4e17fbdb7858e3de396eadf69be230cc4dfbc1a7931182657627cd48bb0496bd66bad5f1ce2b02462ea48073d53717f274a19d625919bf613582a2e4dab5ae5d12142264f267308c68ecb20243643af3876ef56fb583810a4b31ecf207c5099475afced5a7f81903965d1e29f5dbc1ec7445ae5bce53f052e4bb64649fe24958f742d13c62e83d6333b53224fdf270007aea6a37b708a5b27a6e115dd3c73266e7cebfbadfd6b4d88f0bea727c9a942021c6e515825fab5433f1a7c1a1b19d1b59dff1d596869956e20f2ccaa91f6dbf771d6a3692ded1404fae9e4738bd482372c3165c3096cb15795edb8d9d26cd97c65f7dcf14bfef4057aa2b2abc5dddfc676b799d10509d7df54577b20289c52da7bfc0f2952d517f7ba9503de5931b9a98d7f867ad841e128aaa3446b6a1c8a70a94a171556320ab0d7396ff8eb631610fc19d3e937bd86949ee2ccfda40c434a11a0e3ebd84ae4fadf0f0f9e2e52faa019c9da87b18d262fe47aba0198e63ba2cb336381b81dbe7a3d7310e14b92ea1c432b1625a69d89e40aff6863b367351d78af9dd02472528817a80b235f895"
         };
         consensus.usdsoqAuthorityThreshold = 2;  // 2-of-3 multisig
+
+        // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ Authority Keys — 2-of-3 ML-DSA-44
+        // multisig (FIPS 204). Control BTCSOQ mint/burn/freeze. Generated
+        // 2026-07-20 for stagenet. Secret key material lives in the offline
+        // registry + signer keystore, NEVER committed.
+        consensus.btcsoqAuthorityKeys = {
+            "e36d956c7f180fe68d49a0d0cb75fa499f70239092b79672b7319e4810183180e51837ace1708732682aae6d5e8154e4a60268fb926b23a8ffaf132b31590ada560f38071d810da09f91d9bcf53c5ec4be373514a56e46e3d4f4d52bd63e8392e7bb9cbe43b37bc3602fe02800a44111b3ea6dcfefcaa7f1e754052da56615bbe2df62d6b63059dc433af845895fdd8ed507da784eee5a745c3390f7d7ed758094c971c4d026b250cc4a84c41bd78df7748d727255fc68c6a98e07993a5083d2550576a1b975177c1c38c11e5c0143a28cdf4c62201f4df198af709e7e53faf3e024fe5591dcd34bc0b7fc09e5a12c015a20c3593b7a95505e2a0c59498d211c06c5d3711a46207f19aa205ad9fbc7af3bdc19d8e730de7321610c7e5aa7b666cc5d6c1e3c4ae107d4fe3041150e33eef1372cb6536097d649430b4bf70df3d9ea6f37eb21fc135e333fa1b96efdfad405e55149c17787375d7b9f6a212c23b7ac136e7a4b8e2e8866e0f32f46a6f00755a9628024457e717dce35574eea73e26ca51d70520f8e0c117eaf18a0aef367433982a596dc17df4f35d2560dad97caa0e95ad39931f7aad46789467a0878d3d9aa06dfa098107fe23dca1c90f8b46ad08536fc134aee937c2c32f5557f0072886197efe6d81f364b4a920b8d9328df96ecb6a85d6c578ca53ddd5b31d4832ee5ce0139120e06e00672883c493d3db4f28d53a816f6194e479427c0432389835357f30817d78d9862d1e74c433faad53ce42df19478f3e14d71e2088a4ad889768981d416988adb1d669cc8ffedafac9dc14b162c0592d0556162b0652512d983bba8ed0fe7cc360c3987522048f0f3f6a63d40e35e3ffb0441f3c50ad2a75a2c0322a26009ec75490d0d870ea802f355dadda6a4b49f7bf6a08389ab6734a4b1dce70a7671ae0a26d7c1b042294f11ae89d454042e381c2e0834d11edd8400061691d52cdbac9bc836b82fcaf15237e191304ad8cea824ec6bc063bab55c19f92160bd8427a4df162b350ceb14dcc16bac1bb3a8a43754700225c5d66c052b3b5b0c7f3396b22f4f27604dafa83c331a997ac98ee4cfb7eafc0a504fc8d340e2e1f9fd4c2f617704ceab7ae3e0cdc355c6d15f125685abe2a7d16e6eb5fa1f5603d93d528b5ba1fee811511d2086abf0d273e7818b7e92394e4213a682fe44c650efb84d72f856b0402e0f0a1e094f104a024f396ed1433a96c57291c555220e36005d1841f8e61bd47bed36586f825bba4297dffc6bfa81ac5304af81283b2f00e276cfdb041b76af7e37e0bd0e2dea40d0597de37d61a9dd25a6c54726311cf1f37d056a6510ca41e713afd6c484fd9e30a20802c50a7b0251ea2b33448e7e30eaf46d2b6523d8ee2cfc611463c00f8457adc7079cf3caee52067d2ee74cce0cc6b8176de8237cc235520566ce466d416cc6a7e53c5d2a9821032564768994a877c1c975ae3fef073d9944aeaf166664627043a65043ce5da62e0de66aa7da8f5ac1b5ad01bd9ddfc2a7c6e7db4900c0fb251c19d3c037b3d6c26868fd5ef0c3e096e9b167d1e9ea733eb4e86abac876072a81ed8eb372fee84703b5bac4857d9ea85eb655bdd531608de82ef39a8433c82f020e739b1a9c5596429a79c38b2ab3d782a6d42fb649ec3f8a650631cccc9240c4c816b04b18851840588445c4d0aa222de20adcebe58101a74bd8843122b577ef6c25bb04d68235937c1045077825cfa85938f5f4a5cfa8ab97ec0cf09457fda79b89077503a1f1c221b6245f39308e9e559d3156c9c69456758b627c45dd3d79c1f602c84c145120bd271023dc850218880fe62c7da43a6865d5c2",
+            "202aba46d6b4b5049b56fc9b90ab185fa39be262f87d5370f1e5cec54a97987cf184871d976ddb178c13a08c7faa732db54de75d75653fa4c1e584fd1f0be719d236347f696c9a684944b46dc7a1a78f2aef71342ff87ca08388eac665d67ab3a091824d3cfe68d26ceea470817aa63075a60f6373635ae474d639c380f8c7ed9f13fe79f4b314995c3675dab0de377788ae699b3bbb34dcab8db415d1594338b1a126f60e32c5166b06d69e8a994cf7a75f2c4d5a58fdb815fb102e72d12fd5837f54d1a3e86b9c28d6192e0bf667275d54c2d64d80a8902c7c1df7b99902b043edae6b7c2c4ad258c7bce39f15ca140b908b0055efdb8cb604aa25163ce187c32b811c4b017397896aee06b9bcc00bf31deca068a6b066d43b5e85019fe24c1a166024d8bb286ef885d01f88e944e4e737f9b6b7173486ee2713f4388da570f112119b7b2e119a60f0ec77621582be6e6f2c03343c95def1db6617ba12f866286b29719614b5ffa54641b2fd730828ca5be8e0607c914feb31338db396eb3eeb364c8f5f624fa27b747f750afb34b90eba5f31c5eea5252640277f2115842db71665b9def71648c714b147046a8b29128edffab4d718436612d6d8537b3401b33b314070e4c9988f9c81d85858bd47a7d311446235361fcabffdaabf1fc0c24db45b621c1c68379806c676f5adc0f30e1f3aa555738e72c1b5de76e5a3d0fe7d648696fbf4b45e1f4cf3cde41e0db33df8836c726a51ec8fc02c6db33bffc839db667a8d9c74ec247f653297cfa88508693bce06a792a322501bb74f1be9ea25e6b7728c06a881ea8a28e22299ae457e166cf80aba1338ea2147bfd38073d243e93140bb2842fdf8f595432d3a70732113e6a4504617dcb1a3c356b07b1caac3cff2f41c8376dedfe3513e876abf0ec55a5e82915119942e86a6ae4f15a88446459280d38df3eaad0dbb6865988fe00bdfd2e52d6e5a3fe8192f3616329b53f4ceb8c2d8b7970d7ec24a8b80b78fa891b5ac2a500a15d482742476e3d75b442d04494836f549b5a919070ac29bbcbf81c4a8f23febfcaa9202db50316499a93e04601d10e06be3915ff7929a5aa0ca3f5e6fec09db85adb3ea4f57b49f376e18f2ede046c5cafafc6be4fbe6335ded6a6d8812f8b33b773324830a9e116ebdfa6d77244d28bce89e1cea0adb0f7e36e5a898d169ba0f6108da9e9e5a6bdebc44f1fe1718649e461d495b3194339637dca5548e302eb52dc1fb7bcf0b704ef85734a40efa77766fe1be7ec29e6e64dbe3ecca5632d91e3d690d46caf404565d56e88c63111fbd195c8579b1080bae636a75ea496b80c7721d39f55ca95984f9aa19d90ccbb75094b908a568c41b55c9cc85e8dfa68fd11b26dd9024730d4ee1d3c7eb9a5dbeb6a728c4bfc558876446b7b30369e3fc98e8707abb4605d6bf4894103047f640f18c6849dfb0b92753a925455edf77fe94cfc353297c11dce62a059a216e3177338bbf8d485da1341d2aa0a76fd5a1126f96d09c7142cb1bf95686664e96b62eec2c519b56d3f80d1cc787e9431c393a215a4071fe311baac7f29c5c5a20d4aa9aed949b6ca011b4bceb625dc6ec1a8051b7bb536de23fe0e37ca7b9f6eda766273da8ce5680cdf4f321cd807c63d1d47fb98cfe9e56131baee02b230c5ce183d56d84768a19980c7595e7724cbe84dcb9d66879ca3f7617202d933b116b7967df46dfb6dd2398ea8db36b9f67378bc0c750bb479a29fd1fdc891eb4bdc621c6b868a11829c09569bc675808de289fae716262a384af5f89b81b4d8c3bc7f66c15154250822b7a43ab7dec23bf7166706f54bdc4c312e8ab2621",
+            "89cf406c43df765d67a16cfcfe287c0ad096aa904fe7dd86db807c921950f1dd812c3773a16b056fadfa85d5ae220a6213d8c0a1a199c1f8f7564bc4738b7d7e12daf93d5462493c5d7761e80f27ebed24102b8664657324eed3a3c89be1cf094671639a59e59d9ff92385b19c6a080661dc271862e6b3cf347fa59f99e4e3a85aa3e795258c32b3a14375c3152b46118baed22680d4fc122b9b03bb06a49f28a7767a172e2c7a6558316afc56703c3b63e0f5e163b0b5bd2381b22a1e5493e4790aa5bf944c3a6e6b8eac29639ae8b0caf4e5492b65180d96b9482a31ee5c35ff19292207c9271fce320e80e963d4ed432be87358f090aa91f909b95a37da63ad1f85f53601eed3a64d68cbdc9cb35098cd9b2d340e406d9d778f33d5e213961ccee1a0a8fa80890e5fc0a27d13987ab6dbd2def1637458e3f46b51a66cbff59c9323cccb1fcb8b45643bc9aeb49196928eff9e7062143e08701bc7f9e9a9140b3e2a2ab1c0f6280ab6804f1bddf98425fc97223acb7c63a06bf55dd5aa63825e69eef7897456295f415c8beb003df9638220e7517dbe45016cca5f78d76688ecb8f071e4038d7c01d36a6ee2ca3e7b33a0caa1cc1211d960f456d36b05c5cb6ab2235c3cfb5375a43afe36d5dbbad1cd3755cb88b0b9cfeeb84707217565498b4f14528ead6c17b38e21834616d3473a68df0c7bba23ac5e44526314b5a9ddf05d7ac03e87405fa0e02e43ba2c99fbd9f8a23785fb300661e47fb2f78e754583aec0f8dfff446913bcb8da2d15f6a2ffbc293857d8717b666d0537c8c521b6657e2e6d86e5828cba3db367b5422a0b55e283eb4f08181cbc322530a76ea4164ba7661cc62a6b7e946c30b1caa8b2bf95d3bc95ed18730f186da2b22ea2588a347ad0cde1c57d15253141544b540a7c92598d204188c68ae8e33e6da706c9ce6621d647ac7a037ec8d14f214b0f10bde6781b8de06bea92eb1762e5ec7cd8c96699e7137f0bb859a4af79c426f07e662a1d03b8c6ab2d6a6398cbae6865888d97201668c54d066b9cbe90d1e6a4daa2cd2099fee2641453b5c0a5ffdcc871d17a284c2d174127b7cd6fd8dd95c0f45660f53d7d91805d5b763fcad5911e9ce766ffcf7c4bbab098f61b5a72ef69459b25f7103d5f1a1750dd80078951b481ac90c65a53559168d99343243ebd1dbde4db2acfb535d5856750f2b9d3bb924db6c916c67bce9ac130c6ac97cf701c33aa6bf010bec6b39633e1e8c28a77900cf50a02eb7d4bf1e07fb11ad11f735a78f0bc4829ad0fa6fa73ce28971ecc40fa0b1a157ce822f8426d16285b3dc6b41957420509e291a5ca8b8cf99536850a7236f9fde5aba6a734df64d4c4c4be6b540bc5c2bc6cba62cdf960e4610f2958c975b9f8591761515f811c9a0b2a6b31a1a1bd56292f2cae1475da891037526369fbdfacb03a26be48d154b7770e2d09a24f0d98efcffe5daecf5ef8a53d0b4332a6f9200ab8e1801f650b656bf017081b21bea2cdd1bddb04b1d3948b5f0e5aeb0f421ad259edc3bf966348518a061ed4d3d4798a8cdc2b50ea4816a56b09f1195be8546349c752a41d86f25fa6e487ec52c642fba7f45ace6ebbef96937c42b254c2ecb43445b4e2d689a5b45db95c492fd0939af946a008d8bc6dcb958688da320f2256a36db9d879de5774374925aeeaee57c767dc3dbb479f1ddee063736d8a569d29e8ea5cafb03334fd4a7a3f12aff9819f1744ddbf02a05b295110fd34a0914ee108401b02735cfb4d22a95eab7401150dcba15da619b39432cfb21f23b8e3bc668981d3b5bded11dbf6431a9c1050c4da4780fe64db266ad1f3cb9f5cc8"
+        };
+        consensus.btcsoqAuthorityThreshold = 2;  // 2-of-3 multisig
+        // BTCSOQ has no legacy chain: enforce M-of-N + freeze from genesis
+        // (no pre-authority exemption window, unlike the USDSOQ 7700 boundary).
+        // Safe because no historical stagenet block carries a v8/v9 output
+        // (verified by the pre-deploy OP_8/OP_9 sweep).
+        consensus.nBTCSOQAuthorityEnforcementHeight = 0;
 
         // SOQ-I005-STAGENET: Authority signature enforcement height.
         // RECALIBRATED 2026-07-04 (Casey-ratified) for the reset stagenet chain:
