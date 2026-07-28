@@ -15,9 +15,9 @@ To report a security vulnerability, please send a PGP-encrypted email to:
 
 **Casey Wilson**  
 E-mail: dev@soqu.org  
-PGP Key Fingerprint: (to be published on keyservers & website Dec 1 2025 – interim key available on request)
+PGP Key Fingerprint: Available on request at dev@soqu.org
 
-Alternatively, encrypted DMs are accepted via X/Twitter @memecoin_doctor (preferred for speed).
+Alternatively, encrypted DMs are accepted via X/Twitter @saborealabs (preferred for speed).
 
 We follow responsible disclosure:  
 - You will receive an acknowledgement within 12 hours.  

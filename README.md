@@ -28,7 +28,7 @@
 
 ## About
 
-Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It combines two batch-verification techniques—**PAT** (Practical Aggregation Technique) and **LatticeFold+**—to achieve scalable post-quantum security without sacrificing performance.
+Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It uses **PAT** (Practical Aggregation Technique) for signature batching and **SoquObscura** for post-quantum confidential transactions, built on the LNP22/LaZer proof system with LaBRADOR block-level proof aggregation.
 
 > **Why does this matter?** Quantum computers will eventually break ECDSA. Soqucoin makes all user transaction signatures quantum-resistant without requiring a soft-fork migration from an ECDSA-based design.
 
@@ -42,7 +42,8 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 | Stability testing (1200+ blocks) | ✅ Complete | Jan 2, 2026 |
 | Halborn security audit (30 findings) | ✅ Complete | Feb–Mar 2026 |
 | Lattice-BP++ consensus wired | ✅ Complete | Apr 2026 |
-| Mainnet genesis | 🔄 In Progress | Q2 2026 |
+| SoquObscura CT (LNP22/LaBRADOR) | 🔄 In Progress | Jul 2026 |
+| Mainnet genesis | 🔄 In Progress | 2026 |
 
 ---
 
@@ -54,39 +55,37 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 |-----------|---------------|----------------|
 | **Signatures** | ML-DSA-44 (Dilithium) | NIST Level 2 (128-bit quantum) |
 | **Address Hashing** | SHA-256 | 128-bit collision |
-| **Batch Verification** | LatticeFold+ / PAT | Constant-size proofs |
+| **Batch Verification** | PAT (Merkle-aggregated) | Constant-size proofs |
 | **Proof-of-Work** | Scrypt (N=1024, r=1, p=1) | Grover-resistant |
 
-### Confidential Transactions (Lattice-BP++)
+### Confidential Transactions — SoquObscura (SOQ-P010)
 
 | Component | Implementation | Security Level |
 |-----------|---------------|----------------|
-| **Commitments** | Lattice (Module-LWE, n=256, q=8380417) | NIST Level 2 (quantum-safe) |
-| **Range Proofs** | Lattice-BP++ | NIST Level 2 (quantum-safe) |
-| **Ring Signatures** | Module-LWE ring sigs (up to size 11) | NIST Level 2 (quantum-safe) |
-| **Proof Size** | 12,321 bytes | — |
-| **Verify Time** | 0.022 ms | Apple M-series arm64 |
+| **Commitments** | ABDLOP (R = Z_{12289}[X]/(X^64+1)) | NIST Category 2 (quantum-safe) |
+| **Range Proofs** | LNP22 exact-binary extraction | NIST Category 2 (quantum-safe) |
+| **Balance Proofs** | Corrector-chain with shift-shadow boundary pin | NIST Category 2 (quantum-safe) |
+| **Verifiable Encryption** | Dual-target Module-LPR (issuer + recipient) | NIST Category 2 (quantum-safe) |
+| **Block Aggregation** | LaBRADOR pack proofs (single q = 2^38 − 107) | Constant-size per block |
+| **Ref Tx Size** | ~146 KB (2 range + 1 balance + 4 VE) | — |
+| **Ref Verify Time** | 316 ms (single-thread, Xeon 8358, AVX-512) | — |
 
-> **Note:** Lattice-BP++ uses the same Module-LWE/SIS hardness assumptions as NIST's ML-DSA (Dilithium) standard, providing full quantum resistance. Activated via `OP_LATTICEBP_RANGEPROOF` (witness v4) soft fork. Patent pending.
+> **Note:** SoquObscura supersedes the earlier Lattice-BP++ system (SOQ-P002). It uses ABDLOP commitments with LNP22/LaZer proofs and LaBRADOR block-level aggregation. The exactness architecture confines approximate proof slack (ψ) to non-consensus-critical margins via compile-time static asserts. Patent pending (SOQ-P010).
 
 ### Performance Benchmarks
 
-<!-- H-5 FLAG (repo-prof-gqq.5): the "Lattice-BP++ Verify = 0.022 ms" figure below
-     (and the duplicate at "Verify Time" in the CT table) is UNVERIFIED — no in-repo
-     benchmark backs it, and it is internally implausible (faster than a single
-     Dilithium verify at 0.041 ms for a 12 KB lattice range proof; possible µs/ms
-     unit error vs an internal ~4 ms measurement). Re-benchmark and reconcile before
-     this README is published. Do NOT ship these numbers as-is. -->
 ```
 ┌─────────────────────────────────┬────────────────┬─────────────┐
-│ Operation                       │ Time (M4)      │ Size        │
+│ Operation                       │ Time           │ Size        │
 ├─────────────────────────────────┼────────────────┼─────────────┤
-│ Dilithium Sign                  │ 0.177 ms       │ 2,420 bytes │
-│ Dilithium Verify                │ 0.041 ms       │ —           │
-│ PAT Aggregate (1000 sigs)       │ 0.67 ms        │ 72 bytes    │
-│ LatticeFold+ Verify (512 sigs)  │ 0.68 ms        │ 1.38 KB     │
-│ Lattice-BP++ Prove              │ 0.556 ms       │ 12.3 KB     │
-│ Lattice-BP++ Verify             │ 0.022 ms       │ —           │
+│ Dilithium Sign (M4)             │ 0.177 ms       │ 2,420 bytes │
+│ Dilithium Verify (M4)           │ 0.041 ms       │ —           │
+│ PAT Aggregate 1000 sigs (M4)    │ 0.67 ms        │ 72 bytes    │
+│ SoquObscura Range Prove (Xeon)  │ 61.8 ms        │ 17,991 B    │
+│ SoquObscura Range Verify (Xeon) │ 26.8 ms        │ —           │
+│ SoquObscura Balance Verify      │ 34.9 ms        │ 20,233 B    │
+│ SoquObscura VE Verify           │ 56.9 ms        │ 22,426 B    │
+│ Full Ref Tx Verify (Xeon 8358)  │ 316 ms         │ ~146 KB     │
 └─────────────────────────────────┴────────────────┴─────────────┘
 ```
 
@@ -230,9 +229,8 @@ cp config.example.json config.json && nano config.json
 
 | Opcode | Hex | Witness | Purpose |
 |--------|-----|---------|----------|
-| `OP_LATTICEBP_RANGEPROOF` | 0xfa | v4 | Lattice-BP++ range proof verification |
-| `OP_CHECKFOLDPROOF` | 0xfc | v3 | LatticeFold+ batch proof verification |
 | `OP_CHECKPATAGG` | 0xfd | v2 | PAT Merkle commitment verification |
+| `OP_SOQUOBSCURA_VERIFY` | 0xfa | v4 | SoquObscura confidential tx verification |
 
 ### Prover Implementation Status
 
@@ -240,13 +238,12 @@ cp config.example.json config.json && nano config.json
 |-----------|----------|--------|
 | **PAT Prover** | `src/crypto/pat/logarithmic.cpp` | ✅ In-tree |
 | **PAT Verifier** | `src/crypto/pat/logarithmic.cpp` | ✅ In-tree |
-| **LatticeFold+ Prover** | Off-chain (trusted pools) | ✅ Operational |
-| **LatticeFold+ Verifier** | `src/crypto/latticefold/verifier.cpp` | ✅ In-tree |
-| **Lattice-BP++ Prover** | `src/crypto/latticebp/range_proof.cpp` | ✅ In-tree |
-| **Lattice-BP++ Verifier** | `src/crypto/latticebp/range_proof.cpp` | ✅ In-tree |
+| **SoquObscura Verifier** | `src/crypto/soquobscura/` | 🔄 Wave 3 |
+| **SoquObscura Prover** | `src/crypto/soquobscura/` | 🔄 Wave 3 |
+| **LaBRADOR Aggregator** | `src/crypto/labrador/` | 🔄 Integration |
 | **PQ Wallet Library** | `src/wallet/pqwallet/` | ✅ In-tree |
 
-Note: LatticeFold+ is `ALWAYS_ACTIVE` from genesis on all networks. Lattice-BP++ is `ALWAYS_ACTIVE` on regtest, `NEVER_ACTIVE` on mainnet pending audit.
+Note: Lattice-BP++ (SOQ-P002) and LatticeFold+ are deprecated and superseded by SoquObscura (SOQ-P010). Deprecated code will be removed in the next node release.
 
 ### Branch Structure
 

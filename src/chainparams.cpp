@@ -167,7 +167,7 @@ public:
         // double-spend window; must stay well above the deepest natural reorg).
         // Propagates into digishieldConsensus via the copy below.
         consensus.nMaxReorgDepth = 288;
-        consensus.fSimplifiedRewards = true; // Deterministic subsidy: 100,000 SOQ initial, 47B/250k-halving schedule (no Dogecoin random rewards); see GetSoqucoinBlockSubsidy
+        consensus.fSimplifiedRewards = true; // Deterministic subsidy: 100,000 SOQ initial, 47B/250k-halving schedule (no random rewards); see GetSoqucoinBlockSubsidy
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.fPowAllowDigishieldMinDifficultyBlocks = false;
         consensus.fPowNoRetargeting = false;
@@ -179,7 +179,7 @@ public:
 
         // Deployment of BIP68, BIP112, and BIP113 (CSV) and SegWit (BIP141/143/147).
         // g7c: these are the BASE witness framework the entire Dilithium model rides on.
-        // They must be active from genesis on mainnet. The inherited Bitcoin/Dogecoin
+        // They must be active from genesis on mainnet. The inherited upstream
         // BIP9 windows below (real 2016/2017 timestamps, SegWit nTimeout=0) resolve to
         // THRESHOLD_FAILED on a 2026-genesis chain, which would leave every witness
         // program (v0-v7: all Dilithium/PAT/LatticeFold outputs) anyone-can-spend.
@@ -314,7 +314,7 @@ public:
         consensus.nLatticeFoldActivationHeight = 0; // Active from genesis
 
         // AuxPoW parameters
-        consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
+        consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique chain ID)
         // lw7: reject AuxPoW blocks that don't carry our chain id (and, via the
         // parent-side check, parents that DO) — blocks cross-chain / self-merge-mining
         // PoW reuse. Safe on mainnet: the chain is fresh and the miner (SetBaseVersion)
@@ -327,7 +327,7 @@ public:
 
         // CONSENSUS FIX (DL-MAINNET-DIFFICULTY-TRANSITION):
         // DigiShield per-block difficulty adjustment from block 1 (matching stagenet).
-        // Soqucoin launches from its own genesis — Dogecoin's 145000 is meaningless here.
+        // Soqucoin launches from its own genesis — upstream height 145000 is meaningless here.
         // DigiShield must activate early so the chain can handle AuxPoW hashrate
         // without being stuck on 240-block retarget intervals.
         //
@@ -344,7 +344,7 @@ public:
         // AuxPoW + DigiShield from block 1 (merged tier).
         // Both standalone Scrypt blocks (solo miners) and AuxPoW blocks
         // (merge-mining pools) accepted. fAllowLegacyBlocks = true enables
-        // Dogecoin-model dual mining. nAuxpowStartHeight=0 on base consensus
+        // Dual mining model. nAuxpowStartHeight=0 on base consensus
         // means AuxPoW blocks are valid from genesis, but the DigiShield
         // difficulty adjustment kicks in at block 1 via this tier.
         auxpowConsensus = digishieldConsensus;
@@ -559,7 +559,7 @@ public:
         consensus.nLatticeFoldActivationHeight = 0; // Active immediately for testing
 
         // AuxPoW parameters
-        consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
+        consensus.nAuxpowChainId = 0x5351; // "SQ" = Soqucoin (unique chain ID)
         consensus.fStrictChainId = true;   // lw7 — testnet3 is retired; mirror mainnet
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
@@ -567,7 +567,7 @@ public:
 
         // DigiShield + AuxPoW from block 1 — mirrors mainnet's merged tier.
         // (bead soqucoin-build-lnq: the previous 145000/157500/158100 tier
-        // ladder was un-customized Dogecoin testnet history, meaningless on
+        // ladder was un-customized upstream testnet history, meaningless on
         // Soqucoin's own genesis. Testnet3 is retired in favor of stagenet,
         // so this has no live-network impact; aligned to the mainnet design
         // for a possible future re-mine.)
@@ -600,7 +600,7 @@ public:
         nPruneAfterHeight = 1000;
 
         // Soqucoin Testnet3 Genesis Block - Dec 2025
-        // Unique genesis isolates Soqucoin from Dogecoin testnet
+        // Unique genesis isolates Soqucoin from upstream testnet
         // "First quantum-resistant Scrypt chain - Soqucoin Testnet3 Dec 2025"
         genesis = CreateGenesisBlockTestnet3(1766813480, 1014070, 0x1e0ffff0, 1, 88 * COIN);
 
@@ -619,7 +619,7 @@ public:
         digishieldConsensus.latticeBPSeed = consensus.latticeBPSeed;
         auxpowConsensus.latticeBPSeed = consensus.latticeBPSeed;
 
-        // Clear all Dogecoin seeds - Soqucoin testnet is isolated
+        // Clear all upstream seeds - Soqucoin testnet is isolated
         vSeeds.clear();
         // Soqucoin DNS seed nodes - January 2026
         vSeeds.push_back(CDNSSeedData("soqu.org", "seed1.soqu.org")); // Testnet3 VPS
@@ -771,7 +771,7 @@ public:
         consensus.defaultAssumeValid = uint256S("0x00");
 
         // AuxPow parameters
-        consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique ID, avoids Dogecoin collision)
+        consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique chain ID)
         consensus.fStrictChainId = true;     // lw7 — regtest is ephemeral; mirror mainnet
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nAuxpowStartHeight = 20;   // Regtest: match auxpowConsensus.nHeightEffective
@@ -1084,7 +1084,7 @@ public:
         digishieldConsensus.fDigishieldDifficultyCalculation = true;
         digishieldConsensus.nPowTargetTimespan = 60;
 
-        // AuxPoW from block 100 — Dogecoin-model dual mining
+        // AuxPoW from block 100 — dual mining model
         // Both standalone Scrypt and AuxPoW blocks accepted (matches mainnet)
         auxpowConsensus = digishieldConsensus;
         auxpowConsensus.nHeightEffective = 100;
