@@ -28,7 +28,7 @@
 
 ## About
 
-Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It uses **PAT** (Practical Aggregation Technique) for signature batching and **SoquObscura** for post-quantum confidential transactions, built on the LNP22/LaZer proof system with LaBRADOR block-level proof aggregation.
+Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It uses **PAT** (Practical Attestation Technique) for batch signature attestation and **SoquObscura** for post-quantum confidential transactions, built on the LNP22/LaZer proof system with LaBRADOR block-level proof aggregation.
 
 > **Why does this matter?** Quantum computers will eventually break ECDSA. Soqucoin makes all user transaction signatures quantum-resistant without requiring a soft-fork migration from an ECDSA-based design.
 
@@ -97,7 +97,7 @@ Validated on **Antminer L7** (9.5 GH/s):
 - Zero rejected shares across the validation run
 - 640+ blocks continuous operation, zero crashes
 
-### PAT (Practical Aggregation Technique)
+### PAT (Practical Attestation Technique)
 
 **Status**: ✅ Fully Implemented (v1.0) — November 2025
 
