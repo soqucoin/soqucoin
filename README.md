@@ -28,7 +28,7 @@
 
 ## About
 
-Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It uses **PAT** (Practical Aggregation Technique) for signature batching and **SoquObscura** for post-quantum confidential transactions, built on the LNP22/LaZer proof system with LaBRADOR block-level proof aggregation.
+Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It uses **PAT** (Practical Attestation Technique) for batch signature attestation and **SoquObscura** for post-quantum confidential transactions, built on the LNP22/LaZer proof system with LaBRADOR block-level proof aggregation.
 
 > **Why does this matter?** Quantum computers will eventually break ECDSA. Soqucoin makes all user transaction signatures quantum-resistant without requiring a soft-fork migration from an ECDSA-based design.
 
@@ -80,7 +80,7 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 ├─────────────────────────────────┼────────────────┼─────────────┤
 │ Dilithium Sign (M4)             │ 0.177 ms       │ 2,420 bytes │
 │ Dilithium Verify (M4)           │ 0.041 ms       │ —           │
-│ PAT Aggregate 1000 sigs (M4)    │ 0.67 ms        │ 72 bytes    │
+│ PAT root over 1000 sigs (M4)    │ 0.67 ms        │ 72 bytes    │
 │ SoquObscura Range Prove (Xeon)  │ 61.8 ms        │ 17,991 B    │
 │ SoquObscura Range Verify (Xeon) │ 26.8 ms        │ —           │
 │ SoquObscura Balance Verify      │ 34.9 ms        │ 20,233 B    │
@@ -97,11 +97,11 @@ Validated on **Antminer L7** (9.5 GH/s):
 - Zero rejected shares across the validation run
 - 640+ blocks continuous operation, zero crashes
 
-### PAT (Practical Aggregation Technique)
+### PAT (Practical Attestation Technique)
 
 **Status**: ✅ Fully Implemented (v1.0) — November 2025
 
-Soqucoin implements PAT for logarithmic batching of Dilithium signatures through Merkle tree commitments. This provides massive space savings for batch transaction validation.
+Soqucoin implements PAT to commit a batch of Dilithium signatures to a Merkle root. This gives a constant-size on-chain commitment for batch validation; the signatures themselves remain in witness data.
 
 #### Implementation Details
 
@@ -129,7 +129,7 @@ Soqucoin implements PAT for logarithmic batching of Dilithium signatures through
 | Proof Size | 100 bytes | Constant, regardless of batch size |
 | Verification (Simple) | < 4 µs | O(1) constant time |
 | Verification (Full) | ~800 µs @ n=1024 | O(log n) tree traversal |
-| Space Savings | 25,600× @ n=1024 | vs individual Dilithium signatures |
+| Commitment ratio | ~25,600× @ n=1024 | 100-byte commitment vs the raw signature bytes it commits; signatures remain in witness |
 | Activation | Block 0 | Active since genesis |
 
 #### Consensus Mode
