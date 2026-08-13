@@ -334,7 +334,8 @@ static UniValue getprivacystatus(const JSONRPCRequest& request)
         Consensus::DEPLOYMENT_LATTICEBP);
     bool latticebpActive = (latticebpState == THRESHOLD_ACTIVE);
 
-    // LatticeFold is always active (separate from Lattice-BP++)
+    // LatticeFold+ (separate from Lattice-BP++). Withdrawn from launch consensus:
+    // inactive on mainnet, still ALWAYS_ACTIVE on the test networks.
     ThresholdState latticefoldState = VersionBitsTipState(
         consensusParams,
         Consensus::DEPLOYMENT_LATTICEFOLD);
