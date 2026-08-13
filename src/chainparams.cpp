@@ -199,11 +199,35 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // LatticeFold+ activation — ALWAYS_ACTIVE from genesis (April 2026 decision)
-        // SOQ-P002: No BIP9 signaling needed — new chain, privacy from block 0
+        // SOQ-P002: LatticeFold+ (OP_CHECKFOLDPROOF) — WITHDRAWN from launch consensus.
+        // This was ALWAYS_ACTIVE from genesis under the April 2026 "new chain, privacy from
+        // block 0" decision. That decision is withdrawn: the verifier reads the statement
+        // fields (t_coeffs, c) from the untrusted proof blob and every algebraic check is
+        // homogeneous in the witness, so the all-zero witness satisfies all of them. The only
+        // non-homogeneous check is the Fiat-Shamir seed, a public value the spender recomputes.
+        // A proof carrying no valid Dilithium signature therefore verifies. Consensus gates
+        // this opcode via BIP9 VersionBitsState (validation.cpp:1470/3131), NOT the vestigial
+        // nLatticeFoldActivationHeight below, so ALWAYS_ACTIVE was a live mainnet forgery path
+        // from genesis.
+        //
+        // nStartTime=0 / nTimeout=0 => THRESHOLD_FAILED (terminal, never ACTIVE), the same
+        // never-active idiom used for LATTICEBP below. SCRIPT_VERIFY_LATTICEFOLD is then never
+        // set on mainnet, which makes both entry points unreachable: OP_CHECKFOLDPROOF in a
+        // script returns SCRIPT_ERR_BAD_OPCODE (interpreter.cpp:316) and the witness-v3 program
+        // short-circuits before EvalCheckFoldProof (interpreter.cpp:1652).
+        //
+        // Witness v3 (OP_3) stays relay-nonstandard via the BIP141 s4 future-witness rejection
+        // in policy.cpp — it is NOT one of the v5-v9 carve-outs — so a v3 output cannot be
+        // funded through normal relay while it is anyone-can-spend. Do not add OP_3 to those
+        // carve-outs while this deployment is inactive.
+        //
+        // The confidential-transaction purpose is served by the flag-2 aggregation (pack) path.
+        // Reactivate on mainnet only with a real prover, a statement anchored to a commitment
+        // fixed OUTSIDE the proof, and a re-audit. Regression guard:
+        // latticefold_tests.cpp: mainnet_latticefold_deployment_never_active.
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 0;    // Never activates
 
         // SOQ-P003: Lattice-BP++ Range Proofs — NOT ACTIVE (future soft-fork)
         // Post-quantum confidential transaction amount hiding using Ring-LWE
@@ -290,8 +314,8 @@ public:
         // DL-P96-BLOCK-VERSION-ACTIVATION.md). All ship NOT_SCHEDULED (dormant) — a
         // coordinated release sets a real height for each as its Halborn Phase 2
         // scope clears. The nStartTime/nTimeout above are retained but NOT consulted
-        // for these deployments. (CHECKPATAGG/LATTICEFOLD stay always-active on BIP9;
-        // CSV/SegWit stay on the historical BIP9 windows.)
+        // for these deployments. (CHECKPATAGG stays always-active on BIP9; LATTICEFOLD is
+        // BIP9-inactive above; CSV/SegWit stay on the historical BIP9 windows.)
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
@@ -311,7 +335,10 @@ public:
         consensus.defaultAssumeValid = uint256S("0x00");
         consensus.dilithiumOnlyHeight = 0;
         consensus.dilithiumOnlyHeight = 0;
-        consensus.nLatticeFoldActivationHeight = 0; // Active from genesis
+        // VESTIGIAL: never read by consensus (BIP9 VersionBitsState is the only gate for
+        // DEPLOYMENT_LATTICEFOLD). Retained only so the struct layout is unchanged. Do NOT
+        // wire this up as an activation path — it would bypass the deactivation above.
+        consensus.nLatticeFoldActivationHeight = 0;
 
         // AuxPoW parameters
         consensus.nAuxpowChainId = 0x5351;   // "SQ" = Soqucoin (unique chain ID)
