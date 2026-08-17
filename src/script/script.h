@@ -199,7 +199,7 @@ enum opcodetype {
     OP_USDSOQ_ROTATE = 0xf7,  // Rotate authority key set
 
     // Post-quantum privacy: Lattice-BP++ range proof (SOQ-P003)
-    OP_LATTICEBP_RANGEPROOF = 0xfa,
+    OP_SOQUOBSCURA_RANGEPROOF = 0xfa,
 
     OP_CHECKDILITHIUMSIG = 0xfb,
     OP_CHECKFOLDPROOF = 0xfc,

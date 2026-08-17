@@ -1226,7 +1226,7 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     // Genesis features (csv, segwit, checkpatagg, latticefold) are ALWAYS_ACTIVE
     // and are NOT shown here since they never went through BIP9 signaling.
     // SOQ-I002: DEPLOYMENT_CHECKBATCHSIG removed entirely (dead code).
-    BIP9SoftForkDescPushBack(bip9_softforks, "latticebp", consensusParams, Consensus::DEPLOYMENT_LATTICEBP);
+    BIP9SoftForkDescPushBack(bip9_softforks, "latticebp", consensusParams, Consensus::DEPLOYMENT_SOQUOBSCURA);
     BIP9SoftForkDescPushBack(bip9_softforks, "usdsoq", consensusParams, Consensus::DEPLOYMENT_USDSOQ);
     BIP9SoftForkDescPushBack(bip9_softforks, "ctv", consensusParams, Consensus::DEPLOYMENT_CTV);
     BIP9SoftForkDescPushBack(bip9_softforks, "apo", consensusParams, Consensus::DEPLOYMENT_APO);

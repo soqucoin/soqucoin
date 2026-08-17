@@ -383,7 +383,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             popstack(stack);
                         }
                         stack.push_back(valtype(1, 1)); // true
-                    } else if (opcode == OP_LATTICEBP_RANGEPROOF) {
+                    } else if (opcode == OP_SOQUOBSCURA_RANGEPROOF) {
 #ifndef BUILD_BITCOIN_INTERNAL
                         // =========================================================
                         // SOQ-P003: Lattice-BP++ Range Proof Verification
@@ -401,7 +401,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // =========================================================
 
                         // Consensus gating: not active until soft-fork
-                        if (!(flags & SCRIPT_VERIFY_LATTICEBP)) {
+                        if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
                             return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
                         }
 
@@ -416,17 +416,17 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 
                         // Validate pubkey_hash is exactly 32 bytes
                         if (vchPubkeyHashRP.size() != 32) {
-                            return set_error(serror, SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED);
+                            return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
                         }
 
                         // Validate commitment matches expected serialized size
                         if (vchCommitment.size() != latticebp::LatticeCommitment::SIZE) {
-                            return set_error(serror, SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED);
+                            return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
                         }
 
                         // Validate proof size within bounds
                         if (vchRangeProof.empty() || vchRangeProof.size() > 16384) {
-                            return set_error(serror, SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED);
+                            return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
                         }
 
                         try {
@@ -434,7 +434,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             std::vector<uint8_t> proofBytes(vchRangeProof.begin(), vchRangeProof.end());
                             latticebp::LatticeRangeProofV2 proof;
                             if (!latticebp::LatticeRangeProofV2::deserialize(proofBytes, proof)) {
-                                return set_error(serror, SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED);
+                                return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
                             }
 
                             // Reconstruct commitment from serialized witness data
@@ -459,10 +459,10 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             latticebp::RangeProofParams rp_params;
                             if (!proof.verify(commitment, rp_params,
                                               sighash_arr, pubkey_hash_arr)) {
-                                return set_error(serror, SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED);
+                                return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
                             }
                         } catch (const std::exception& e) {
-                            return set_error(serror, SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED);
+                            return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
                         }
 
                         // Pop all 3 items and push true
@@ -1522,7 +1522,7 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 
 // Strict post-quantum script verification — ECDSA paths completely removed
 // Active EvalScript opcodes: OP_CHECKFOLDPROOF (0xfc), OP_CHECKPATAGG (0xfd),
-//   OP_LATTICEBP_RANGEPROOF (0xfa), OP_USDSOQ_MINT/BURN/FREEZE/ROTATE (0xf4-0xf7)
+//   OP_SOQUOBSCURA_RANGEPROOF (0xfa), OP_USDSOQ_MINT/BURN/FREEZE/ROTATE (0xf4-0xf7)
 // Deprecated (SOQ-I002): OP_RESERVED_BATCHSIG (0xfe) — replaced by LatticeFold
 // Deprecated (SOQ-I003): OP_CHECKDILITHIUMSIG (0xfb) — redundant, inline in VerifyScript
 // Dilithium verification: performed inline by VerifyScript (witness v0/v1)
@@ -1680,7 +1680,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // version. Standardness policy (IsStandard in policy/policy.cpp) MUST
     // reject creation and relay of these outputs to prevent premature use.
     if (is_latticebp_witness) {
-        if (!(flags & SCRIPT_VERIFY_LATTICEBP)) {
+        if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
             return set_success(serror);  // Not active yet — anyone-can-spend
         }
 
@@ -1692,10 +1692,10 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
         }
 
-        // Delegate to EvalScript's OP_LATTICEBP_RANGEPROOF handler
+        // Delegate to EvalScript's OP_SOQUOBSCURA_RANGEPROOF handler
         std::vector<std::vector<unsigned char>> evalStack(witness->stack.begin(), witness->stack.end());
         CScript lbpScript;
-        lbpScript << OP_LATTICEBP_RANGEPROOF;
+        lbpScript << OP_SOQUOBSCURA_RANGEPROOF;
 
         if (!EvalScript(evalStack, lbpScript, flags, checker, SIGVERSION_WITNESS_V0, serror)) {
             return false;  // serror already set by EvalScript

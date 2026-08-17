@@ -188,13 +188,13 @@ BOOST_AUTO_TEST_CASE(mainnet_latticefold_deployment_never_active)
         // The sibling range-proof deployment (bead x1wf, same zero-generator
         // class) must likewise stay inactive on mainnet.
         const Consensus::BIP9Deployment& bp =
-            consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP];
+            consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA];
         BOOST_CHECK_MESSAGE(bp.nStartTime != Consensus::BIP9Deployment::ALWAYS_ACTIVE,
-            "mainnet DEPLOYMENT_LATTICEBP must NOT be ALWAYS_ACTIVE at height " << h);
+            "mainnet DEPLOYMENT_SOQUOBSCURA must NOT be ALWAYS_ACTIVE at height " << h);
         BOOST_CHECK_EQUAL(bp.nActivationHeight,
                           Consensus::BIP9Deployment::NOT_SCHEDULED);
         BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(
-            h, consensus, Consensus::DEPLOYMENT_LATTICEBP));
+            h, consensus, Consensus::DEPLOYMENT_SOQUOBSCURA));
     }
 }
 

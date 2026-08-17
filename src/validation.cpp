@@ -1469,7 +1469,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
                 scriptVerifyFlags |= SCRIPT_VERIFY_PAT;
             if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_LATTICEFOLD, versionbitscache) == THRESHOLD_ACTIVE)
                 scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEFOLD;
-            if (v6active(Consensus::DEPLOYMENT_LATTICEBP))         scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEBP;
+            if (v6active(Consensus::DEPLOYMENT_SOQUOBSCURA))         scriptVerifyFlags |= SCRIPT_VERIFY_SOQUOBSCURA;
             if (v6active(Consensus::DEPLOYMENT_USDSOQ))            scriptVerifyFlags |= SCRIPT_VERIFY_USDSOQ;
             // DL-BTCSOQ-CONSENSUS-NATIVE: same height-gated (p96/Option D)
             // activation model as USDSOQ — mempool flags match ConnectBlock.
@@ -3144,8 +3144,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // (active from genesis); mainnet ships them NOT_SCHEDULED (dormant) until a
     // coordinated release sets a real height. CHECKPATAGG/LATTICEFOLD (always-
     // active) and CSV/SegWit (historical) remain on the BIP9 state machine above.
-    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_LATTICEBP)) {
-        flags |= SCRIPT_VERIFY_LATTICEBP;
+    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_SOQUOBSCURA)) {
+        flags |= SCRIPT_VERIFY_SOQUOBSCURA;
     }
 
     // SOQ-AUD2-002: Start enforcing USDSOQ stablecoin authority opcodes
@@ -3387,17 +3387,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     // =========================================================================
     // SOQ-ARCH-001: Confidential Output Rejection (Pre-Activation)
-    // When DEPLOYMENT_LATTICEBP is NOT active, reject any output with
+    // When DEPLOYMENT_SOQUOBSCURA is NOT active, reject any output with
     // nVisibility != VISIBILITY_TRANSPARENT. This prevents creation of
     // privacy-mode UTXOs before the network has consensus support for
     // validating range proofs and ring signatures.
     //
     // Defense-in-depth: VerifyScript already makes witness v4 anyone-can-spend
-    // when SCRIPT_VERIFY_LATTICEBP is unset, but this catches the edge case
+    // when SCRIPT_VERIFY_SOQUOBSCURA is unset, but this catches the edge case
     // where nVisibility is set on a non-v4 output type (e.g., standard P2WPKH
     // with a manually crafted nVisibility byte).
     // =========================================================================
-    if (!(flags & SCRIPT_VERIFY_LATTICEBP)) {
+    if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
         for (unsigned int i = 0; i < block.vtx.size(); i++) {
             const CTransaction& tx = *(block.vtx[i]);
             for (const auto& txout : tx.vout) {
@@ -3885,7 +3885,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         //   1. LATTICEBP privacy layer is active (BIP9)
                         //   2. Range proofs are valid (checked in LATTICEBP section below)
                         //   3. Commitment balance is preserved (sum_in == sum_out)
-                        if (!(flags & SCRIPT_VERIFY_LATTICEBP)) {
+                        if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
                             return state.DoS(100,
                                 error("ConnectBlock(): USDSOQ confidential output %s:%u before "
                                       "LATTICEBP activation — privacy layer required (SOQ-ARCH-004)",
@@ -4556,7 +4556,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     // =========================================================================
     // SOQ-ARCH-001 Phase 2: Key-Image Double-Spend Protection
-    // When DEPLOYMENT_LATTICEBP is active, extract key-images from confidential
+    // When DEPLOYMENT_SOQUOBSCURA is active, extract key-images from confidential
     // transaction witness data and enforce uniqueness. A key-image that has
     // already been recorded in a previous block constitutes a double-spend of
     // a confidential output.
@@ -4572,7 +4572,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // =========================================================================
     std::vector<LatticeKeyImageHash> vBlockKeyImages;  // Track for DisconnectBlock undo
 
-    if (flags & SCRIPT_VERIFY_LATTICEBP) {
+    if (flags & SCRIPT_VERIFY_SOQUOBSCURA) {
         for (unsigned int i = 0; i < block.vtx.size(); i++) {
             const CTransaction& tx = *(block.vtx[i]);
             if (tx.IsCoinBase()) continue;

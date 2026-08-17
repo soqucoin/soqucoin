@@ -186,7 +186,7 @@ BOOST_AUTO_TEST_CASE(stagenet_critical_deployments_active)
 
     // Lattice-BP++ (bit 5) — ALWAYS_ACTIVE on stagenet (Apr 28, 2026 activation)
     // Enables confidential TX testing. Mainnet remains NOT_ACTIVE pending audit.
-    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime,
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
 
     // USDSOQ (bit 6) — ALWAYS_ACTIVE on stagenet (Apr 28, 2026 activation)
@@ -205,7 +205,7 @@ BOOST_AUTO_TEST_CASE(regtest_critical_deployments_active)
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
-    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime,
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
@@ -275,7 +275,7 @@ BOOST_AUTO_TEST_CASE(subsidy_halving_schedule)
 
 // The height-gated deployments that moved off BIP9 signaling (bits 5-13).
 static const Consensus::DeploymentPos P96_FLAGDAY_DEPLOYMENTS[] = {
-    Consensus::DEPLOYMENT_LATTICEBP,
+    Consensus::DEPLOYMENT_SOQUOBSCURA,
     Consensus::DEPLOYMENT_USDSOQ,
     Consensus::DEPLOYMENT_CTV,
     Consensus::DEPLOYMENT_APO,
