@@ -291,4 +291,61 @@ BOOST_AUTO_TEST_CASE(zero_version_must_reject)
     BOOST_CHECK(!f.Verify(p));
 }
 
+// ---------------------------------------------------------------------------
+// ★★★ A NON-ZERO MEMBER OF THE SAME BREAK CLASS.
+//
+// WHY THIS TEST EXISTS, and it is a defence against a plausible false fix.
+//
+// The two tests above zero z_response, z_randomness and t_reconstruction. A
+// verifier patched with "reject if those are all zero" would turn both of them
+// GREEN while leaving the actual defect — homogeneity of every algebraic check in
+// the prover-supplied values — completely intact. That is not a hypothetical
+// mistake: the previous remediation of the sibling LatticeFold+ verifier shipped
+// with exactly that shape of blind spot.
+//
+// So the battery must contain at least one degenerate witness that is NOT all
+// zeros. Here every witness value is scaled by a constant lambda (mod Q), with
+// version and challenge_seed left honest so the Fiat-Shamir seed stays correct.
+// If the accept path is homogeneous, a scaled witness satisfies it for the same
+// reason zero does.
+//
+// ⚠️ This test asserts REJECTION. Its verdict is genuinely unknown in advance —
+// unlike the two above, which are known-accepting. Whichever way it lands, it is
+// recorded rather than guessed:
+//   - if it FAILS (the scaled witness is accepted), the break class has a second,
+//     non-zero member, and no zero-only patch can ever make this battery green;
+//   - if it PASSES, the exploitable homogeneity is narrower than the comment above
+//     assumes, and THAT is worth knowing before anyone designs a fix around it.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(scaled_witness_with_correct_seed_must_reject)
+{
+    Fixture f;
+    LatticeRangeProofV2 p;
+    BOOST_REQUIRE(f.Prove(p));
+    BOOST_REQUIRE(f.Verify(p));
+
+    const int64_t Q = LatticeParams::Q;
+    const int64_t lambda = 2;
+    auto scale = [&](RingElement& r) {
+        for (size_t j = 0; j < LatticeParams::N; j++) {
+            // centred representative of lambda * c (mod Q)
+            int64_t v = (r.coeffs[j] % Q) * lambda % Q;
+            if (v > Q / 2) v -= Q;
+            if (v < -Q / 2) v += Q;
+            r.coeffs[j] = v;
+        }
+    };
+    scale(p.z_response);
+    scale(p.z_randomness);
+    for (size_t k = 0; k < LatticeParams::K; k++) scale(p.t_reconstruction[k]);
+    // version and challenge_seed deliberately UNTOUCHED.
+
+    BOOST_CHECK_MESSAGE(!f.Verify(p),
+        "SCALED-WITNESS FORGERY: the verifier accepted a witness whose every value was "
+        "multiplied by a constant, with the honest Fiat-Shamir seed. This is a NON-ZERO "
+        "member of the same homogeneity break class, which means no 'reject if all "
+        "zeros' patch can legitimately make this battery green — the accept path itself "
+        "has to stop being homogeneous.");
+}
+
 BOOST_AUTO_TEST_SUITE_END()
