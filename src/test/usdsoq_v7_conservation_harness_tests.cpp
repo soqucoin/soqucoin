@@ -759,4 +759,130 @@ BOOST_AUTO_TEST_CASE(checktxinputs_rejects_exotic_input_in_usdsoq_transfer)
         "reject reason must be Option-B input isolation, got: " + state.GetRejectReason());
 }
 
+// ===========================================================================
+// P3-g — DOES THE ZERO-WITNESS RANGE-PROOF FORGERY COMPOSE TO INFLATION?
+//
+// The forgery is proven: LatticeRangeProofV2 accepts an all-zero witness whose
+// only nonzero field is a public, recomputable Fiat-Shamir seed
+// (test/soquobscura_degenerate_witness_tests.cpp). Every write-up so far has
+// been careful to say the INFLATION consequence was UNPROVEN. These three tests
+// settle it, and the answer is more useful than a yes or a no.
+//
+// ANSWER: no, not today — and the reason is itself a defect.
+//
+// A confidential output carries a PLAINTEXT nValue. CTransaction::GetValueOut()
+// sums nValue over every output including confidential ones, and CheckTxInputs
+// rejects nValueIn < nValueOut. So the amount that consensus enforces is the
+// cleartext field, not the commitment. The range proof is not consulted by the
+// money path at all, which is exactly why forging it creates nothing.
+//
+// ⛔ THE TWO DEFECTS ARE INDIVIDUALLY SURVIVABLE AND JOINTLY CATASTROPHIC.
+// The moment anyone makes confidential outputs actually confidential — value in
+// the commitment, nValue zeroed — plaintext conservation becomes vacuous
+// (0 <= anything) and there is NO commitment-balance check to replace it. At
+// that instant the forgery becomes unbounded inflation. Test 3 proves the
+// vacuity now, so the ordering constraint is enforced by CI rather than by
+// somebody remembering it.
+// ===========================================================================
+
+// Test 1 — the forgery does not create value, because the money path never
+// looks at the proof. Inputs worth 1 COIN, a confidential output claiming 1000.
+BOOST_AUTO_TEST_CASE(p3g_forged_range_proof_cannot_inflate_plaintext_value)
+{
+    const CAmount inVal  = 1 * COIN;
+    const CAmount outVal = 1000 * COIN;   // 1000x the input
+    COutPoint v4op = SeedV4Coin(inVal);
+
+    CMutableTransaction tx; tx.nVersion = 2;
+    {
+        CTxIn in; in.prevout = v4op; in.nSequence = CTxIn::SEQUENCE_FINAL;
+        // The exact forgery shape: an all-zero witness. Included to make the
+        // point that it is IRRELEVANT here — CheckTxInputs never reads it.
+        in.scriptWitness.stack.push_back(std::vector<unsigned char>(12321, 0x00));
+        in.scriptWitness.stack.push_back(std::vector<unsigned char>(32, 0x00));
+        in.scriptWitness.stack.push_back(std::vector<unsigned char>(32, 0x00));
+        tx.vin.push_back(in);
+    }
+    { CTxOut o; o.nValue = outVal; o.scriptPubKey = MakeV4Spk(coinbasePkBytes); tx.vout.push_back(o); }
+
+    CValidationState state;
+    bool ok;
+    {
+        LOCK(cs_main);
+        ok = Consensus::CheckTxInputs(Params(), CTransaction(tx), state, *pcoinsTip,
+                                      chainActive.Height() + 1);
+    }
+
+    BOOST_CHECK_MESSAGE(!ok,
+        "a confidential output claiming 1000x its input must be rejected — if this "
+        "ever passes, the forgery HAS become an inflation bug and it is a launch blocker");
+    BOOST_CHECK_MESSAGE(state.GetRejectReason() == "bad-txns-in-belowout",
+        "rejection must come from PLAINTEXT conservation (bad-txns-in-belowout), which is "
+        "the only thing standing between the forgery and inflation. Got: "
+        + state.GetRejectReason());
+}
+
+// Test 2 — a "confidential" output does not hide its amount. This is a SCOPE
+// failure against SC-1 ("hides amounts"), distinct from the soundness failure,
+// and it is the reason test 1 passes.
+BOOST_AUTO_TEST_CASE(p3g_confidential_output_amount_is_public)
+{
+    CTxOut o;
+    o.nValue = 123456789;
+    o.scriptPubKey = MakeV4Spk(coinbasePkBytes);
+
+    BOOST_REQUIRE(o.IsConfidential());
+    BOOST_CHECK_MESSAGE(o.nValue == 123456789,
+        "a confidential output still carries its amount in cleartext nValue");
+
+    CMutableTransaction tx; tx.nVersion = 2;
+    tx.vout.push_back(o);
+    BOOST_CHECK_MESSAGE(CTransaction(tx).GetValueOut() == 123456789,
+        "GetValueOut() counts confidential outputs at face value, so the amount is "
+        "on-chain in the clear. Whatever the commitment holds, it is not what consensus "
+        "enforces. 'Confidential' is currently a spend-path label, not amount privacy.");
+}
+
+// Test 3 — ⛔ THE ORDERING GATE. Zeroing nValue makes conservation vacuous.
+BOOST_AUTO_TEST_CASE(p3g_conservation_is_vacuous_once_nvalue_is_zeroed)
+{
+    const CAmount inVal = 1 * COIN;
+    COutPoint v4op = SeedV4Coin(inVal);
+
+    CMutableTransaction tx; tx.nVersion = 2;
+    { CTxIn in; in.prevout = v4op; in.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(in); }
+    // Two confidential outputs with nValue = 0 — i.e. what the wire would look
+    // like if amounts genuinely lived in the commitments. Their commitments could
+    // encode ANY values, including far more than the input, and consensus has no
+    // check that reads them.
+    for (int i = 0; i < 2; ++i) {
+        CTxOut o; o.nValue = 0; o.scriptPubKey = MakeV4Spk(coinbasePkBytes);
+        tx.vout.push_back(o);
+    }
+
+    CValidationState state;
+    bool ok;
+    {
+        LOCK(cs_main);
+        ok = Consensus::CheckTxInputs(Params(), CTransaction(tx), state, *pcoinsTip,
+                                      chainActive.Height() + 1);
+    }
+
+    BOOST_CHECK_MESSAGE(ok,
+        "expected plaintext conservation to ACCEPT zero-valued confidential outputs "
+        "(0 <= input). If this now fails, a real balance rule has appeared and this "
+        "test should be rewritten around it rather than deleted. Reject reason: "
+        + state.GetRejectReason());
+
+    // The load-bearing statement, asserted so it cannot be forgotten:
+    // conservation passed while the outputs' real values were entirely unexamined.
+    BOOST_CHECK_MESSAGE(CTransaction(tx).GetValueOut() == 0,
+        "the transaction's enforced value out is 0 while its commitments are unconstrained — "
+        "⛔ DO NOT ZERO nValue ON CONFIDENTIAL OUTPUTS, OR MOVE VALUE INTO THE COMMITMENT, "
+        "UNTIL A COMMITMENT-BALANCE CHECK EXISTS AND THE RANGE VERIFIER IS SOUND. "
+        "Plaintext conservation is the ONLY thing currently preventing the proven "
+        "zero-witness forgery from becoming unbounded inflation, and it stops protecting "
+        "anything the moment the amount leaves nValue.");
+}
+
 BOOST_AUTO_TEST_SUITE_END()
