@@ -3833,68 +3833,74 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
             // Track supply deltas for USDSOQ outputs in this block
             for (const auto& txout : tx.vout) {
-                if (txout.IsUSDSOQ()) {
+                // IsAnyUSDSOQ() = transparent v7 OR confidential v10.
+                //
+                // ⛔ THIS PREDICATE WAS `IsUSDSOQ()` (v7 only) AND THAT MADE THE WHOLE
+                // BLOCK BELOW DEAD CODE. Classification is structural: scriptPubKey[0] is
+                // one opcode, so an output cannot be both v7 and v4, and every
+                // `txout.IsConfidential()` test inside a v7-gated loop was unreachable.
+                // Confidential USDSOQ was not representable at all until witness v10 was
+                // allocated (v6 was tried first and collided with P2WSH-Dilithium). See doc/design/DL-SOQUOBSCURA-ASSET-TYPE-TRACE.md.
+                if (txout.IsAnyUSDSOQ()) {
                     // =========================================================
                     // SOQ-ARCH-004: Confidential Compliant USDSOQ
                     //
                     // Design (founder-approved 2026-06-07):
-                    //   - Authority TXs (mint/burn/freeze/rotate): MUST be
-                    //     transparent. Supply auditability (GENIUS Act §4(a)(2))
-                    //     requires visible mint/burn amounts.
-                    //   - User-to-user transfers: MAY be confidential IF the
-                    //     LATTICEBP privacy layer is active (BIP9). Range proofs
-                    //     ensure no inflation; supply doesn't change on transfers.
-                    //   - Frozen+confidential (0x81): valid — authority can freeze
-                    //     confidential UTXOs via outpoint. ViewKeyData enables
-                    //     auditor disclosure if amount is needed.
+                    //   - Authority TXs (mint/burn/freeze/rotate): MUST be transparent.
+                    //     Supply auditability (GENIUS Act §4(a)(2)) requires visible
+                    //     mint/burn amounts.
+                    //   - User-to-user transfers: MAY be confidential (v10) once the
+                    //     SoquObscura privacy layer is active. Range proofs prevent
+                    //     inflation; transfers do not move supply.
                     //
-                    // Adversarial analysis:
-                    //   - Inflation attack: Range proofs prevent value >2^64
-                    //   - Hidden mint: Authority TX transparency blocks stealth inflation
-                    //   - Hidden burn: Authority TX transparency blocks stealth deflation
-                    //   - Freeze evasion: OP_USDSOQ_FREEZE targets by outpoint, not value
+                    // Asset and confidentiality both live in the witness version, so the
+                    // two are decided by ONE byte and cannot disagree:
+                    //     v7 = USDSOQ transparent      (IsUSDSOQ)
+                    //     v10 = USDSOQ confidential    (IsV10ConfidentialUSDSOQ)
+                    //     v4 = SOQ confidential        (Tier B, not this loop)
+                    // Freeze state is NOT an output field; it lives in DB_USDSOQ_FROZEN,
+                    // and freezing targets an outpoint, so it works on a confidential
+                    // output whose amount is hidden.
                     //
-                    // Previous rule (SOQ-AUD2-002 Phase 3): Blanket rejection of
-                    // ALL confidential USDSOQ. This was a safety measure during
-                    // privacy layer development. Now refined to allow user transfers.
-                    //
-                    // The VISIBILITY_FROZEN_MASK (0x80) is still allowed on
-                    // USDSOQ outputs in both transparent and confidential modes:
-                    //   0x00 = transparent (user or authority)
-                    //   0x01 = confidential (user only, privacy layer required)
-                    //   0x80 = frozen-transparent (authority freeze)
-                    //   0x81 = frozen-confidential (authority freeze on private UTXO)
+                    // Adversarial notes:
+                    //   - Inflation:    range proofs bound each committed amount
+                    //   - Hidden mint:  authority transparency blocks stealth inflation
+                    //   - Hidden burn:  authority transparency blocks stealth deflation
+                    //   - Freeze evade: freeze targets the outpoint, not the value
                     // =========================================================
-                    // Phase 2: confidentiality ⟺ witness-v4 (IsConfidential/IsTransparent),
-                    // not the nVisibility byte. (Freeze state lives in DB_USDSOQ_FROZEN as of
-                    // Phase 1; the nVisibility byte is vestigial, removed in Phase 4.)
                     if (isAuthorityTx && txout.IsConfidential()) {
-                        // Authority operations MUST be transparent for supply auditability.
-                        // Mint/burn/freeze/rotate TXs create the supply boundary —
-                        // if these are hidden, the supply invariant breaks.
+                        // Authority operations MUST be transparent for supply
+                        // auditability. Mint/burn/freeze/rotate create the supply
+                        // boundary; if these are hidden the supply invariant breaks.
                         return state.DoS(100,
                             error("ConnectBlock(): USDSOQ authority output %s:%u is confidential "
-                                  "(v4) — authority TXs must be transparent "
+                                  "(v10) — authority TXs must be transparent "
                                   "(GENIUS Act §4(a)(2), SOQ-ARCH-004)",
                                 tx.GetHash().ToString(), (&txout - &tx.vout[0])),
                             REJECT_INVALID, "bad-txns-usdsoq-authority-must-be-transparent");
                     }
 
                     if (!isAuthorityTx && txout.IsConfidential()) {
-                        // User-to-user confidential USDSOQ transfer — allowed IF:
-                        //   1. LATTICEBP privacy layer is active (BIP9)
-                        //   2. Range proofs are valid (checked in LATTICEBP section below)
-                        //   3. Commitment balance is preserved (sum_in == sum_out)
+                        // User-to-user confidential USDSOQ transfer, allowed IF:
+                        //   1. the SoquObscura privacy layer is active (BIP9)
+                        //   2. range proofs are valid (checked in the section below)
+                        //   3. commitment balance is preserved (sum_in == sum_out)
                         if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
                             return state.DoS(100,
                                 error("ConnectBlock(): USDSOQ confidential output %s:%u before "
-                                      "LATTICEBP activation — privacy layer required (SOQ-ARCH-004)",
+                                      "SoquObscura activation — privacy layer required "
+                                      "(SOQ-ARCH-004)",
                                     tx.GetHash().ToString(), (&txout - &tx.vout[0])),
                                 REJECT_INVALID, "bad-txns-usdsoq-confidential-not-active");
                         }
-                        // Confidential USDSOQ user transfer: accepted.
-                        // Range proofs verified in LATTICEBP section below.
-                        // Supply invariant maintained: transfers don't change total supply.
+                        // ⚠️ WI-3 ATTACHES HERE. This is the point at which a v10 output is
+                        // accepted, and it is where the MANDATORY issuer disclosure must be
+                        // required and verified: reject unless the output carries a valid
+                        // issuer-targeted verifiable-encryption payload whose proof binds
+                        // this output's commitment. Until that lands, a v10 output is
+                        // accepted with NO auditor payload, which is Tier A without its
+                        // compliance rule. Bead soqucoin-build-soquobscura-ve-wi3-8r6e.
+                        // Do NOT activate the deployment for USDSOQ before it does.
                     }
 
                     // BUG-19: ONLY authority txs (mint/burn/freeze/rotate — OP_5 marker)
@@ -3906,11 +3912,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     // nUSDSOQBurned is always 0 here). That inflated supply then made block
                     // templates carrying a USDSOQ send fail validation → the pool mined empty
                     // blocks. Gate minting on isAuthorityTx so only real mints move the counter.
+                    //
+                    // v10 cannot reach this: a confidential authority output is rejected
+                    // above, and IsTransparent() is false for v10 regardless. Supply
+                    // tracking therefore stays anchored to the transparent mint/burn
+                    // boundary, which is exactly what GENIUS Act §4(a)(2) auditability
+                    // requires.
                     if (isAuthorityTx && txout.IsTransparent()) {
                         nUSDSOQMinted += txout.nValue;
                     }
-                    // Confidential outputs: value is hidden in commitment.
-                    // Supply tracking relies on transparent mint/burn boundary only.
                 }
             }
 
