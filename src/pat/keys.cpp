@@ -6,6 +6,23 @@ extern "C" {
 #include "dilithium-ref/api.h"
 }
 
+// ⛔ Bind pat/types.h's aliases to the vendored implementation's own constants.
+// A parameter-set change — ML-DSA-44 to -65, or a regression to round-3
+// Dilithium2 — must BREAK THE BUILD here rather than silently mis-size a buffer.
+// PATBasePrivateKey was 2528 (round-3 Dilithium2) while the implementation is
+// FIPS-204 ML-DSA-44 at 2560; it went unnoticed because the alias is unused.
+// These assertions are the reason it cannot drift again.
+static_assert(std::tuple_size<PATBasePublicKey>::value ==
+                  pqcrystals_dilithium2_ref_PUBLICKEYBYTES,
+    "PATBasePublicKey does not match the vendored ML-DSA public key size");
+static_assert(std::tuple_size<PATBasePrivateKey>::value ==
+                  pqcrystals_dilithium2_ref_SECRETKEYBYTES,
+    "PATBasePrivateKey does not match the vendored ML-DSA secret key size "
+    "(2560 for FIPS-204 ML-DSA-44; 2528 is the superseded round-3 Dilithium2)");
+static_assert(std::tuple_size<PATBaseSignature>::value ==
+                  pqcrystals_dilithium2_ref_BYTES,
+    "PATBaseSignature does not match the vendored ML-DSA signature size");
+
 CDilithiumKey::CDilithiumKey() : fValid(false) {}
 
 CDilithiumKey::~CDilithiumKey() {}
