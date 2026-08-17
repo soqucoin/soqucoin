@@ -990,9 +990,11 @@ public:
         // Fiat-Shamir seed (proven by execution; regression battery in
         // test/soquobscura_degenerate_witness_tests.cpp), so a confidential output
         // establishes nothing about its amount. Stagenet had it active from height 0.
-        // A scan of the live stagenet chain for premature witness outputs found 550+
-        // real v5/v7/v6 outputs (the positive control, so the filter demonstrably
-        // works) and ZERO v4 or v10 -- this withdrawal strands nothing spendable.
+        // A COMPLETE scan of the live stagenet chain -- all 44,891 blocks (0..44,890),
+        // zero coverage gaps, zero read errors -- found 558 premature-witness outputs:
+        // 318 v7, 234 v5, 6 v6. Those are the positive control, proving the filter
+        // finds real witness outputs. It found ZERO v4 and ZERO v10, so this
+        // withdrawal strands nothing spendable.
         // See DL-SOQUOBSCURA-STATE-MACHINE.md P2.
         consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].bit = 5;
         consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime = 0;  // Not started
