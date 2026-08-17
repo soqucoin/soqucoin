@@ -184,10 +184,12 @@ BOOST_AUTO_TEST_CASE(stagenet_critical_deployments_active)
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
 
-    // Lattice-BP++ (bit 5) — ALWAYS_ACTIVE on stagenet (Apr 28, 2026 activation)
-    // Enables confidential TX testing. Mainnet remains NOT_ACTIVE pending audit.
-    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime,
-                      Consensus::BIP9Deployment::ALWAYS_ACTIVE);
+    // SoquObscura (bit 5) — WITHDRAWN 2026-08-17, must NOT be active. Its range
+    // verifier accepts an all-zero witness carrying a correct Fiat-Shamir seed.
+    // Full dormancy assertions live in test/soquobscura_withdrawal_tests.cpp.
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime, 0);
+    BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(
+        0, consensus, Consensus::DEPLOYMENT_SOQUOBSCURA));
 
     // USDSOQ (bit 6) — ALWAYS_ACTIVE on stagenet (Apr 28, 2026 activation)
     // Enables mint/burn/freeze testing. Mainnet remains NOT_ACTIVE pending audit.
@@ -200,15 +202,21 @@ BOOST_AUTO_TEST_CASE(regtest_critical_deployments_active)
     SelectParams(CBaseChainParams::REGTEST);
     const Consensus::Params& consensus = Params().GetConsensus(0);
 
-    // All 4 critical deployments should be ALWAYS_ACTIVE on regtest
+    // PAT, LatticeFold and USDSOQ stay ALWAYS_ACTIVE on regtest.
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
-    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime,
-                      Consensus::BIP9Deployment::ALWAYS_ACTIVE);
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
+
+    // SoquObscura — WITHDRAWN 2026-08-17, must NOT be active. Regtest is included
+    // in the withdrawal deliberately: leaving it active would keep every
+    // functional test running against a verifier known to accept forged proofs.
+    // Full dormancy assertions live in test/soquobscura_withdrawal_tests.cpp.
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime, 0);
+    BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(
+        0, consensus, Consensus::DEPLOYMENT_SOQUOBSCURA));
 }
 
 // g7c regression guard: the BASE witness framework (SegWit + CSV) must be
@@ -334,10 +342,21 @@ BOOST_AUTO_TEST_CASE(p96_testnets_active_from_genesis)
     // Regtest and stagenet must keep the flag-day features active from genesis
     // (height 0), preserving the prior ALWAYS_ACTIVE test behavior — and the
     // live stagenet's historical blocks must validate identically.
+    //
+    // ⛔ ONE DELIBERATE EXCEPTION: DEPLOYMENT_SOQUOBSCURA was WITHDRAWN from all
+    // networks on 2026-08-17 because its range verifier accepts an all-zero
+    // witness carrying a correct Fiat-Shamir seed, so a confidential output
+    // proves nothing about its amount. Keeping it active here would keep every
+    // functional test running against a verifier known to accept forged proofs.
+    // Its dormancy is asserted positively — and much more thoroughly — in
+    // test/soquobscura_withdrawal_tests.cpp, so nothing is lost by skipping it.
+    // ⚠️ Do NOT remove it from P96_FLAGDAY_DEPLOYMENTS: that array still guards
+    // the mainnet NOT_SCHEDULED assertion above, which SoquObscura must satisfy.
     for (const std::string& net : {CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
         SelectParams(net);
         const Consensus::Params& consensus = Params().GetConsensus(0);
         for (const auto pos : P96_FLAGDAY_DEPLOYMENTS) {
+            if (pos == Consensus::DEPLOYMENT_SOQUOBSCURA) continue;  // withdrawn, see above
             BOOST_CHECK_EQUAL(consensus.vDeployments[pos].nActivationHeight, 0);
             BOOST_CHECK(Consensus::DeploymentActiveAtHeight(0, consensus, pos));
         }
