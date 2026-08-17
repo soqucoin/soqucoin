@@ -116,10 +116,10 @@ enum {
     // SOQ-P001: Enable PAT aggregation verification (OP_CHECKPATAGG)
     SCRIPT_VERIFY_PAT = (1U << 17),
 
-    // SOQ-P003: Enable Lattice-BP++ range proof verification (OP_LATTICEBP_RANGEPROOF)
+    // SOQ-P003: Enable Lattice-BP++ range proof verification (OP_SOQUOBSCURA_RANGEPROOF)
     // Lattice-based Ring-LWE commitments with Fiat-Shamir binding for
     // quantum-safe confidential transaction amounts.
-    SCRIPT_VERIFY_LATTICEBP = (1U << 18),
+    SCRIPT_VERIFY_SOQUOBSCURA = (1U << 18),
 
     // SOQ-P004: Enable USDSOQ authority opcode verification
     // (OP_USDSOQ_MINT, OP_USDSOQ_BURN, OP_USDSOQ_FREEZE, OP_USDSOQ_ROTATE)

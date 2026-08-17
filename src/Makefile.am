@@ -371,7 +371,6 @@ libsoqucoin_consensus_a_SOURCES = \
   script/script_error.cpp \
   script/script_error.h \
   crypto/binius/commitment.cpp \
-  crypto/binius/verifier.cpp \
   crypto/latticefold/verifier.cpp \
   crypto/latticefold/verifier.h \
   crypto/latticebp/commitment.cpp \
@@ -382,7 +381,6 @@ libsoqucoin_consensus_a_SOURCES = \
   crypto/latticebp/ring_signature.h \
   crypto/pat/logarithmic.cpp \
   crypto/pat/logarithmic.h \
-  crypto/sangria/fold.cpp \
   serialize.h \
   tinyformat.h \
   uint256.cpp \

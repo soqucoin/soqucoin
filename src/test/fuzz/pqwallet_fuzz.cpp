@@ -16,6 +16,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <crypto/sha256.h>
 #include <string>
 #include <test/fuzz/fuzz.h>
 #include <vector>
@@ -108,11 +109,31 @@ void pqaddress_hash(fuzzer::FuzzBuffer& buffer) noexcept
     std::array<uint8_t, DILITHIUM_PUBKEY_SIZE> pubkey;
     std::memcpy(pubkey.data(), buffer.data(), DILITHIUM_PUBKEY_SIZE);
 
-    // Hash should always succeed
     auto hash = PQAddress::HashPublicKey(pubkey);
 
-    // Hash should be exactly 20 bytes
-    assert(hash.size() == 20);
+    // ⛔ THIS TARGET USED TO ASSERT hash.size() == 20, WHICH CAN NEVER HOLD.
+    // HashPublicKey returns std::array<uint8_t, 32>, so size() is a constexpr 32
+    // and the assertion aborted on the FIRST input that ever reached it. It never
+    // fired because the target requires >= DILITHIUM_PUBKEY_SIZE (1312) bytes and
+    // every seed in the corpus was 32 bytes, so it returned immediately, forever.
+    //
+    // The 20-byte expectation is the SUPERSEDED design: the hash was BLAKE2b-160
+    // and moved to SHA-256/32 under SOQ-INFRA-010, deliberately, so that wallet
+    // address derivation matches the consensus path byte-for-byte ("all 9,300+
+    // testnet3 blocks use SHA-256/32-byte" — pqwallet.cpp:265-284). The wallet is
+    // correct; this target was stale. Asserting size() at all was a tautology.
+    //
+    // What is asserted instead is the invariant that actually matters: the wallet's
+    // address hash must equal the consensus computation. A divergence here produces
+    // addresses whose outputs the chain cannot recognise, i.e. unspendable funds.
+    std::array<uint8_t, 32> consensus_hash;
+    CSHA256().Write(pubkey.data(), pubkey.size()).Finalize(consensus_hash.data());
+    assert(hash == consensus_hash);
+
+    // Determinism: the same public key must always hash identically. Catches any
+    // uninitialised-state or caching bug that a single call cannot reveal.
+    auto hash_again = PQAddress::HashPublicKey(pubkey);
+    assert(hash == hash_again);
 }
 
 /**

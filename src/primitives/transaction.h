@@ -142,9 +142,34 @@ public:
  * REMOVED. CTxOut is now standard Bitcoin (nValue + scriptPubKey) — identical
  * to the foreign/AuxPoW-parent encoding. Asset and visibility classification
  * follow the witness version in scriptPubKey:
- *   - USDSOQ ⟺ witness v7 (OP_7 <SHA256(pubkey)>)  → IsUSDSOQ()
- *   - Confidential ⟺ witness v4 (OP_4 <commitment>) → IsConfidential()
- *   - Frozen ⟺ DB_USDSOQ_FROZEN registry             → no CTxOut field
+ *   - USDSOQ transparent   ⟺ witness v7  (OP_7 <SHA256(pubkey)>) → IsUSDSOQ()
+ *   - USDSOQ confidential  ⟺ witness v10 (OP_10 <commitment>)    → IsV10ConfidentialUSDSOQ()
+ *   - SOQ confidential     ⟺ witness v4  (OP_4 <commitment>)     → IsV4ConfidentialSOQ()
+ *   - Frozen               ⟺ DB_USDSOQ_FROZEN registry           → no CTxOut field
+ *
+ * One byte carries BOTH the asset and the confidentiality mode, deliberately.
+ * Because scriptPubKey[0] is a single opcode, a combination that needs two
+ * versions at once cannot be expressed — which is why confidential USDSOQ needs
+ * its own version rather than being "v4 that is also v7". That was a real
+ * defect: IsConfidential() && IsUSDSOQ() was always false, so confidential
+ * USDSOQ was unrepresentable and the SOQ-ARCH-004 rules governing it were dead
+ * code. See doc/design/DL-SOQUOBSCURA-ASSET-TYPE-TRACE.md.
+ *
+ * ⛔ WITNESS VERSION ALLOCATION — v10, NOT v6. v6 is ALREADY P2WSH-Dilithium
+ * (covenant script execution: CTV vaults, CSFS oracles, L2SOQ Lightning), see
+ * interpreter.cpp is_p2wsh_dilithium and consensus/params.h
+ * DEPLOYMENT_P2WSH_DILITHIUM ("Witness v6"). An earlier revision of this change
+ * used v6 and collided with it byte-for-byte. The occupied versions are
+ * v1 (Dilithium), v2 (PAT), v3 (LatticeFold+), v4 (confidential SOQ),
+ * v5 (USDSOQ authority), v6 (P2WSH-Dilithium), v7 (USDSOQ holding),
+ * v8/v9 (BTCSOQ holding/authority) — so v10-v16 is the only free range.
+ * ⛔ Derive that list from interpreter.cpp, never from a design document.
+ *
+ * SoquObscura tiers map onto these versions:
+ *   - Tier A (institutional USDSOQ) = v10, MANDATORY consensus-enforced issuer
+ *     disclosure;
+ *   - Tier B (individual SOQ)       = v4, USER-HELD view keys, no mandatory
+ *     issuer disclosure.
  */
 class CTxOut
 {
@@ -205,13 +230,54 @@ public:
     //! Returns true if this output carries BTCSOQ (witness v8).
     bool IsBTCSOQ() const { return IsV8BTCSOQHolding(); }
 
-    //! Returns true if this output carries native SOQ (i.e. neither USDSOQ nor BTCSOQ).
+    //! Returns true if this output is a v10 CONFIDENTIAL USDSOQ holding
+    //! (OP_10 <commitment>) — SoquObscura Tier A.
+    //!
+    //! Why a distinct witness version rather than "confidential AND USDSOQ":
+    //! classification is structural, so the asset lives in scriptPubKey[0], and
+    //! one byte cannot be both OP_4 and OP_7. Before this version existed,
+    //! IsConfidential() && IsUSDSOQ() was ALWAYS FALSE, which made confidential
+    //! USDSOQ unrepresentable and left the SOQ-ARCH-004 rules unreachable. See
+    //! doc/design/DL-SOQUOBSCURA-ASSET-TYPE-TRACE.md.
+    //!
+    //! ⛔ v10 and NOT v6: v6 is already P2WSH-Dilithium (interpreter.cpp
+    //! is_p2wsh_dilithium, consensus/params.h DEPLOYMENT_P2WSH_DILITHIUM).
+    //! v10-v16 is the only free range. See the class comment above.
+    //!
+    //! Keeping the asset and the confidentiality in the SAME byte is deliberate:
+    //! it means the disclosure rule and the asset-type determination are one
+    //! evaluation on one input that cannot diverge, and an unknown witness
+    //! version is simply not a confidential output at all (fails closed).
+    bool IsV10ConfidentialUSDSOQ() const {
+        return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_10 && scriptPubKey[1] == 32;
+    }
+
+    //! Returns true if this output carries USDSOQ in EITHER mode: transparent
+    //! v7 or confidential v10. Use this wherever "is this USDSOQ value" is the
+    //! question; use IsUSDSOQ()/IsV10ConfidentialUSDSOQ() only where the mode
+    //! itself matters (e.g. authority transparency).
+    bool IsAnyUSDSOQ() const { return IsUSDSOQ() || IsV10ConfidentialUSDSOQ(); }
+
+    //! Returns true if this output carries native SOQ (i.e. no other asset).
     //! MUST exclude every non-SOQ asset: the per-asset fee filter treats "native SOQ"
     //! value as miner-claimable, so a missing exclusion silently inflates SOQ fees.
-    bool IsNativeSOQ() const { return !IsUSDSOQ() && !IsBTCSOQ(); }
+    //! ⚠️ v10 (confidential USDSOQ) is USDSOQ value and MUST be excluded here, exactly
+    //! as v7 is. Omitting it would let USDSOQ value be claimed as SOQ fees.
+    bool IsNativeSOQ() const { return !IsAnyUSDSOQ() && !IsBTCSOQ(); }
 
-    //! Returns true if this output is confidential (witness v4, Lattice-BP++).
+    //! Returns true if this output is confidential — witness v4 (native SOQ,
+    //! Tier B) or witness v10 (USDSOQ, Tier A). Confidentiality mechanics
+    //! (commitment + range proof) are identical for both; only the asset
+    //! discriminator differs.
     bool IsConfidential() const {
+        return scriptPubKey.size() == 34 && scriptPubKey[1] == 32 &&
+               (scriptPubKey[0] == OP_4 || scriptPubKey[0] == OP_10);
+    }
+
+    //! Returns true if this output is confidential native SOQ (witness v4, Tier B).
+    //! Tier B uses USER-HELD view keys and is exempt from the mandatory issuer
+    //! disclosure; Tier A (v10) is not. This is the predicate that distinguishes them.
+    bool IsV4ConfidentialSOQ() const {
         return scriptPubKey.size() == 34 && scriptPubKey[0] == OP_4 && scriptPubKey[1] == 32;
     }
 

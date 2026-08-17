@@ -8,8 +8,16 @@ noinst_PROGRAMS += test/test_soqucoin_fuzzy
 TEST_SRCDIR = test
 TEST_BINARY=test/test_soqucoin$(EXEEXT)
 
+# Allow shell scripts in TESTS. Needed for the fuzz seed-corpus gate below;
+# without this, automake's parallel-tests harness has no compiler for .sh and
+# the gate would either not run or not run reliably out-of-tree.
+TEST_EXTENSIONS = .sh
+SH_LOG_COMPILER = $(SHELL)
+
 
 EXTRA_DIST += \
+	test/fuzz/run_seed_corpus.sh \
+	$(wildcard test/fuzz/corpus/*) \
 	test/bctest.py \
 	test/bitcoin-util-test.py \
 	test/data/bitcoin-util-test.json \
@@ -154,6 +162,8 @@ BITCOIN_TESTS =\
   test/freeze_registry_tests.cpp \
   test/freeze_registry_harness_tests.cpp \
   test/ctxout_format_matrix_tests.cpp \
+  test/soquobscura_degenerate_witness_tests.cpp \
+  test/soquobscura_withdrawal_tests.cpp \
   test/covenant_tests.cpp \
   test/lightning_script_tests.cpp \
   test/dilithium_keyhash_tests.cpp \
@@ -304,8 +314,17 @@ test_pqderive_test_LDADD = \
 endif
 
 # Fuzz binary (requires wallet for pqwallet fuzz targets)
+#
+# ⛔ THIS BINARY WAS BUILT AND NEVER RUN. Before 2026-08-17 `TESTS` held only
+# test/test_soqucoin, so `make check` compiled this fuzzer (and
+# test/test_soqucoin_fuzzy) and then discarded both. The four crypto targets were
+# additionally commented out of g_fuzz_targets in Fuzz.cpp, so the fuzzer for the
+# LatticeFold verifier family had never executed a single input.
+# run_seed_corpus.sh is now in TESTS and enforces that every REGISTERED target
+# (read from `fuzz --list`, not a list duplicated here) survives the seed corpus.
 if ENABLE_WALLET
 noinst_PROGRAMS += test/fuzz/fuzz
+TESTS += test/fuzz/run_seed_corpus.sh
 test_fuzz_fuzz_SOURCES = \
   test/fuzz/Fuzz.cpp \
   test/fuzz/latticefold_verifier.cpp \

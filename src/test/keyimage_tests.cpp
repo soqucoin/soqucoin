@@ -240,66 +240,21 @@ BOOST_AUTO_TEST_CASE(txdb_keyimage_overwrite_height)
 }
 
 // =========================================================================
-// 3. ViewKeyData — Serialization tests
+// 3. (removed) ViewKeyData — Serialization tests
 // =========================================================================
-
-BOOST_AUTO_TEST_CASE(viewkeydata_default_is_null)
-{
-    ViewKeyData vkd;
-    BOOST_CHECK(vkd.IsNull());
-    BOOST_CHECK_EQUAL(vkd.nVersion, 0);
-    BOOST_CHECK_EQUAL(vkd.SerializedSize(), 0u);
-}
-
-BOOST_AUTO_TEST_CASE(viewkeydata_populated)
-{
-    ViewKeyData vkd;
-    vkd.nVersion = 0x01;
-    vkd.tx_public_key.assign(32, 0xAA);
-    vkd.encrypted_amount.assign(64, 0xBB);
-    vkd.amount_commitment_check.assign(32, 0xCC);
-
-    BOOST_CHECK(!vkd.IsNull());
-    BOOST_CHECK(vkd.SerializedSize() > 0);
-}
-
-BOOST_AUTO_TEST_CASE(viewkeydata_serialization_roundtrip)
-{
-    ViewKeyData vkd;
-    vkd.nVersion = 0x01;
-    vkd.tx_public_key.assign(32, 0xAA);
-    vkd.encrypted_amount.assign(64, 0xBB);
-    vkd.amount_commitment_check.assign(32, 0xCC);
-
-    // Serialize
-    CDataStream ss(SER_DISK, CLIENT_VERSION);
-    ss << vkd;
-
-    // Deserialize
-    ViewKeyData vkd2;
-    ss >> vkd2;
-
-    BOOST_CHECK_EQUAL(vkd2.nVersion, 0x01);
-    BOOST_CHECK(vkd2.tx_public_key == vkd.tx_public_key);
-    BOOST_CHECK(vkd2.encrypted_amount == vkd.encrypted_amount);
-    BOOST_CHECK(vkd2.amount_commitment_check == vkd.amount_commitment_check);
-}
-
-BOOST_AUTO_TEST_CASE(viewkeydata_null_serialization)
-{
-    ViewKeyData vkd; // version 0 = null
-
-    // Serialize
-    CDataStream ss(SER_DISK, CLIENT_VERSION);
-    ss << vkd;
-
-    // Deserialize
-    ViewKeyData vkd2;
-    ss >> vkd2;
-
-    BOOST_CHECK(vkd2.IsNull());
-    BOOST_CHECK_EQUAL(vkd2.nVersion, 0);
-}
+// The ChaCha20-Poly1305 ViewKeyData these tests covered was deleted in WI-4;
+// see doc/design/DL-SOQUOBSCURA-VE-CONSENSUS-PLAN.md. It was documented as
+// OPTIONAL, was wired into no validation path, carried no proof of correct
+// encryption, and derived its key from a Diffie-Hellman shared secret, which is
+// classically breakable and therefore a harvest-now-decrypt-later hole inside a
+// post-quantum chain.
+//
+// Its replacement is soquobscura::Disclosure (Module-LWE verifiable encryption,
+// mandatory and consensus-enforced for confidential USDSOQ). Tests for that
+// belong with the adversarial suite in WI-5 and must cover REJECTION paths —
+// missing disclosure, wrong committed value, wrong issuer key, truncated,
+// noise overflow, cross-key — not just serialization round-trips. Round-trip
+// tests on an optional field are precisely what let this gap survive.
 
 // =========================================================================
 // 4. Intra-block duplicate detection (unit-level simulation)

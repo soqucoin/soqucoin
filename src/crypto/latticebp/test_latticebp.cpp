@@ -625,7 +625,7 @@ int main()
 {
     std::cout << "===========================================\n";
     std::cout << "  Lattice-BP++ Verification Harness\n";
-    std::cout << "  OP_LATTICEBP_RANGEPROOF (0xfa) Witness v4\n";
+    std::cout << "  OP_SOQUOBSCURA_RANGEPROOF (0xfa) Witness v4\n";
     std::cout << "===========================================\n";
 
     std::cout << "Parameters:\n";

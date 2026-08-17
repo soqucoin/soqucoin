@@ -5,13 +5,22 @@
 // SOQ-ARCH-001: Privacy Layer Consensus Types
 // Design Log: DL-PRIVACY-INTEGRATION-ARCHITECTURE.md
 //
-// This header defines consensus-level types for the privacy layer:
+// This header defines consensus-level types for the SoquObscura privacy layer:
 //   - LatticeKeyImageHash: 32-byte key-image identifier for double-spend detection
-//   - ViewKeyData: optional auditor-transparency payload for confidential outputs
 //
-// These types bridge the crypto primitives (crypto/latticebp/) to the consensus
-// layer (validation.cpp, coins.h, txdb.h). They are BIP9-gated behind
-// DEPLOYMENT_LATTICEBP and only active on stagenet/testnet.
+// The auditor-transparency payload formerly declared here (ViewKeyData) was
+// deleted in WI-4; its replacement is soquobscura::Disclosure in
+// consensus/soquobscura/disclosure.h. See the note further down and
+// doc/design/DL-SOQUOBSCURA-VE-CONSENSUS-PLAN.md.
+//
+// These types bridge the crypto primitives to the consensus layer
+// (validation.cpp, coins.h, txdb.h) and are BIP9-gated, active on
+// stagenet/testnet only.
+//
+// NAMING: "Lattice-BP++" refers to the SUPERSEDED design (ring signatures,
+// stealth addresses, hand-rolled range proofs), which Part I of the scope
+// document found unsound. The current system is SoquObscura. See
+// doc/design/DL-SOQUOBSCURA-NAMING-POLICY.md.
 
 #ifndef SOQUCOIN_CONSENSUS_PRIVACY_H
 #define SOQUCOIN_CONSENSUS_PRIVACY_H
@@ -73,60 +82,29 @@ struct LatticeKeyImageHash
 };
 
 // =========================================================================
-// ViewKeyData — Auditor/regulator transparency payload
+// (removed) ViewKeyData — Auditor/regulator transparency payload
 // =========================================================================
-// Optional data attached to a confidential output that enables a designated
-// auditor to view the transaction amount and destination without the
-// spend key.
+// DELETED 2026-08-16 (WI-4). See doc/design/DL-SOQUOBSCURA-VE-CONSENSUS-PLAN.md.
 //
-// When a user creates a confidential transaction, they can optionally
-// encrypt the output amount and memo under the auditor's view key.
-// The auditor can then:
-//   1. Decrypt the amount using their view key
-//   2. Verify the commitment matches: Commit(amount, blinding) == C
-//   3. Report compliance without being able to spend
+// The struct that stood here was ChaCha20-Poly1305 over a key derived by HKDF
+// from a Diffie-Hellman shared secret. The ratified scope document
+// (DL-LATTICEBP-STATE-ANALYSIS-2026-07-18 section II.3) says of exactly this
+// design that it "is replaced wholesale" by Module-LWE verifiable encryption.
+// Four reasons it had to go rather than be extended:
 //
-// Wire format (variable-length; present for witness-v4 (OP_4) confidential outputs — CTxOut
-// migration Phase 4: the nVisibility byte was removed, confidentiality follows the witness version):
-//   [1 byte]   version (0x01 = v1)
-//   [32 bytes] tx_public_key (sender's ephemeral DH key)
-//   [N bytes]  encrypted_amount (AEAD-sealed under shared secret)
-//   [32 bytes] amount_commitment_check (first 32 bytes of the commitment)
+//   1. it was documented as OPTIONAL, so it carried no compliance force;
+//   2. nothing in the validation path referenced it;
+//   3. it had no proof of correct encryption — only a 32-byte commitment hint
+//      an auditor could check AFTER decrypting, which consensus cannot use
+//      because consensus never decrypts;
+//   4. its key agreement was Diffie-Hellman, which Shor breaks. An auditor
+//      payload whose confidentiality rests on classical DH is a
+//      harvest-now-decrypt-later target inside a post-quantum chain.
 //
-// SECURITY: The encrypted_amount uses ChaCha20-Poly1305 with key derived
-// from HKDF(view_key || tx_public_key || "soqucoin.view.v1"). The MAC
-// prevents tampering; the commitment_check enables the auditor to verify
-// the decrypted amount matches the on-chain commitment.
-
-struct ViewKeyData
-{
-    uint8_t nVersion;                           // Protocol version (0x01)
-    std::vector<uint8_t> tx_public_key;         // 32 bytes: sender's ephemeral key
-    std::vector<uint8_t> encrypted_amount;      // Variable: AEAD-encrypted amount+blinding
-    std::vector<uint8_t> amount_commitment_check; // 32 bytes: commitment verification
-
-    ViewKeyData() : nVersion(0) {}
-
-    bool IsNull() const { return nVersion == 0; }
-
-    //! Estimated serialized size in bytes
-    size_t SerializedSize() const {
-        if (IsNull()) return 0;
-        return 1 + tx_public_key.size() + encrypted_amount.size()
-               + amount_commitment_check.size() + 12; // 12 = VARINT overhead
-    }
-
-    ADD_SERIALIZE_METHODS;
-
-    template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(nVersion);
-        if (nVersion > 0) {
-            READWRITE(tx_public_key);
-            READWRITE(encrypted_amount);
-            READWRITE(amount_commitment_check);
-        }
-    }
-};
+// Replacement: soquobscura::Disclosure in consensus/soquobscura/disclosure.h —
+// Module-LWE verifiable encryption, MANDATORY and consensus-enforced for
+// confidential USDSOQ (Tier A). Asset-typed: Tier B (confidential SOQ) uses
+// user-held keys and is user-optional, so the rule keys off asset type rather
+// than off IsConfidential() alone.
 
 #endif // SOQUCOIN_CONSENSUS_PRIVACY_H

@@ -354,7 +354,7 @@ UniValue sendprivate(const JSONRPCRequest& request)
             "sendprivate \"address\" amount ( \"comment\" )\n"
             "\nSend SOQ using a confidential (shielded) transaction.\n"
             "Creates a Lattice-BP++ range proof hiding the amount.\n"
-            "Requires DEPLOYMENT_LATTICEBP to be active (stagenet/regtest).\n"
+            "Requires DEPLOYMENT_SOQUOBSCURA to be active (stagenet/regtest).\n"
             "\nThe output will have nVisibility=0x01 (CONFIDENTIAL).\n"
             "A Ring-LWE Pedersen commitment hides the value.\n"
             "A lattice range proof proves the value is in [0, 2^64).\n"
@@ -378,11 +378,11 @@ UniValue sendprivate(const JSONRPCRequest& request)
 
     // Check BIP9 activation
     ThresholdState bip9State = VersionBitsTipState(Params().GetConsensus(0),
-        Consensus::DEPLOYMENT_LATTICEBP);
+        Consensus::DEPLOYMENT_SOQUOBSCURA);
     if (bip9State != THRESHOLD_ACTIVE) {
         throw JSONRPCError(RPC_MISC_ERROR,
             "Lattice-BP++ confidential transactions are not active on this network. "
-            "BIP9 DEPLOYMENT_LATTICEBP must be ACTIVE.");
+            "BIP9 DEPLOYMENT_SOQUOBSCURA must be ACTIVE.");
     }
 
     // Parse destination
@@ -521,7 +521,7 @@ UniValue getprivacyinfo(const JSONRPCRequest& request)
     {
         LOCK(cs_main);
         ThresholdState state = VersionBitsTipState(Params().GetConsensus(0),
-            Consensus::DEPLOYMENT_LATTICEBP);
+            Consensus::DEPLOYMENT_SOQUOBSCURA);
         result.pushKV("deployment_active", state == THRESHOLD_ACTIVE);
         result.pushKV("deployment_state", state == THRESHOLD_ACTIVE ? "active" :
                        state == THRESHOLD_LOCKED_IN ? "locked_in" :
@@ -576,7 +576,7 @@ UniValue shieldsoq(const JSONRPCRequest& request)
             "behind a Ring-LWE Pedersen commitment + Lattice-BP++ range proof.\n"
             "\nThe output remains spendable by your wallet but the amount\n"
             "is hidden from external observers on the blockchain.\n"
-            "\nRequires DEPLOYMENT_LATTICEBP to be active.\n"
+            "\nRequires DEPLOYMENT_SOQUOBSCURA to be active.\n"
             "\nArguments:\n"
             "1. amount         (numeric, required) Amount of SOQ to shield\n"
             "2. \"comment\"      (string, optional) Comment (stored locally)\n"
@@ -595,7 +595,7 @@ UniValue shieldsoq(const JSONRPCRequest& request)
 
     // Check BIP9 activation
     ThresholdState bip9State = VersionBitsTipState(Params().GetConsensus(0),
-        Consensus::DEPLOYMENT_LATTICEBP);
+        Consensus::DEPLOYMENT_SOQUOBSCURA);
     if (bip9State != THRESHOLD_ACTIVE) {
         throw JSONRPCError(RPC_MISC_ERROR,
             "Lattice-BP++ confidential transactions are not active on this network.");

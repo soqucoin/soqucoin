@@ -6,7 +6,7 @@
 // Design Log: DL-LATTICEFOLD-BLOCK-ACCUMULATOR.md
 //
 // This header defines the per-block LatticeFold accumulator structure.
-// When DEPLOYMENT_LATTICEBP is active, each block's confidential range proofs
+// When DEPLOYMENT_SOQUOBSCURA is active, each block's confidential range proofs
 // are folded into a single accumulated proof commitment via LatticeFold+.
 //
 // The accumulator hash is committed in the coinbase OP_RETURN (similar to
@@ -36,7 +36,7 @@ static const uint8_t LATTICEFOLD_MAGIC[2] = {0x4C, 0x46}; // "LF"
 // BlockProofAccumulator — Per-block LatticeFold accumulation state
 // =========================================================================
 //
-// Created during ConnectBlock when DEPLOYMENT_LATTICEBP is active and the
+// Created during ConnectBlock when DEPLOYMENT_SOQUOBSCURA is active and the
 // block contains one or more confidential transaction outputs.
 //
 // The accumulator takes N individual Lattice-BP++ range proofs and folds

@@ -33,7 +33,7 @@
  *   - Lattice parameters (N, Q, K) are bound into the derivation
  *   - Version suffix allows future migration without breaking existing proofs
  */
-static std::array<uint8_t, 32> ComputeLatticeBPSeed(
+static std::array<uint8_t, 32> ComputeSoquObscuraSeed(
     const uint256& genesisHash,
     const char* domain,
     const char* info)
@@ -232,9 +232,9 @@ public:
         // SOQ-P003: Lattice-BP++ Range Proofs — NOT ACTIVE (future soft-fork)
         // Post-quantum confidential transaction amount hiding using Ring-LWE
         // commitments. Activation requires separate soft-fork after audit.
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = 0;  // Not started
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = 0;    // Never activates
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nTimeout = 0;    // Never activates
 
         // SOQ-AUD2-002: USDSOQ Stablecoin — NOT ACTIVE (future BIP9 soft-fork)
         // Activation requires miner signaling after Halborn audit.
@@ -316,7 +316,7 @@ public:
         // scope clears. The nStartTime/nTimeout above are retained but NOT consulted
         // for these deployments. (CHECKPATAGG stays always-active on BIP9; LATTICEFOLD is
         // BIP9-inactive above; CSV/SegWit stay on the historical BIP9 windows.)
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_BTCSOQ].nActivationHeight           = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = Consensus::BIP9Deployment::NOT_SCHEDULED;
@@ -407,7 +407,7 @@ public:
         assert(genesis.hashMerkleRoot == uint256S("0x5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69"));
 
         // SOQ-H3: Lattice-BP++ consensus seed — derived from genesis hash
-        consensus.latticeBPSeed = ComputeLatticeBPSeed(
+        consensus.latticeBPSeed = ComputeSoquObscuraSeed(
             consensus.hashGenesisBlock,
             "soqucoin-latticebp-params-v1",
             "N=256,Q=8380417,K=4,range=64");
@@ -515,11 +515,14 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // SOQ-P003: Lattice-BP++ Range Proofs — ACTIVE on stagenet for integration testing
-        // Mainnet remains NEVER_ACTIVE pending Halborn audit. See DL-LATTICE-RANGE-PROOF.md.
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        // SoquObscura confidential outputs — WITHDRAWN 2026-08-17 (S1/P2).
+        // The consensus range verifier accepts an all-zero witness carrying a correct
+        // Fiat-Shamir seed, so a confidential output proves nothing about its amount.
+        // Dormant here until a corpus-gated verifier replaces it.
+        // See doc/design/DL-SOQUOBSCURA-STATE-MACHINE.md P2.
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nTimeout = 0;    // Never activates
 
         // SOQ-AUD2-002: USDSOQ Stablecoin — ACTIVE on stagenet for integration testing
         // Mainnet remains NEVER_ACTIVE pending Halborn audit. See DL-USDSOQ-STABLECOIN.md.
@@ -567,7 +570,16 @@ public:
 
         // p96 / Option D: height-gated activation, height 0 = active from genesis
         // (equivalent to the ALWAYS_ACTIVE test behavior above). See CMainParams.
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        //
+        // ⛔ SOQUOBSCURA IS WITHDRAWN, AND THIS LINE IS THE ONE THAT MATTERS.
+        // DeploymentActiveAtHeight() (consensus/params.h:206-210) reads ONLY
+        // nActivationHeight; when it is set, nStartTime/nTimeout are NOT consulted.
+        // Setting nStartTime=0/nTimeout=0 above and leaving this at 0 would be a NO-OP
+        // — the deployment would stay active from genesis. NOT_SCHEDULED is what
+        // actually withdraws it, and it must match CMainParams.
+        // ⚠️ Do NOT "simplify" this to NO_HEIGHT_ACTIVATION: that sentinel falls back
+        // to the BIP9 state machine, which would re-activate the feature.
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
@@ -639,7 +651,7 @@ public:
         // Genesis hash assertion deferred — testnet3 is being retired
 
         // SOQ-H3: Lattice-BP++ consensus seed
-        consensus.latticeBPSeed = ComputeLatticeBPSeed(
+        consensus.latticeBPSeed = ComputeSoquObscuraSeed(
             consensus.hashGenesisBlock,
             "soqucoin-latticebp-params-v1",
             "N=256,Q=8380417,K=4,range=64");
@@ -731,10 +743,13 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // SOQ-P003: Lattice-BP++ Range Proofs — ALWAYS_ACTIVE for regtest
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        // SoquObscura confidential outputs — WITHDRAWN 2026-08-17 (S1/P2).
+        // ⚠️ Regtest is withdrawn DELIBERATELY, not by oversight. Leaving it active
+        // keeps every functional test running against a verifier known to accept
+        // forged proofs, which is how a broken verifier keeps looking fine.
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nTimeout = 0;    // Never activates
 
         // SOQ-AUD2-002: USDSOQ Stablecoin — ALWAYS_ACTIVE for regtest
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].bit = 6;
@@ -781,7 +796,16 @@ public:
 
         // p96 / Option D: height-gated activation, height 0 = active from genesis
         // (equivalent to the ALWAYS_ACTIVE test behavior above). See CMainParams.
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        //
+        // ⛔ SOQUOBSCURA IS WITHDRAWN, AND THIS LINE IS THE ONE THAT MATTERS.
+        // DeploymentActiveAtHeight() (consensus/params.h:206-210) reads ONLY
+        // nActivationHeight; when it is set, nStartTime/nTimeout are NOT consulted.
+        // Setting nStartTime=0/nTimeout=0 above and leaving this at 0 would be a NO-OP
+        // — the deployment would stay active from genesis. NOT_SCHEDULED is what
+        // actually withdraws it, and it must match CMainParams.
+        // ⚠️ Do NOT "simplify" this to NO_HEIGHT_ACTIVATION: that sentinel falls back
+        // to the BIP9 state machine, which would re-activate the feature.
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
@@ -841,7 +865,7 @@ public:
         assert(consensus.hashGenesisBlock == uint256S("0x3d2160a3b5dc4a9d62e7e66a295f70313ac808440ef7400d6c0772171ce973a5"));
 
         // SOQ-H3: Lattice-BP++ consensus seed
-        consensus.latticeBPSeed = ComputeLatticeBPSeed(
+        consensus.latticeBPSeed = ComputeSoquObscuraSeed(
             consensus.hashGenesisBlock,
             "soqucoin-latticebp-params-v1",
             "N=256,Q=8380417,K=4,range=64");
@@ -961,11 +985,18 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // SOQ-P003: Lattice-BP++ Range Proofs — ALWAYS_ACTIVE on stagenet
-        // Enables confidential transaction testing. Mainnet remains NOT_ACTIVE pending audit.
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].bit = 5;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        // SoquObscura confidential outputs — WITHDRAWN 2026-08-17 (S1/P2).
+        // The shipped range verifier accepts an all-zero witness carrying a correct
+        // Fiat-Shamir seed (proven by execution; regression battery in
+        // test/soquobscura_degenerate_witness_tests.cpp), so a confidential output
+        // establishes nothing about its amount. Stagenet had it active from height 0.
+        // A scan of the live stagenet chain for premature witness outputs found 550+
+        // real v5/v7/v6 outputs (the positive control, so the filter demonstrably
+        // works) and ZERO v4 or v10 -- this withdrawal strands nothing spendable.
+        // See DL-SOQUOBSCURA-STATE-MACHINE.md P2.
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].bit = 5;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nStartTime = 0;  // Not started
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nTimeout = 0;    // Never activates
 
         // SOQ-AUD2-002: USDSOQ Stablecoin — ALWAYS_ACTIVE on stagenet
         // Enables mint/burn/freeze testing. Mainnet remains NOT_ACTIVE pending audit.
@@ -1035,7 +1066,16 @@ public:
         // p96 / Option D: height-gated activation, height 0 = active from genesis
         // (equivalent to the ALWAYS_ACTIVE test behavior above — the live stagenet's
         // historical blocks validate identically). See CMainParams.
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEBP].nActivationHeight        = 0;
+        //
+        // ⛔ SOQUOBSCURA IS WITHDRAWN, AND THIS LINE IS THE ONE THAT MATTERS.
+        // DeploymentActiveAtHeight() (consensus/params.h:206-210) reads ONLY
+        // nActivationHeight; when it is set, nStartTime/nTimeout are NOT consulted.
+        // Setting nStartTime=0/nTimeout=0 above and leaving this at 0 would be a NO-OP
+        // — the deployment would stay active from genesis. NOT_SCHEDULED is what
+        // actually withdraws it, and it must match CMainParams.
+        // ⚠️ Do NOT "simplify" this to NO_HEIGHT_ACTIVATION: that sentinel falls back
+        // to the BIP9 state machine, which would re-activate the feature.
+        consensus.vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA].nActivationHeight        = Consensus::BIP9Deployment::NOT_SCHEDULED;
         consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nActivationHeight           = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_CTV].nActivationHeight              = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_APO].nActivationHeight              = 0;
@@ -1143,7 +1183,7 @@ public:
         assert(consensus.hashGenesisBlock == uint256S("0x97df3ae79eaf5623c0feecfa1079439f8acdfea06a0f2acb4ef63c6b9ad91bb0"));
 
         // SOQ-H3: Lattice-BP++ consensus seed
-        consensus.latticeBPSeed = ComputeLatticeBPSeed(
+        consensus.latticeBPSeed = ComputeSoquObscuraSeed(
             consensus.hashGenesisBlock,
             "soqucoin-latticebp-params-v1",
             "N=256,Q=8380417,K=4,range=64");

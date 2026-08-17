@@ -28,7 +28,7 @@ const char* ScriptErrorString(const ScriptError serror)
         return "PAT batch verification failed";
     case SCRIPT_ERR_ZKPROOF_FAILED:
         return "Zero-Knowledge proof verification failed";
-    case SCRIPT_ERR_LATTICEBP_RANGEPROOF_FAILED:
+    case SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED:
         return "Lattice-BP++ range proof verification failed";
     case SCRIPT_ERR_USDSOQ_NOT_ACTIVE:
         return "USDSOQ opcodes not active (BIP9 deployment not signaled)";

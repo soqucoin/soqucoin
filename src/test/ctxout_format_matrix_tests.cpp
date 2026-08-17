@@ -120,4 +120,116 @@ BOOST_AUTO_TEST_CASE(ctxout_v7_holding_cross_pin)
     BOOST_CHECK(!o.IsNativeSOQ());
 }
 
+// ---------------------------------------------------------------------------
+// v10 confidential USDSOQ (SoquObscura Tier A).
+//
+// These tests exist because the combination they cover was previously
+// IMPOSSIBLE to express: classification is structural, scriptPubKey[0] is one
+// opcode, and OP_4 != OP_7, so IsConfidential() && IsUSDSOQ() was always false.
+// Confidential USDSOQ was therefore unrepresentable and the SOQ-ARCH-004 rules
+// governing it were unreachable. See DL-SOQUOBSCURA-ASSET-TYPE-TRACE.md.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(v10_is_confidential_usdsoq)
+{
+    auto mk = [](const CScript& spk) { CTxOut o; o.nValue = 1000; o.scriptPubKey = spk; return o; };
+    CScript v10spk; v10spk << OP_10 << std::vector<unsigned char>(32, 0xa1);
+    BOOST_REQUIRE_EQUAL(v10spk.size(), 34u);
+    const CTxOut o = mk(v10spk);
+
+    // v10 is confidential AND USDSOQ at the same time — the thing v4/v7 could not do.
+    BOOST_CHECK(o.IsV10ConfidentialUSDSOQ());
+    BOOST_CHECK(o.IsConfidential());
+    BOOST_CHECK(!o.IsTransparent());
+    BOOST_CHECK(o.IsAnyUSDSOQ());
+
+    // ⚠️ THE FEE-FILTER INVARIANT. The per-asset fee filter treats native-SOQ value
+    // as miner-claimable, so if v10 leaked into IsNativeSOQ() then USDSOQ value could
+    // be claimed as SOQ fees. This assertion is the guard on that.
+    BOOST_CHECK(!o.IsNativeSOQ());
+
+    // v10 is Tier A, so it must NOT match the Tier B predicate. Tier B (v4) is exempt
+    // from the mandatory issuer disclosure; conflating them would exempt Tier A too.
+    BOOST_CHECK(!o.IsV4ConfidentialSOQ());
+    BOOST_CHECK(!o.IsUSDSOQ());        // v7 predicate is transparent-only
+    BOOST_CHECK(!o.IsBTCSOQ());
+}
+
+BOOST_AUTO_TEST_CASE(v4_and_v10_are_distinct_tiers)
+{
+    auto mk = [](const CScript& spk) { CTxOut o; o.nValue = 1000; o.scriptPubKey = spk; return o; };
+    CScript v4spk; v4spk << OP_4 << std::vector<unsigned char>(32, 0xb2);
+    CScript v10spk; v10spk << OP_10 << std::vector<unsigned char>(32, 0xb2);
+
+    const CTxOut v4 = mk(v4spk);   // Tier B: confidential native SOQ
+    const CTxOut v10 = mk(v10spk);   // Tier A: confidential USDSOQ
+
+    // Both confidential — confidentiality mechanics are identical.
+    BOOST_CHECK(v4.IsConfidential());
+    BOOST_CHECK(v10.IsConfidential());
+
+    // Different assets, and that is the whole point: the disclosure rule keys off
+    // this distinction, so it must be exactly one evaluation on one byte.
+    BOOST_CHECK(v4.IsNativeSOQ());
+    BOOST_CHECK(!v10.IsNativeSOQ());
+    BOOST_CHECK(!v4.IsAnyUSDSOQ());
+    BOOST_CHECK(v10.IsAnyUSDSOQ());
+    BOOST_CHECK(v4.IsV4ConfidentialSOQ());
+    BOOST_CHECK(!v10.IsV4ConfidentialSOQ());
+}
+
+// ---------------------------------------------------------------------------
+// REGRESSION GUARD for the SOQ-ARCH-004 dead-code defect.
+//
+// The rules in validation.cpp that enforce "USDSOQ authority outputs must be
+// transparent" (GENIUS Act §4(a)(2)) live inside a loop gated on a USDSOQ
+// predicate and then test IsConfidential(). While that gate was IsUSDSOQ()
+// (v7 only) the conjunction was UNSATISFIABLE, so the rules could never run —
+// and every test still passed, because a rule that never fires never fails.
+//
+// This test asserts the conjunction is satisfiable. If someone narrows the loop
+// predicate back to a transparent-only one, this fails immediately instead of
+// silently disarming the compliance rules again.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(soq_arch_004_guard_conjunction_is_satisfiable)
+{
+    CScript v10spk; v10spk << OP_10 << std::vector<unsigned char>(32, 0xd4);
+    CTxOut o; o.nValue = 1000; o.scriptPubKey = v10spk;
+
+    // The exact conjunction the SOQ-ARCH-004 rules are gated on.
+    BOOST_CHECK(o.IsAnyUSDSOQ() && o.IsConfidential());
+
+    // And the conjunction that used to gate them, which must remain unsatisfiable —
+    // documenting WHY the predicate had to change rather than just that it did.
+    BOOST_CHECK(!(o.IsUSDSOQ() && o.IsConfidential()));
+
+    // A transparent v7 output must still reach the loop but take the transparent
+    // path, so supply tracking stays anchored to the mint/burn boundary.
+    CScript v7spk; v7spk << OP_7 << std::vector<unsigned char>(32, 0xd4);
+    CTxOut t; t.nValue = 1000; t.scriptPubKey = v7spk;
+    BOOST_CHECK(t.IsAnyUSDSOQ());
+    BOOST_CHECK(t.IsTransparent());
+    BOOST_CHECK(!t.IsConfidential());
+}
+
+BOOST_AUTO_TEST_CASE(v10_wrong_shape_is_not_confidential_usdsoq)
+{
+    // Fail-closed: anything that is not exactly OP_10 <32> is not a v10 output, and
+    // therefore is not a confidential output at all. An unknown or malformed
+    // witness version must never fall through into a tier.
+    auto mk = [](const CScript& spk) { CTxOut o; o.nValue = 1000; o.scriptPubKey = spk; return o; };
+
+    CScript shortPush;  shortPush  << OP_10 << std::vector<unsigned char>(31, 0xc3);
+    CScript longPush;   longPush   << OP_10 << std::vector<unsigned char>(33, 0xc3);
+    CScript wrongVer;   wrongVer   << OP_5 << std::vector<unsigned char>(32, 0xc3);
+
+    BOOST_CHECK(!mk(shortPush).IsV10ConfidentialUSDSOQ());
+    BOOST_CHECK(!mk(longPush).IsV10ConfidentialUSDSOQ());
+    BOOST_CHECK(!mk(wrongVer).IsV10ConfidentialUSDSOQ());
+
+    // And none of them is confidential, so none can claim a confidential tier.
+    BOOST_CHECK(!mk(shortPush).IsConfidential());
+    BOOST_CHECK(!mk(longPush).IsConfidential());
+    BOOST_CHECK(!mk(wrongVer).IsConfidential());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
