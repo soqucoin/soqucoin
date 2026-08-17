@@ -238,12 +238,23 @@ cp config.example.json config.json && nano config.json
 |-----------|----------|--------|
 | **PAT Prover** | `src/crypto/pat/logarithmic.cpp` | ✅ In-tree |
 | **PAT Verifier** | `src/crypto/pat/logarithmic.cpp` | ✅ In-tree |
-| **SoquObscura Verifier** | `src/crypto/soquobscura/` | 🔄 Wave 3 |
-| **SoquObscura Prover** | `src/crypto/soquobscura/` | 🔄 Wave 3 |
-| **LaBRADOR Aggregator** | `src/crypto/labrador/` | 🔄 Integration |
+| **SoquObscura disclosure + issuer registry** | `src/consensus/soquobscura/` | ◻ Scaffolding — headers only, deliberately not in the build |
+| **SoquObscura Verifier** | _(planned; no path yet)_ | ◻ Not started — see note |
+| **SoquObscura Prover** | _(planned; no path yet)_ | ◻ Not started |
+| **LaBRADOR Aggregator** | _(planned; no path yet)_ | ◻ Not started |
 | **PQ Wallet Library** | `src/wallet/pqwallet/` | ✅ In-tree |
 
 Note: Lattice-BP++ (SOQ-P002) and LatticeFold+ are deprecated and superseded by SoquObscura (SOQ-P010). Deprecated code will be removed in the next node release.
+
+> ⛔ **Status note, so this table is not read as a claim of what exists.** Rows marked
+> ◻ have **no code in this tree**. Earlier revisions of this table cited concrete paths
+> (`src/crypto/soquobscura/`, `src/crypto/labrador/`) that have never existed; they are
+> now marked as planned. Confidential outputs are **not active on any network** —
+> `DEPLOYMENT_SOQUOBSCURA` is `NOT_SCHEDULED` on mainnet, testnet, regtest and stagenet
+> — because the currently-shipped range verifier accepts an all-zero witness. See
+> `src/test/soquobscura_degenerate_witness_tests.cpp`, whose two failing tests are
+> committed red on purpose as the regression gate. Attribution for the LNP22/LaZer and
+> LaBRADOR upstreams this work builds on is in [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 ### Branch Structure
 
