@@ -17,6 +17,7 @@ SH_LOG_COMPILER = $(SHELL)
 
 EXTRA_DIST += \
 	test/fuzz/run_seed_corpus.sh \
+	$(wildcard test/data/soquobscura-kat/*) \
 	$(wildcard test/fuzz/corpus/*) \
 	test/bctest.py \
 	test/bitcoin-util-test.py \
@@ -163,6 +164,7 @@ BITCOIN_TESTS =\
   test/freeze_registry_harness_tests.cpp \
   test/ctxout_format_matrix_tests.cpp \
   test/soquobscura_degenerate_witness_tests.cpp \
+  test/soquobscura_kat_corpus_tests.cpp \
   test/soquobscura_withdrawal_tests.cpp \
   test/covenant_tests.cpp \
   test/lightning_script_tests.cpp \
@@ -187,7 +189,8 @@ BITCOIN_TESTS += \
 endif
 
 test_test_soqucoin_SOURCES = $(BITCOIN_TESTS) $(JSON_TEST_FILES) $(RAW_TEST_FILES)
-test_test_soqucoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/test/ $(TESTDEFS) $(EVENT_CFLAGS)
+test_test_soqucoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) -I$(builddir)/test/ $(TESTDEFS) $(EVENT_CFLAGS) \
+  -DSOQUOBSCURA_KAT_DIR=\"$(abs_srcdir)/test/data/soquobscura-kat\"
 test_test_soqucoin_LDADD = \
   $(LIBSOQUCOIN_SERVER) \
   $(LIBSOQUCOIN_CLI) \

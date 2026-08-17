@@ -1,0 +1,28 @@
+{
+  "corpus": "soqucoin-latticebp-phase1 KAT corpus",
+  "corpus_root_seed": "62fc885c5f3a87aae95afdb03d3202c45da08c5c6aa171af2341b95549f65dfe",
+  "files": {
+    "balance.jsonl": {
+      "count": 19,
+      "sha256": "82c0888f1bc99e524aa869f645ae39f2475ccce1ffde14670e76c65fee208f4a"
+    },
+    "range.jsonl": {
+      "count": 23,
+      "sha256": "f47e5abdd5cef3d83286674841f2d48a6d3c7d20f2af486c5d7eb2b45ad86bbc"
+    },
+    "ve.jsonl": {
+      "count": 22,
+      "sha256": "744a1b0b3678116fc98f6e6764ca542008b35baa8c4463651129bf7b21515108"
+    }
+  },
+  "generated": "2026-07-24",
+  "lazer_commit": "2fa3dfb1de7c",
+  "params_sha256": {
+    "balance": "806032f014f63136039039a5d3dee57c6647d87b565a00affba46e1bc74cdcf6",
+    "range": "471faf23fe97c953bc37b76597f84b4eb096892a3220d204c8c6d8516d9ae573",
+    "ve": "a6bf4898d7a608c1ad38a7810a429ee472e6ee5489725b119837c51a5a9903e7"
+  },
+  "pubseed": "736f7175636f696e2d6c61747469636562702d7068617365312d646179312121",
+  "seed_derivation": "SHAKE256(root | vector_id | role)[:32]",
+  "version": "1 (balance format v1 = shadow; lambda = 24)"
+}
