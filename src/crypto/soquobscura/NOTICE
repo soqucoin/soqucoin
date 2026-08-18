@@ -1,0 +1,94 @@
+Soqucoin — SoquObscura verifier, vendored third-party components
+================================================================
+
+This directory contains third-party code, modified. Neither component is
+Soqucoin-original, and neither may be described as clean-room work.
+
+--------------------------------------------------------------------------
+1. LaZer  —  MIT License, Copyright (c) 2022-2026 IBM
+   Full text: LICENSE.lazer
+   Upstream:  pinned at commit 2fa3dfb1de7c
+   Vendored:  lazer/
+--------------------------------------------------------------------------
+
+MODIFICATIONS TO LAZER, stated as required:
+
+  a) A strict-aliasing violation was FIXED in lazer/src/aes256ctr-amd64.c,
+     function _aes256ctr_init. Upstream read the incoming nonce and wrote the
+     context counter through `unsigned long long *` while both objects are
+     `uint8_t[16]`. That is undefined behaviour, and GCC at -O2 and -Os acted on
+     it: the AES-CTR nonce was corrupted, so all seed-derived public data
+     differed by optimisation level. Replaced with __builtin_memcpy.
+     This defect is upstream's and is reportable to them.
+
+  b) Code not reachable on the verification path was REMOVED. Reachability was
+     computed by the linker (-ffunction-sections with --gc-sections, from a build
+     with inlining disabled so that a discarded section means genuinely
+     unreferenced code), and every removal was gated on reproducing all 64 pinned
+     KAT verdicts:
+       - 11 source files removed entirely
+       - 174 further functions removed from the remaining files
+       - Falcon (third_party/Falcon-impl-20211101) dropped in full
+       - src/labrados/ (LaBRADOR aggregation) dropped in full
+       - src/lattice-hash/ dropped in full
+       - python/, demos/, tests/ dropped
+       - headers reduced to the set the compiler reports as included
+
+  c) `lazer.h` is vendored in its GENERATED form. Upstream's Makefile
+     concatenates lazer-in1.h, config.h, lazer-in2.h and moduli.h to produce it.
+     A consensus tree should not generate its own public header at build time, so
+     the generated artefact is committed and the input fragments are not.
+
+--------------------------------------------------------------------------
+2. Intel HEXL  —  Apache License 2.0, Copyright (C) 2020 Intel Corporation
+   Full text: LICENSE.hexl
+   Vendored:  hexl/
+--------------------------------------------------------------------------
+
+MODIFICATIONS TO HEXL, stated as required by Apache-2.0 section 4(b):
+
+  a) Only the 8 compute kernels the verifier reaches are vendored
+     (eltwise-{add,sub,mult,fma,reduce}-mod, ntt-internal, ntt-radix-2,
+     number-theory). Headers are reduced to the set the compiler reports as
+     included. Nothing else from upstream is present.
+
+  b) HEXL's CMake build is NOT used. The one header CMake generates,
+     include/hexl/util/defines.hpp, is instead hand-written for the GNU,
+     non-debug, NON-AVX-512 configuration. HEXL_DEBUG and every HEXL_HAS_AVX512*
+     macro are deliberately left undefined.
+
+     ★ This also retires two portability patches Soqucoin previously had to carry
+       against HEXL's CMake, both of which hardcoded -march=native and therefore
+       compiled for whichever machine happened to run the build. Not using that
+       build system removes the problem rather than patching around it.
+
+  c) Two upstream dependencies are REPLACED BY SHIMS in hexl/shim/, which are
+     Soqucoin-original and are the only original code in this directory:
+
+       cpuinfo_x86.h    replaces Google cpu_features. HEXL's kernels include it
+                        unconditionally to runtime-dispatch AVX-512 paths. No
+                        AVX-512 kernel is compiled here, so reporting every
+                        feature absent is the only consistent answer rather than
+                        a simplification. It also makes the dispatch a
+                        compile-time constant, which matters because upstream
+                        consults the environment variables HEXL_DISABLE_AVX512DQ,
+                        HEXL_DISABLE_AVX512IFMA and HEXL_DISABLE_AVX512VBMI2 —
+                        an environment variable must never be able to change
+                        consensus behaviour.
+
+       easylogging++.h  replaces easyloggingpp. HEXL's logging.hpp includes it
+                        unconditionally, but with HEXL_DEBUG off every logging
+                        macro expands to nothing, so the real library would be
+                        compiled in purely to be unused.
+
+     Vendoring both upstream libraries instead would have added several thousand
+     lines of third-party code to the review surface for code that cannot run.
+
+--------------------------------------------------------------------------
+Soqucoin's own contribution
+--------------------------------------------------------------------------
+Soqucoin's intellectual property in this subsystem is the RELATION and its
+policy — corrector-chain pins, ring-degree headroom, dual-target verifiable
+encryption, H_lat (SOQ-P010 / SOQ-P011) — and the consensus rules around it. It
+is NOT the proof system, which is IBM's. Nothing in this directory belongs in the
+Soqucoin-original column of ATTRIBUTION.md.
