@@ -1,6 +1,21 @@
 {
   "corpus": "soqucoin-latticebp-phase1 KAT corpus",
   "corpus_root_seed": "62fc885c5f3a87aae95afdb03d3202c45da08c5c6aa171af2341b95549f65dfe",
+  "extension_files": {
+    "degenerate.jsonl": {
+      "class": "degenerate-witness reject class",
+      "count": 18,
+      "generated_by": "contrib/degen-corpus-gen.c via the LaZer encoder, so every vector DECODES cleanly and therefore exercises the soundness path rather than the decoder",
+      "modes": {
+        "degen-doubled": "all fields doubled. non-zero but EXCEEDS the per-relation wire cap, so soq_lbpp_unwrap_proof rejects it as ERR_OVERSIZE before the verifier runs: verifier-level test only. rejected at Z34_NORM.",
+        "degen-minnonzero": "all fields zeroed except a single z1 coefficient set to 1. non-zero AND under the wire cap, so genuinely wire-reachable. this is the member the grading contract requires, because a reject-if-all-zeros patch cannot fake it.",
+        "degen-zero": "all prover-supplied fields zeroed. wire-reachable. rejected at CHALLENGE_POLY_EQ."
+      },
+      "sha256": "44da12b5ba4eae3128eedec7544a56bb523016fc21c40481162c2978ee5c95d5",
+      "why": "the frozen 64 contain 25 reject vectors and NOT ONE is a degenerate witness, so the core corpus cannot detect the bug class proven twice in this repo's own consensus code (LatticeFold+ EvalCheckFoldProof and LatticeRangeProofV2). See bead corpus-no-degenerate-witness-class-piz6."
+    }
+  },
+  "extension_generated": "2026-08-17",
   "files": {
     "balance.jsonl": {
       "count": 19,
