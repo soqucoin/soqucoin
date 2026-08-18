@@ -7,6 +7,8 @@
 #include "abdlop.c"
 #if TARGET == TARGET_AMD64
 #include "aes256ctr-amd64.c"   /* AES-NI; pulls immintrin.h */
+#elif TARGET == TARGET_AARCH64
+#include "aes256ctr-aarch64.c" /* ARMv8 crypto extensions; pulls arm_neon.h */
 #endif
 #include "aes256ctr.c"         /* generic; body guarded on TARGET == TARGET_GENERIC */
 /* REMOVED by option-4 extraction: zero reachable function bodies

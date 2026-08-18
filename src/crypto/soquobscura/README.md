@@ -78,23 +78,47 @@ guarded to match its already-guarded uses, and the vestigial `mpfr.h` include is
 That is the property a consensus verifier needs, and it is now measured rather than assumed —
 the same discipline `nh6m` had to teach for optimisation levels.
 
-### ⛔ But the portable AES path is 50–300x slower, and that is a DoS surface
+### ✅ Performance: resolved with an ARMv8 AES path
 
-| build | AES path | 23 range vectors |
-|---|---|---|
-| x86-64 | AES-NI | **0.84 s** |
-| arm64 Apple Silicon | portable C | **44.2 s** (~53x) |
-| x86-64 | portable C | **258 s** (~307x) |
+The portable C AES is correct but **50–300x slower** on the verify path, and AES-CTR is the RNG
+behind every seed-derived value, so that gap was a denial-of-service surface rather than a
+benchmark curiosity. `lazer/src/aes256ctr-aarch64.c` (Soqucoin-original) closes it using the
+ARMv8 cryptographic extensions.
 
-AES-CTR is the RNG behind every seed-derived value, so this lands squarely on the verify path.
-At ~2 s per range proof a non-x86 node cannot keep up with block validation, and an attacker
-choosing to fill blocks with confidential transactions would be exploiting the gap deliberately.
+| build | AES path | 23 range vectors | all 82 |
+|---|---|---|---|
+| x86-64 gcc | AES-NI | 0.86 s | 82/82 |
+| **arm64 clang** | **ARMv8 crypto** | **0.59 s** | **2.35 s** |
+| arm64 clang | portable C | 44.2 s | 219 s |
+| x86-64 gcc | portable C | 258 s | — |
 
-⇒ **A non-x86 node needs an architecture-specific AES to be viable**, e.g. ARMv8 crypto
-extensions (`vaeseq_u8`). ★ That is a *performance* change and not a consensus-semantics one —
-AES is AES — and the digest table above is exactly the test that proves it stays bit-exact.
-Until then, treat non-x86 as **correct but not production-capable**, and do not read "it builds
-on arm64" as "it runs on arm64".
+★ **arm64 with the crypto extensions is now faster than x86-64 with AES-NI** (0.59 s vs 0.86 s),
+and ~75x faster than the portable path on the same vectors. 114 `aese`/`aesmc` instructions are
+present in the archive, so the hardware unit is genuinely in use.
+
+**Scope of the new file is deliberately narrow:** only the key schedule and the block cipher are
+new. The counter-mode logic — big-endian increment, cache, partial-block bookkeeping — is a
+byte-for-byte copy of the generic implementation that was already proven correct. Reimplementing
+CTR mode would risk the counter semantics for no benefit. `SubWord` uses the crypto unit rather
+than a lookup table, so there is no data-dependent table access.
+
+`TARGET` is now **auto-detected** from the architecture rather than hardcoded, with
+`SOQ_LAZER_TARGET` as an override. Editing `config.h` still has no effect — the generated
+`lazer.h` embeds the configuration.
+
+### Bit-identity, the property that actually matters
+
+| build | AES path | statement-matrix digest | vectors |
+|---|---|---|---|
+| x86-64 gcc, auto → AMD64 | AES-NI | `d5b417375955cb07` | 82/82 |
+| x86-64 gcc, `TARGET_GENERIC` | portable C | `d5b417375955cb07` | 82/82 |
+| arm64 clang `-O0`…`-Os`, auto → AARCH64 | ARMv8 crypto | `d5b417375955cb07` | 82/82 |
+| arm64 clang `-O0`…`-Os`, `TARGET_GENERIC` | portable C | `d5b417375955cb07` | 82/82 |
+
+Four AES implementations across two architectures, two compilers and five optimisation levels.
+The derived public data is the same in every case. ★ That is what makes adding a hardware AES a
+**performance** change rather than a consensus-semantics one, and the digest is the instrument
+that proves it — not an argument that "AES is AES".
 
 ## How it is verified
 

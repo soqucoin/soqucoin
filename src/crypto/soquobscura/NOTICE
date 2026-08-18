@@ -111,9 +111,29 @@ MODIFICATIONS TO HEXL, stated as required by Apache-2.0 section 4(b):
      `IFMA` in that file. The include is now guarded to match the uses. The other seven
      kernels needed no change: their avx512 headers are pure declarations with no intrinsics.
 
+  f) An ARMv8 AES-CTR implementation was ADDED: lazer/src/aes256ctr-aarch64.c. This file is
+     Soqucoin-original. Upstream shipped only an AES-NI path and a portable C path, and the
+     portable path is 50-300x slower on the verify path, which is a denial-of-service surface
+     rather than a benchmark curiosity because AES-CTR is the RNG behind every seed-derived
+     value.
+
+     Deliberately conservative in scope: only the KEY SCHEDULE and the BLOCK CIPHER are new.
+     The counter-mode logic - big-endian increment, 16-byte cache, partial-block bookkeeping -
+     is a byte-for-byte copy of the generic implementation, which was already proven to produce
+     the correct keystream. SubWord in the key schedule uses the crypto unit rather than a
+     lookup table, so there is no data-dependent table access.
+
+  g) TARGET is now AUTO-DETECTED from the architecture instead of hardcoded to AMD64.
+     Upstream required editing this generated header to build for another target, and editing
+     the separate config.h has no effect because this header embeds the configuration.
+     SOQ_LAZER_TARGET overrides it if a specific target is ever needed.
+
 --------------------------------------------------------------------------
 Soqucoin's own contribution
 --------------------------------------------------------------------------
+Beyond the two HEXL shims, the Soqucoin-original files here are hexl/shim/*.h and
+lazer/src/aes256ctr-aarch64.c.
+
 Soqucoin's intellectual property in this subsystem is the RELATION and its
 policy — corrector-chain pins, ring-degree headroom, dual-target verifiable
 encryption, H_lat (SOQ-P010 / SOQ-P011) — and the consensus rules around it. It

@@ -3,6 +3,7 @@
 
 #define TARGET_GENERIC 0
 #define TARGET_AMD64 1
+#define TARGET_AARCH64 2 /* Soqucoin: ARMv8 crypto extensions */
 
 #define RNG_SHAKE128 0
 #define RNG_AES256CTR 1
@@ -25,10 +26,23 @@
 #define LAZER_CONFIG_H
 
 /*
- * TARGET: GENERIC, AMD64
+ * TARGET: GENERIC, AMD64, AARCH64
  * Architecture target.
+ *
+ * Soqucoin: AUTO-DETECTED rather than hand-edited. Upstream hardcoded TARGET_AMD64 here, so
+ * building for another architecture meant editing a generated header - and editing the separate
+ * config.h has NO effect, because this generated header embeds the configuration. Override by
+ * defining SOQ_LAZER_TARGET on the command line if a specific target is ever needed.
  */
+#ifdef SOQ_LAZER_TARGET
+#define TARGET SOQ_LAZER_TARGET
+#elif defined(__x86_64__) || defined(_M_X64)
 #define TARGET TARGET_AMD64
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#define TARGET TARGET_AARCH64
+#else
+#define TARGET TARGET_GENERIC
+#endif
 
 /*
  * RNG: SHAKE128, AES256CTR
@@ -261,6 +275,15 @@ typedef struct
   __m128i rkeys[16];
   _ALIGN16 uint8_t n2[16];
   _ALIGN16 uint8_t cache[8 * 16]; /* LOOP (8) */
+  uint8_t *cache_ptr;
+  unsigned int nbytes;
+#elif TARGET == TARGET_AARCH64
+  /* Soqucoin: round keys held as BYTES, not uint8x16_t, so <arm_neon.h> stays out of this
+   * public header. aes256ctr-aarch64.c loads them with vld1q_u8. Layout otherwise mirrors the
+   * generic state, because the counter-mode logic is shared with it verbatim. */
+  uint8_t rkeys[15][16];
+  uint8_t nonce[16];
+  uint8_t cache[16];
   uint8_t *cache_ptr;
   unsigned int nbytes;
 #else
