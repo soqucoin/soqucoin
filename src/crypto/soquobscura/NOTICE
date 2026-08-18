@@ -34,7 +34,27 @@ MODIFICATIONS TO LAZER, stated as required:
        - python/, demos/, tests/ dropped
        - headers reduced to the set the compiler reports as included
 
-  c) `lazer.h` is vendored in its GENERATED form. Upstream's Makefile
+  c) PORTABILITY beyond x86-64 was FIXED. Upstream gated three things on the macro
+     `_OS_IOS`, which is an OPERATING SYSTEM check defined only for `__APPLE__ &&
+     TARGET_OS_IPHONE`. The effect was that iOS worked, x86-64 worked, and every other
+     target — arm64 Linux, Apple Silicon macOS — fell through to x86-only code and failed
+     to build. All three now select on the ARCHITECTURE instead:
+       - lazer.h: the second `#include <immintrin.h>` / `<x86intrin.h>` site
+       - lazer.h: `_addcarry_u64_`, which fell through to the x86 `_addcarry_u64`
+       - lazer.h: `_subborrow_u64_`, likewise
+     A plain-C carry/borrow fallback was added so that no compiler is excluded, since
+     `__builtin_addcll` and `__builtin_subcll` are clang extensions.
+     `src/lazer.c` now includes `lazer.h` explicitly and guards the `aes256ctr-amd64.c`
+     include on `TARGET == TARGET_AMD64`, rather than relying on an unrelated earlier
+     include to define the macro a conditional needs.
+     These are upstream defects and are reportable to them.
+
+  d) The vestigial `#include <mpfr.h>` was REMOVED from `src/lnp-quad-many.c`. After
+     function-level pruning there are zero `mpfr_` calls in the vendored sources and zero
+     undefined `mpfr_` symbols at link, so it was a compile-time dependency on a library
+     whose code is never linked, and a hard build blocker on any host lacking mpfr headers.
+
+  e) `lazer.h` is vendored in its GENERATED form. Upstream's Makefile
      concatenates lazer-in1.h, config.h, lazer-in2.h and moduli.h to produce it.
      A consensus tree should not generate its own public header at build time, so
      the generated artefact is committed and the input fragments are not.
@@ -83,6 +103,13 @@ MODIFICATIONS TO HEXL, stated as required by Apache-2.0 section 4(b):
 
      Vendoring both upstream libraries instead would have added several thousand
      lines of third-party code to the review surface for code that cannot run.
+
+  d) `src/eltwise/eltwise-reduce-mod.cpp` guards its include of
+     `eltwise-reduce-mod-avx512.hpp`. That header reaches `util/avx512-util.hpp`, which
+     includes `<immintrin.h>` unconditionally and therefore broke every non-x86 build, while
+     every USE of the symbols it declares was already inside `#ifdef HEXL_HAS_AVX512DQ` or
+     `IFMA` in that file. The include is now guarded to match the uses. The other seven
+     kernels needed no change: their avx512 headers are pure declarations with no intrinsics.
 
 --------------------------------------------------------------------------
 Soqucoin's own contribution

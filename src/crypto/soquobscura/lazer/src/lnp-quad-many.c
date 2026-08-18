@@ -1,6 +1,9 @@
 #include "lazer.h"
 #include "stopwatch.h"
-#include <mpfr.h>
+/* Soqucoin: mpfr include REMOVED. After function-level pruning there are zero mpfr_ calls
+ * anywhere in the vendored sources, so this was a compile-time dependency on a library whose
+ * code is never linked - and a hard build blocker on any host without mpfr headers. Verified
+ * by grep across all vendored .c and by the absence of undefined mpfr_ symbols at link. */
 
 static void
 _schwartz_zippel_poly (spolymat_t R2, spolyvec_t r1, poly_t r0,

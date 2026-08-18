@@ -3,7 +3,14 @@
 
 #include "hexl/eltwise/eltwise-reduce-mod.hpp"
 
+/* Soqucoin nh6m-arch: this header reaches util/avx512-util.hpp, which includes <immintrin.h>
+ * unconditionally and therefore breaks every non-x86 build. Every USE of the symbols it
+ * declares is already inside #ifdef HEXL_HAS_AVX512DQ / IFMA in this file, so the include is
+ * guarded to match. The other seven kernels are unaffected: their avx512 headers are pure
+ * declarations with no intrinsics. */
+#if defined(HEXL_HAS_AVX512DQ) || defined(HEXL_HAS_AVX512IFMA)
 #include "eltwise/eltwise-reduce-mod-avx512.hpp"
+#endif
 #include "eltwise/eltwise-reduce-mod-internal.hpp"
 #include "hexl/logging/logging.hpp"
 #include "hexl/number-theory/number-theory.hpp"

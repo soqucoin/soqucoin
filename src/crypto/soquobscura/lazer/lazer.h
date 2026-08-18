@@ -2071,7 +2071,11 @@ _get_coeffvec (poly_t poly)
   return poly->coeffs;
 }
 
-#ifndef _OS_IOS
+/* Soqucoin nh6m-arch: upstream guarded this x86 intrinsics include on #ifndef _OS_IOS, an
+ * OPERATING SYSTEM check, so every non-x86 host that is not iOS (arm64 Linux, Apple Silicon
+ * macOS) pulled immintrin.h and failed to compile. The correct guard is the architecture, and
+ * lazer.h already uses exactly that form at the other x86 include site above. */
+#if TARGET == TARGET_AMD64
 #include <immintrin.h>
 #include <x86intrin.h>
 #endif
@@ -2108,31 +2112,57 @@ static inline void limbs_to_twoscom_ct (limb_t *limbs, unsigned int nlimbs,
 static inline limb_t limbs_from_twoscom_ct (limb_t *limbs,
                                             unsigned int nlimbs);
 
+/* Soqucoin nh6m-arch: upstream selected the portable path on #ifdef _OS_IOS, an OPERATING
+ * SYSTEM check, so every non-x86 host that is not iOS fell through to the x86-only
+ * _addcarry_u64 intrinsic and failed to link. Selection is now by ARCHITECTURE and then by
+ * available builtin, with a plain-C fallback so no compiler is excluded. All three branches
+ * must produce identical limbs; that is asserted by the KAT gate and the statement-matrix
+ * digest, not assumed. */
 static inline unsigned char
 _addcarry_u64_ (unsigned char c, unsigned long long x, unsigned long long y,
                 unsigned long long *p)
 {
-#ifdef _OS_IOS
+#if TARGET == TARGET_AMD64
+  return _addcarry_u64 (c, x, y, p);
+#elif defined(__has_builtin) && __has_builtin(__builtin_addcll)
   unsigned long long cout;
 
   *p = __builtin_addcll (x, y, c, &cout);
-  return cout;
+  return (unsigned char)cout;
 #else
-  return _addcarry_u64 (c, x, y, p);
+  /* Portable two-step carry. Each addition can carry at most once, so the outgoing carry is
+   * the OR of the two. */
+  unsigned long long s = x + (unsigned long long)c;
+  unsigned char c1 = (unsigned char)(s < x);
+  unsigned long long t = s + y;
+  unsigned char c2 = (unsigned char)(t < s);
+
+  *p = t;
+  return (unsigned char)(c1 | c2);
 #endif
 }
 
+/* Soqucoin nh6m-arch: same correction as _addcarry_u64_ above. */
 static inline unsigned char
 _subborrow_u64_ (unsigned char c, unsigned long long x, unsigned long long y,
                  unsigned long long *p)
 {
-#ifdef _OS_IOS
+#if TARGET == TARGET_AMD64
+  return _subborrow_u64 (c, x, y, p);
+#elif defined(__has_builtin) && __has_builtin(__builtin_subcll)
   unsigned long long cout;
 
   *p = __builtin_subcll (x, y, c, &cout);
-  return cout;
+  return (unsigned char)cout;
 #else
-  return _subborrow_u64 (c, x, y, p);
+  /* Portable two-step borrow, mirroring the carry case. */
+  unsigned long long d = x - y;
+  unsigned char b1 = (unsigned char)(x < y);
+  unsigned long long e = d - (unsigned long long)c;
+  unsigned char b2 = (unsigned char)(d < (unsigned long long)c);
+
+  *p = e;
+  return (unsigned char)(b1 | b2);
 #endif
 }
 

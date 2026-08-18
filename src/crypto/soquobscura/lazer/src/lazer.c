@@ -1,6 +1,14 @@
+/* Soqucoin: include lazer.h FIRST so TARGET is defined before the conditional below.
+ * Upstream relied on abdlop.c (the first include) to pull lazer.h in, which is the same
+ * latent-include fragility that made lin-proofs.c stop compiling when an unrelated file was
+ * removed. Do not depend on include order for a macro a conditional needs. */
+#include "lazer.h"
+
 #include "abdlop.c"
-#include "aes256ctr-amd64.c"
-#include "aes256ctr.c"
+#if TARGET == TARGET_AMD64
+#include "aes256ctr-amd64.c"   /* AES-NI; pulls immintrin.h */
+#endif
+#include "aes256ctr.c"         /* generic; body guarded on TARGET == TARGET_GENERIC */
 /* REMOVED by option-4 extraction: zero reachable function bodies
  * on the verify path, proven by --gc-sections. was: #include "blindsig.c" */
 #include "brandom.c"

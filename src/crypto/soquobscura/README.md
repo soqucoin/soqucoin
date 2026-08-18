@@ -53,30 +53,48 @@ this repository has already shipped twice. Treat it as the highest-risk edit in 
   whichever machine compiled it.
 - **Do not regenerate `lazer.h`.** It is committed in generated form on purpose.
 
-## ⛔ This subsystem is x86-64 ONLY, and that is a consensus problem, not a build inconvenience
+## Architecture support — CORRECT everywhere, FAST only on x86-64
 
-`lazer/src/lazer.c` includes `aes256ctr-amd64.c` **unconditionally**, and that file pulls
-`immintrin.h` for AES-NI. On arm64 the translation unit does not compile at all:
+⛔ **An earlier version of this file said the subsystem was x86-64 only and that
+`TARGET_GENERIC` was "not sufficient". Both statements are now obsolete, and the second was
+never actually tested** — it was based on editing `config.h`, which has no effect, because the
+generated `lazer.h` embeds the configuration at line 31. Edit `lazer.h`.
 
-```
-immintrin.h:14:2: error: "This header is only meant to be used on x86 and x64 architecture"
-```
+**Portability is fixed.** Upstream gated three things on `_OS_IOS`, an *operating system* macro
+defined only for `__APPLE__ && TARGET_OS_IPHONE`, so iOS and x86-64 worked and every other
+target fell through to x86-only code: the second `immintrin.h` include site, and both
+`_addcarry_u64_` / `_subborrow_u64_`. All three now select on the **architecture**, with a
+plain-C carry fallback so no compiler is excluded. One HEXL kernel's AVX-512 header include is
+guarded to match its already-guarded uses, and the vestigial `mpfr.h` include is gone.
 
-Setting `TARGET TARGET_GENERIC` in `config.h` is **not sufficient** — the generic implementation
-in `aes256ctr.c` becomes active, but the amd64 file is still included and still pulls the x86
-header. Making that include conditional is a source change, and it is the first thing to do
-before this can build anywhere else.
+**Verdicts and derived public data are bit-identical across every configuration tested:**
 
-**Why it matters beyond convenience:** a verifier that only builds on x86-64 means only x86-64
-nodes can validate confidential transactions. And once a generic AES path is enabled, whether it
-derives a **bit-identical** statement matrix must be proven, not assumed — that is the same
-question `nh6m` answered the hard way for optimisation levels, and the same class of chain-split
-risk. `contrib/nh6m-opt-invariance-falsifier.sh` is the right shape of test; it needs an
-architecture axis added.
+| build | AES path | statement-matrix digest | vectors |
+|---|---|---|---|
+| x86-64 gcc, `TARGET_AMD64` | AES-NI | `d5b417375955cb07` | 82/82 |
+| x86-64 gcc, `TARGET_GENERIC` | portable C | `d5b417375955cb07` | 82/82 |
+| arm64 clang `-O0`…`-Os`, `TARGET_GENERIC` | portable C | `d5b417375955cb07` | 82/82 |
 
-⚠️ Practical consequence today: this cannot be built or tested on an Apple Silicon workstation,
-so any build-system wiring must make the subsystem and its tests conditional on the host
-architecture rather than unconditional.
+That is the property a consensus verifier needs, and it is now measured rather than assumed —
+the same discipline `nh6m` had to teach for optimisation levels.
+
+### ⛔ But the portable AES path is 50–300x slower, and that is a DoS surface
+
+| build | AES path | 23 range vectors |
+|---|---|---|
+| x86-64 | AES-NI | **0.84 s** |
+| arm64 Apple Silicon | portable C | **44.2 s** (~53x) |
+| x86-64 | portable C | **258 s** (~307x) |
+
+AES-CTR is the RNG behind every seed-derived value, so this lands squarely on the verify path.
+At ~2 s per range proof a non-x86 node cannot keep up with block validation, and an attacker
+choosing to fill blocks with confidential transactions would be exploiting the gap deliberately.
+
+⇒ **A non-x86 node needs an architecture-specific AES to be viable**, e.g. ARMv8 crypto
+extensions (`vaeseq_u8`). ★ That is a *performance* change and not a consensus-semantics one —
+AES is AES — and the digest table above is exactly the test that proves it stays bit-exact.
+Until then, treat non-x86 as **correct but not production-capable**, and do not read "it builds
+on arm64" as "it runs on arm64".
 
 ## How it is verified
 
