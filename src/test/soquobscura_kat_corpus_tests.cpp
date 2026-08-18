@@ -147,12 +147,35 @@ BOOST_AUTO_TEST_CASE(kat_corpus_manifest_integrity)
     // The whole corpus, as generated: range 23 + balance 19 + VE 22.
     BOOST_CHECK_MESSAGE(total_vectors == 64,
         "expected 64 pinned vectors across the corpus, found " << total_vectors);
+
+    // ⛔ PIN THE ACCEPT/REJECT SPLIT. This exists because the figure "25 reject vectors" was
+    // asserted in six committed places - including ORACLE.md, which predates this test - and
+    // was WRONG. Counting the files gives 40 accept / 24 reject. An uncounted claim about the
+    // corpus is exactly the kind of thing that gets quoted into an audit scope, so the split
+    // is now derived from the data on every run rather than written down once.
+    size_t core_accept = 0, core_reject = 0;
+    for (const char* fname : {"range.jsonl", "balance.jsonl", "ve.jsonl"}) {
+        for (const UniValue& v : ReadJsonl(fname)) {
+            const std::string e = v["expect"].get_str();
+            if (e == "accept") core_accept++;
+            else if (e == "reject") core_reject++;
+            else BOOST_ERROR(fname << " " << v["id"].get_str() << ": expect is neither "
+                                      "accept nor reject but '" << e << "'");
+        }
+    }
+    BOOST_CHECK_MESSAGE(core_accept == 40,
+        "expected 40 accept vectors in the frozen core, found " << core_accept);
+    BOOST_CHECK_MESSAGE(core_reject == 24,
+        "expected 24 reject vectors in the frozen core, found " << core_reject
+        << " (the long-standing '25 reject' figure was wrong)");
+    BOOST_CHECK_MESSAGE(core_accept + core_reject == total_vectors,
+        "accept+reject does not account for every vector");
 }
 
 // -----------------------------------------------------------------------------
 // The DEGENERATE-WITNESS REJECT CLASS (extension_files in the manifest).
 //
-// Why this exists: the frozen 64 above contain 25 reject vectors and NOT ONE of
+// Why this exists: the frozen 64 above contain 24 reject vectors and NOT ONE of
 // them is a degenerate witness. The *-ok-zero vectors are zero-VALUE accepts,
 // which is a legitimate thing to prove. So the core corpus is structurally blind
 // to the one bug class this repository has shipped TWICE:
@@ -182,6 +205,102 @@ BOOST_AUTO_TEST_CASE(kat_corpus_manifest_integrity)
 // lands, the class is already frozen and cannot be quietly regenerated to make
 // that verifier pass. See bead corpus-no-degenerate-witness-class-piz6.
 // -----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
+// PINNED -> EXECUTED.
+//
+// The tests above check integrity and shape but deliberately verify no proof,
+// because there is no consensus verifier in-tree yet. That left a real gap: the
+// vectors could be perfectly well-formed and pinned, and still never have been
+// run against anything.
+//
+// EXECUTED-EVIDENCE.json closes it. It records the sha256 of every corpus file
+// that was executed, the identity of the verifier that executed them, and the
+// per-vector verdict observed. This test binds the record to the data:
+//
+//   * if a corpus file is regenerated, its hash changes and this goes RED until
+//     the vectors are re-executed and the record refreshed;
+//   * if a vector is added without being executed, it is missing from the record
+//     and this goes RED;
+//   * if any vector's observed verdict disagrees with its pinned expectation,
+//     this goes RED.
+//
+// So the repo knows whether the CURRENT bytes have been run, rather than
+// trusting that someone once ran something. It is not a substitute for
+// verifying in-process, which arrives when a verifier lands in-tree.
+// -----------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(corpus_and_degenerate_class_have_been_executed)
+{
+    const std::string raw = ReadFileOrEmpty(KatPath("EXECUTED-EVIDENCE.json"));
+    BOOST_REQUIRE_MESSAGE(!raw.empty(),
+        "EXECUTED-EVIDENCE.json is missing — the corpus has no record of ever having been "
+        "run against a verifier, so every check above passes on data nobody has executed.");
+    UniValue ev;
+    BOOST_REQUIRE_MESSAGE(ev.read(raw), "EXECUTED-EVIDENCE.json is not valid JSON");
+
+    // 1. the record must describe the bytes that are here NOW
+    const UniValue& hashes = ev["corpus_sha256"];
+    BOOST_REQUIRE_MESSAGE(hashes.isObject() && !hashes.getKeys().empty(),
+        "evidence lists no corpus hashes");
+    for (const std::string& fname : hashes.getKeys()) {
+        const std::string blob = ReadFileOrEmpty(KatPath(fname));
+        BOOST_REQUIRE_MESSAGE(!blob.empty(), "evidence references a missing file: " << fname);
+        uint256 digest;
+        CSHA256().Write((const unsigned char*)blob.data(), blob.size()).Finalize(digest.begin());
+        BOOST_CHECK_MESSAGE(HexStr(digest) == hashes[fname].get_str(),
+            fname << ": EXECUTED-EVIDENCE.json records sha256 "
+                  << hashes[fname].get_str() << " but the file on disk is " << HexStr(digest)
+                  << " — the corpus changed since it was last executed. Re-run the vectors and "
+                     "refresh the record; do NOT just edit the hash.");
+    }
+
+    // 2. the verifier must be identified, or the record proves nothing
+    const UniValue& vf = ev["verifier"];
+    BOOST_REQUIRE_MESSAGE(vf.isObject(), "evidence does not identify a verifier");
+    for (const char* k : {"identity", "liblazer_a_sha256", "harness_binary_sha256",
+                          "build_flags", "toolchain"}) {
+        BOOST_CHECK_MESSAGE(vf.exists(k) && !vf[k].get_str().empty(),
+            "evidence verifier block is missing '" << k << "' — an unidentified verifier makes "
+            "the execution unreproducible");
+    }
+
+    // 3. every vector present on disk must appear in the record, with the right verdict
+    std::map<std::string, std::pair<std::string, bool>> got;  // id -> (verdict, ok)
+    for (const UniValue& v : ev["verdicts"].getValues()) {
+        got[v["id"].get_str()] = {v["got"].get_str(), v["ok"].get_bool()};
+    }
+    size_t checked = 0, degen_rejects = 0;
+    for (const char* fname : {"range.jsonl", "balance.jsonl", "ve.jsonl", "degenerate.jsonl"}) {
+        for (const UniValue& v : ReadJsonl(fname)) {
+            const std::string id = v["id"].get_str();
+            const std::string expect = v["expect"].get_str();
+            auto it = got.find(id);
+            BOOST_REQUIRE_MESSAGE(it != got.end(),
+                fname << " " << id << ": present on disk but ABSENT from "
+                "EXECUTED-EVIDENCE.json — it has never been executed.");
+            BOOST_CHECK_MESSAGE(it->second.first == expect,
+                id << ": pinned expectation is " << expect << " but the verifier returned "
+                   << it->second.first);
+            BOOST_CHECK_MESSAGE(it->second.second,
+                id << ": recorded as NOT ok — the verifier disagreed with the pinned verdict");
+            checked++;
+            if (std::string(fname) == "degenerate.jsonl" && it->second.first == "reject")
+                degen_rejects++;
+        }
+    }
+    BOOST_CHECK_MESSAGE(checked == 82,
+        "expected 82 vectors (64 frozen core + 18 degenerate), executed-checked " << checked);
+
+    // 4. ⭐ the load-bearing one: every degenerate vector was actually REJECTED by a real
+    //    verifier. This is what "pinned -> executed" means for the soundness class.
+    BOOST_CHECK_MESSAGE(degen_rejects == 18,
+        "only " << degen_rejects << " of 18 degenerate-witness vectors are recorded as "
+        "rejected by an executed verifier");
+
+    const UniValue& sum = ev["summary"];
+    BOOST_CHECK_MESSAGE(sum["wrong"].get_int() == 0,
+        "evidence records " << sum["wrong"].get_int() << " wrong verdicts");
+}
+
 BOOST_AUTO_TEST_CASE(degenerate_witness_class_is_pinned_and_shaped)
 {
     const std::string manifest_raw = ReadFileOrEmpty(KatPath("manifest.json"));
@@ -247,6 +366,10 @@ BOOST_AUTO_TEST_CASE(degenerate_witness_class_is_pinned_and_shaped)
 
         BOOST_CHECK_MESSAGE(rejects == vectors.size(),
             fname << ": " << (vectors.size() - rejects) << " vector(s) are not rejects");
+
+        // The class is reject-only by construction: 18 vectors, 0 accepts.
+        BOOST_CHECK_MESSAGE(rejects == 18,
+            fname << ": expected 18 reject vectors in the degenerate class, found " << rejects);
 
         // All three relations must be covered; a class that only covers range would leave
         // balance and VE untested even though they share lnp_quad_verify.

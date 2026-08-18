@@ -12,7 +12,7 @@
         "degen-zero": "all prover-supplied fields zeroed. wire-reachable. rejected at CHALLENGE_POLY_EQ."
       },
       "sha256": "44da12b5ba4eae3128eedec7544a56bb523016fc21c40481162c2978ee5c95d5",
-      "why": "the frozen 64 contain 25 reject vectors and NOT ONE is a degenerate witness, so the core corpus cannot detect the bug class proven twice in this repo's own consensus code (LatticeFold+ EvalCheckFoldProof and LatticeRangeProofV2). See bead corpus-no-degenerate-witness-class-piz6."
+      "why": "the frozen 64 contain 24 reject vectors and NOT ONE is a degenerate witness, so the core corpus cannot detect the bug class proven twice in this repo's own consensus code (LatticeFold+ EvalCheckFoldProof and LatticeRangeProofV2). See bead corpus-no-degenerate-witness-class-piz6."
     }
   },
   "extension_generated": "2026-08-17",

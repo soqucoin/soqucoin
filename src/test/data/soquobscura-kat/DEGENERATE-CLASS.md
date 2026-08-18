@@ -7,7 +7,7 @@ class lives under `extension_files` in `manifest.json` precisely so the `== 64` 
 
 ## Why it exists
 
-The frozen 64 contain **25 reject vectors and not one is a degenerate witness.** Enumerated,
+The frozen 64 contain **24 reject vectors and not one is a degenerate witness.** Enumerated,
 they cover the L2 norm bound, non-binary digits, tamper/bitflip/truncation, balance
 arithmetic, and VE wrong-value/cross-key. The `*-ok-zero` vectors are zero-**value** accepts,
 which is a legitimate thing to prove and is not the same thing at all.

@@ -137,6 +137,6 @@ assume which.
 1. **Verdict-identical, not just count-identical.** 62 right and 2 compensating
    errors is not a pass.
 2. **The reject vectors matter more than the accept ones.** A verifier that
-   returns `true` unconditionally passes all 39 accept vectors. The 25 reject
+   returns `true` unconditionally passes all 40 accept vectors. The 24 reject
    vectors are what distinguish a verifier from a stub — which is not a
    hypothetical failure mode in this codebase.

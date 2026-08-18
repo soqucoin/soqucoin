@@ -1,0 +1,529 @@
+{
+  "corpus_sha256": {
+    "balance.jsonl": "82c0888f1bc99e524aa869f645ae39f2475ccce1ffde14670e76c65fee208f4a",
+    "degenerate.jsonl": "44da12b5ba4eae3128eedec7544a56bb523016fc21c40481162c2978ee5c95d5",
+    "range.jsonl": "f47e5abdd5cef3d83286674841f2d48a6d3c7d20f2af486c5d7eb2b45ad86bbc",
+    "ve.jsonl": "744a1b0b3678116fc98f6e6764ca542008b35baa8c4463651129bf7b21515108"
+  },
+  "executed_utc_date": "2026-08-18",
+  "summary": {
+    "accept_expected": 40,
+    "correct": 82,
+    "reject_expected": 42,
+    "vectors_executed": 82,
+    "wrong": 0
+  },
+  "verdicts": [
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-zero",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-one",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-dust",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-typical",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-pow63",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-max",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-rand1",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-rand2",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-ok-rand3",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "rng-l2-atbound",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-l2-1539",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-l2-2046",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-l2-2049",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-adv-nonbin2",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-adv-nonbin-neg1",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-adv-tamper",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-adv-bitflip",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-adv-trunc",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "cmp-tx-range1",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "cmp-tx-range2",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "cmp-c-range",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "prv-rng-1",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "prv-rng-2",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "bal-ok-unit",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "bal-ok-zero",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "bal-ok-max",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "bal-ok-dustfee",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "bal-ok-random",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "bal-ok-skew",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-plus1",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-minus1",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-wrap-plus",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-wrap-minus",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-fee-plus",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-fee-minus",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-swapio",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-foreignC",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-bitflip",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-adv-trunc",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "cmp-tx-balance",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "prv-bal-1",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "prv-bal-2",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-zero-iss",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-zero-rcp",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-one-iss",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-one-rcp",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-typical-iss",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-typical-rcp",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-pow63-iss",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-pow63-rcp",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-max-iss",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-max-rcp",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-rand-iss",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "ve-ok-rand-rcp",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-adv-wrongval",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-adv-crosskey",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-adv-foreignC",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-adv-c1tamper",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-adv-bitflip",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-adv-trunc",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "cmp-c-ve-iss",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "cmp-c-ve-rcp",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "prv-ve-1",
+      "ok": true
+    },
+    {
+      "expect": "accept",
+      "got": "accept",
+      "id": "prv-ve-2",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-ok-zero-degen-zero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-ok-zero-degen-doubled",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-ok-zero-degen-minnonzero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-ok-one-degen-zero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-ok-one-degen-doubled",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "rng-ok-one-degen-minnonzero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-ok-unit-degen-zero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-ok-unit-degen-doubled",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-ok-unit-degen-minnonzero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-ok-zero-degen-zero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-ok-zero-degen-doubled",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "bal-ok-zero-degen-minnonzero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-ok-zero-iss-degen-zero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-ok-zero-iss-degen-doubled",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-ok-zero-iss-degen-minnonzero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-ok-zero-rcp-degen-zero",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-ok-zero-rcp-degen-doubled",
+      "ok": true
+    },
+    {
+      "expect": "reject",
+      "got": "reject",
+      "id": "ve-ok-zero-rcp-degen-minnonzero",
+      "ok": true
+    }
+  ],
+  "verifier": {
+    "build_flags": "-O3 -g -march=x86-64-v3 -maes -mtune=generic -fomit-frame-pointer -ffunction-sections -fdata-sections, linked -Wl,--gc-sections",
+    "carries_patches": [
+      "hexl-util.cmake: capability probe tested the build host (-march=native)",
+      "hexl/CMakeLists.txt: -march=native as a PRIVATE compile option",
+      "aes256ctr-amd64.c: strict-aliasing violation in _aes256ctr_init (bead nh6m)"
+    ],
+    "derived_from_upstream": "2fa3dfb1de7c",
+    "harness_binary_sha256": "0c2b5c96f116767800b98394eea2daa77c0379412b6acc50fc6e3f940a032b50",
+    "host": "Linux 6.8.0-137-generic x86_64",
+    "identity": "option-4 extracted LaZer subset",
+    "liblazer_a_sha256": "72f58ae0aa872d57bde12d4968fe8bd0f66ef98062e16e78da3d24b703a95426",
+    "toolchain": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "tree": "162.243.115.28:/opt/lazer-extract",
+    "unity_loc": 9018,
+    "unity_source_files": 22
+  },
+  "what": "execution evidence for the vendored SoquObscura KAT corpus and its degenerate-witness reject class",
+  "why": "the in-repo corpus test cannot verify proofs, because there is deliberately no consensus verifier in-tree yet. This record is how the repo knows the vendored bytes have actually been run, and against what."
+}
