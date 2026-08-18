@@ -1,0 +1,26 @@
+--- /opt/lazer-pinned/src/aes256ctr-amd64.c	2026-07-24 16:55:30.873037881 +0000
++++ src/aes256ctr-amd64.c	2026-08-18 02:05:49.850330127 +0000
+@@ -253,10 +253,19 @@
+   aesni_key256_expand (key, state->rkeys);
+   /* n2 is in byte-reversed (i.e., native little endian)
+      order to make increment/testing easier */
+-  (*(unsigned long long *)&state->n2[8])
+-      = BSWAP64 ((*(unsigned long long *)&nonce[8]));
+-  (*(unsigned long long *)&state->n2[0])
+-      = BSWAP64 ((*(unsigned long long *)&nonce[0]));
++  /* option-4 nh6m: the original code punned 64-bit loads/stores over uint8_t[16], which is
++   * a strict-aliasing violation. GCC at -O2/-Os exploited it and corrupted the nonce, so the
++   * seed-derived statement matrix differed by optimisation level. memcpy is the correct
++   * idiom and lowers to the same instructions. */
++  {
++    uint64_t _n_lo, _n_hi;
++    __builtin_memcpy (&_n_lo, &nonce[0], 8);
++    __builtin_memcpy (&_n_hi, &nonce[8], 8);
++    _n_lo = BSWAP64 (_n_lo);
++    _n_hi = BSWAP64 (_n_hi);
++    __builtin_memcpy (&state->n2[0], &_n_lo, 8);
++    __builtin_memcpy (&state->n2[8], &_n_hi, 8);
++  }
+ }
+ 
+ static void
