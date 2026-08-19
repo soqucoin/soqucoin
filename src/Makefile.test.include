@@ -148,6 +148,7 @@ BITCOIN_TESTS =\
   test/univalue_tests.cpp \
   test/util_tests.cpp \
   test/verify_cost_tests.cpp \
+  test/witness_standardness_tests.cpp \
   test/consensus_validation_tests.cpp \
   test/latticefold_tests.cpp \
   test/usdsoq_tests.cpp \

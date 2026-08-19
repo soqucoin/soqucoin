@@ -145,12 +145,29 @@ static const unsigned int STANDARD_NOT_MANDATORY_VERIFY_FLAGS = STANDARD_SCRIPT_
 static const unsigned int STANDARD_LOCKTIME_VERIFY_FLAGS = LOCKTIME_VERIFY_SEQUENCE |
                                                            LOCKTIME_MEDIAN_TIME_PAST;
 
-bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool witnessEnabled = false);
+/**
+ * Bitmask of witness versions whose CONSENSUS rules are active, bit N = version N.
+ *
+ * Policy must never admit an output whose consensus rule is dormant. A gated
+ * witness version is anyone-can-spend until its deployment activates, so relaying
+ * such an output is a fund-loss path rather than a safe failure: it confirms, and
+ * then anybody may spend it.
+ *
+ * The default of 0 means "nothing gated is active", which is the fail-safe
+ * direction — an unknown activation state rejects rather than relays. Callers that
+ * know the chain state (the mempool acceptance path) pass the real mask.
+ */
+typedef uint32_t WitnessVersionMask;
+static inline WitnessVersionMask WitnessVersionBit(int version) { return (uint32_t)1 << version; }
+
+bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool witnessEnabled = false,
+                WitnessVersionMask activeWitnessVersions = 0);
     /**
      * Check for standard transaction types
      * @return True if all outputs (scriptPubKeys) use only standard transaction forms
      */
-bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnessEnabled = false);
+bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnessEnabled = false,
+                  WitnessVersionMask activeWitnessVersions = 0);
     /**
      * Check for standard transaction types
      * @param[in] mapInputs    Map of previous transactions that have outputs we're spending

@@ -663,9 +663,40 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet", true);
     }
 
+    // Which gated witness versions are actually spendable-by-rule right now.
+    //
+    // A gated witness version is anyone-can-spend until its deployment activates,
+    // so relaying an output of that form before activation is a fund-loss path,
+    // not a safe failure: it confirms, and then anybody may spend it. Policy must
+    // therefore track consensus on the OUTPUT side, exactly as it already does on
+    // the INPUT side (see the scriptVerifyFlags block below, added after live bug
+    // daf9fd85). Anything not listed here stays non-standard, which is the
+    // fail-safe direction.
+    WitnessVersionMask activeWitnessVersions = 0;
+    {
+        const int nNextHeight = chainActive.Height() + 1;
+        const Consensus::Params& cons = Params().GetConsensus(nNextHeight);
+        auto heightActive = [&](Consensus::DeploymentPos pos) {
+            return Consensus::DeploymentActiveAtHeight(nNextHeight, cons, pos);
+        };
+        auto bip9Active = [&](Consensus::DeploymentPos pos) {
+            return VersionBitsState(chainActive.Tip(), cons, pos, versionbitscache) == THRESHOLD_ACTIVE;
+        };
+        // v0/v1 are the always-standard base forms and are handled by Solver.
+        if (bip9Active(Consensus::DEPLOYMENT_CHECKPATAGG))     activeWitnessVersions |= WitnessVersionBit(2);
+        if (bip9Active(Consensus::DEPLOYMENT_LATTICEFOLD))     activeWitnessVersions |= WitnessVersionBit(3);
+        if (heightActive(Consensus::DEPLOYMENT_SOQUOBSCURA))   activeWitnessVersions |= WitnessVersionBit(4);
+        // USDSOQ governs both the v5 authority marker and the v7 holding form.
+        if (heightActive(Consensus::DEPLOYMENT_USDSOQ))        activeWitnessVersions |= WitnessVersionBit(5) | WitnessVersionBit(7);
+        if (heightActive(Consensus::DEPLOYMENT_P2WSH_DILITHIUM)) activeWitnessVersions |= WitnessVersionBit(6);
+        // BTCSOQ governs both the v8 holding form and the v9 authority marker.
+        if (heightActive(Consensus::DEPLOYMENT_BTCSOQ))        activeWitnessVersions |= WitnessVersionBit(8) | WitnessVersionBit(9);
+        // v10-v16 are unallocated: never standard until one is assigned a deployment.
+    }
+
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
     std::string reason;
-    if (fRequireStandard && !IsStandardTx(tx, reason, witnessEnabled))
+    if (fRequireStandard && !IsStandardTx(tx, reason, witnessEnabled, activeWitnessVersions))
         return state.DoS(0, false, REJECT_NONSTANDARD, reason);
 
     // Only accept nLockTime-using transactions that can be mined in the next
