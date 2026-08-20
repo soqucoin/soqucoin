@@ -11,17 +11,47 @@
 #include <boost/test/unit_test.hpp>
 
 /**
- * Functional test: Verify blocks exceeding MAX_BLOCK_VERIFY_COST are rejected.
+ * ⛔ THE POST-QUANTUM VERIFICATION-COST SYSTEM IS NOT IMPLEMENTED.
  *
- * This test ensures the consensus limit on verification cost is enforced.
- * Reference: CONSENSUS_COST_SPEC.md Appendix D
+ * This file used to be called a functional test for rejecting blocks that exceed
+ * MAX_BLOCK_VERIFY_COST, and its only case was named
+ * test_excess_verify_cost_rejected. It never drove a block, and there is nothing
+ * for it to drive: every constant below is DEFINED AND NEVER READ.
+ * MAX_BLOCK_VERIFY_COST, MAX_LATTICEFOLD_PER_BLOCK, MAX_PROOF_BYTES_PER_TX,
+ * MAX_PROOF_BYTES_PER_BLOCK and all four *_VERIFY_COST weights have zero
+ * consumers outside consensus.h, this file, and one doc comment in
+ * crypto/pat/logarithmic.h. Verified by grep across the tree, 2026-08-20.
+ *
+ * Meanwhile doc/specifications/CONSENSUS_COST_SPEC.md states the rule in the
+ * present tense as an enforced consensus limit: "The total verification cost in
+ * a block cannot exceed MAX_BLOCK_VERIFY_COST (80,000 units)." It cannot, and
+ * does not.
+ *
+ * This file is therefore renamed to what it actually does: pin the constants so
+ * they cannot drift before someone implements the accounting. That is worth
+ * having. Claiming to test enforcement was not: a green test named
+ * test_excess_verify_cost_rejected is exactly how a rule that does not exist
+ * comes to look like a rule that works. Bead v7xm F6.
+ *
+ * ⚠️ AND THE NUMBERS DO NOT MEAN WHAT THEY APPEAR TO. Dividing each cost by its
+ * own benchmark from the spec's table gives the price of one unit in
+ * milliseconds: Dilithium 0.175, PAT 0.25, Lattice-BP++ 0.0011, LatticeFold+
+ * 0.0038. That is a 160x spread, so the units are not a measure of verification
+ * time. At the Dilithium price, a full 80,000-unit budget would authorise about
+ * 14 SECONDS of verification, while block weight already caps a block of
+ * Dilithium-path inputs at roughly 179 ms (see sigop_budget_tests.cpp).
+ * Implementing the spec verbatim would therefore add a limit that never binds:
+ * a DoS control that looks real and is not. The table needs re-deriving from
+ * measured verification times before the accounting is worth building.
+ *
+ * Reference: CONSENSUS_COST_SPEC.md section 4.
  */
 
 BOOST_FIXTURE_TEST_SUITE(verify_cost_tests, BasicTestingSetup)
 
-BOOST_AUTO_TEST_CASE(test_excess_verify_cost_rejected)
+BOOST_AUTO_TEST_CASE(verify_cost_constants_are_defined_but_unenforced)
 {
-    // Test that a block claiming verify cost > MAX_BLOCK_VERIFY_COST fails validation
+    // Pins the values. Does NOT test enforcement, because there is none.
 
     // Create a minimal block
     CBlock block;

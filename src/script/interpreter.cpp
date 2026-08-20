@@ -1230,7 +1230,26 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
             return 0;
         }
 
-        // Witness v7+: unknown future program. Soft-fork safe: charge 0.
+        // ⚠️ v7, v8 and v9 ARE ALLOCATED and are charged nothing. This comment used
+        // to read "witness v7+: unknown future program", which stopped being true
+        // when USDSOQ and BTCSOQ took those versions. v7 (USDSOQ holding) and v8
+        // (BTCSOQ holding) spend through the SAME single-key Dilithium path as v1,
+        // so each performs a real ML-DSA-44 verification while v1 doing identical
+        // work is charged 1. v9 is default-deny here, but an authority tx skips
+        // per-input script verification entirely and is checked M-of-N in
+        // ConnectBlock, which is also unpriced.
+        //
+        // NOT corrected, deliberately, and not an emergency: block WEIGHT binds far
+        // before the sigop budget for these shapes. A Dilithium-path input is ~3,901
+        // weight units, so a full block holds ~1,025 of them, which is 1.3% of the
+        // 80,000 sigop budget and about 179 ms of verification. Charging v7/v8
+        // correctly would not change what an attacker can do, and raising a charge
+        // is a consensus tightening that wants its own decision rather than a
+        // drive-by. The arithmetic is asserted in test/sigop_budget_tests.cpp so it
+        // fails if weight ever stops being the binding constraint.
+        //
+        // v10-v16 genuinely are unallocated at this layer, and 0 is soft-fork safe
+        // for them. Bead v7xm F6.
         return 0;
     }
 
