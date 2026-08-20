@@ -903,6 +903,21 @@ public:
         consensus.vDeployments[d].nTimeout = nTimeout;
     }
 
+    void UpdateActivationHeight(Consensus::DeploymentPos d, int nActivationHeight)
+    {
+        // ⚠️ ALL THREE, not just `consensus`. Regtest assembles a height-indexed
+        // tree (consensus < 10, digishieldConsensus < 20, auxpowConsensus >= 20)
+        // and GetConsensus(nHeight) returns whichever covers that height. The
+        // deployment fields are set BEFORE the copies in the constructor, so they
+        // agree at startup — but a mutation applied to `consensus` alone is
+        // invisible to every block above height 19, which is every block a chain
+        // fixture actually mines. Setting one struct here would look like it
+        // worked and change nothing.
+        consensus.vDeployments[d].nActivationHeight = nActivationHeight;
+        digishieldConsensus.vDeployments[d].nActivationHeight = nActivationHeight;
+        auxpowConsensus.vDeployments[d].nActivationHeight = nActivationHeight;
+    }
+
     void UpdateMaxReorgDepth(int nMaxReorgDepth)
     {
         consensus.nMaxReorgDepth = nMaxReorgDepth;
@@ -1270,6 +1285,11 @@ void SelectParams(const std::string& network)
 void UpdateRegtestBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime, int64_t nTimeout)
 {
     regTestParams.UpdateBIP9Parameters(d, nStartTime, nTimeout);
+}
+
+void UpdateRegtestActivationHeight(Consensus::DeploymentPos d, int nActivationHeight)
+{
+    regTestParams.UpdateActivationHeight(d, nActivationHeight);
 }
 
 void UpdateRegtestMaxReorgDepth(int nMaxReorgDepth)

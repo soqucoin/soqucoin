@@ -129,6 +129,23 @@ void SelectParams(const std::string& chain);
 void UpdateRegtestBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime, int64_t nTimeout);
 
 /**
+ * Allows overriding a regtest deployment's flag-day activation height.
+ *
+ * ⚠️ UpdateRegtestBIP9Parameters above is a NO-OP for any deployment that has an
+ * nActivationHeight set: DeploymentActiveAtHeight() consults nActivationHeight
+ * ONLY, and never nStartTime/nTimeout (consensus/params.h, bead p96 Option D).
+ * Every Soqucoin deployment is height-gated, so the BIP9 lever cannot activate
+ * any of them — which left the SoquObscura-gated reject paths untestable, and
+ * therefore untested. That is precisely the gap that let SOQ-ARCH-004 sit dead
+ * through a 597/597 green suite (beads don9, n1vf, r0vn).
+ *
+ * Regtest only, and it mutates the regtest singleton, so a test that flips a
+ * deployment MUST restore the previous value (BIP9Deployment::NOT_SCHEDULED for
+ * a dormant one) before it returns.
+ */
+void UpdateRegtestActivationHeight(Consensus::DeploymentPos d, int nActivationHeight);
+
+/**
  * Allows overriding the regtest finality horizon (Consensus::nMaxReorgDepth)
  * for functional tests. Regtest only.
  */
