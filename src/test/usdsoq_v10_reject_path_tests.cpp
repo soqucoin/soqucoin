@@ -55,6 +55,7 @@
 #include "validation.h"
 #include "crypto/sha256.h"
 #include "test/test_bitcoin.h"
+#include "test/testutil.h"   // ScopedRegtestActivation
 
 #include <boost/test/unit_test.hpp>
 #include <algorithm>
@@ -81,25 +82,6 @@ static std::vector<unsigned char> Prefixed(const std::vector<unsigned char>& raw
     out.insert(out.end(), rawPubkey.begin(), rawPubkey.end());
     return out;
 }
-
-// RAII: flip a height-gated regtest deployment on for the duration of a test and
-// put it back afterwards. Restores the value that was actually there rather than
-// assuming NOT_SCHEDULED, so a leak in one test cannot silently arm another.
-class ScopedRegtestActivation
-{
-public:
-    ScopedRegtestActivation(Consensus::DeploymentPos pos, int nActivationHeight)
-        : m_pos(pos),
-          m_saved(Params().GetConsensus(0).vDeployments[pos].nActivationHeight)
-    {
-        UpdateRegtestActivationHeight(m_pos, nActivationHeight);
-    }
-    ~ScopedRegtestActivation() { UpdateRegtestActivationHeight(m_pos, m_saved); }
-
-private:
-    Consensus::DeploymentPos m_pos;
-    int m_saved;
-};
 
 } // namespace
 
