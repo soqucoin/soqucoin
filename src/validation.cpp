@@ -4705,8 +4705,20 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     //   * no witness layout satisfies both script verification and key-image
     //     extraction (C5, same document).
     //
-    // Removal belongs to Phase 2 of that plan, after the crypto rebuild. Left in
-    // place, clearly labelled, rather than deleted mid-Gate-0.
+    // DECIDED 2026-08-20: leave it here, labelled, until Phase 2 of that plan
+    // removes it after the crypto rebuild. Waiting is safe because the hazard is
+    // that dead scaffolding gets MISTAKEN for enforcement, and that is closed by
+    // this comment plus an executing test rather than by deletion. The code being
+    // present costs nothing while the deployment is NOT_SCHEDULED everywhere.
+    //
+    // ⚠️ WHEN PHASE 2 DELETES THIS, DELETE THE DisconnectBlock MIRROR WITH IT.
+    // That loop WORKS (ApplyTxInUndo restores the inputs before it runs), so it is
+    // the half that looks correct in review and survives a careless deletion,
+    // which would leave erase-without-write. Delete
+    // test/soquobscura_keyimage_deadcode_tests.cpp in the same commit too: it
+    // asserts this loop does not fire, and once the loop is gone that assertion
+    // is vacuous — a green test proving nothing, which is the exact failure mode
+    // this whole arc is about.
     //
     // Original intent, for whoever picks up Phase 2: witness v4 confidential
     // inputs were to carry the key image as the LAST stack element, after the
