@@ -4665,19 +4665,54 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     // =========================================================================
     // SOQ-ARCH-001 Phase 2: Key-Image Double-Spend Protection
-    // When DEPLOYMENT_SOQUOBSCURA is active, extract key-images from confidential
-    // transaction witness data and enforce uniqueness. A key-image that has
-    // already been recorded in a previous block constitutes a double-spend of
-    // a confidential output.
     //
-    // Witness v4 confidential inputs carry their key-image as the LAST element
-    // of the witness stack (after the ring signature and range proof data).
-    // Format: [ring_sig_data...] [range_proof_data...] [key_image_bytes]
+    // ⛔⛔ THIS BLOCK IS DEAD CODE AND ENFORCES NOTHING. It is residue of a
+    // SUPERSEDED design. Do not read it as protection, and do not "fix" it
+    // without reading the two paragraphs below. Bead p4wv.
     //
-    // The key-image bytes are hashed to a 32-byte LatticeKeyImageHash via
-    // SHA256 before storage (see consensus/privacy.h) for LevelDB efficiency.
+    // WHY IT CANNOT RUN. Inputs are resolved through
+    // view.AccessCoins(...)->IsAvailable(), but this is the LAST pass over the
+    // block and UpdateCoins spent every input during the FIRST pass, so the
+    // guard skips all of them and the body never executes. Four reject strings
+    // are therefore unreachable (bad-txns-conf-no-witness,
+    // bad-txns-conf-empty-keyimage, bad-txns-conf-duplicate-keyimage,
+    // bad-txns-conf-intrablock-duplicate-keyimage), vBlockKeyImages is always
+    // empty, and WriteKeyImage below is never called, so the DB that the
+    // cross-block check consults is never populated by the connect path. This
+    // is the THIRD instance of one root cause: the freeze guard (bead e2n) and
+    // the USDSOQ input-isolation rule (bead 0r2) were dead for exactly this
+    // reason. The asymmetry is visible in this file: DisconnectBlock's mirror
+    // loop works, and says why — ApplyTxInUndo has RESTORED the inputs there.
+    // Proven by execution in test/soquobscura_keyimage_deadcode_tests.cpp.
     //
-    // ConnectBlock writes new key-images; DisconnectBlock erases them.
+    // WHY THE FIX IS NOT "READ BLOCK UNDO". Key images exist only to make RING
+    // SIGNATURES double-spend-safe, and the ratified design CUT ring signatures,
+    // stealth addresses and decoys from launch
+    // (DL-LATTICEBP-STATE-ANALYSIS-2026-07-18 Part II.6, "Key images leave
+    // launch scope"; Phase 2, "remove LF+/ring/key-image opcodes from launch
+    // rules"; DL-SOQUOBSCURA-NAMING-POLICY). Spends are outpoint-addressed
+    // today, so the UTXO set already prevents double-spends and this layer adds
+    // nothing. Reviving it as written would introduce THREE live defects:
+    //   * the "key image" is just wit.stack.back(), which on every witness
+    //     layout the node accepts today is the PUBKEY, not anything bound to the
+    //     outpoint. Two honest spends by one owner collide, and the second is
+    //     rejected as a double-spend of an output it never touched (pinned by
+    //     the second case in that test file);
+    //   * WriteKeyImage below has no !fJustCheck guard, so every
+    //     getblocktemplate dry-run would persist key images and the next poll of
+    //     the same template would reject it as a duplicate. BUG-18 verbatim;
+    //     already filed as H2 in the state analysis;
+    //   * no witness layout satisfies both script verification and key-image
+    //     extraction (C5, same document).
+    //
+    // Removal belongs to Phase 2 of that plan, after the crypto rebuild. Left in
+    // place, clearly labelled, rather than deleted mid-Gate-0.
+    //
+    // Original intent, for whoever picks up Phase 2: witness v4 confidential
+    // inputs were to carry the key image as the LAST stack element, after the
+    // ring signature and range proof — [ring_sig][range_proof][key_image] —
+    // hashed to a 32-byte LatticeKeyImageHash for LevelDB (consensus/privacy.h).
+    // ConnectBlock writes; DisconnectBlock erases.
     // =========================================================================
     std::vector<LatticeKeyImageHash> vBlockKeyImages;  // Track for DisconnectBlock undo
 
