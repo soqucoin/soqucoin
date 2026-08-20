@@ -475,4 +475,71 @@ BOOST_AUTO_TEST_CASE(f8_feature_deployments_do_not_share_version_bits)
     SelectParams(CBaseChainParams::MAIN);
 }
 
+// ============================================================================
+// F8 (bead zz2f): BIP34/65/66 heights must be OURS, not Dogecoin's.
+//
+// Mainnet shipped Dogecoin's mainnet heights verbatim (1034383 / 3464751 /
+// 1034383) and testnet shipped Dogecoin's testnet heights. On a chain that
+// starts at height 0 those are not history, they are activation heights, and
+// the BIP65 one meant SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY stayed off for about
+// 6.6 years — OP_CLTV a NOP, so any timelock branch was unenforceable the
+// moment a CLTV-carrying deployment activated.
+//
+// The tell was that stagenet, the mainnet REHEARSAL network, already used
+// 0/0/100, so the rehearsal validated under stricter rules than the thing it
+// rehearses. This test pins all four networks together for exactly that reason:
+// the defect was divergence, so the assertion has to be about agreement.
+// ============================================================================
+BOOST_AUTO_TEST_CASE(f8_bip_activation_heights_are_soqucoin_not_dogecoin)
+{
+    // Dogecoin's values, named so a regression is unmistakable rather than
+    // looking like an arbitrary number changed.
+    const int kDogeMainBIP34 = 1034383, kDogeMainBIP65 = 3464751;
+    const int kDogeTestBIP34 = 708658,  kDogeTestBIP65 = 1854705;
+
+    for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
+                                   CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        const Consensus::Params& c = Params().GetConsensus(0);
+
+        BOOST_CHECK_MESSAGE(c.BIP65Height == 0,
+            net + ": BIP65Height must be 0 so OP_CHECKLOCKTIMEVERIFY is enforced from "
+            "genesis. A nonzero value makes CLTV a NOP until that height, and any "
+            "HTLC or vault timeout branch created before then is unenforceable.");
+        BOOST_CHECK_MESSAGE(c.BIP66Height == 0, net + ": BIP66Height must be 0");
+
+        // > 16 so the coinbase height cannot fall in the range where OP_N and a
+        // 1-byte data push are both defensible encodings; >= 1 so genesis, which
+        // has no height push and does reach ContextualCheckBlock on -reindex,
+        // stays outside the rule.
+        BOOST_CHECK_MESSAGE(c.BIP34Height > 16,
+            net + ": BIP34Height must exceed 16 (OP_N vs push-byte coinbase encoding)");
+
+        BOOST_CHECK_MESSAGE(c.BIP34Height != kDogeMainBIP34 && c.BIP34Height != kDogeTestBIP34,
+            net + ": BIP34Height is a Dogecoin height");
+        BOOST_CHECK_MESSAGE(c.BIP65Height != kDogeMainBIP65 && c.BIP65Height != kDogeTestBIP65,
+            net + ": BIP65Height is a Dogecoin height");
+
+        // BIP34Hash is the hash of the block AT BIP34Height and cannot be known
+        // before launch. Null keeps the BIP30 duplicate-txid scan enforced by
+        // lookup forever, which is strictly more checking; a stale inherited hash
+        // had the same effect while also being false.
+        BOOST_CHECK_MESSAGE(c.BIP34Hash.IsNull(),
+            net + ": BIP34Hash must be null until a real post-launch value is known");
+    }
+
+    // Mainnet and its rehearsal network must agree, since disagreement is what
+    // made every stagenet soak result carry an assumption mainnet did not honour.
+    SelectParams(CBaseChainParams::MAIN);
+    const Consensus::Params& m = Params().GetConsensus(0);
+    const int mainBIP34 = m.BIP34Height, mainBIP65 = m.BIP65Height, mainBIP66 = m.BIP66Height;
+    SelectParams(CBaseChainParams::STAGENET);
+    const Consensus::Params& sg = Params().GetConsensus(0);
+    BOOST_CHECK_EQUAL(mainBIP34, sg.BIP34Height);
+    BOOST_CHECK_EQUAL(mainBIP65, sg.BIP65Height);
+    BOOST_CHECK_EQUAL(mainBIP66, sg.BIP66Height);
+
+    SelectParams(CBaseChainParams::MAIN);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

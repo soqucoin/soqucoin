@@ -152,10 +152,43 @@ public:
         consensus.nMajorityRejectBlockOutdated = 1900;
         consensus.nMajorityWindow = 2000;
         // BIP34 is never enforced in Soqucoin v2 blocks, so we enforce from v3
-        consensus.BIP34Height = 1034383;
-        consensus.BIP34Hash = uint256S("0x80d1364201e5df97e696c03bdd24dc885e8617b9de51e453c10a4f629b1e797a");
-        consensus.BIP65Height = 3464751;                                                                     // 34cd2cbba4ba366f47e5aa0db5f02c19eba2adf679ceb6653ac003bdc9a0ef1f - first v4 block after the last v3 block
-        consensus.BIP66Height = 1034383;                                                                     // 80d1364201e5df97e696c03bdd24dc885e8617b9de51e453c10a4f629b1e797a - this is the last block that could be v2, 1900 blocks past the last v2 block
+        // ⛔ THESE WERE DOGECOIN'S MAINNET HEIGHTS, INHERITED VERBATIM (comments and
+        // Dogecoin block hashes included). Soqucoin is NOT a fork: it has its own
+        // genesis and starts at height 0, so those numbers were not history, they
+        // were activation heights for rules that would not have activated for years.
+        // SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY is gated on BIP65Height, so OP_CLTV
+        // would have been a NOP until block 3,464,751 — roughly 6.6 years at
+        // 1-minute blocks. Nothing exploits that at genesis, because the CLTV
+        // vehicles (witness v6 P2WSH-Dilithium, V6_CONTROLFLOW) ship NOT_SCHEDULED;
+        // it goes live the moment either activates, and an eLTOO/HTLC timeout
+        // branch with no enforceable timelock is loss of funds. Stagenet, our own
+        // mainnet rehearsal network, already used 0/0/100 — so every soak result
+        // carried an assumption mainnet did not honour. See bead zz2f.
+        //
+        // BIP34Height = 100, not 0 or 1, for two independent reasons:
+        //   1. It must be > 16. The rule compares against `CScript() << nHeight`,
+        //      which emits the single opcode OP_N for 1..16 rather than the 1-byte
+        //      data push a strict BIP34 writer produces, so heights in that range
+        //      have two defensible encodings and only one is accepted. Above 16 the
+        //      encoding is an unambiguous data push.
+        //   2. Genesis must stay outside the rule. ContextualCheckBlock is reached
+        //      by the genesis block during -reindex (see SOQ-REINDEX-001), and the
+        //      genesis coinbase carries no height push.
+        // Beyond those constraints the exact value buys nothing, so it matches
+        // stagenet: divergence between mainnet and its rehearsal network is the
+        // defect that produced this finding, and parity is worth more than a
+        // smaller number.
+        //
+        // BIP34Hash stays null. It is the hash of the block AT BIP34Height, which
+        // cannot be known before launch, and its only use is letting ConnectBlock
+        // skip the BIP30 duplicate-txid scan. A null hash never matches, so BIP30
+        // stays enforced by lookup forever — strictly more checking, at the cost of
+        // one coins-cache probe per transaction. The stale Dogecoin hash had the
+        // same effect while also being a lie.
+        consensus.BIP34Height = 100;
+        consensus.BIP34Hash = uint256();
+        consensus.BIP65Height = 0;   // CHECKLOCKTIMEVERIFY enforced from genesis
+        consensus.BIP66Height = 0;   // strict DER enforced from genesis
         consensus.powLimit = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 20;
         consensus.nPowTargetTimespan = 4 * 60 * 60;                                                          // pre-digishield: 4 hours
         consensus.nPowTargetSpacing = 60;                                                                    // 1 minute
@@ -480,10 +513,15 @@ public:
         consensus.nMajorityRejectBlockOutdated = 750;
         consensus.nMajorityWindow = 1000;
         // BIP34 is never enforced in Soqucoin v2 blocks, so we enforce from v3
-        consensus.BIP34Height = 708658;
-        consensus.BIP34Hash = uint256S("0x21b8b97dcdb94caa67c7f8f6dbf22e61e0cfe0e46e1fff3528b22864659e9b38");
-        consensus.BIP65Height = 1854705;                                                                     // 955bd496d23790aba1ecfacb722b089a6ae7ddabaedf7d8fb0878f48308a71f9
-        consensus.BIP66Height = 708658;                                                                      // 21b8b97dcdb94caa67c7f8f6dbf22e61e0cfe0e46e1fff3528b22864659e9b38 - this is the last block that could be v2, 1900 blocks past the last v2 block
+        // The same Dogecoin inheritance mainnet carried, from Dogecoin TESTNET this
+        // time. Mirrored to the mainnet values, consistent with the lw7 posture
+        // elsewhere in this file: testnet3 is retired and exists to rehearse
+        // mainnet, so it must not validate under looser rules than the network it
+        // rehearses. See bead zz2f.
+        consensus.BIP34Height = 100;
+        consensus.BIP34Hash = uint256();
+        consensus.BIP65Height = 0;
+        consensus.BIP66Height = 0;
         consensus.powLimit = uint256S("0x00000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~uint256(0) >> 20;
         consensus.nPowTargetTimespan = 4 * 60 * 60;                                                          // pre-digishield: 4 hours
         consensus.nPowTargetSpacing = 60;                                                                    // 1 minute
