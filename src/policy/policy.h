@@ -95,7 +95,28 @@ static const CAmount DEFAULT_HARD_DUST_LIMIT = DEFAULT_DUST_LIMIT / 10;
  * SCRIPT_VERIFY_CTV (BIP 119: OP_CHECKTEMPLATEVERIFY, bit 7)
  * SCRIPT_VERIFY_APO (BIP 118: SIGHASH_ANYPREVOUT, bit 8)
  * SCRIPT_VERIFY_CSFS (BIP 348: OP_CHECKSIGFROMSTACK, bit 9)
- * SCRIPT_VERIFY_SCRIPT_RESTORE (Satoshi restoration: OP_MUL/DIV/MOD/CAT/etc)
+ *
+ * ⛔ SCRIPT_VERIFY_SCRIPT_RESTORE WAS ON THIS LIST AND HAD TO COME OFF IT.
+ * The three flags above ADD ENFORCEMENT: setting one makes the mempool reject
+ * scripts it used to accept, and consensus keeps all three NOT_SCHEDULED on
+ * mainnet, so omitting them here leaves policy and consensus agreeing at
+ * off/off until activation brings them together. That is the reasoning below
+ * and it is sound for them.
+ *
+ * SCRIPT_RESTORE is not that kind of flag. It ADDS CAPABILITY: with it OP_MUL
+ * and friends execute, and WITHOUT it they are silent NO-OPS rather than
+ * errors. Consensus sets it unconditionally from genesis (validation.cpp,
+ * "Satoshi script restoration: always-active"), so there is no dormant state to
+ * agree at. Omitting it produced a permanent split in which the same script has
+ * two truth values:
+ *
+ *     0 7 OP_MUL      consensus -> ok[]      (0, FALSE)
+ *                     mempool   -> ok[,07]   (operands left, top is TRUE)
+ *
+ * A transaction spending such an output was accepted and relayed by every node
+ * and could never be mined: accept-then-reject, which is the template-stalling
+ * failure live bug daf9fd85 produced. Grouping a capability flag with three
+ * enforcement flags is what caused it. Bead mxph.
  *
  * These are NOT included in STANDARD_SCRIPT_VERIFY_FLAGS because:
  *
@@ -123,6 +144,11 @@ static const CAmount DEFAULT_HARD_DUST_LIMIT = DEFAULT_DUST_LIMIT / 10;
  *    validator (SOQ-COV-011).
  */
 static const unsigned int STANDARD_SCRIPT_VERIFY_FLAGS = MANDATORY_SCRIPT_VERIFY_FLAGS |
+                                                         // Consensus sets this for every block
+                                                         // unconditionally; relay must match or the
+                                                         // restored opcodes mean two different
+                                                         // things on the two paths (bead mxph).
+                                                         SCRIPT_VERIFY_SCRIPT_RESTORE |
                                                          SCRIPT_VERIFY_DERSIG |
                                                          SCRIPT_VERIFY_STRICTENC |
                                                          SCRIPT_VERIFY_MINIMALDATA |

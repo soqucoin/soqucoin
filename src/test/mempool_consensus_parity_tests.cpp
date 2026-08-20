@@ -25,8 +25,12 @@
 // So the invariant to hold is: EVERY script flag ConnectBlock sets must also be
 // set by the mempool. Extra strictness in the mempool is permitted.
 //
-// ⛔ THAT INVARIANT DOES NOT HOLD TODAY, in the safe direction, for exactly one
-// flag: SCRIPT_VERIFY_SCRIPT_RESTORE. See the last case in this file.
+// THAT INVARIANT NOW HOLDS. It did not until 2026-08-20: SCRIPT_VERIFY_SCRIPT_RESTORE
+// was set unconditionally by ConnectBlock and never by the mempool, and because
+// the restored opcodes are NO-OPS rather than errors without it, the same script
+// had two truth values. Fixed by adding the flag to STANDARD_SCRIPT_VERIFY_FLAGS
+// (bead mxph). These tests now pin the fix; the history is kept in the comments
+// because the reasoning is what stops it being undone.
 
 #include "policy/policy.h"
 #include "script/interpreter.h"
@@ -44,16 +48,6 @@
 BOOST_FIXTURE_TEST_SUITE(mempool_consensus_parity_tests, BasicTestingSetup)
 
 namespace {
-
-//! Evaluate a bare script under the given flags and report the error.
-ScriptError Eval(const CScript& script, unsigned int flags)
-{
-    std::vector<std::vector<unsigned char> > stack;
-    ScriptError serr = SCRIPT_ERR_OK;
-    BaseSignatureChecker checker;
-    EvalScript(stack, script, flags, checker, SIGVERSION_BASE, &serr);
-    return serr;
-}
 
 //! Evaluate and return the resulting stack, rendered for comparison. The error
 //! code alone is not enough: an opcode that becomes a NO-OP still "succeeds",
@@ -93,6 +87,8 @@ BOOST_AUTO_TEST_CASE(mempool_carries_the_unconditional_consensus_flags)
         // CSV is BIP9-gated in ConnectBlock but ALWAYS_ACTIVE on every network,
         // so in practice it is unconditional too.
         { SCRIPT_VERIFY_CHECKSEQUENCEVERIFY,   "SCRIPT_VERIFY_CHECKSEQUENCEVERIFY" },
+        // Added to the policy base on 2026-08-20; see the dedicated case below.
+        { SCRIPT_VERIFY_SCRIPT_RESTORE,        "SCRIPT_VERIFY_SCRIPT_RESTORE" },
     };
 
     for (const Row& r : unconditional) {
@@ -170,145 +166,84 @@ BOOST_AUTO_TEST_CASE(deployment_gated_flags_are_paired)
 // 845h: consensus-valid, never relayable. Pinned rather than fixed, because
 // making the restored opcodes relay-standard is a product decision.
 // ---------------------------------------------------------------------------
-BOOST_AUTO_TEST_CASE(script_restore_is_consensus_active_but_not_relay_standard)
+// THE DIVERGENCE THAT WAS HERE, NOW CLOSED (bead mxph).
+//
+// ConnectBlock sets SCRIPT_VERIFY_SCRIPT_RESTORE unconditionally ("Satoshi
+// script restoration: always-active on Soqucoin, genesis-active, no BIP9 gate
+// needed"). STANDARD_SCRIPT_VERIFY_FLAGS did not contain it, and
+// MANDATORY_SCRIPT_VERIFY_FLAGS is only SCRIPT_VERIFY_P2SH.
+//
+// policy.h SOQ-COV-012 had listed it as an intentional omission alongside
+// SCRIPT_VERIFY_CTV, APO and CSFS. That reasoning was sound for those three and
+// backwards for this one. CTV, APO and CSFS ADD ENFORCEMENT and consensus keeps
+// them NOT_SCHEDULED on mainnet, so policy and consensus agree at off/off until
+// activation. SCRIPT_RESTORE ADDS CAPABILITY and consensus has it on from
+// genesis, so the same omission produced a permanent split instead.
+//
+// And it was not the safe direction, which is why it had to be fixed rather
+// than documented: without the flag the restored opcodes are silent NO-OPS, not
+// errors, so a script SUCCEEDED on both paths while leaving a different stack.
+// `0 7 OP_MUL` left FALSE under consensus and TRUE under relay, so a
+// transaction spending such an output would be accepted and relayed by every
+// node and could never be mined. That is accept-then-reject, the
+// template-stalling failure of live bug daf9fd85.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(script_restore_is_carried_by_relay_policy)
 {
-    BOOST_CHECK_MESSAGE((STANDARD_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_SCRIPT_RESTORE) == 0,
-        "SCRIPT_VERIFY_SCRIPT_RESTORE is now in STANDARD_SCRIPT_VERIFY_FLAGS, so the policy "
-        "and consensus split described here is closed. Update this test rather than deleting "
-        "it, and check whether the SOQ-COV-012 omission list still lists it");
+    BOOST_CHECK_MESSAGE((STANDARD_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_SCRIPT_RESTORE) != 0,
+        "SCRIPT_VERIFY_SCRIPT_RESTORE has left STANDARD_SCRIPT_VERIFY_FLAGS. ConnectBlock "
+        "still sets it for every block, so removing it from relay policy reopens the "
+        "accept-then-reject split described above. If the consensus side became gated "
+        "instead, update both together");
+}
 
-    // Prove the split changes behaviour, and prove WHICH WAY, rather than
-    // reasoning about it. OP_MUL over two small numbers: valid arithmetic.
+// The property that actually matters: a script means the same thing to the
+// mempool and to a block. Same cases that used to diverge.
+BOOST_AUTO_TEST_CASE(restored_opcodes_mean_the_same_thing_on_both_paths)
+{
+    struct Case { const char* name; CScript script; };
+    std::vector<Case> cases;
+    { CScript s; s << CScriptNum(6)  << CScriptNum(7) << OP_MUL; cases.push_back({"OP_MUL", s}); }
+    { CScript s; s << CScriptNum(84) << CScriptNum(2) << OP_DIV; cases.push_back({"OP_DIV", s}); }
+    { CScript s; s << CScriptNum(85) << CScriptNum(4) << OP_MOD; cases.push_back({"OP_MOD", s}); }
+    { CScript s; s << std::vector<unsigned char>{0xaa} << std::vector<unsigned char>{0xbb} << OP_CAT;
+      cases.push_back({"OP_CAT", s}); }
+    // The one that used to flip a truth value: 0 * 7 = 0 is FALSE under
+    // consensus, while skipping the multiply leaves a top element of 0x07,
+    // which is TRUE.
+    { CScript s; s << CScriptNum(0) << CScriptNum(7) << OP_MUL; cases.push_back({"0 7 OP_MUL", s}); }
+
+    // What ConnectBlock uses for these opcodes, versus what the mempool uses.
+    const unsigned int consensusFlags = STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_SCRIPT_RESTORE;
+    const unsigned int mempoolFlags   = STANDARD_SCRIPT_VERIFY_FLAGS;
+
+    for (const Case& c : cases) {
+        const std::string consensusView = EvalStack(c.script, consensusFlags);
+        const std::string mempoolView   = EvalStack(c.script, mempoolFlags);
+        BOOST_TEST_MESSAGE(std::string(c.name) + ": consensus " + consensusView +
+                           "  mempool " + mempoolView);
+        BOOST_CHECK_MESSAGE(consensusView == mempoolView,
+            std::string(c.name) + " evaluates differently at relay and in a block: consensus " +
+            consensusView + " versus mempool " + mempoolView + ". A transaction spending such "
+            "an output relays and cannot be mined, which stalls block templates");
+    }
+}
+
+// Guard on the mechanism rather than the outcome. The fix works because the
+// flag is in the policy base; if the restored opcodes ever start erroring
+// without it instead of no-opping, the failure mode changes character and this
+// file's reasoning needs revisiting.
+BOOST_AUTO_TEST_CASE(restored_opcodes_are_still_noops_when_the_flag_is_absent)
+{
     CScript mul;
     mul << CScriptNum(6) << CScriptNum(7) << OP_MUL;
 
-    const ScriptError withFlag = Eval(mul, SCRIPT_VERIFY_SCRIPT_RESTORE);
-    const ScriptError asMempoolSeesIt = Eval(mul, STANDARD_SCRIPT_VERIFY_FLAGS);
-
-    BOOST_TEST_MESSAGE("OP_MUL with SCRIPT_RESTORE:    " << EvalStack(mul, SCRIPT_VERIFY_SCRIPT_RESTORE));
-    BOOST_TEST_MESSAGE("OP_MUL under STANDARD (mempool): " << EvalStack(mul, STANDARD_SCRIPT_VERIFY_FLAGS));
-    BOOST_TEST_MESSAGE("OP_MUL with NO flags:            " << EvalStack(mul, 0));
-
-    BOOST_CHECK_MESSAGE(withFlag == SCRIPT_ERR_OK,
-        "OP_MUL must evaluate when SCRIPT_VERIFY_SCRIPT_RESTORE is set; that is the whole "
-        "point of the flag, and ConnectBlock sets it for every block");
-
-    // MEASURED: without the flag OP_MUL is a silent NO-OP, not an error.
-    //   with SCRIPT_RESTORE     -> ok[2a]      (6 * 7 = 42, executed)
-    //   under STANDARD (mempool) -> ok[06,07]  (untouched, operands still there)
-    // Both "succeed". They leave DIFFERENT STACKS, so the same script has two
-    // truth values. That is not the safe direction after all, and the next case
-    // constructs the consequence.
-    BOOST_CHECK_MESSAGE(asMempoolSeesIt == SCRIPT_ERR_OK,
-        "OP_MUL now errors without SCRIPT_RESTORE rather than acting as a no-op. That would "
-        "actually be an improvement: an error makes the divergence fail closed. Update this "
-        "test and re-check the accept-then-reject case below");
-    BOOST_CHECK_MESSAGE(withFlag == asMempoolSeesIt,
-        "both paths still report success; the divergence is in the STACK, not the error code");
-}
-
-// ---------------------------------------------------------------------------
-// ⛔⛔ THE CONSEQUENCE, CONSTRUCTED. Because the restored opcodes are NO-OPS
-// rather than errors when the flag is clear, a single script has two different
-// truth values: one under the mempool's flag set and another under the flag set
-// ConnectBlock uses. Both directions are reachable, and one of them is the
-// template-stalling shape that live bug daf9fd85 produced.
-//
-// This is what makes the omission unsafe rather than merely restrictive. Had the
-// opcodes been DISABLED without the flag, policy would simply be stricter and
-// the worst case would be an unusable feature. As no-ops they silently change
-// the meaning of a script instead.
-//
-// Reachability: EvalScript runs user-supplied opcodes only from a v6
-// P2WSH-Dilithium witnessScript. v6 is NOT_SCHEDULED on mainnet, so this is not
-// live there, but it is ALWAYS_ACTIVE and relay-standard on stagenet, testnet
-// and regtest, which means the accept-then-reject path is live on the rehearsal
-// network today, and becomes live on mainnet the moment P2WSH-Dilithium
-// activates.
-// ---------------------------------------------------------------------------
-BOOST_AUTO_TEST_CASE(a_single_script_has_two_truth_values_across_the_split)
-{
-    // Note OP_EQUAL is itself gated, on SCRIPT_VERIFY_V6_CONTROLFLOW, and that
-    // flag IS paired across both paths, so it cannot be used to express the
-    // comparison here. The divergence has to be read off the stack directly,
-    // which is also the more honest way to show it.
-
-    // 0 * 7 = 0. Consensus multiplies and leaves an EMPTY stack element, which
-    // is FALSE. The mempool skips the multiply and leaves the operands, whose
-    // top element is 0x07, which is TRUE.
-    CScript falseUnderConsensusTrueUnderRelay;
-    falseUnderConsensusTrueUnderRelay << CScriptNum(0) << CScriptNum(7) << OP_MUL;
-
-    const std::string consensusView = EvalStack(falseUnderConsensusTrueUnderRelay,
-                                                STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_SCRIPT_RESTORE);
-    const std::string mempoolView   = EvalStack(falseUnderConsensusTrueUnderRelay,
-                                                STANDARD_SCRIPT_VERIFY_FLAGS);
-
-    BOOST_TEST_MESSAGE("0 7 OP_MUL under consensus flags: " << consensusView);
-    BOOST_TEST_MESSAGE("0 7 OP_MUL under mempool flags:   " << mempoolView);
-
-    BOOST_CHECK_MESSAGE(consensusView != mempoolView,
-        "the same script now evaluates identically on both paths, so the SCRIPT_RESTORE "
-        "divergence is closed. Good; update this test rather than deleting it");
-
-    // Consensus: one empty element, the canonical FALSE.
-    BOOST_CHECK_MESSAGE(consensusView == "ok[]",
-        "expected consensus to compute 0 * 7 = 0 and leave FALSE, got " + consensusView);
-    // Mempool: operands untouched, top element 0x07, which is TRUE.
-    BOOST_CHECK_MESSAGE(mempoolView == "ok[,07]",
-        "expected the mempool to skip the multiply and leave the operands, got " + mempoolView +
-        ". If the shape has changed, re-derive the demonstration; the property under test is "
-        "that the two flag sets disagree about what this script computed");
-}
-
-// The same divergence stated as the invariant it breaks, so the reason it
-// matters does not depend on one hand-built script surviving future edits.
-BOOST_AUTO_TEST_CASE(restored_opcodes_are_noops_not_errors_which_is_the_unsafe_shape)
-{
-    // Every opcode SCRIPT_VERIFY_SCRIPT_RESTORE re-enables. For each one, the
-    // stack it leaves must be the same under both flag sets, or that opcode can
-    // carry a transaction that relays and cannot be mined.
-    struct Case { const char* name; CScript script; };
-    std::vector<Case> cases;
-    {
-        CScript s; s << CScriptNum(6) << CScriptNum(7) << OP_MUL;   cases.push_back({"OP_MUL", s});
-    }
-    {
-        CScript s; s << CScriptNum(84) << CScriptNum(2) << OP_DIV;  cases.push_back({"OP_DIV", s});
-    }
-    {
-        CScript s; s << CScriptNum(85) << CScriptNum(4) << OP_MOD;  cases.push_back({"OP_MOD", s});
-    }
-
-    for (const Case& c : cases) {
-        const std::string consensusView = EvalStack(c.script,
-                                                    STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_SCRIPT_RESTORE);
-        const std::string mempoolView = EvalStack(c.script, STANDARD_SCRIPT_VERIFY_FLAGS);
-        BOOST_TEST_MESSAGE(std::string(c.name) + ": consensus " + consensusView +
-                           "  mempool " + mempoolView);
-        BOOST_CHECK_MESSAGE(consensusView != mempoolView,
-            std::string(c.name) + " now agrees across both flag sets. If the omission is "
-            "being closed opcode by opcode that is worse than either end state, because the "
-            "set of scripts that mean two different things becomes harder to describe. Work "
-            "out which ones changed and finish the job");
-    }
-
-    // OP_CAT is the CONTROL, and it is the interesting one. It belongs to the
-    // same Satoshi-restoration family and is described in validation.cpp as
-    // "genesis-active like OP_CAT" — but unlike MUL/DIV/MOD it is NOT gated on
-    // SCRIPT_VERIFY_SCRIPT_RESTORE at all, so both paths agree about it.
-    //
-    // That is what correct looks like, and it shows the divergence is an
-    // accident of which opcodes ended up behind the flag rather than a
-    // considered policy about arithmetic. Whoever decides the fix should note
-    // that half of this feature is already unconditional.
-    CScript cat;
-    cat << std::vector<unsigned char>{0xaa} << std::vector<unsigned char>{0xbb} << OP_CAT;
-    BOOST_CHECK_MESSAGE(
-        EvalStack(cat, STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_SCRIPT_RESTORE) ==
-        EvalStack(cat, STANDARD_SCRIPT_VERIFY_FLAGS),
-        "OP_CAT has started depending on SCRIPT_VERIFY_SCRIPT_RESTORE. It was ungated and "
-        "therefore consistent across relay and consensus; gating it extends the divergence");
+    BOOST_CHECK_MESSAGE(EvalStack(mul, SCRIPT_VERIFY_SCRIPT_RESTORE) == "ok[2a]",
+        "OP_MUL must execute when the flag is set");
+    BOOST_CHECK_MESSAGE(EvalStack(mul, 0) == "ok[06,07]",
+        "without the flag OP_MUL is expected to be a silent NO-OP, leaving its operands. If it "
+        "now ERRORS instead, that is a safer shape and the policy fix is belt-and-braces rather "
+        "than load-bearing; re-read bead mxph before relying on either");
 }
 
 BOOST_AUTO_TEST_SUITE_END()
