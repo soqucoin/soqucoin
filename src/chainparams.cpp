@@ -550,8 +550,32 @@ public:
 
         // LatticeFold+ activation — ALWAYS_ACTIVE from genesis (April 2026 decision)
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        // SOQ-P002: LatticeFold+ is RETIRED on every network, not just mainnet.
+        // It was ALWAYS_ACTIVE here while mainnet had already withdrawn it, so this
+        // network validated under a rule mainnet refuses — and the rule in question
+        // is a verifier that accepts an all-zero witness (see the CMainParams block
+        // for the full reasoning). Withdrawing SoquObscura from the test networks was
+        // done for exactly this reason in bead 2pru; LatticeFold+ has the same defect
+        // and was missed. A rehearsal network running a verifier known to accept
+        // forged proofs is not rehearsing anything.
+        //
+        // Verified safe against the LIVE stagenet chain before making this change:
+        // across all 48,733 blocks there is not one witness-v3 output, and the only
+        // two v6 covenant spends carry the witnessScript
+        // <32> OP_NOP7 <32> OP_NOP7 OP_1, so OP_CHECKFOLDPROOF has never executed.
+        // Clearing the flag therefore cannot alter the validity of any historical
+        // block. (Note the direction matters: for a v3 PROGRAM clearing the flag is a
+        // relaxation, but for OP_CHECKFOLDPROOF inside a script it is a tightening —
+        // SCRIPT_ERR_BAD_OPCODE — which is why the covenant witnessScripts had to be
+        // read rather than assumed.)
+        //
+        // nStartTime=0 / nTimeout=0 => THRESHOLD_FAILED, terminal. This deployment is
+        // queried through VersionBitsState, NOT DeploymentActiveAtHeight, so an
+        // nActivationHeight would be ignored here — do not add one thinking it locks
+        // anything down. Superseded by SoquObscura; witness v3 is retired and must not
+        // be reallocated. See test/witness_version_allocation_tests.cpp.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 0;  // retired
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 0;    // never activates
 
         // SoquObscura confidential outputs — WITHDRAWN 2026-08-17 (S1/P2).
         // The consensus range verifier accepts an all-zero witness carrying a correct
@@ -778,8 +802,32 @@ public:
 
         // LatticeFold+ activation — ALWAYS_ACTIVE for regtest
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        // SOQ-P002: LatticeFold+ is RETIRED on every network, not just mainnet.
+        // It was ALWAYS_ACTIVE here while mainnet had already withdrawn it, so this
+        // network validated under a rule mainnet refuses — and the rule in question
+        // is a verifier that accepts an all-zero witness (see the CMainParams block
+        // for the full reasoning). Withdrawing SoquObscura from the test networks was
+        // done for exactly this reason in bead 2pru; LatticeFold+ has the same defect
+        // and was missed. A rehearsal network running a verifier known to accept
+        // forged proofs is not rehearsing anything.
+        //
+        // Verified safe against the LIVE stagenet chain before making this change:
+        // across all 48,733 blocks there is not one witness-v3 output, and the only
+        // two v6 covenant spends carry the witnessScript
+        // <32> OP_NOP7 <32> OP_NOP7 OP_1, so OP_CHECKFOLDPROOF has never executed.
+        // Clearing the flag therefore cannot alter the validity of any historical
+        // block. (Note the direction matters: for a v3 PROGRAM clearing the flag is a
+        // relaxation, but for OP_CHECKFOLDPROOF inside a script it is a tightening —
+        // SCRIPT_ERR_BAD_OPCODE — which is why the covenant witnessScripts had to be
+        // read rather than assumed.)
+        //
+        // nStartTime=0 / nTimeout=0 => THRESHOLD_FAILED, terminal. This deployment is
+        // queried through VersionBitsState, NOT DeploymentActiveAtHeight, so an
+        // nActivationHeight would be ignored here — do not add one thinking it locks
+        // anything down. Superseded by SoquObscura; witness v3 is retired and must not
+        // be reallocated. See test/witness_version_allocation_tests.cpp.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 0;  // retired
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 0;    // never activates
 
         // SoquObscura confidential outputs — WITHDRAWN 2026-08-17 (S1/P2).
         // ⚠️ Regtest is withdrawn DELIBERATELY, not by oversight. Leaving it active
@@ -1035,8 +1083,32 @@ public:
 
         // LatticeFold deployment - height based, not BIP9
         consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].bit = 28;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        // SOQ-P002: LatticeFold+ is RETIRED on every network, not just mainnet.
+        // It was ALWAYS_ACTIVE here while mainnet had already withdrawn it, so this
+        // network validated under a rule mainnet refuses — and the rule in question
+        // is a verifier that accepts an all-zero witness (see the CMainParams block
+        // for the full reasoning). Withdrawing SoquObscura from the test networks was
+        // done for exactly this reason in bead 2pru; LatticeFold+ has the same defect
+        // and was missed. A rehearsal network running a verifier known to accept
+        // forged proofs is not rehearsing anything.
+        //
+        // Verified safe against the LIVE stagenet chain before making this change:
+        // across all 48,733 blocks there is not one witness-v3 output, and the only
+        // two v6 covenant spends carry the witnessScript
+        // <32> OP_NOP7 <32> OP_NOP7 OP_1, so OP_CHECKFOLDPROOF has never executed.
+        // Clearing the flag therefore cannot alter the validity of any historical
+        // block. (Note the direction matters: for a v3 PROGRAM clearing the flag is a
+        // relaxation, but for OP_CHECKFOLDPROOF inside a script it is a tightening —
+        // SCRIPT_ERR_BAD_OPCODE — which is why the covenant witnessScripts had to be
+        // read rather than assumed.)
+        //
+        // nStartTime=0 / nTimeout=0 => THRESHOLD_FAILED, terminal. This deployment is
+        // queried through VersionBitsState, NOT DeploymentActiveAtHeight, so an
+        // nActivationHeight would be ignored here — do not add one thinking it locks
+        // anything down. Superseded by SoquObscura; witness v3 is retired and must not
+        // be reallocated. See test/witness_version_allocation_tests.cpp.
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime = 0;  // retired
+        consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout = 0;    // never activates
 
         // SoquObscura confidential outputs — WITHDRAWN 2026-08-17 (S1/P2).
         // The shipped range verifier accepts an all-zero witness carrying a correct
