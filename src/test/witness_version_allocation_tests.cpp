@@ -39,6 +39,9 @@
 #include "script/script.h"
 #include "script/standard.h"
 
+#include "chainparams.h"
+#include "consensus/params.h"
+
 #include "test/test_bitcoin.h"
 
 #include <boost/test/unit_test.hpp>
@@ -373,6 +376,75 @@ BOOST_AUTO_TEST_CASE(witness_v0_is_standard_but_unspendable)
         "v0 <32> is expected to reach the Dilithium branch (is_dilithium accepts OP_0 as well "
         "as OP_1), so it should fail on the witness rather than on the shape. If that changed, "
         "the v0/v1 aliasing in interpreter.cpp has moved");
+}
+
+// ---------------------------------------------------------------------------
+// WITNESS v3 / LatticeFold+ IS RETIRED, ON EVERY NETWORK.
+//
+// Superseded by SoquObscura. The verifier reads its own statement fields out of
+// the untrusted proof blob and every algebraic check is homogeneous in the
+// witness, so an all-zero witness satisfies all of them: a proof carrying no
+// valid signature verifies. Mainnet withdrew it; testnet, regtest and stagenet
+// were left ALWAYS_ACTIVE and therefore validated under a rule mainnet refuses,
+// which is the same state bead 2pru withdrew SoquObscura from and the same
+// reasoning. Retired on all four as of 2026-08-20.
+//
+// "Retired" is enforced here rather than asserted in a comment, because the
+// entire lesson of this sweep is that an intention nothing executes is
+// indistinguishable from an intention nobody implemented.
+//
+// ⛔ v3 MUST NOT BE REALLOCATED. It is deliberately left in the anyone-can-spend
+// soft-fork posture rather than turned into a hard script error, which keeps
+// both future options open: burning it later is a tightening (a soft fork, still
+// available), whereas un-burning it would be a hard fork. Reuse is nonetheless
+// the wrong move — v11-v16 are free, so there is no scarcity pressure, and a
+// number that meant "LatticeFold+ batch proof" for a year will stay wrong in
+// somebody's explorer, SDK or document. That is the confusion class that produced
+// the v6 collision. Allocate upward from v11.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(latticefold_is_retired_and_cannot_activate_on_any_network)
+{
+    for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
+                                   CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        const Consensus::BIP9Deployment& d =
+            Params().GetConsensus(0).vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD];
+
+        // nStartTime=0 / nTimeout=0 is the terminal THRESHOLD_FAILED idiom: the BIP9
+        // state machine can never leave FAILED, so SCRIPT_VERIFY_LATTICEFOLD is never
+        // set and both entry points stay unreachable — OP_CHECKFOLDPROOF returns
+        // SCRIPT_ERR_BAD_OPCODE, and a witness-v3 program short-circuits to
+        // anyone-can-spend before the verifier is ever called.
+        BOOST_CHECK_MESSAGE(d.nStartTime == 0 && d.nTimeout == 0,
+            net + ": DEPLOYMENT_LATTICEFOLD must stay at nStartTime=0/nTimeout=0. It is "
+            "RETIRED and superseded by SoquObscura, and its verifier accepts an all-zero "
+            "witness, so activating it on any network is a forgery path");
+
+        // This deployment is queried through VersionBitsState, never through
+        // DeploymentActiveAtHeight, so an activation height here would be silently
+        // ignored — someone adding one would believe they had changed something.
+        BOOST_CHECK_MESSAGE(
+            d.nActivationHeight == Consensus::BIP9Deployment::NO_HEIGHT_ACTIVATION,
+            net + ": DEPLOYMENT_LATTICEFOLD has an nActivationHeight, which nothing reads "
+            "for this deployment. Either the query site moved to DeploymentActiveAtHeight "
+            "or someone set a field expecting it to lock the feature down");
+    }
+    SelectParams(CBaseChainParams::MAIN);
+}
+
+// v3 stays anyone-can-spend while retired, which is the posture that keeps the
+// version safe to leave alone: it is not relay-standard (Solver has no v3 form),
+// so no output can be funded into it through normal relay. If v3 ever becomes a
+// hard script error that is a deliberate burn and this test should record it.
+BOOST_AUTO_TEST_CASE(retired_v3_is_still_soft_fork_safe_not_burned)
+{
+    BOOST_CHECK_MESSAGE(ScriptVerdict(Program(3), SCRIPT_VERIFY_WITNESS) == SCRIPT_ERR_OK,
+        "witness v3 is expected to remain anyone-can-spend while retired. If it now errors, "
+        "v3 has been BURNED: reuse would need a hard fork. That is a legitimate choice but "
+        "it must be a deliberate one");
+    BOOST_CHECK_MESSAGE(!StandardWith(Program(3), WitnessVersionBit(3)),
+        "witness v3 must never be relay-standard, even with its mask bit forced on. That is "
+        "the only thing standing between anyone-can-spend and a funded v3 output");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

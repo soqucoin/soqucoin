@@ -183,9 +183,15 @@ BOOST_AUTO_TEST_CASE(stagenet_critical_deployments_active)
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
 
-    // LatticeFold (bit 4) — must be ALWAYS_ACTIVE
-    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime,
-                      Consensus::BIP9Deployment::ALWAYS_ACTIVE);
+    // LatticeFold+ (bit 28) — RETIRED 2026-08-20, must NOT be active. Superseded
+    // by SoquObscura. Mainnet had already withdrawn it (its verifier accepts an
+    // all-zero witness, exactly like the SoquObscura range verifier below), while
+    // stagenet was left ALWAYS_ACTIVE — so the mainnet REHEARSAL network was
+    // validating under a rule mainnet refuses. Withdrawn here for the same reason
+    // SoquObscura was. Full assertions live in
+    // test/witness_version_allocation_tests.cpp.
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime, 0);
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout, 0);
 
     // SoquObscura (bit 5) — WITHDRAWN 2026-08-17, must NOT be active. Its range
     // verifier accepts an all-zero witness carrying a correct Fiat-Shamir seed.
@@ -205,13 +211,18 @@ BOOST_AUTO_TEST_CASE(regtest_critical_deployments_active)
     SelectParams(CBaseChainParams::REGTEST);
     const Consensus::Params& consensus = Params().GetConsensus(0);
 
-    // PAT, LatticeFold and USDSOQ stay ALWAYS_ACTIVE on regtest.
+    // PAT and USDSOQ stay ALWAYS_ACTIVE on regtest.
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG].nStartTime,
-                      Consensus::BIP9Deployment::ALWAYS_ACTIVE);
-    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
     BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_USDSOQ].nStartTime,
                       Consensus::BIP9Deployment::ALWAYS_ACTIVE);
+
+    // LatticeFold+ — RETIRED 2026-08-20, must NOT be active. Regtest is included
+    // deliberately, on the same reasoning that included it in the SoquObscura
+    // withdrawal below: leaving it active keeps every functional test running
+    // against a verifier known to accept forged proofs.
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nStartTime, 0);
+    BOOST_CHECK_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_LATTICEFOLD].nTimeout, 0);
 
     // SoquObscura — WITHDRAWN 2026-08-17, must NOT be active. Regtest is included
     // in the withdrawal deliberately: leaving it active would keep every
