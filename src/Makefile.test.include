@@ -177,6 +177,7 @@ BITCOIN_TESTS =\
   test/soquobscura_keyimage_deadcode_tests.cpp \
   test/witness_version_allocation_tests.cpp \
   test/consensus_digest_tests.cpp \
+  test/sigop_budget_tests.cpp \
   test/dilithium_chain_setup.h
 # Legacy ECDSA tests disabled for Post-Quantum Transition
 #  test/audit_tests.cpp
