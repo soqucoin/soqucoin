@@ -172,7 +172,8 @@ BITCOIN_TESTS =\
   test/dilithium_keyhash_tests.cpp \
   test/dilithium_keyhash_committed_tests.cpp \
   test/usdsoq_v7_holding_tests.cpp \
-  test/usdsoq_v7_conservation_harness_tests.cpp
+  test/usdsoq_v7_conservation_harness_tests.cpp \
+  test/usdsoq_v10_reject_path_tests.cpp
 # Legacy ECDSA tests disabled for Post-Quantum Transition
 #  test/audit_tests.cpp
 #  test/multisig_tests.cpp

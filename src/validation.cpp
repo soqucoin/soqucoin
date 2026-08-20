@@ -2026,18 +2026,40 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
     // On mainnet (USDSOQ NEVER_ACTIVE): no USDSOQ UTXOs exist, so
     // nUSDSOQIn == nUSDSOQOut == 0, and this check always passes.
     if (!isAuthorityTx) {
+        // IsAnyUSDSOQ(), i.e. BOTH modes: transparent v7 and confidential v10.
+        //
+        // ⛔ WITH THE v7-ONLY PREDICATE, CONFIDENTIAL USDSOQ COULD BE CONJURED FROM
+        // ORDINARY SOQ. A v10 output was invisible to this rule (nUSDSOQOut stayed 0,
+        // so 0 == 0 conserved) AND invisible to the per-asset fee filters, which key
+        // on IsNativeSOQ() and correctly exclude it. The two blind spots compose: the
+        // tx minted USDSOQ from nothing and donated the same value to nFees for the
+        // miner to claim. This is exactly the hole Phase 3 closed for v7 (see
+        // usdsoq_v7_conservation_harness_tests::v7_minted_from_soq_is_rejected); it
+        // was simply never extended when v10 was allocated.
+        //
+        // Like the v7 and v8 rules, this is STRUCTURAL and deliberately NOT
+        // deployment-gated, so the v10 witness shape is RESERVED from genesis: no
+        // v10 input can exist, therefore any tx creating a v10 output fails
+        // out > in = 0. Shipping it dormant now is what keeps a later SoquObscura
+        // activation a soft fork rather than a rule that has to be added afterwards.
+        //
+        // ⚠️ REVISIT WHEN VALUE MOVES INTO THE COMMITMENT (bead sh2u). This sums
+        // nValue, which is still a plaintext CAmount on a confidential output. The
+        // day nValue becomes a commitment, a plaintext sum stops being meaningful
+        // and this rule must be replaced by a commitment-balance check, not merely
+        // widened again.
         CAmount nUSDSOQIn = 0;
         CAmount nUSDSOQOut = 0;
         for (unsigned int i = 0; i < tx.vin.size(); i++) {
             const COutPoint& prevout = tx.vin[i].prevout;
             const CCoins* coins = inputs.AccessCoins(prevout.hash);
             assert(coins);
-            if (coins->vout[prevout.n].IsUSDSOQ()) {
+            if (coins->vout[prevout.n].IsAnyUSDSOQ()) {
                 nUSDSOQIn += coins->vout[prevout.n].nValue;
             }
         }
         for (const auto& txout : tx.vout) {
-            if (txout.IsUSDSOQ()) {
+            if (txout.IsAnyUSDSOQ()) {
                 nUSDSOQOut += txout.nValue;
             }
         }
@@ -2072,12 +2094,16 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             for (unsigned int i = 0; i < tx.vin.size(); i++) {
                 const COutPoint& prevout = tx.vin[i].prevout;
                 const CTxOut& prevOut = inputs.AccessCoins(prevout.hash)->vout[prevout.n];
-                if (!prevOut.IsUSDSOQ() &&
+                // IsAnyUSDSOQ() must match the conservation predicate above. If this
+                // stayed v7-only while conservation counted both modes, a legitimate
+                // v10 transfer would conserve and then be rejected here for spending
+                // its own asset.
+                if (!prevOut.IsAnyUSDSOQ() &&
                     !(prevOut.IsNativeSOQ() && prevOut.IsTransparent())) {
                     return state.DoS(100, false, REJECT_INVALID,
                         "bad-txns-usdsoq-input-mismatch", false,
-                        strprintf("USDSOQ transfer input %s:%u is neither a v7 "
-                            "USDSOQ input nor a transparent SOQ fee input",
+                        strprintf("USDSOQ transfer input %s:%u is neither a USDSOQ "
+                            "input (v7 or v10) nor a transparent SOQ fee input",
                             prevout.hash.ToString(), prevout.n));
                 }
             }
@@ -3795,9 +3821,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         // Q3: Defense-in-depth — require target to be a live
                         // USDSOQ UTXO. Skip + log if not (don't reject the
                         // block — the authority TX itself is valid).
+                        // IsAnyUSDSOQ(), not IsUSDSOQ(): freeze targets an OUTPOINT, so it
+                        // is the one compliance control that still works when the amount is
+                        // hidden. With the v7-only predicate a v10 confidential USDSOQ
+                        // outpoint could never be frozen — the op was silently skipped and
+                        // logged as "not a live USDSOQ UTXO", so the issuer's GENIUS Act
+                        // §4(a)(2) freeze authority did not reach Tier A at all.
                         const CCoins* targetCoins = view.AccessCoins(freezeTarget.hash);
                         if (!targetCoins || !targetCoins->IsAvailable(freezeTarget.n) ||
-                            !targetCoins->vout[freezeTarget.n].IsUSDSOQ()) {
+                            !targetCoins->vout[freezeTarget.n].IsAnyUSDSOQ()) {
                             LogPrintf("USDSOQ: FREEZE target %s:%u is not a live USDSOQ "
                                       "UTXO at block %d — skipping (defense-in-depth)\n",
                                 freezeTarget.hash.ToString(), freezeTarget.n,
@@ -3851,7 +3883,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 for (unsigned int j = 0;
                      j < tx.vin.size() && j < txundoFreeze.vprevout.size(); j++) {
                     const CTxOut& prevOut = txundoFreeze.vprevout[j].txout;
-                    if (prevOut.IsUSDSOQ() && pcoinsdbview &&
+                    // IsAnyUSDSOQ(): the SOQ-ARCH-004 block below states that freeze
+                    // "works on a confidential output whose amount is hidden". With the
+                    // v7-only predicate here that was not true — a frozen v10 outpoint
+                    // was spendable. Widened so the claim and the code agree.
+                    if (prevOut.IsAnyUSDSOQ() && pcoinsdbview &&
                         pcoinsdbview->IsFrozenOutpoint(tx.vin[j].prevout)) {
                         return state.DoS(100,
                             error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u"
@@ -3916,6 +3952,26 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         //   1. the SoquObscura privacy layer is active (BIP9)
                         //   2. range proofs are valid (checked in the section below)
                         //   3. commitment balance is preserved (sum_in == sum_out)
+                        //
+                        // ⚠️ SHADOWED, DELIBERATELY RETAINED (n1vf). This reject can never
+                        // be the one that fires. SOQ-ARCH-001 runs EARLIER in this same
+                        // ConnectBlock, on the SAME `flags`, and already rejects every
+                        // IsConfidential() output in the block with
+                        // "bad-txns-confidential-not-active" whenever
+                        // SCRIPT_VERIFY_SOQUOBSCURA is unset. Its condition is a strict
+                        // superset of this one, so the observable reject string for a
+                        // pre-activation v10 output is ALWAYS the SOQ-ARCH-001 one — pinned
+                        // by usdsoq_v10_reject_path_tests::preactivation_v10_output_is_
+                        // rejected_by_soq_arch_001_not_the_usdsoq_rule.
+                        //
+                        // It is kept, not deleted, because the two rules are independent
+                        // fail-closed backstops on the same property and SOQ-ARCH-001's
+                        // scope is the thing most likely to be narrowed later (it is the
+                        // generic all-assets rule; this one is asset-specific). If that
+                        // ever happens the Tier A path must still fail closed. The pinning
+                        // test is what turns "silently dead" into "known dead": narrowing
+                        // SOQ-ARCH-001 flips that test's expected string, so the shadowing
+                        // relationship cannot change without someone noticing.
                         if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
                             return state.DoS(100,
                                 error("ConnectBlock(): USDSOQ confidential output %s:%u before "
@@ -3971,9 +4027,21 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 const CTxUndo& txundo = blockundo.vtxundo[i - 1];
                 for (unsigned int j = 0; j < tx.vin.size() && j < txundo.vprevout.size(); j++) {
                     const CTxOut& prevOut = txundo.vprevout[j].txout;
-                    if (prevOut.IsUSDSOQ()) {
-                        // Defense-in-depth: reject confidential USDSOQ inputs
-                        // Phase 4: use IsConfidential() predicate (v4 witness version)
+                    // ⛔ n1vf: THIS PREDICATE WAS `IsUSDSOQ()` (v7 only), WHICH MADE THE
+                    // REJECT BELOW STRUCTURALLY UNREACHABLE — the second instance of the
+                    // SOQ-ARCH-004 dead-rule pattern, in the INPUT loop this time. v7 is
+                    // one opcode and confidentiality is another, so `IsUSDSOQ() &&
+                    // IsConfidential()` is the empty set and "bad-txns-usdsoq-conf-input"
+                    // could never fire. Its own error text says the state "should not
+                    // exist"; what did not exist was the rule. Widening to IsAnyUSDSOQ()
+                    // makes it live: an authority tx that spends a CONFIDENTIAL USDSOQ
+                    // input is now rejected, which is what supply auditability requires —
+                    // nUSDSOQBurned is a plaintext sum, so a hidden burn amount would
+                    // silently desynchronise the supply counter from the chain.
+                    if (prevOut.IsAnyUSDSOQ()) {
+                        // Authority operations must move supply across a TRANSPARENT
+                        // boundary in both directions: mint is gated on IsTransparent()
+                        // in the output loop above, burn is gated here.
                         if (prevOut.IsConfidential()) {
                             return state.DoS(100,
                                 error("ConnectBlock(): spending confidential USDSOQ input %s:%u"

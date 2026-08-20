@@ -32,7 +32,9 @@
 #include "uint256.h"
 #include "validation.h"
 #include "crypto/sha256.h"
+#include "coins.h"
 #include "test/test_bitcoin.h"
+#include "test/testutil.h"   // ScopedRegtestActivation
 
 extern "C" {
 #include "crypto/dilithium/api.h"
@@ -79,6 +81,13 @@ static CScript MakeV8Spk(const std::vector<unsigned char>& rawPubkey)
 {
     uint256 h; CSHA256().Write(rawPubkey.data(), rawPubkey.size()).Finalize(h.begin());
     CScript s; s << OP_8 << std::vector<unsigned char>(h.begin(), h.end());
+    return s;
+}
+
+// Confidential v4 — the "exotic input" a BTCSOQ transfer must refuse.
+static CScript MakeV4Spk()
+{
+    CScript s; s << OP_4 << std::vector<unsigned char>(32, 0x11);
     return s;
 }
 
@@ -152,6 +161,20 @@ struct BTCSOQChainSetup : public TestingSetup {
 
     CBlock CreateAndProcessBlock(const std::vector<CMutableTransaction>& txns, const CScript& spk)
     {
+        CBlock block = BuildSolvedBlock(txns, spk);
+        std::shared_ptr<const CBlock> shared = std::make_shared<const CBlock>(block);
+        bool fNewBlock = false;
+        ProcessNewBlock(Params(), shared, true, &fNewBlock);
+        return block;
+    }
+
+    // Solve a block WITHOUT connecting it, so a caller can run TestBlockValidity
+    // and read the reject reason. ProcessNewBlock only returns a bool, so a test
+    // built on CreateAndProcessBlock can assert that the tip did not move but not
+    // WHY — and "the tip did not move" passes for the wrong reject exactly as
+    // happily as for the right one. Bead r0vn requires the exact string.
+    CBlock BuildSolvedBlock(const std::vector<CMutableTransaction>& txns, const CScript& spk)
+    {
         const CChainParams& cp = Params();
         std::unique_ptr<CBlockTemplate> tmpl = BlockAssembler(cp).CreateNewBlock(spk, true);
         BOOST_REQUIRE(tmpl != nullptr);
@@ -176,10 +199,46 @@ struct BTCSOQChainSetup : public TestingSetup {
         IncrementExtraNonce(&block, chainActive.Tip(), extraNonce);
         while (!CheckProofOfWork(block.GetPoWHash(), block.nBits, cp.GetConsensus(0)))
             ++block.nNonce;
-        std::shared_ptr<const CBlock> shared = std::make_shared<const CBlock>(block);
-        bool fNewBlock = false;
-        ProcessNewBlock(cp, shared, true, &fNewBlock);
         return block;
+    }
+
+    // Drive a block through the full ConnectBlock path and return the reject
+    // reason, or "" if it validated.
+    std::string RejectReasonFor(const std::vector<CMutableTransaction>& txns)
+    {
+        CBlock B = BuildSolvedBlock(txns, coinbaseSpk);
+        CValidationState st;
+        bool ok;
+        {
+            LOCK(cs_main);
+            ok = TestBlockValidity(st, Params(), B, chainActive.Tip(), true, true);
+        }
+        if (ok) return std::string();
+        BOOST_TEST_MESSAGE("reject: " << st.GetRejectReason()
+            << (st.GetDebugMessage().empty() ? "" : " | " + st.GetDebugMessage()));
+        return st.GetRejectReason();
+    }
+
+    // Drop a mature, spendable coin of an arbitrary witness version straight into
+    // the UTXO set. Modifies pcoinsTip directly: an intermediate CCoinsViewCache
+    // would flush its unset hashBlock over the tip's and trip ConnectBlock's
+    // assertion.
+    COutPoint SeedCoin(const CScript& spk, CAmount value, uint8_t tag)
+    {
+        uint256 txid;
+        txid.begin()[0] = tag;
+        {
+            LOCK(cs_main);
+            CCoinsModifier c = pcoinsTip->ModifyCoins(txid);
+            c->Clear();
+            c->fCoinBase = false;
+            c->nHeight   = 1;
+            c->nVersion  = 2;
+            c->vout.resize(1);
+            c->vout[0].nValue       = value;
+            c->vout[0].scriptPubKey = spk;
+        }
+        return COutPoint(txid, 0);
     }
 
     // Sign a v1 Dilithium input (coinbase / v8 holding) with a CKey.
@@ -396,6 +455,112 @@ BOOST_AUTO_TEST_CASE(double_mint_rejected)
         LOCK(cs_main);
         BOOST_CHECK_EQUAL(g_btcsoq_supply.TotalMinted(), MINT_SATS);  // only the first mint counted
     }
+}
+
+// ===========================================================================
+// REJECT-PATH COVERAGE (beads n1vf, r0vn).
+//
+// The three rejects below are REACHABLE — unlike the USDSOQ pair, nothing about
+// them was dead — and until now none of these strings appeared anywhere under
+// src/test/ or qa/. Reachable and unexercised is not a lesser state than dead:
+// it is the state a dead rule is indistinguishable from, which is the whole
+// point of the r0vn criterion. Each drives a failing input through ConnectBlock
+// and asserts the exact string.
+// ===========================================================================
+
+// A non-authority tx cannot conjure BTCSOQ. v8 out > v8 in = 0, so the per-asset
+// conservation rule must reject it. This is the BTCSOQ mirror of
+// usdsoq_v7_conservation_harness_tests::v7_minted_from_soq_is_rejected, and the
+// property is load-bearing: without it, any miner could emit a v8 output from
+// ordinary SOQ and create Bitcoin-backed supply with no deposit behind it.
+BOOST_AUTO_TEST_CASE(connectblock_rejects_btcsoq_minted_from_soq)
+{
+    const CTransaction& cb = coinbaseTxns[0];
+    const CAmount fund = cb.vout[0].nValue;
+
+    CMutableTransaction tx; tx.nVersion = 2;
+    CTxIn in; in.prevout = COutPoint(cb.GetHash(), 0); in.nSequence = CTxIn::SEQUENCE_FINAL;
+    tx.vin.push_back(in);
+    tx.vout.push_back(CTxOut(MINT_SATS, MakeV8Spk(coinbasePk)));         // v8 from nothing
+    tx.vout.push_back(CTxOut(fund - MINT_SATS - 10000, coinbaseSpk));    // SOQ change
+    SignV1(tx, 0, coinbaseSpk, fund, coinbaseKey, coinbasePk);
+
+    BOOST_CHECK_EQUAL(RejectReasonFor({tx}), "bad-txns-btcsoq-not-conserved");
+}
+
+// Input-type isolation: a BTCSOQ transfer may spend v8 inputs (the asset) and
+// transparent native-SOQ inputs (the fee), nothing else. Here the tx CONSERVES
+// v8 exactly, so conservation cannot be what rejects it, and the only thing
+// wrong is the v7 USDSOQ input mixed in. Keeping the two assets from meeting in
+// one transfer is what stops cross-asset accounting from ever being needed.
+BOOST_AUTO_TEST_CASE(connectblock_rejects_exotic_input_in_btcsoq_transfer)
+{
+    const CAmount v8Val = MINT_SATS;
+    COutPoint v8op = SeedCoin(MakeV8Spk(coinbasePk), v8Val, 0xb8);
+    // A CONFIDENTIAL v4 input is the exotic one to use here. A v7 USDSOQ input
+    // would trip the USDSOQ conservation rule first (v7 in, no v7 out) and the
+    // test would pin the wrong string — it did exactly that on the first run.
+    // v4 is native SOQ by asset, so it is invisible to both conservation rules,
+    // and the only thing it violates is the transparency half of the isolation
+    // predicate.
+    COutPoint v4op = SeedCoin(MakeV4Spk(), MINT_SATS, 0xb4);
+
+    CMutableTransaction tx; tx.nVersion = 2;
+    { CTxIn i0; i0.prevout = v8op; i0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(i0); }
+    { CTxIn i1; i1.prevout = v4op; i1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(i1); }
+    tx.vout.push_back(CTxOut(v8Val, MakeV8Spk(coinbasePk)));   // v8 in == v8 out
+    SignV1(tx, 0, MakeV8Spk(coinbasePk), v8Val, coinbaseKey, coinbasePk);
+    // The v4 input still needs a witness ending in an ML-DSA pubkey, or
+    // CheckTransaction's bad-txns-requires-dilithium fires before we ever reach
+    // the isolation rule. The v4 program itself is anyone-can-spend while
+    // SoquObscura is dormant, so the signature is not what is being tested.
+    SignV1(tx, 1, MakeV4Spk(), MINT_SATS, coinbaseKey, coinbasePk);
+
+    BOOST_CHECK_EQUAL(RejectReasonFor({tx}), "bad-txns-btcsoq-input-mismatch");
+}
+
+// Authority operations must be fully transparent: the mint/burn boundary is
+// where supply is auditable, and a hidden amount there breaks the invariant
+// outright (GENIUS Act 4(a)(2)).
+//
+// SoquObscura has to be ACTIVE for this to be the rule that fires. While it is
+// dormant, SOQ-ARCH-001 rejects every confidential output block-wide, earlier in
+// the same ConnectBlock, and would shadow this. That ordering is itself worth
+// pinning: the assertion below is what tells us which of the two is doing the
+// work at any given time.
+BOOST_AUTO_TEST_CASE(connectblock_rejects_confidential_output_in_btcsoq_authority_tx)
+{
+    ScopedRegtestActivation on(Consensus::DEPLOYMENT_SOQUOBSCURA, 0);
+
+    uint256 depositTxid = uint256S("bccc00000000000000000000000000000000000000000000000000000000dc04");
+    CMutableTransaction mint = BuildMint(coinbaseTxns[1], depositTxid, 0, coinbasePk);
+
+    // Add a confidential v4 output funded from the SOQ change, then re-sign:
+    // the authority sighash covers the outputs, so an unsigned edit would be
+    // caught as a bad signature and prove nothing about the transparency rule.
+    CScript v4spk = CScript() << OP_4 << std::vector<unsigned char>(32, 0x11);
+    BOOST_REQUIRE_EQUAL(v4spk.size(), 34u);
+    CTxOut& change = mint.vout.back();
+    BOOST_REQUIRE(change.nValue > MINT_SATS);
+    change.nValue -= MINT_SATS;
+    mint.vout.push_back(CTxOut(MINT_SATS, v4spk));
+    SignAuthority(mint, 0, BTCSOQ_OP_MINT);
+
+    BOOST_CHECK_EQUAL(RejectReasonFor({mint}), "bad-btcsoq-authority-must-be-transparent");
+}
+
+// Reachability control for the case above: the SAME mint without the
+// confidential output must connect, so the rejection is the transparency rule
+// and not an artefact of the edit.
+BOOST_AUTO_TEST_CASE(transparent_btcsoq_authority_mint_is_accepted)
+{
+    ScopedRegtestActivation on(Consensus::DEPLOYMENT_SOQUOBSCURA, 0);
+
+    uint256 depositTxid = uint256S("bccc00000000000000000000000000000000000000000000000000000000dc05");
+    CMutableTransaction mint = BuildMint(coinbaseTxns[2], depositTxid, 0, coinbasePk);
+
+    BOOST_CHECK_MESSAGE(RejectReasonFor({mint}).empty(),
+        "the identical authority mint without a confidential output must connect");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

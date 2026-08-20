@@ -18,6 +18,9 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <map>
+#include <string>
+
 BOOST_FIXTURE_TEST_SUITE(genesis_chainparams_tests, BasicTestingSetup)
 
 // ============================================================================
@@ -292,6 +295,10 @@ static const Consensus::DeploymentPos P96_FLAGDAY_DEPLOYMENTS[] = {
     Consensus::DEPLOYMENT_UTXO_COST,
     Consensus::DEPLOYMENT_DILITHIUM_KEYHASH,
     Consensus::DEPLOYMENT_V6_CONTROLFLOW,
+    // BTCSOQ is height-gated exactly like the rest (mainnet NOT_SCHEDULED,
+    // test networks 0) and was simply missing from this list, so the mainnet
+    // dormancy assertion below did not cover the Bitcoin-backed asset.
+    Consensus::DEPLOYMENT_BTCSOQ,
 };
 
 BOOST_AUTO_TEST_CASE(p96_deployment_active_predicate)
@@ -362,6 +369,177 @@ BOOST_AUTO_TEST_CASE(p96_testnets_active_from_genesis)
         }
     }
     SelectParams(CBaseChainParams::MAIN);  // restore default for later tests
+}
+
+// ============================================================================
+// F8 (bead v7xm): the activation posture must hold at EVERY height, not just 0.
+//
+// The two tests above read GetConsensus(0), which returns the BASE consensus
+// struct. That is not the struct most blocks are validated against. Every
+// network assembles a height-indexed tree of Consensus::Params
+// (consensus / digishieldConsensus / auxpowConsensus) and GetConsensus(nHeight)
+// returns whichever tier covers that height — on regtest the cutovers are 10 and
+// 20, on stagenet 1 and 100. The constructors copy the base struct AFTER setting
+// the deployment fields, so the tiers agree today; nothing enforces that they
+// keep agreeing, and a per-tier divergence would mean a deployment that is
+// dormant at genesis and live at height 20, or the reverse.
+//
+// This is not hypothetical. A regtest activation lever added on 2026-08-20
+// initially wrote only the base struct and was silently inert for every block a
+// chain fixture mines. The same shape sits in UpdateMaxReorgDepth, which writes
+// consensus and digishieldConsensus but not auxpowConsensus (bead tofg).
+// ============================================================================
+BOOST_AUTO_TEST_CASE(f8_deployment_posture_is_uniform_across_consensus_tiers)
+{
+    // Heights chosen to straddle every tier cutover on every network.
+    const int kProbeHeights[] = {0, 1, 2, 9, 10, 11, 19, 20, 21, 99, 100, 101, 1000, 1000000};
+
+    for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
+                                   CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        for (int pos = 0; pos < Consensus::MAX_VERSION_BITS_DEPLOYMENTS; pos++) {
+            const auto d = static_cast<Consensus::DeploymentPos>(pos);
+            const Consensus::BIP9Deployment& base = Params().GetConsensus(0).vDeployments[d];
+            for (int h : kProbeHeights) {
+                const Consensus::BIP9Deployment& tier = Params().GetConsensus(h).vDeployments[d];
+                BOOST_CHECK_MESSAGE(tier.nActivationHeight == base.nActivationHeight,
+                    net + ": deployment " + std::to_string(pos) + " has nActivationHeight " +
+                    std::to_string(tier.nActivationHeight) + " at height " + std::to_string(h) +
+                    " but " + std::to_string(base.nActivationHeight) + " in the base struct — "
+                    "the consensus tiers have diverged");
+                BOOST_CHECK_MESSAGE(tier.bit == base.bit,
+                    net + ": deployment " + std::to_string(pos) + " changes version bit across tiers");
+                BOOST_CHECK_MESSAGE(tier.nStartTime == base.nStartTime &&
+                                    tier.nTimeout == base.nTimeout,
+                    net + ": deployment " + std::to_string(pos) + " changes its BIP9 window across tiers");
+            }
+        }
+    }
+    SelectParams(CBaseChainParams::MAIN);
+}
+
+// A height-gated deployment ignores nStartTime/nTimeout entirely, so a
+// deployment carrying BOTH an nActivationHeight and a real BIP9 window is a
+// statement of intent the code will not honour. Reject the combination outright
+// rather than trusting anyone to remember the rule. The inert values (0/0 for
+// "never" and ALWAYS_ACTIVE/NO_TIMEOUT for the pre-flag-day form) are allowed
+// because they are what the existing configs use to mean "the BIP9 fields are
+// not the mechanism here".
+BOOST_AUTO_TEST_CASE(f8_no_deployment_relies_on_a_bip9_window_it_cannot_use)
+{
+    for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
+                                   CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        const Consensus::Params& c = Params().GetConsensus(0);
+        for (int pos = 0; pos < Consensus::MAX_VERSION_BITS_DEPLOYMENTS; pos++) {
+            const Consensus::BIP9Deployment& d = c.vDeployments[static_cast<Consensus::DeploymentPos>(pos)];
+            if (d.nActivationHeight == Consensus::BIP9Deployment::NO_HEIGHT_ACTIVATION) continue;
+
+            const bool inertWindow =
+                (d.nStartTime == 0 && d.nTimeout == 0) ||
+                (d.nStartTime == Consensus::BIP9Deployment::ALWAYS_ACTIVE &&
+                 d.nTimeout == Consensus::BIP9Deployment::NO_TIMEOUT);
+            BOOST_CHECK_MESSAGE(inertWindow,
+                net + ": deployment " + std::to_string(pos) + " is height-gated (nActivationHeight=" +
+                std::to_string(d.nActivationHeight) + ") yet carries a live BIP9 window. "
+                "DeploymentActiveAtHeight never reads nStartTime/nTimeout, so that window is a no-op "
+                "and whoever set it believed something false about how this deployment activates.");
+        }
+    }
+    SelectParams(CBaseChainParams::MAIN);
+}
+
+// Two deployments sharing a version bit means signalling for one is signalling
+// for the other. Harmless while both are inert; a chain split if either is ever
+// scheduled. TESTDUMMY is excluded because it is a test fixture rather than a
+// feature, and it currently collides with LATTICEFOLD on bit 28 (bead nv7q) —
+// excluding it here keeps this test honest about FEATURE bits without encoding
+// that known overlap as acceptable.
+BOOST_AUTO_TEST_CASE(f8_feature_deployments_do_not_share_version_bits)
+{
+    for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
+                                   CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        const Consensus::Params& c = Params().GetConsensus(0);
+        std::map<int, int> bitOwner;   // bit -> deployment index
+        for (int pos = 0; pos < Consensus::MAX_VERSION_BITS_DEPLOYMENTS; pos++) {
+            if (pos == Consensus::DEPLOYMENT_TESTDUMMY) continue;
+            const int bit = c.vDeployments[static_cast<Consensus::DeploymentPos>(pos)].bit;
+            auto it = bitOwner.find(bit);
+            BOOST_CHECK_MESSAGE(it == bitOwner.end(),
+                net + ": deployments " + std::to_string(it == bitOwner.end() ? -1 : it->second) +
+                " and " + std::to_string(pos) + " both claim version bit " + std::to_string(bit));
+            bitOwner[bit] = pos;
+        }
+    }
+    SelectParams(CBaseChainParams::MAIN);
+}
+
+// ============================================================================
+// F8 (bead zz2f): BIP34/65/66 heights must be OURS, not Dogecoin's.
+//
+// Mainnet shipped Dogecoin's mainnet heights verbatim (1034383 / 3464751 /
+// 1034383) and testnet shipped Dogecoin's testnet heights. On a chain that
+// starts at height 0 those are not history, they are activation heights, and
+// the BIP65 one meant SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY stayed off for about
+// 6.6 years — OP_CLTV a NOP, so any timelock branch was unenforceable the
+// moment a CLTV-carrying deployment activated.
+//
+// The tell was that stagenet, the mainnet REHEARSAL network, already used
+// 0/0/100, so the rehearsal validated under stricter rules than the thing it
+// rehearses. This test pins all four networks together for exactly that reason:
+// the defect was divergence, so the assertion has to be about agreement.
+// ============================================================================
+BOOST_AUTO_TEST_CASE(f8_bip_activation_heights_are_soqucoin_not_dogecoin)
+{
+    // Dogecoin's values, named so a regression is unmistakable rather than
+    // looking like an arbitrary number changed.
+    const int kDogeMainBIP34 = 1034383, kDogeMainBIP65 = 3464751;
+    const int kDogeTestBIP34 = 708658,  kDogeTestBIP65 = 1854705;
+
+    for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
+                                   CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        const Consensus::Params& c = Params().GetConsensus(0);
+
+        BOOST_CHECK_MESSAGE(c.BIP65Height == 0,
+            net + ": BIP65Height must be 0 so OP_CHECKLOCKTIMEVERIFY is enforced from "
+            "genesis. A nonzero value makes CLTV a NOP until that height, and any "
+            "HTLC or vault timeout branch created before then is unenforceable.");
+        BOOST_CHECK_MESSAGE(c.BIP66Height == 0, net + ": BIP66Height must be 0");
+
+        // > 16 so the coinbase height cannot fall in the range where OP_N and a
+        // 1-byte data push are both defensible encodings; >= 1 so genesis, which
+        // has no height push and does reach ContextualCheckBlock on -reindex,
+        // stays outside the rule.
+        BOOST_CHECK_MESSAGE(c.BIP34Height > 16,
+            net + ": BIP34Height must exceed 16 (OP_N vs push-byte coinbase encoding)");
+
+        BOOST_CHECK_MESSAGE(c.BIP34Height != kDogeMainBIP34 && c.BIP34Height != kDogeTestBIP34,
+            net + ": BIP34Height is a Dogecoin height");
+        BOOST_CHECK_MESSAGE(c.BIP65Height != kDogeMainBIP65 && c.BIP65Height != kDogeTestBIP65,
+            net + ": BIP65Height is a Dogecoin height");
+
+        // BIP34Hash is the hash of the block AT BIP34Height and cannot be known
+        // before launch. Null keeps the BIP30 duplicate-txid scan enforced by
+        // lookup forever, which is strictly more checking; a stale inherited hash
+        // had the same effect while also being false.
+        BOOST_CHECK_MESSAGE(c.BIP34Hash.IsNull(),
+            net + ": BIP34Hash must be null until a real post-launch value is known");
+    }
+
+    // Mainnet and its rehearsal network must agree, since disagreement is what
+    // made every stagenet soak result carry an assumption mainnet did not honour.
+    SelectParams(CBaseChainParams::MAIN);
+    const Consensus::Params& m = Params().GetConsensus(0);
+    const int mainBIP34 = m.BIP34Height, mainBIP65 = m.BIP65Height, mainBIP66 = m.BIP66Height;
+    SelectParams(CBaseChainParams::STAGENET);
+    const Consensus::Params& sg = Params().GetConsensus(0);
+    BOOST_CHECK_EQUAL(mainBIP34, sg.BIP34Height);
+    BOOST_CHECK_EQUAL(mainBIP65, sg.BIP65Height);
+    BOOST_CHECK_EQUAL(mainBIP66, sg.BIP66Height);
+
+    SelectParams(CBaseChainParams::MAIN);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
