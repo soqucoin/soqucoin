@@ -291,13 +291,24 @@ BOOST_AUTO_TEST_CASE(solver_classifies_v8_and_v9)
 
 BOOST_AUTO_TEST_CASE(policy_accepts_v8_v9_rejects_v10)
 {
+    // v8/v9 are standard only while DEPLOYMENT_BTCSOQ is active. Before this test
+    // was updated it asserted they were standard unconditionally, which is the
+    // behaviour that made them relay-standard AND anyone-can-spend on mainnet,
+    // where BTCSOQ ships NOT_SCHEDULED. See witness_standardness_tests.cpp.
+    const WitnessVersionMask btcsoqActive = WitnessVersionBit(8) | WitnessVersionBit(9);
+
     txnouttype whichType;
-    BOOST_CHECK(::IsStandard(WitnessScript(OP_8, 0x01), whichType, true));
+    BOOST_CHECK(::IsStandard(WitnessScript(OP_8, 0x01), whichType, true, btcsoqActive));
     BOOST_CHECK(whichType == TX_WITNESS_V8_BTCSOQ);
-    BOOST_CHECK(::IsStandard(WitnessScript(OP_9, 0x02), whichType, true));
+    BOOST_CHECK(::IsStandard(WitnessScript(OP_9, 0x02), whichType, true, btcsoqActive));
     BOOST_CHECK(whichType == TX_WITNESS_V9_BTCSOQ_AUTHORITY);
     // Future witness versions stay policy-rejected until their soft fork.
-    BOOST_CHECK(!::IsStandard(WitnessScript(OP_10, 0x03), whichType, true));
+    BOOST_CHECK(!::IsStandard(WitnessScript(OP_10, 0x03), whichType, true, btcsoqActive));
+
+    // And with the deployment dormant — mainnet's actual state — they are not
+    // standard, so no unspendable-by-anyone-else output can be relayed.
+    BOOST_CHECK(!::IsStandard(WitnessScript(OP_8, 0x01), whichType, true, 0));
+    BOOST_CHECK(!::IsStandard(WitnessScript(OP_9, 0x02), whichType, true, 0));
 }
 
 BOOST_AUTO_TEST_CASE(verifyscript_gates_v8_and_v9)

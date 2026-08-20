@@ -32,7 +32,8 @@
      *   DUP CHECKSIG DROP ... repeated 100 times... OP_1
      */
 
-bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool witnessEnabled)
+bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool witnessEnabled,
+                WitnessVersionMask activeWitnessVersions)
 {
     std::vector<std::vector<unsigned char> > vSolutions;
     if (!Solver(scriptPubKey, whichType, vSolutions))
@@ -54,34 +55,38 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, const bool w
     else if (!witnessEnabled && (whichType == TX_WITNESS_V0_KEYHASH || whichType == TX_WITNESS_V0_SCRIPTHASH))
         return false;
 
-    // Reject future witness versions (v2-v16) at policy layer.
-    // These are consensus-valid (anyone-can-spend) but MUST NOT be created
-    // or relayed until the corresponding soft fork activates specific
-    // validation rules for that witness version.
+    // Reject witness versions v2-v16 at the policy layer UNLESS their consensus
+    // rules are active on this chain right now.
+    //
+    // These programs are consensus-valid-as-anyone-can-spend until their soft fork
+    // activates. Relaying one before then is not a soft failure, it is a fund-loss
+    // path: the output confirms and anybody may then spend it.
     // Reference: BIP141 section 4 — prevents premature output creation.
-    // Exceptions:
-    //   OP_5 (0x55) = witness v5 = USDSOQ authority operations
-    //   OP_6 (0x56) = witness v6 = P2WSH-Dilithium covenant script execution
-    //   OP_7 (0x57) = witness v7 = USDSOQ holding (CTxOut Phase 4; spent via the v1 path)
-    //   OP_8 (0x58) = witness v8 = BTCSOQ holding (DL-BTCSOQ-CONSENSUS-NATIVE; v1 spend path)
-    //   OP_9 (0x59) = witness v9 = BTCSOQ authority marker
-    // All ALWAYS_ACTIVE on stagenet; on mainnet each is a flag-height
-    // deployment (p96/Option D), shipped dormant until a height is scheduled.
+    //
+    // This previously carved out v5-v9 UNCONDITIONALLY, which was correct on
+    // stagenet (where those deployments are ALWAYS_ACTIVE) and wrong on mainnet
+    // (where every one of them is nStartTime=0/nTimeout=0 or NOT_SCHEDULED). The
+    // effect on mainnet was that v5-v9 outputs were relay-standard AND
+    // anyone-can-spend simultaneously. Gating on the live activation state makes
+    // policy track consensus on the OUTPUT side, which is the same policy-equals-
+    // consensus rule already applied to the INPUT side after live bug daf9fd85.
+    //
+    // Deliberately a POLICY change, not a consensus one: tightening consensus here
+    // would turn each future activation into a hard fork.
     if (scriptPubKey.size() == 34 &&
         scriptPubKey[0] >= 0x52 && scriptPubKey[0] <= 0x60 &&  // OP_2 through OP_16
-        scriptPubKey[0] != 0x55 &&                              // except OP_5 (USDSOQ authority)
-        scriptPubKey[0] != 0x56 &&                              // except OP_6 (P2WSH-Dilithium)
-        scriptPubKey[0] != 0x57 &&                              // except OP_7 (USDSOQ holding)
-        scriptPubKey[0] != 0x58 &&                              // except OP_8 (BTCSOQ holding)
-        scriptPubKey[0] != 0x59 &&                              // except OP_9 (BTCSOQ authority)
         scriptPubKey[1] == 32) {
-        return false;
+        const int witnessVersion = scriptPubKey[0] - 0x50;      // OP_N encodes N
+        if (!(activeWitnessVersions & WitnessVersionBit(witnessVersion))) {
+            return false;
+        }
     }
 
     return whichType != TX_NONSTANDARD;
 }
 
-bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnessEnabled)
+bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnessEnabled,
+                  WitnessVersionMask activeWitnessVersions)
 {
     if (tx.nVersion > CTransaction::MAX_STANDARD_VERSION || tx.nVersion < 1) {
         reason = "version";
@@ -120,7 +125,7 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason, const bool witnes
     unsigned int nDataOut = 0;
     txnouttype whichType;
     BOOST_FOREACH(const CTxOut& txout, tx.vout) {
-        if (!::IsStandard(txout.scriptPubKey, whichType, witnessEnabled)) {
+        if (!::IsStandard(txout.scriptPubKey, whichType, witnessEnabled, activeWitnessVersions)) {
             reason = "scriptpubkey";
             return false;
         }
