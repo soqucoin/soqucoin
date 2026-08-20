@@ -1,7 +1,7 @@
 dnl require autoconf 2.60 (AS_ECHO/AS_ECHO_N)
 AC_PREREQ([2.60])
-define(_CLIENT_VERSION_MAJOR, 1)
-define(_CLIENT_VERSION_MINOR, 6)
+define(_CLIENT_VERSION_MAJOR, 2)
+define(_CLIENT_VERSION_MINOR, 0)
 define(_CLIENT_VERSION_REVISION, 0)
 define(_CLIENT_VERSION_BUILD, 0)
 define(_CLIENT_VERSION_IS_RELEASE, true)
@@ -280,6 +280,34 @@ if test "x$enable_werror" = "xyes"; then
   fi
   AX_CHECK_COMPILE_FLAG([-Werror=vla],[ERROR_CXXFLAGS="$ERROR_CXXFLAGS -Werror=vla"],,[[$CXXFLAG_WERROR]])
 fi
+
+dnl ============================================================================
+dnl -fno-strict-aliasing: CONSENSUS CORRECTNESS, NOT A WARNING PREFERENCE.
+dnl
+dnl This codebase has already had a strict-aliasing violation change
+dnl consensus-visible behaviour: an aliasing bug in the AES-CTR path made
+dnl seed-derived PUBLIC data depend on the compiler's optimisation level, i.e. a
+dnl chain split produced by a build flag (bead nh6m). That class is silent by
+dnl construction. There is no warning, no test failure and no crash; each build
+dnl is internally consistent and simply disagrees with the other one. It was
+dnl found by diffing two builds, not by running tests.
+dnl
+dnl The flag cannot introduce a bug, because it only makes the compiler more
+dnl conservative, and the cost is bounded: the hot paths here are scrypt and
+dnl SHA256, which are hand-written and largely unaffected by type-based alias
+dnl analysis. For a binary that decides consensus, that trade is one-sided.
+dnl Bead eolo.
+dnl
+dnl ⛔ DELIBERATELY OUTSIDE THE CXXFLAGS_overridden GUARD BELOW. The warning
+dnl flags there are skipped whenever the caller passes explicit CXXFLAGS, which
+dnl is exactly what release builds, distro packagers and the F4 optimisation
+dnl sweep all do. A correctness flag that silently disappears for the builds
+dnl that matter most would be worse than not having it.
+dnl ============================================================================
+AX_CHECK_COMPILE_FLAG([-fno-strict-aliasing],
+                      [CXXFLAGS="$CXXFLAGS -fno-strict-aliasing"
+                       CFLAGS="$CFLAGS -fno-strict-aliasing"],
+                      [AC_MSG_WARN([-fno-strict-aliasing not supported; consensus builds rely on it, see bead eolo])])
 
 if test "x$CXXFLAGS_overridden" = "xno"; then
   AX_CHECK_COMPILE_FLAG([-Wall],[CXXFLAGS="$CXXFLAGS -Wall"],,[[$CXXFLAG_WERROR]])

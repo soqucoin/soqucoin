@@ -20,16 +20,50 @@ static const CAmount CENT = 1000000;
 
 extern const std::string CURRENCY_UNIT;
 
-/** No amount larger than this (in satoshi) is valid.
+/** No amount larger than this (in shors) is valid.
  *
- * Note that this constant is *not* the total money supply, which in Bitcoin
- * currently happens to be less than 21,000,000 BTC for various reasons, but
- * rather a sanity check. As this sanity check is used by consensus-critical
- * validation code, the exact value of the MAX_MONEY constant is consensus
- * critical; in unusual circumstances like a(nother) overflow bug that allowed
- * for the creation of coins out of thin air modification could lead to a fork.
+ * ⛔ ON SOQUCOIN THIS IS A PER-TRANSACTION CEILING, NOT A SUPPLY BOUND, AND IT
+ * STRUCTURALLY CANNOT BE ONE. Bitcoin sets MAX_MONEY to its total supply, which
+ * makes MoneyRange a loose sanity check no honest value approaches. Neither half
+ * of that holds here:
+ *
+ *   1. THE SUPPLY IS UNBOUNDED. The emission schedule has a perpetual tail of
+ *      2,500 SOQ per block (soqucoin.cpp GetSoqucoinBlockSubsidy), roughly
+ *      1.31B SOQ a year on top of the ~46.875B head supply. No constant can
+ *      bound a supply that grows forever.
+ *   2. EVEN THE HEAD SUPPLY WILL NOT FIT. Accumulators ADD BEFORE THEY CHECK,
+ *      e.g. validation.cpp:1947 does `nValueIn += ...` and only then calls
+ *      MoneyRange. So a sum of two in-range values must not overflow, which
+ *      requires 2 * MAX_MONEY <= INT64_MAX, i.e. MAX_MONEY <= ~46.1B coins.
+ *      Head supply is 46.875B, already past that line. Raising MAX_MONEY to
+ *      "cover the supply" would silently reintroduce the signed-overflow bug
+ *      this constant exists to prevent, and the MoneyRange check downstream
+ *      would be reading an already-wrapped value.
+ *
+ * So 10B coins is a deliberate cap with a 9.2x overflow margin, and the
+ * consequence is real and worth knowing: NO SINGLE TRANSACTION MAY MOVE MORE
+ * THAN 10B SOQ on either side, so a treasury or exchange consolidation larger
+ * than that must be split. (For scale, the largest sum handled to date is the
+ * 4.45B the pool consolidation trapped.)
+ *
+ * The previous comment here claimed "maximum of 100B coins". That was wrong
+ * twice over: the value is 10B, not 100B, and 100B coins in shors is 1e19,
+ * which does not fit in an int64 at all. Do not "fix" the value to match a
+ * comment. See bead iwzf.
+ *
+ * As this sanity check is used by consensus-critical validation code, the exact
+ * value is consensus critical; changing it after genesis is a hard fork.
  * */
-static const CAmount MAX_MONEY = 10000000000 * COIN; // Soqucoin: maximum of 100B coins (given some randomness), max transaction 10,000,000,000
+static const CAmount MAX_MONEY = 10000000000 * COIN; // 10B SOQ, a per-TX ceiling
+
+//! The overflow bound argued for above, enforced rather than trusted: every
+//! accumulator in the validation path adds two in-range amounts before it calls
+//! MoneyRange, so twice MAX_MONEY has to remain representable.
+static_assert(MAX_MONEY > 0 && MAX_MONEY <= 4611686018427387903LL,
+              "MAX_MONEY must satisfy 2 * MAX_MONEY <= INT64_MAX: validation "
+              "accumulators sum before they range-check, so a larger value makes "
+              "the check read an already-overflowed total");
+
 inline bool MoneyRange(const CAmount& nValue) { return (nValue >= 0 && nValue <= MAX_MONEY); }
 
 /**

@@ -34,6 +34,8 @@
 // are where a codegen difference could actually express itself.
 
 #include "chainparams.h"
+#include "amount.h"
+#include "consensus/consensus.h"
 #include "consensus/params.h"
 #include "crypto/sha256.h"
 #include "primitives/block.h"
@@ -172,9 +174,25 @@ void AbsorbScriptVerdicts(DigestBuilder& d)
     }
 }
 
+//! Network-independent consensus constants. These live in headers rather than
+//! chainparams, so nothing above would notice them changing — and MAX_MONEY in
+//! particular is consensus-critical (MoneyRange gates every value check) and was
+//! not covered by this digest until 2026-08-20.
+void AbsorbGlobalLimits(DigestBuilder& d)
+{
+    d.I64(MAX_MONEY);
+    d.I64(COIN);
+    d.I64(MAX_BLOCK_WEIGHT);
+    d.I64(MAX_BLOCK_SERIALIZED_SIZE);
+    d.I64(MAX_BLOCK_BASE_SIZE);
+    d.I64(MAX_BLOCK_SIGOPS_COST);
+    d.I64(WITNESS_SCALE_FACTOR);
+}
+
 uint256 ComputeConsensusDigest()
 {
     DigestBuilder d;
+    AbsorbGlobalLimits(d);
 
     for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
                                    CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
@@ -234,9 +252,20 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     const uint256 digest = ComputeConsensusDigest();
     BOOST_TEST_MESSAGE("CONSENSUS DIGEST: " << digest.ToString());
 
-    // Pinned 2026-08-20 on the Gate 0 branch, Apple clang 21 arm64 -O2.
+    // Pinned 2026-08-20, Apple clang 21 arm64 -O2, at the v2.0.0 freeze candidate.
+    //
+    // Moved from 0489e98d4d6465a42ef90a0d456c70804794b914cdd0e502ad0bbae3928a9fe7
+    // for ONE reason, verified by isolation rather than assumed: AbsorbGlobalLimits
+    // was added, bringing MAX_MONEY and the block limits under the digest for the
+    // first time. Rebuilding with that call removed reproduced the old value
+    // byte-for-byte on the new binary, which also proves the three other changes
+    // in the same commit moved nothing in consensus:
+    //   * -fno-strict-aliasing (bead eolo) perturbs no computed value;
+    //   * the v2.0.0 version bump does not reach consensus;
+    //   * adding SCRIPT_VERIFY_SCRIPT_RESTORE to relay policy (bead mxph) is
+    //     policy, not consensus.
     const std::string expected =
-        "0489e98d4d6465a42ef90a0d456c70804794b914cdd0e502ad0bbae3928a9fe7";
+        "5effd2ed86326721613bddbbe2002555b217e1008c27668557027dcacf6a7ce0";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +
