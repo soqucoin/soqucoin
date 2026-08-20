@@ -2026,18 +2026,40 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
     // On mainnet (USDSOQ NEVER_ACTIVE): no USDSOQ UTXOs exist, so
     // nUSDSOQIn == nUSDSOQOut == 0, and this check always passes.
     if (!isAuthorityTx) {
+        // IsAnyUSDSOQ(), i.e. BOTH modes: transparent v7 and confidential v10.
+        //
+        // ⛔ WITH THE v7-ONLY PREDICATE, CONFIDENTIAL USDSOQ COULD BE CONJURED FROM
+        // ORDINARY SOQ. A v10 output was invisible to this rule (nUSDSOQOut stayed 0,
+        // so 0 == 0 conserved) AND invisible to the per-asset fee filters, which key
+        // on IsNativeSOQ() and correctly exclude it. The two blind spots compose: the
+        // tx minted USDSOQ from nothing and donated the same value to nFees for the
+        // miner to claim. This is exactly the hole Phase 3 closed for v7 (see
+        // usdsoq_v7_conservation_harness_tests::v7_minted_from_soq_is_rejected); it
+        // was simply never extended when v10 was allocated.
+        //
+        // Like the v7 and v8 rules, this is STRUCTURAL and deliberately NOT
+        // deployment-gated, so the v10 witness shape is RESERVED from genesis: no
+        // v10 input can exist, therefore any tx creating a v10 output fails
+        // out > in = 0. Shipping it dormant now is what keeps a later SoquObscura
+        // activation a soft fork rather than a rule that has to be added afterwards.
+        //
+        // ⚠️ REVISIT WHEN VALUE MOVES INTO THE COMMITMENT (bead sh2u). This sums
+        // nValue, which is still a plaintext CAmount on a confidential output. The
+        // day nValue becomes a commitment, a plaintext sum stops being meaningful
+        // and this rule must be replaced by a commitment-balance check, not merely
+        // widened again.
         CAmount nUSDSOQIn = 0;
         CAmount nUSDSOQOut = 0;
         for (unsigned int i = 0; i < tx.vin.size(); i++) {
             const COutPoint& prevout = tx.vin[i].prevout;
             const CCoins* coins = inputs.AccessCoins(prevout.hash);
             assert(coins);
-            if (coins->vout[prevout.n].IsUSDSOQ()) {
+            if (coins->vout[prevout.n].IsAnyUSDSOQ()) {
                 nUSDSOQIn += coins->vout[prevout.n].nValue;
             }
         }
         for (const auto& txout : tx.vout) {
-            if (txout.IsUSDSOQ()) {
+            if (txout.IsAnyUSDSOQ()) {
                 nUSDSOQOut += txout.nValue;
             }
         }
@@ -2072,12 +2094,16 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             for (unsigned int i = 0; i < tx.vin.size(); i++) {
                 const COutPoint& prevout = tx.vin[i].prevout;
                 const CTxOut& prevOut = inputs.AccessCoins(prevout.hash)->vout[prevout.n];
-                if (!prevOut.IsUSDSOQ() &&
+                // IsAnyUSDSOQ() must match the conservation predicate above. If this
+                // stayed v7-only while conservation counted both modes, a legitimate
+                // v10 transfer would conserve and then be rejected here for spending
+                // its own asset.
+                if (!prevOut.IsAnyUSDSOQ() &&
                     !(prevOut.IsNativeSOQ() && prevOut.IsTransparent())) {
                     return state.DoS(100, false, REJECT_INVALID,
                         "bad-txns-usdsoq-input-mismatch", false,
-                        strprintf("USDSOQ transfer input %s:%u is neither a v7 "
-                            "USDSOQ input nor a transparent SOQ fee input",
+                        strprintf("USDSOQ transfer input %s:%u is neither a USDSOQ "
+                            "input (v7 or v10) nor a transparent SOQ fee input",
                             prevout.hash.ToString(), prevout.n));
                 }
             }

@@ -396,19 +396,95 @@ BOOST_AUTO_TEST_CASE(preactivation_v10_output_is_rejected_by_soq_arch_001_not_th
     BOOST_REQUIRE(!Consensus::DeploymentActiveAtHeight(h, Params().GetConsensus(h),
                                                        Consensus::DEPLOYMENT_SOQUOBSCURA));
 
+    // The v10 output is funded by a v7 USDSOQ input of the SAME value, so per-asset
+    // conservation is satisfied. That matters: conservation lives in
+    // Consensus::CheckTxInputs, which runs in ConnectBlock's FIRST pass, strictly
+    // before SOQ-ARCH-001. Funding a v10 output from plain SOQ would trip
+    // bad-txns-usdsoq-not-conserved first and this test would pin the wrong rule.
+    const CAmount val = 5 * COIN;
+    COutPoint v7op = SeedCoin(V7Spk(), val, 0xb7);
+
     CMutableTransaction tx; tx.nVersion = 2;
-    const CTransaction& cb = coinbaseTxns[5];
-    const CAmount inVal = cb.vout[0].nValue;
-    CTxIn in; in.prevout = COutPoint(cb.GetHash(), 0); in.nSequence = CTxIn::SEQUENCE_FINAL;
+    CTxIn in; in.prevout = v7op; in.nSequence = CTxIn::SEQUENCE_FINAL;
     tx.vin.push_back(in);
-    CTxOut o; o.nValue = inVal - 10000; o.scriptPubKey = V10Spk(); tx.vout.push_back(o);
-    SignInput(tx, 0, coinbaseSpk, inVal);
+    CTxOut o; o.nValue = val; o.scriptPubKey = V10Spk(); tx.vout.push_back(o);
+    SignInput(tx, 0, V7Spk(), val);
 
     const std::string why = RejectReasonFor({tx});
     BOOST_CHECK_EQUAL(why, "bad-txns-confidential-not-active");
     BOOST_CHECK_MESSAGE(why != "bad-txns-usdsoq-confidential-not-active",
         "if the asset-specific rule starts firing, SOQ-ARCH-001 has been narrowed and "
         "the Tier A pre-activation posture must be re-derived, not assumed");
+}
+
+// ---------------------------------------------------------------------------
+// PER-ASSET CONSERVATION MUST SEE BOTH USDSOQ MODES.
+// The mirror of usdsoq_v7_conservation_harness_tests::v7_minted_from_soq_is_rejected,
+// for v10. With the conservation predicate v7-only, a v10 output was invisible to
+// this rule AND to the IsNativeSOQ() fee filters, so a tx emitting one from plain
+// SOQ inputs both minted confidential USDSOQ from nothing and pushed the same value
+// into nFees for the miner to claim. Unreachable pre-activation, which is why it
+// could sit here; catastrophic the moment SoquObscura activates.
+//
+// Note the rule is deliberately NOT deployment-gated, so it fires in the dormant
+// state too — that is what makes the v10 shape reserved from genesis rather than
+// something a later soft fork has to add.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(v10_minted_from_soq_is_rejected)
+{
+    CMutableTransaction tx; tx.nVersion = 2;
+    const CTransaction& cb = coinbaseTxns[6];
+    const CAmount inVal = cb.vout[0].nValue;
+    CTxIn in; in.prevout = COutPoint(cb.GetHash(), 0); in.nSequence = CTxIn::SEQUENCE_FINAL;
+    tx.vin.push_back(in);
+    CTxOut o; o.nValue = inVal - 10000; o.scriptPubKey = V10Spk(); tx.vout.push_back(o);
+    SignInput(tx, 0, coinbaseSpk, inVal);
+
+    BOOST_CHECK_EQUAL(RejectReasonFor({tx}), "bad-txns-usdsoq-not-conserved");
+}
+
+// Same shape with SoquObscura ACTIVE: conservation is structural, not gated, so
+// activation must not open the mint path. This is the assertion that would have
+// caught the defect at activation time rather than after it.
+BOOST_AUTO_TEST_CASE(v10_minted_from_soq_is_rejected_after_activation_too)
+{
+    ScopedRegtestActivation on(Consensus::DEPLOYMENT_SOQUOBSCURA, 0);
+
+    CMutableTransaction tx; tx.nVersion = 2;
+    const CTransaction& cb = coinbaseTxns[7];
+    const CAmount inVal = cb.vout[0].nValue;
+    CTxIn in; in.prevout = COutPoint(cb.GetHash(), 0); in.nSequence = CTxIn::SEQUENCE_FINAL;
+    tx.vin.push_back(in);
+    CTxOut o; o.nValue = inVal - 10000; o.scriptPubKey = V10Spk(); tx.vout.push_back(o);
+    SignInput(tx, 0, coinbaseSpk, inVal);
+
+    BOOST_CHECK_EQUAL(RejectReasonFor({tx}), "bad-txns-usdsoq-not-conserved");
+}
+
+// Reachability control: a CONSERVING v10 transfer must still be accepted once the
+// privacy layer is active, so the rule above rejects minting rather than rejecting
+// v10 outright. Also pins that the widened input-isolation predicate lets a v10
+// input pay for its own transfer.
+BOOST_AUTO_TEST_CASE(conserving_v10_transfer_is_accepted_after_activation)
+{
+    ScopedRegtestActivation on(Consensus::DEPLOYMENT_SOQUOBSCURA, 0);
+
+    const CAmount val = 5 * COIN;
+    COutPoint v10op = SeedCoin(V10Spk(), val, 0xb1);
+    const CTransaction& cb = coinbaseTxns[8];
+    const CAmount feeVal = cb.vout[0].nValue;
+
+    CMutableTransaction tx; tx.nVersion = 2;
+    { CTxIn i0; i0.prevout = v10op; i0.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(i0); }
+    { CTxIn i1; i1.prevout = COutPoint(cb.GetHash(), 0); i1.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(i1); }
+    { CTxOut o; o.nValue = val;             o.scriptPubKey = V10Spk();  tx.vout.push_back(o); }
+    { CTxOut o; o.nValue = feeVal - 10000;  o.scriptPubKey = V1Spk();   tx.vout.push_back(o); }
+    SignInput(tx, 0, V10Spk(), val);
+    SignInput(tx, 1, coinbaseSpk, feeVal);
+
+    BOOST_CHECK_MESSAGE(RejectReasonFor({tx}).empty(),
+        "a conserving v10 -> v10 transfer with a SOQ fee input must connect once "
+        "SoquObscura is active");
 }
 
 // ---------------------------------------------------------------------------
