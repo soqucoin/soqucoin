@@ -191,4 +191,64 @@ BOOST_AUTO_TEST_CASE(disconnecting_a_chained_authority_tx_restores_the_prior_mar
         "bootstrap path and orphan the real authority UTXO");
 }
 
+// ---------------------------------------------------------------------------
+// SOQ-I014. VerifyDB runs at EVERY startup (DEFAULT_CHECKLEVEL=3,
+// DEFAULT_CHECKBLOCKS=6) and calls DisconnectBlock on the last N blocks against
+// a SCRATCH coins view, passing pfClean. Only level 4 reconnects, so at the
+// default the blocks are never re-applied.
+//
+// The coins changes land in the scratch view and are discarded. The asset
+// reversals do not: they mutate the process globals and write straight to
+// pcoinsdbview. So an ordinary restart rewinds USDSOQ/BTCSOQ supply counters,
+// the authority outpoint, the freeze registry and the minted-deposit set by up
+// to six blocks, permanently, and never puts them back.
+//
+// This was seen once already and mis-diagnosed. SOQ-HOTFIX-002 (init.cpp)
+// records the June 15 2026 Broadcast VPS crash loop — 360 restarts in three
+// hours — caused by UndoMint failing against a still-zeroed counter. The fix
+// was to load the globals BEFORE VerifyDB so UndoMint would succeed. That
+// removed the crash, which was the only thing making the corruption visible.
+//
+// pfClean already distinguishes the two callers: DisconnectTip passes nullptr,
+// VerifyDB passes &fClean. That is the signal the asset reversals should be
+// gated on.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(a_verification_disconnect_must_not_mutate_asset_state)
+{
+    CMutableTransaction boot = BuildBootstrapAuthorityTx(coinbaseTxns[0]);
+    CBlock b = CreateAndProcessBlock({boot}, coinbaseSpk);
+    BOOST_REQUIRE(chainActive.Tip()->GetBlockHash() == b.GetHash());
+
+    COutPoint trackedBefore;
+    {
+        LOCK(cs_main);
+        trackedBefore = g_usdsoq_authority_outpoint;
+        BOOST_REQUIRE_MESSAGE(!trackedBefore.IsNull(),
+            "the authority tracker must be set before this proves anything");
+    }
+
+    // Exactly what VerifyDB does at nCheckLevel 3: disconnect into a SCRATCH
+    // view, passing pfClean, and never reconnect.
+    {
+        LOCK(cs_main);
+        CCoinsViewCache scratch(pcoinsTip);
+        CValidationState state;
+        bool fClean = true;
+        BlockMap::iterator it = mapBlockIndex.find(b.GetHash());
+        BOOST_REQUIRE(it != mapBlockIndex.end());
+        CBlock disk;
+        BOOST_REQUIRE(ReadBlockFromDisk(disk, it->second, Params().GetConsensus(0)));
+        DisconnectBlock(disk, state, it->second, scratch, &fClean);
+        // scratch is discarded here, exactly as VerifyDB discards it.
+    }
+
+    LOCK(cs_main);
+    BOOST_CHECK_MESSAGE(g_usdsoq_authority_outpoint == trackedBefore,
+        "SOQ-I014: a VERIFICATION disconnect (pfClean != nullptr, scratch coins "
+        "view, never reconnected) rewound the USDSOQ authority tracker. VerifyDB "
+        "does this at every startup for the last 6 blocks, so an ordinary "
+        "restart silently desynchronises asset state from the chain. Gate the "
+        "asset reversals on pfClean == nullptr");
+}
+
 BOOST_AUTO_TEST_SUITE_END()
