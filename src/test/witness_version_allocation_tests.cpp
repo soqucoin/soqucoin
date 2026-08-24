@@ -402,6 +402,63 @@ BOOST_AUTO_TEST_CASE(witness_v0_is_standard_but_unspendable)
 // somebody's explorer, SDK or document. That is the confusion class that produced
 // the v6 collision. Allocate upward from v11.
 // ---------------------------------------------------------------------------
+// ⛔⛔ SOQ-I011 TRIPWIRE. SoquObscura must stay NOT_SCHEDULED on every network
+// until the range-proof verifier is made sound. Setting an activation height
+// here is the single action that converts a dormant unsoundness into live
+// inflation, so it must fail loudly rather than quietly work.
+//
+// The verifier does not bind the committed amount, and the reason is NOT the
+// no-op at Check 5:
+//
+//   * Check 4 compares a PROVER-SUPPLIED t_reconstruction against
+//     z_response*A + z_randomness*S. Both sides are prover-controlled and the
+//     relation is homogeneous, so (z, z_r, t) = (0, 0, 0) with an honest
+//     Fiat-Shamir seed satisfies it. The SOQ-D001 comment claiming
+//     Schwartz-Zippel binding is an assertion, not a proof. Filling in Check 5
+//     as an upper bound would still accept z_randomness = 0.
+//   * On the OPCODE path it is worse. interpreter.cpp default-constructs
+//     `latticebp::RangeProofParams rp_params;` and RingElement's default ctor
+//     zero-fills, so A and S are all-zero and Check 4 collapses to
+//     t_reconstruction == 0 independent of the responses. Any blob with a
+//     zero t and a matching seed verifies, and the seed is computable from
+//     public data alone.
+//   * Root cause: `consensus.latticeBPSeed` is set twelve times in
+//     chainparams.cpp and read NOWHERE. LatticeCommitment::PublicParams::
+//     generate() has no consensus caller at all. The generators the verifier
+//     needs are never derived, so the opcode path was never going to bind.
+//
+// The three deliberate failures in soquobscura_degenerate_witness_tests.cpp
+// are the live demonstration of this and must NOT be "fixed" by patching the
+// symptom. Correct order of work: seed PublicParams from consensus.
+// latticeBPSeed, make Check 4 bind against a verifier-derived value, then
+// Check 5, then re-run the forgery battery, then consider a height.
+BOOST_AUTO_TEST_CASE(soquobscura_must_stay_dormant_on_every_network)
+{
+    for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
+                                   CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        const Consensus::BIP9Deployment& d =
+            Params().GetConsensus(0).vDeployments[Consensus::DEPLOYMENT_SOQUOBSCURA];
+
+        BOOST_CHECK_MESSAGE(
+            d.nActivationHeight == Consensus::BIP9Deployment::NOT_SCHEDULED,
+            net + ": DEPLOYMENT_SOQUOBSCURA has left NOT_SCHEDULED. The Lattice-BP++ range "
+            "proof does not bind the committed amount (see this test's comment and bead "
+            "soquobscura-verifier-epic-roadmap-y58a). Activating it makes confidential "
+            "outputs mintable from nothing. Do not schedule a height until the forgery "
+            "battery in soquobscura_degenerate_witness_tests.cpp passes for the right "
+            "reason");
+
+        // NO_HEIGHT_ACTIVATION would fall back to the BIP9 state machine, which is
+        // exactly how a "cleanup" could re-activate this by accident.
+        BOOST_CHECK_MESSAGE(
+            d.nActivationHeight != Consensus::BIP9Deployment::NO_HEIGHT_ACTIVATION,
+            net + ": DEPLOYMENT_SOQUOBSCURA must not use NO_HEIGHT_ACTIVATION. That "
+            "sentinel defers to VersionBitsState and would re-open the feature");
+    }
+    SelectParams(CBaseChainParams::MAIN);
+}
+
 BOOST_AUTO_TEST_CASE(latticefold_is_retired_and_cannot_activate_on_any_network)
 {
     for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,

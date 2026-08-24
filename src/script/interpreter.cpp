@@ -481,7 +481,30 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             std::array<uint8_t, 32> pubkey_hash_arr;
                             memcpy(pubkey_hash_arr.data(), vchPubkeyHashRP.data(), 32);
 
-                            // Verify the range proof with external binding
+                            // ⛔⛔ SOQ-I011: THIS VERIFIER DOES NOT BIND THE AMOUNT.
+                            // Default-constructed, so commit_params.A and .S are all-zero
+                            // (RingElement's default ctor zero-fills). Check 4 in
+                            // LatticeRangeProofV2::verify compares the prover-supplied
+                            // t_reconstruction against z_response*A + z_randomness*S, which
+                            // with zero generators collapses to "t_reconstruction == 0"
+                            // regardless of the responses. Any proof blob carrying a zero t
+                            // and a correct Fiat-Shamir seed verifies, and the seed is
+                            // computable from public data alone.
+                            //
+                            // Root cause: consensus.latticeBPSeed exists in chainparams for
+                            // exactly this and is read NOWHERE. LatticeCommitment::
+                            // PublicParams::generate() has no consensus caller. Seeding it
+                            // here is necessary but NOT sufficient: Check 4 is homogeneous
+                            // even with real generators, so (z, z_r, t) = (0, 0, 0) passes.
+                            // See soquobscura_degenerate_witness_tests.cpp, whose three
+                            // failures are deliberate, and the tripwire
+                            // witness_version_allocation_tests::
+                            // soquobscura_must_stay_dormant_on_every_network.
+                            //
+                            // Harmless today: DEPLOYMENT_SOQUOBSCURA is NOT_SCHEDULED on all
+                            // four networks and creating a v4/v10 output is consensus-
+                            // rejected (SOQ-ARCH-001 / SOQ-I009), so this code is
+                            // unreachable. Do NOT schedule an activation height.
                             latticebp::RangeProofParams rp_params;
                             if (!proof.verify(commitment, rp_params,
                                               sighash_arr, pubkey_hash_arr)) {
