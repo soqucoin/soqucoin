@@ -2060,6 +2060,25 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             strprintf("value in (%s) < value out (%s)", FormatMoney(nValueIn), FormatMoney(nValueOut)));
 
     // Tally transaction fees
+    // ⚠️ THE TWO REJECTS BELOW ARE UNREACHABLE BY CONSTRUCTION. Documented
+    // rather than removed, and deliberately NOT given a synthetic trigger.
+    //
+    // bad-txns-fee-negative cannot fire: the `nValueIn < nValueOut` check
+    // immediately above already returned bad-txns-in-belowout, so nTxFee is
+    // non-negative here by definition. bad-txns-fee-outofrange cannot fire
+    // either: every input passed MoneyRange as it was summed, and nValueOut is
+    // MoneyRange-checked by CheckTransaction, so the difference is in range.
+    //
+    // Both are inherited Bitcoin Core belt-and-braces and both are correct as
+    // defence against a future refactor that reorders those checks. Confirmed
+    // dead by the Sweep C reachability pass, which found them the ONLY dead
+    // rejects on the money path apart from the four key-image ones (bead p4wv).
+    //
+    // ⛔ Do not "fix coverage" by contriving an input that reaches them. The
+    // only way to reach either is to first break the check above, at which
+    // point the test would be pinning the broken state. An unreachable rule
+    // that is LABELLED is safe; an unreachable rule mistaken for coverage is
+    // how e2n, 0r2 and don9 stayed dead for months.
     CAmount nTxFee = nValueIn - nValueOut;
     if (nTxFee < 0)
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-fee-negative");
