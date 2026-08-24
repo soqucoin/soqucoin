@@ -37,6 +37,7 @@
 #include "validation.h"
 #include "crypto/sha256.h"
 #include "test/test_bitcoin.h"
+#include "test/dilithium_chain_setup.h"   // UsdsoqTestAuthority (SOQ-I009)
 
 #include <boost/test/unit_test.hpp>
 #include <algorithm>
@@ -108,6 +109,12 @@ static std::vector<unsigned char> Prefixed(const std::vector<unsigned char>& raw
 // rule is live. Distinct name from the freeze harness fixture to avoid an ODR clash.
 // ---------------------------------------------------------------------------
 struct V7ConservationChainSetup : public TestingSetup {
+    // SOQ-I009: this harness used to run with g_usdsoq_authority uninitialized,
+    // so ConnectBlock skipped M-of-N verification entirely and an OP_5 marker
+    // alone conferred authority. That is now a default-deny
+    // (bad-usdsoq-authority-unavailable), so the burn below signs for real.
+    UsdsoqTestAuthority auth;
+
     CKey coinbaseKey;
     CScript coinbaseSpk;
     std::vector<unsigned char> coinbasePkBytes;
@@ -381,6 +388,10 @@ struct V7ConservationChainSetup : public TestingSetup {
 
         SignInput(tx, 0, MakeV7Spk(coinbasePkBytes), v7Val);  // v7 USDSOQ input (to be burned)
         SignInput(tx, 1, coinbaseSpk, feeVal);                // SOQ fee input
+        // Bootstrap authority witness on input 0. ConnectBlock's bootstrap path
+        // computes the sighash over THIS tx's marker output script, so sign over
+        // the same script the marker output above uses.
+        auth.Sign(tx, 0, MakeV5Spk(coinbasePkBytes));
         return tx;
     }
 

@@ -140,6 +140,7 @@ struct BTCSOQChainSetup : public TestingSetup {
             LOCK(cs_main);
             g_btcsoq_supply.Reset();
             g_btcsoq_authority_outpoint.SetNull();
+            g_btcsoq_authority.Reset();   // never inherit a previous suite's authority
             BOOST_REQUIRE(g_btcsoq_authority.Initialize(authKeys, 2));
         }
         uint256 kh = ComputeAuthorityKeyHash(authKeys);
@@ -157,6 +158,10 @@ struct BTCSOQChainSetup : public TestingSetup {
         LOCK(cs_main);
         g_btcsoq_supply.Reset();
         g_btcsoq_authority_outpoint.SetNull();
+        // Without this the authority stayed installed for every later suite, so
+        // authority_skip_gate_tests' no-keyset default-deny passed alone and
+        // failed in the full run. Link order must not decide test outcomes.
+        g_btcsoq_authority.Reset();
     }
 
     CBlock CreateAndProcessBlock(const std::vector<CMutableTransaction>& txns, const CScript& spk)
@@ -310,6 +315,43 @@ struct BTCSOQChainSetup : public TestingSetup {
         if (prevMarker)
             SignV1(tx, 1, coinbaseSpk, fund, coinbaseKey, coinbasePk);  // fee witness (not verified; HasDilithium)
         SignAuthority(tx, 0, BTCSOQ_OP_MINT);
+        return tx;
+    }
+
+    //! A FREEZE/UNFREEZE authority tx. Payload is the USDSOQ freeze layout
+    //! [op:1][txid:32][vout:4 LE] carried inside the BTCSOQ op envelope.
+    //! Creates no v8 output, so it cannot trip the unbound-mint rule.
+    CMutableTransaction BuildFreeze(const CTransaction& fundCoinbase, uint8_t freezeOp,
+                                    const COutPoint& target, const COutPoint* prevMarker)
+    {
+        CMutableTransaction tx; tx.nVersion = 2;
+        const CAmount fund = fundCoinbase.vout[0].nValue;
+
+        if (prevMarker) {
+            CTxIn mk; mk.prevout = *prevMarker; mk.nSequence = CTxIn::SEQUENCE_FINAL;
+            tx.vin.push_back(mk);
+            CTxIn fee; fee.prevout = COutPoint(fundCoinbase.GetHash(), 0);
+            fee.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(fee);
+        } else {
+            CTxIn in; in.prevout = COutPoint(fundCoinbase.GetHash(), 0);
+            in.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(in);
+        }
+
+        std::vector<uint8_t> payload;
+        payload.push_back(freezeOp);
+        payload.insert(payload.end(), target.hash.begin(), target.hash.end());
+        payload.push_back((uint8_t)(target.n & 0xff));
+        payload.push_back((uint8_t)((target.n >> 8) & 0xff));
+        payload.push_back((uint8_t)((target.n >> 16) & 0xff));
+        payload.push_back((uint8_t)((target.n >> 24) & 0xff));
+
+        tx.vout.push_back(CTxOut(0, markerSpk));
+        tx.vout.push_back(CTxOut(0, MakeOpEnvelope(BTCSOQ_OP_FREEZE, payload)));
+        tx.vout.push_back(CTxOut(fund - 10000, coinbaseSpk));
+
+        if (prevMarker)
+            SignV1(tx, 1, coinbaseSpk, fund, coinbaseKey, coinbasePk);
+        SignAuthority(tx, 0, BTCSOQ_OP_FREEZE);
         return tx;
     }
 };
@@ -561,6 +603,103 @@ BOOST_AUTO_TEST_CASE(transparent_btcsoq_authority_mint_is_accepted)
 
     BOOST_CHECK_MESSAGE(RejectReasonFor({mint}).empty(),
         "the identical authority mint without a confidential output must connect");
+}
+
+// ---------------------------------------------------------------------------
+// FREEZE RULES (bead btcsoq-freeze-pins). These three rejections were added to
+// restore symmetry with USDSOQ after the first freeze pass fixed only one of
+// the two sibling subsystems. Same five-case shape as usdsoq_freeze_rules_tests.
+//
+// bad-btcsoq-freeze-dead-target was FAIL-OPEN: a freeze naming something that is
+// not a live v8 UTXO was skipped with a log line, so the issuer believed a coin
+// was frozen when consensus had ignored the op. The two redundancy rules exist
+// because DisconnectBlock inverts freeze ops blindly with no record of prior
+// state, so a redundant FREEZE was a no-op inbound and an UNFREEZE outbound — a
+// reorg silently lifted a freeze that predated the block.
+// ---------------------------------------------------------------------------
+
+//! Mint a v8 coin so there is something real to freeze. Returns the v8 outpoint
+//! via `v8`, and the tracked authority marker via `marker`.
+static const uint256 FREEZE_DEPOSIT = uint256S(
+    "bccc00000000000000000000000000000000000000000000000000000000f001");
+
+BOOST_AUTO_TEST_CASE(freezing_a_live_btcsoq_utxo_is_accepted)
+{
+    CMutableTransaction mint = BuildMint(coinbaseTxns[0], FREEZE_DEPOSIT, 0, coinbasePk);
+    CBlock bm = CreateAndProcessBlock({mint}, coinbaseSpk);
+    BOOST_REQUIRE(chainActive.Tip()->GetBlockHash() == bm.GetHash());
+
+    COutPoint marker(mint.GetHash(), 0), v8(mint.GetHash(), 1);
+    CMutableTransaction fz = BuildFreeze(coinbaseTxns[1], FREEZE_OP_FREEZE, v8, &marker);
+    BOOST_CHECK_MESSAGE(RejectReasonFor({fz}).empty(),
+        "control: freezing a live v8 UTXO must connect");
+}
+
+BOOST_AUTO_TEST_CASE(freezing_a_dead_btcsoq_target_is_rejected_by_name)
+{
+    CMutableTransaction mint = BuildMint(coinbaseTxns[0], FREEZE_DEPOSIT, 0, coinbasePk);
+    CBlock bm = CreateAndProcessBlock({mint}, coinbaseSpk);
+    BOOST_REQUIRE(chainActive.Tip()->GetBlockHash() == bm.GetHash());
+
+    COutPoint marker(mint.GetHash(), 0);
+    COutPoint ghost(uint256S("00000000000000000000000000000000000000000000000000000000deadbeef"), 0);
+    CMutableTransaction fz = BuildFreeze(coinbaseTxns[1], FREEZE_OP_FREEZE, ghost, &marker);
+    BOOST_CHECK_EQUAL(RejectReasonFor({fz}), "bad-btcsoq-freeze-dead-target");
+}
+
+BOOST_AUTO_TEST_CASE(refreezing_a_frozen_btcsoq_outpoint_is_rejected_by_name)
+{
+    CMutableTransaction mint = BuildMint(coinbaseTxns[0], FREEZE_DEPOSIT, 0, coinbasePk);
+    CBlock bm = CreateAndProcessBlock({mint}, coinbaseSpk);
+    BOOST_REQUIRE(chainActive.Tip()->GetBlockHash() == bm.GetHash());
+
+    COutPoint marker(mint.GetHash(), 0), v8(mint.GetHash(), 1);
+    CMutableTransaction fz1 = BuildFreeze(coinbaseTxns[1], FREEZE_OP_FREEZE, v8, &marker);
+    CBlock b1 = CreateAndProcessBlock({fz1}, coinbaseSpk);
+    BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == b1.GetHash(),
+        "the first freeze must connect before a redundant one means anything");
+
+    COutPoint m2(fz1.GetHash(), 0);
+    CMutableTransaction fz2 = BuildFreeze(coinbaseTxns[2], FREEZE_OP_FREEZE, v8, &m2);
+    BOOST_CHECK_EQUAL(RejectReasonFor({fz2}), "bad-btcsoq-freeze-redundant");
+}
+
+BOOST_AUTO_TEST_CASE(unfreezing_a_non_frozen_btcsoq_outpoint_is_rejected_by_name)
+{
+    CMutableTransaction mint = BuildMint(coinbaseTxns[0], FREEZE_DEPOSIT, 0, coinbasePk);
+    CBlock bm = CreateAndProcessBlock({mint}, coinbaseSpk);
+    BOOST_REQUIRE(chainActive.Tip()->GetBlockHash() == bm.GetHash());
+
+    COutPoint marker(mint.GetHash(), 0), v8(mint.GetHash(), 1);
+    CMutableTransaction uz = BuildFreeze(coinbaseTxns[1], FREEZE_OP_UNFREEZE, v8, &marker);
+    BOOST_CHECK_EQUAL(RejectReasonFor({uz}), "bad-btcsoq-unfreeze-redundant");
+}
+
+// Not optional. Guards against the redundancy rules hardening into "an outpoint
+// may only ever be frozen once", which would be a different bug wearing the
+// same shape.
+BOOST_AUTO_TEST_CASE(btcsoq_freeze_unfreeze_freeze_round_trip_is_accepted)
+{
+    CMutableTransaction mint = BuildMint(coinbaseTxns[0], FREEZE_DEPOSIT, 0, coinbasePk);
+    CBlock bm = CreateAndProcessBlock({mint}, coinbaseSpk);
+    BOOST_REQUIRE(chainActive.Tip()->GetBlockHash() == bm.GetHash());
+
+    COutPoint marker(mint.GetHash(), 0), v8(mint.GetHash(), 1);
+    CMutableTransaction f1 = BuildFreeze(coinbaseTxns[1], FREEZE_OP_FREEZE, v8, &marker);
+    CBlock b1 = CreateAndProcessBlock({f1}, coinbaseSpk);
+    BOOST_REQUIRE(chainActive.Tip()->GetBlockHash() == b1.GetHash());
+
+    COutPoint m2(f1.GetHash(), 0);
+    CMutableTransaction u1 = BuildFreeze(coinbaseTxns[2], FREEZE_OP_UNFREEZE, v8, &m2);
+    CBlock b2 = CreateAndProcessBlock({u1}, coinbaseSpk);
+    BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == b2.GetHash(),
+        "unfreezing a frozen v8 outpoint must be accepted");
+
+    COutPoint m3(u1.GetHash(), 0);
+    CMutableTransaction f2 = BuildFreeze(coinbaseTxns[3], FREEZE_OP_FREEZE, v8, &m3);
+    BOOST_CHECK_MESSAGE(RejectReasonFor({f2}).empty(),
+        "re-freezing after an unfreeze is a real state transition and must be "
+        "accepted — the rule is about redundancy, not about freezing once");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

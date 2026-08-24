@@ -1231,6 +1231,33 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // USDSOQ prevouts only, registry lookup via pcoinsdbview. The registry
         // is empty until the first post-enforcement freeze, so this adds
         // nothing until freezes exist (mainnet-inert until USDSOQ activation).
+        // SOQ-I015: mempool mirror of the ConnectBlock bad-usdsoq-marker-spend
+        // rule, so policy stays a strict subset of consensus. Without it a
+        // marker-destroying tx would relay and sit in every block template until
+        // it expired, which is the accept-then-reject template-stall shape.
+        // An authority tx here is identified the same way ConnectBlock does it:
+        // by carrying an OP_5 output of its own.
+        {
+            bool hasUsdsoqMarkerOut = false;
+            for (const auto& o : tx.vout) {
+                if (o.scriptPubKey.size() == 34 && o.scriptPubKey[0] == OP_5 &&
+                    o.scriptPubKey[1] == 32) { hasUsdsoqMarkerOut = true; break; }
+            }
+            if (!hasUsdsoqMarkerOut) {
+                for (const auto& txin : tx.vin) {
+                    const CCoins* c = view.AccessCoins(txin.prevout.hash);
+                    if (!c || !c->IsAvailable(txin.prevout.n)) continue;
+                    const CScript& spk = c->vout[txin.prevout.n].scriptPubKey;
+                    if (spk.size() == 34 && spk[0] == OP_5 && spk[1] == 32) {
+                        return state.DoS(100, false, REJECT_INVALID,
+                            "bad-usdsoq-marker-spend", false,
+                            strprintf("non-authority tx spends USDSOQ authority marker %s:%u",
+                                txin.prevout.hash.ToString(), txin.prevout.n));
+                    }
+                }
+            }
+        }
+
         for (const auto& txin : tx.vin) {
             const CCoins* c = view.AccessCoins(txin.prevout.hash);
             if (c && c->IsAvailable(txin.prevout.n) &&
@@ -1949,13 +1976,36 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-inputvalues-outofrange");
     }
 
+    // SOQ-I009: an authority marker buys an exemption from value conservation,
+    // and the operation it exempts is only ever VERIFIED (M-of-N ML-DSA + op
+    // binding) inside ConnectBlock's `flags & SCRIPT_VERIFY_*` blocks. Granting
+    // the exemption while the verifier is dormant is the asymmetry that made a
+    // forged marker profitable, so the exemption is now gated on the same
+    // deployment state the verifier is. Test nets run both deployments active
+    // from height 0, so this changes nothing on any existing chain.
+    const Consensus::Params& spendCons = params.GetConsensus(nSpendHeight);
+    // "No verifier, no exemption." The authority globals are the same predicate
+    // ConnectBlock's default-denies use (bad-*-authority-unavailable): they are
+    // populated from chainparams at the first ConnectBlock that sets the
+    // deployment flag, i.e. before any transaction in that block is checked, so
+    // this is deterministic within the connect path. On mainnet, where no
+    // authority keyset is configured at all, they are never initialised and no
+    // marker can ever buy the ex-nihilo exemption.
+    const bool fUSDSOQActiveHere = DeploymentActiveAtHeight(
+        nSpendHeight, spendCons, Consensus::DEPLOYMENT_USDSOQ) &&
+        g_usdsoq_authority.IsInitialized();
+    const bool fBTCSOQActiveHere = DeploymentActiveAtHeight(
+        nSpendHeight, spendCons, Consensus::DEPLOYMENT_BTCSOQ) &&
+        g_btcsoq_authority.IsInitialized();
+
     // SOQ-AUD2-002: For authority transactions (witness v5 / OP_5 output),
     // the USDSOQ outputs are minted ex nihilo — they must NOT count in the
     // input-output value balance. Only SOQ outputs (fee change + marker) count.
     CAmount nValueOut = tx.GetValueOut();
     bool isAuthorityTx = false;
     for (const auto& txout : tx.vout) {
-        if (txout.scriptPubKey.size() == 34 &&
+        if (fUSDSOQActiveHere &&
+            txout.scriptPubKey.size() == 34 &&
             txout.scriptPubKey[0] == OP_5 &&
             txout.scriptPubKey[1] == 32) {
             isAuthorityTx = true;
@@ -1973,7 +2023,7 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
     // carry both markers (bad-txns-dual-authority-marker in CheckTransaction).
     bool isBTCSOQAuthorityTx = false;
     for (const auto& txout : tx.vout) {
-        if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+        if (fBTCSOQActiveHere && IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
             isBTCSOQAuthorityTx = true;
             break;
         }
@@ -2010,6 +2060,25 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             strprintf("value in (%s) < value out (%s)", FormatMoney(nValueIn), FormatMoney(nValueOut)));
 
     // Tally transaction fees
+    // ⚠️ THE TWO REJECTS BELOW ARE UNREACHABLE BY CONSTRUCTION. Documented
+    // rather than removed, and deliberately NOT given a synthetic trigger.
+    //
+    // bad-txns-fee-negative cannot fire: the `nValueIn < nValueOut` check
+    // immediately above already returned bad-txns-in-belowout, so nTxFee is
+    // non-negative here by definition. bad-txns-fee-outofrange cannot fire
+    // either: every input passed MoneyRange as it was summed, and nValueOut is
+    // MoneyRange-checked by CheckTransaction, so the difference is in range.
+    //
+    // Both are inherited Bitcoin Core belt-and-braces and both are correct as
+    // defence against a future refactor that reorders those checks. Confirmed
+    // dead by the Sweep C reachability pass, which found them the ONLY dead
+    // rejects on the money path apart from the four key-image ones (bead p4wv).
+    //
+    // ⛔ Do not "fix coverage" by contriving an input that reaches them. The
+    // only way to reach either is to first break the check above, at which
+    // point the test would be pinning the broken state. An unreachable rule
+    // that is LABELLED is safe; an unreachable rule mistaken for coverage is
+    // how e2n, 0r2 and don9 stayed dead for months.
     CAmount nTxFee = nValueIn - nValueOut;
     if (nTxFee < 0)
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-fee-negative");
@@ -2263,6 +2332,52 @@ bool CheckInputs(const CTransaction& tx, CValidationState& state, const CCoinsVi
                 }
             }
 
+            // =============================================================
+            // SOQ-I009: the skip must never outlive the thing that replaces
+            // it. Both flags above are pure SHAPE tests over attacker-chosen
+            // data (a marker output plus a witness layout), while the M-of-N
+            // ML-DSA verification that justifies skipping per-input scripts
+            // runs in ConnectBlock behind `flags & SCRIPT_VERIFY_USDSOQ` and
+            // `g_usdsoq_authority.IsInitialized()`. With the deployment
+            // dormant, or with no authority keyset configured, that verifier
+            // never runs — and the skip did, so a forged authority-shaped tx
+            // spent every one of its inputs with no signature check at all.
+            // That is theft of arbitrary UTXOs, not merely a dormant-asset
+            // mint. Proven in src/test/authority_skip_gate_tests.cpp.
+            //
+            // So: default-deny. If we cannot run the stronger check, we do
+            // not grant the exemption that stands in for it. The BTCSOQ side
+            // already had this instinct in ConnectBlock
+            // (bad-btcsoq-authority-unavailable); USDSOQ had none, and both
+            // sat inside the deployment gate where mainnet never reaches
+            // them. This is the single chokepoint that is live in BOTH the
+            // connect path and mempool accept, so policy cannot drift.
+            // =============================================================
+            if (isAuthorityTx) {
+                if (!(flags & SCRIPT_VERIFY_USDSOQ)) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-usdsoq-authority-not-active", false,
+                        "USDSOQ authority TX before USDSOQ activation");
+                }
+                if (!g_usdsoq_authority.IsInitialized()) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-usdsoq-authority-unavailable", false,
+                        "USDSOQ authority TX rejected: authority key set not initialized");
+                }
+            }
+            if (isBTCSOQAuthorityTx) {
+                if (!(flags & SCRIPT_VERIFY_BTCSOQ)) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-authority-not-active", false,
+                        "BTCSOQ authority TX before BTCSOQ activation");
+                }
+                if (!g_btcsoq_authority.IsInitialized()) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-authority-unavailable", false,
+                        "BTCSOQ authority TX rejected: authority key set not initialized");
+                }
+            }
+
             if (!isAuthorityTx && !isBTCSOQAuthorityTx) {
                 for (unsigned int i = 0; i < tx.vin.size(); i++) {
                     const COutPoint& prevout = tx.vin[i].prevout;
@@ -2434,6 +2549,38 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
 
     bool fClean = true;
 
+    // SOQ-I014: is this a REAL disconnect, or a verification scratch pass?
+    //
+    // VerifyDB runs at every startup (DEFAULT_CHECKLEVEL=3, DEFAULT_CHECKBLOCKS=6)
+    // and calls us on the last N blocks against a SCRATCH CCoinsViewCache,
+    // passing pfClean. Only nCheckLevel >= 4 reconnects, so at the default those
+    // blocks are never re-applied. The coins changes go to the scratch view and
+    // are thrown away — but the asset reversals below mutate process globals and
+    // write straight to pcoinsdbview, neither of which is that scratch view. An
+    // ordinary restart therefore rewound USDSOQ/BTCSOQ supply, the authority
+    // outpoint, the freeze registry and the minted-deposit set by up to six
+    // blocks, persistently, and never put them back.
+    //
+    // Every consequence was silent: supply drifting below the chain, the
+    // authority tracker rewinding into the SOQ-I012 wedge, freezes inside the
+    // window being ERASED (a compliance control lifted by restarting the node),
+    // and BTCSOQ minted deposits being erased so double-mint protection lapsed.
+    //
+    // ⚠️ This was seen once and mis-diagnosed. init.cpp SOQ-HOTFIX-002 records
+    // the June 15 2026 Broadcast VPS crash loop — 360 restarts in ~3 hours —
+    // caused by UndoMint failing against a still-zeroed counter during exactly
+    // this pass. The fix loaded the globals BEFORE VerifyDB so UndoMint would
+    // succeed. It did. The crash stopped and the rewind did not: the only thing
+    // making the corruption visible was removed. When a crash is "fixed" by
+    // making the failing operation succeed, check whether it should have been
+    // running at all.
+    //
+    // pfClean already separates the callers: DisconnectTip passes nullptr,
+    // VerifyDB passes an address. A verification pass must touch nothing outside
+    // its scratch view.
+    const bool fRealDisconnect = (pfClean == nullptr);
+
+
     CBlockUndo blockUndo;
     CDiskBlockPos pos = pindex->GetUndoPos();
     if (pos.IsNull())
@@ -2504,7 +2651,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // Reversed mint = USDSOQ output being removed → UndoMint(amount)
     // Reversed burn = USDSOQ input being restored → UndoBurn(amount)
     // =========================================================================
-    {
+    if (fRealDisconnect) {
         CAmount nUSDSOQReversedMint = 0;
         CAmount nUSDSOQReversedBurn = 0;
 
@@ -2542,7 +2689,19 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                 for (unsigned int j = 0; j < tx.vin.size(); j++) {
                     if (j < txundo.vprevout.size()) {
                         const CTxOut& restoredOut = txundo.vprevout[j].txout;
-                        if (restoredOut.IsUSDSOQ()) {
+                        // Must match the CONNECT-side predicate at the supply
+                        // accounting loop, which counts IsAnyUSDSOQ() (v7 AND
+                        // v10). That widening was done under bead n1vf and
+                        // applied to the connect path only, leaving this mirror
+                        // v7-only. Currently masked — an authority tx spending a
+                        // confidential input is refused by
+                        // bad-txns-usdsoq-conf-input, so a v10 amount never
+                        // reaches the counter for this to miss — but "correct
+                        // via a different rule" is not correct by construction.
+                        // If SOQ-ARCH-004 is ever relaxed or reordered, a v10
+                        // burn would inflate total_burned permanently on reorg.
+                        // THE TWO PREDICATES MUST MOVE TOGETHER.
+                        if (restoredOut.IsAnyUSDSOQ()) {
                             nUSDSOQReversedBurn += restoredOut.nValue;
                         }
                     }
@@ -2592,7 +2751,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // the input that spent the prior authority outpoint. That input's prevout
     // is the outpoint we need to restore.
     // =========================================================================
-    {
+    if (fRealDisconnect) {
         for (const auto& ptx : block.vtx) {
             const CTransaction& tx = *ptx;
             if (tx.IsCoinBase()) continue;
@@ -2611,6 +2770,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
             if (hasAuthorityOutput) {
                 // This block advanced the authority outpoint.
                 // Find the authority input (the input whose prevout was an OP_5 output).
+                bool fRevertedToPrevout = false;
                 for (unsigned int k = 0; k < tx.vin.size(); ++k) {
                     const CCoins* coins = view.AccessCoins(tx.vin[k].prevout.hash);
                     if (coins && coins->IsAvailable(tx.vin[k].prevout.n)) {
@@ -2626,11 +2786,44 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                             LogPrintf("USDSOQ: reorg reversal — authority outpoint reverted to %s:%u\n",
                                 g_usdsoq_authority_outpoint.hash.ToString(),
                                 g_usdsoq_authority_outpoint.n);
+                            fRevertedToPrevout = true;
                             break;
                         }
                     }
                 }
-                break;  // Only one authority TX per block expected
+                if (!fRevertedToPrevout) {
+                    // SOQ-I012: no v5 marker input was restored, so this was the
+                    // BOOTSTRAP authority tx and there is no prior outpoint to go
+                    // back to. Disconnecting it must return the tracker to NULL so
+                    // the next authority tx takes the bootstrap path again.
+                    //
+                    // Without this the tracker kept pointing at the disconnected
+                    // block's marker — an outpoint that no longer exists on any
+                    // chain. ConnectBlock then sees a NON-null tracked outpoint,
+                    // finds no input spending it, and rejects the replacement
+                    // block with bad-usdsoq-authority-outpoint. The node forks
+                    // itself off the network, and because the tracker is written
+                    // through to LevelDB a restart does not clear it: recovery is
+                    // -reindex.
+                    //
+                    // Reachable the day USDSOQ activates on mainnet, because the
+                    // first authority tx after activation IS a bootstrap and a
+                    // one-block reorg is routine. Dormant until then: v5 outputs
+                    // cannot be created pre-activation (SOQ-I009).
+                    //
+                    // ⚠️ This exact gap was found during the BTCSOQ 2D review,
+                    // fixed for BTCSOQ, and recorded ONLY in a comment on the
+                    // BTCSOQ reversal below saying "the USDSOQ reversal inherits
+                    // this gap". A known defect written as prose instead of a bead
+                    // or a test stays unfixed. See usdsoq_reorg_tests.
+                    g_usdsoq_authority_outpoint = COutPoint();
+                    if (pcoinsdbview) {
+                        pcoinsdbview->WriteUSDSOQAuthorityOutpoint(g_usdsoq_authority_outpoint);
+                    }
+                    LogPrintf("USDSOQ: reorg reversal — bootstrap disconnected, "
+                              "authority outpoint reverted to null\n");
+                }
+                break;  // first authority tx spends the pre-block outpoint
             }
         }
     }
@@ -2644,7 +2837,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // We re-extract key-images from the block's witness data using the same
     // logic as ConnectBlock (last witness stack element for confidential inputs).
     // =========================================================================
-    if (pcoinsdbview) {
+    if (fRealDisconnect && pcoinsdbview) {
         unsigned int nErasedKeyImages = 0;
         for (const auto& ptx : block.vtx) {
             const CTransaction& tx = *ptx;
@@ -2696,7 +2889,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // Key-image reverse doesn't need this because key-images aren't
     // plaintext-forgeable; freeze ops are.
     // =========================================================================
-    if (pcoinsdbview) {
+    if (fRealDisconnect && pcoinsdbview) {
         const Consensus::Params& disconnectConsensus = Params().GetConsensus(pindex->nHeight);
         unsigned int nReversedFreezeOps = 0;
         for (const auto& ptx : block.vtx) {
@@ -2755,7 +2948,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     //      never reconnect on the new chain after a reorg (its deposit would
     //      still be marked minted), forking any node that replayed it.
     // =========================================================================
-    {
+    if (fRealDisconnect) {
         CAmount nBTCSOQReversedMint = 0;
         CAmount nBTCSOQReversedBurn = 0;
 
@@ -2827,7 +3020,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // spent the pre-block tracked outpoint (ConnectBlock enforces this), so
     // reverting to that input's prevout restores the pre-block chain state.
     // ApplyTxInUndo above has already restored the spent coins to the view.
-    {
+    if (fRealDisconnect) {
         for (const auto& ptx : block.vtx) {
             const CTransaction& tx = *ptx;
             if (tx.IsCoinBase()) continue;
@@ -2865,8 +3058,9 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                     // authority tx. Disconnecting it must return the chain to
                     // the pre-bootstrap state: a NULL outpoint, so the next
                     // authority tx takes the bootstrap path again. (Review
-                    // finding; the USDSOQ reversal inherits this gap — fixed
-                    // here for BTCSOQ, which has no legacy chain to match.)
+                    // finding. The USDSOQ reversal had the same gap; it was
+                    // recorded here in prose and stayed unfixed until SOQ-I012.
+                    // Both sides now null-restore.)
                     g_btcsoq_authority_outpoint = COutPoint();
                     if (pcoinsdbview) {
                         pcoinsdbview->WriteBTCSOQAuthorityOutpoint(
@@ -2885,7 +3079,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // v9-authority txs only, at/after the enforcement height (pre-enforcement
     // blocks never had ops applied — a forged envelope in a non-authority tx
     // must not be able to erase a legitimate freeze or minted-deposit entry).
-    if (pcoinsdbview) {
+    if (fRealDisconnect && pcoinsdbview) {
         const Consensus::Params& btcsoqDisconnectConsensus =
             Params().GetConsensus(pindex->nHeight);
         unsigned int nBTCSOQReversedOps = 0;
@@ -3473,6 +3667,80 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     // =========================================================================
+    // SOQ-I009: witness-version reservation (pre-activation).
+    //
+    // Direct generalisation of the SOQ-ARCH-001 rule above, and it should have
+    // shipped with it. Soqucoin inherited BIP141's "future witness versions are
+    // anyone-can-spend until activated" posture. That posture is right for a
+    // chain that has already launched and cannot retroactively forbid shapes.
+    // It is the wrong default for a chain that has NOT launched, because it
+    // leaves two live hazards on mainnet:
+    //
+    //   1. FUND-AND-SWEEP. A dormant version short-circuits to success in
+    //      VerifyScript, so an output of that shape confirms and is then
+    //      spendable by anybody. The failure direction is loss of funds, not a
+    //      safe no-op (bead premature-witness-standardness-m9mr).
+    //   2. EXEMPTION WITHOUT VERIFIER. v5/v9 markers buy an exemption from
+    //      value conservation and from per-input script verification, while
+    //      everything that verifies the exemption sits behind the deployment
+    //      flag. Reserving the shape removes the whole class rather than
+    //      patching each exemption (SOQ-I009 proper).
+    //
+    // So: an output may only use a witness version whose deployment is active
+    // in THIS block. v0/v1 are the always-available base Dilithium forms;
+    // v11-v16 are unallocated and can never be created until one is assigned a
+    // deployment. Policy already refuses to relay all of these
+    // (activeWitnessVersions, above), so this closes the miner-included path
+    // that policy cannot reach.
+    //
+    // Blast radius: v5/v7/v8/v9 are dormant on mainnet ONLY, so those cannot
+    // affect an existing chain. v3 (LatticeFold, retired) and v11-v16 are
+    // dormant on every network — neither has ever been relay-standard anywhere,
+    // so no honest wallet can have produced one, but this is the part of the
+    // rule that wants a stagenet resync before fleet deploy.
+    // v4/v10 are pre-empted by SOQ-ARCH-001 above and never reach this loop.
+    // =========================================================================
+    {
+        auto versionActive = [&flags](int version) -> bool {
+            switch (version) {
+            case 0: case 1: return true;                                  // base Dilithium forms
+            case 2:  return (flags & SCRIPT_VERIFY_PAT) != 0;             // PAT aggregation
+            case 3:  return (flags & SCRIPT_VERIFY_LATTICEFOLD) != 0;     // LatticeFold+ (retired)
+            case 4:  return (flags & SCRIPT_VERIFY_SOQUOBSCURA) != 0;     // confidential SOQ
+            case 5: case 7: return (flags & SCRIPT_VERIFY_USDSOQ) != 0;   // USDSOQ marker / holding
+            case 6:  return (flags & SCRIPT_VERIFY_P2WSH_DILITHIUM) != 0; // P2WSH-Dilithium
+            case 8: case 9: return (flags & SCRIPT_VERIFY_BTCSOQ) != 0;   // BTCSOQ holding / marker
+            case 10: return (flags & SCRIPT_VERIFY_USDSOQ) != 0 &&
+                            (flags & SCRIPT_VERIFY_SOQUOBSCURA) != 0;     // confidential USDSOQ
+            default: return false;                                        // v11-v16 unallocated
+            }
+        };
+
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            const CTransaction& tx = *(block.vtx[i]);
+            for (const auto& txout : tx.vout) {
+                const CScript& spk = txout.scriptPubKey;
+                // The one shape every Soqucoin witness version uses: OP_N <32>.
+                if (spk.size() != 34 || spk[1] != 32) continue;
+                int version;
+                if (spk[0] == OP_0) {
+                    version = 0;
+                } else if (spk[0] >= OP_1 && spk[0] <= OP_16) {
+                    version = spk[0] - (OP_1 - 1);
+                } else {
+                    continue;  // not a witness program
+                }
+                if (!versionActive(version)) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): witness v%d output in block %d before that "
+                              "version's deployment is active", version, pindex->nHeight),
+                        REJECT_INVALID, "bad-txns-witness-version-not-active");
+                }
+            }
+        }
+    }
+
+    // =========================================================================
     // SOQ-AUD2-002 / SOQ-I005: USDSOQ Consensus Enforcement
     // When DEPLOYMENT_USDSOQ is active, enforce:
     //   1. M-of-N Dilithium authority signature verification (SOQ-I005)
@@ -3486,7 +3754,48 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // verification is performed HERE in ConnectBlock, which has access to
     // the chain state (authority key set, tracked outpoint).
     // =========================================================================
+    // SOQ-I013: pending containers live OUTSIDE the flag block so the commit
+    // site after control.Wait() can see them, exactly as btcsoqPending* does.
+    COutPoint usdsoqPendingOutpoint;
+    bool usdsoqCommitOutpoint = false;
+    CUSDSOQSupply usdsoqPendingSupply;
+    bool usdsoqCommitSupply = false;
+    std::vector<std::pair<uint8_t, COutPoint>> usdsoqPendingFreezeOps;
+
     if (flags & SCRIPT_VERIFY_USDSOQ) {
+        // ────────────────────────────────────────────────────────────────────
+        // SOQ-I013 COMMIT DISCIPLINE. This block VALIDATES and collects; it no
+        // longer writes. Everything below lands in the usdsoqPending*
+        // containers and is committed in one place after control.Wait() has
+        // returned the script verdict and after the fJustCheck early-return.
+        //
+        // It used to write through immediately: the authority outpoint, the
+        // freeze registry and the supply counters all hit globals and LevelDB
+        // inside this loop, while the per-input script checks were still only
+        // QUEUED. control.Wait() collects them ~1200 lines later. A block that
+        // was valid right up until a signature failed therefore mutated USDSOQ
+        // state permanently — ConnectTip abandons the child UTXO cache by
+        // skipping view.Flush, but nothing abandons a LevelDB write or a
+        // mutated global. The node's USDSOQ state then described a block on no
+        // chain, which is the SOQ-I012 divergence reached from the other side,
+        // with the same end state: the tracker points into a rejected block and
+        // the next legitimate authority tx is refused.
+        //
+        // The !fJustCheck guards did not help; they protect dry runs, and this
+        // was a real connect failing late.
+        //
+        // BTCSOQ has done it this way since review 2C (btcsoqPending*, commit
+        // after Wait). This is that pattern, applied to the sibling that never
+        // received it.
+        // ────────────────────────────────────────────────────────────────────
+        // In-block freeze overlay. FREEZE/UNFREEZE ops earlier in this block
+        // must be visible to the frozen-spend guard for later txs in BOTH the
+        // fJustCheck and real passes. Consulting only the committed DB made
+        // TestBlockValidity accept a freeze-then-spend block that a real
+        // connect rejected — BTCSOQ carries the same two sets for this reason.
+        std::set<COutPoint> usdsoqBlockFrozenAdd;
+        std::set<COutPoint> usdsoqBlockFrozenRemove;
+
         CAmount nUSDSOQMinted = 0;
         CAmount nUSDSOQBurned = 0;
 
@@ -3530,6 +3839,24 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     nAuthorityOutputIndex = static_cast<int>(j);
                     break;
                 }
+            }
+
+            // SOQ-I009: default-deny, matching the BTCSOQ sibling below
+            // ("bad-btcsoq-authority-unavailable"). Without this, an ORDINARY
+            // correctly-signed transaction that merely carries an OP_5 marker
+            // took the ex-nihilo mint exemption in Consensus::CheckTxInputs and
+            // then found no verifier here, because the guard below is
+            // `isAuthorityTx && IsInitialized()` and simply fell through when
+            // the keyset was absent. That is unlimited USDSOQ minting the day
+            // the deployment activates without keys configured — which is the
+            // exact state CMainParams is in today. No authority ⇒ no authority
+            // transaction.
+            if (isAuthorityTx && !g_usdsoq_authority.IsInitialized()) {
+                return state.DoS(100,
+                    error("ConnectBlock(): USDSOQ authority tx %s at block %d but the "
+                          "authority key set is not initialized",
+                        tx.GetHash().ToString(), pindex->nHeight),
+                    REJECT_INVALID, "bad-usdsoq-authority-unavailable");
             }
 
             if (isAuthorityTx && g_usdsoq_authority.IsInitialized()) {
@@ -3668,13 +3995,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         localAuthOutpoint = COutPoint(tx.GetHash(), nAuthorityOutputIndex);
 
                         // Persist to LevelDB (only when committing)
-                        if (!fJustCheck && pcoinsdbview) {
-                            g_usdsoq_authority_outpoint = localAuthOutpoint;
-                            if (!pcoinsdbview->WriteUSDSOQAuthorityOutpoint(g_usdsoq_authority_outpoint)) {
-                                LogPrintf("ERROR: USDSOQ: Failed to persist authority outpoint "
-                                          "to LevelDB at block %d\n", pindex->nHeight);
-                            }
-                        }
+                        // SOQ-I013: collect, do not write. The !fJustCheck
+                        // guard is gone deliberately — the pending value is
+                        // harmless in a dry run and the commit site downstream
+                        // is already behind `if (fJustCheck) return true`.
+                        usdsoqPendingOutpoint = localAuthOutpoint;
+                        usdsoqCommitOutpoint = true;
 
                         LogPrintf("USDSOQ: Authority outpoint updated: %s:%u → %s:%u\n",
                             prevAuthOutpoint.hash.ToString(), prevAuthOutpoint.n,
@@ -3740,9 +4066,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                         tx.GetHash(), nAuthorityOutputIndex);
                                     // Persist to global + LevelDB only when committing
                                     if (!fJustCheck && pcoinsdbview) {
-                                        g_usdsoq_authority_outpoint = localAuthOutpoint;
-                                        pcoinsdbview->WriteUSDSOQAuthorityOutpoint(
-                                            g_usdsoq_authority_outpoint);
+                                        usdsoqPendingOutpoint = localAuthOutpoint;   // SOQ-I013
+                                        usdsoqCommitOutpoint = true;
                                     }
                                     LogPrintf("USDSOQ: Bootstrap authority outpoint set: %s:%u\n",
                                         localAuthOutpoint.hash.ToString(),
@@ -3773,8 +4098,13 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         // bootstrap without spending a previous authority UTXO.
                         // Without this gate, nodes replaying from genesis get stuck
                         // at the first post-bootstrap authority TX (BUG-16).
-                        static const int AUTHORITY_INPUT_ENFORCEMENT_HEIGHT = 54300;
-                        if (pindex->nHeight >= AUTHORITY_INPUT_ENFORCEMENT_HEIGHT) {
+                        // SOQ-I008: this was a hardcoded `static const int =
+                        // 54300`, a stagenet calibration applied to every
+                        // network. It is now a chain parameter (stagenet 54300,
+                        // everywhere else 0), so a fresh mainnet enforces the
+                        // authority-UTXO chain from genesis instead of leaving
+                        // it off for its first 54,300 blocks.
+                        if (pindex->nHeight >= consensus.nUSDSOQAuthorityInputEnforcementHeight) {
                             return state.DoS(100,
                                 error("ConnectBlock(): USDSOQ authority tx %s does not spend "
                                       "the tracked authority UTXO (expected %s:%u)",
@@ -3789,9 +4119,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                             localAuthOutpoint = COutPoint(
                                 tx.GetHash(), nAuthorityOutputIndex);
                             if (!fJustCheck && pcoinsdbview) {
-                                g_usdsoq_authority_outpoint = localAuthOutpoint;
-                                pcoinsdbview->WriteUSDSOQAuthorityOutpoint(
-                                    g_usdsoq_authority_outpoint);
+                                usdsoqPendingOutpoint = localAuthOutpoint;   // SOQ-I013
+                                usdsoqCommitOutpoint = true;
                             }
                             LogPrintf("USDSOQ: Pre-enforcement authority outpoint "
                                       "updated: %s:%u (height %d)\n",
@@ -3811,7 +4140,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             // Guard: only when committing (!fJustCheck), authority is
             // initialized, and we are past the enforcement height.
             // =============================================================
-            if (isAuthorityTx && !fJustCheck && pcoinsdbview &&
+            // SOQ-I013: `!fJustCheck` REMOVED from this guard deliberately.
+            // With it, freeze validation ran only on a real connect, so
+            // TestBlockValidity could not see an in-block freeze while
+            // ConnectBlock could — a template dry-run accepted a
+            // freeze-then-spend block that the real connect then rejected, which
+            // is the BUG-18 template-stalling shape. Validation must run in both
+            // passes; only the WRITE is deferred, and its commit site is already
+            // behind `if (fJustCheck) return true`.
+            if (isAuthorityTx && pcoinsdbview &&
                 g_usdsoq_authority.IsInitialized() &&
                 pindex->nHeight >= consensus.nUSDSOQAuthorityEnforcementHeight) {
                 uint8_t freezeOp = 0;
@@ -3827,36 +4164,59 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         // outpoint could never be frozen — the op was silently skipped and
                         // logged as "not a live USDSOQ UTXO", so the issuer's GENIUS Act
                         // §4(a)(2) freeze authority did not reach Tier A at all.
+                        // ⛔ WAS FAIL-OPEN. A FREEZE naming a target that is not
+                        // a live USDSOQ UTXO used to be skipped with a log line,
+                        // so the issuer believed a coin was frozen when consensus
+                        // had ignored the op. BTCSOQ rejects the same condition.
+                        // A compliance control that silently no-ops is worse than
+                        // one that is absent, because it reports success.
                         const CCoins* targetCoins = view.AccessCoins(freezeTarget.hash);
                         if (!targetCoins || !targetCoins->IsAvailable(freezeTarget.n) ||
                             !targetCoins->vout[freezeTarget.n].IsAnyUSDSOQ()) {
-                            LogPrintf("USDSOQ: FREEZE target %s:%u is not a live USDSOQ "
-                                      "UTXO at block %d — skipping (defense-in-depth)\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight);
-                        } else if (!pcoinsdbview->WriteFrozenOutpoint(freezeTarget)) {
-                            LogPrintf("ERROR: USDSOQ: Failed to write frozen outpoint "
-                                      "%s:%u at block %d\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight);
-                        } else {
-                            LogPrintf("USDSOQ: FREEZE applied — outpoint %s:%u "
-                                      "added to frozen set at block %d\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight);
+                            return state.DoS(100,
+                                error("ConnectBlock(): USDSOQ FREEZE target %s:%u is not a "
+                                      "live USDSOQ UTXO at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-usdsoq-freeze-dead-target");
                         }
+                        // ⛔ IDEMPOTENCY. The undo in DisconnectBlock inverts
+                        // blindly: FREEZE becomes an erase, UNFREEZE becomes a
+                        // write, with no record of the prior state. So a FREEZE
+                        // of an ALREADY-frozen outpoint was a no-op on the way in
+                        // and an UNFREEZE on the way out — a reorg silently
+                        // lifted a freeze that predated the block. Requiring a
+                        // real state transition makes every op exactly one
+                        // change, which makes the blind inversion exactly right,
+                        // and makes the op mean something on-chain instead of
+                        // possibly nothing.
+                        if (usdsoqBlockFrozenAdd.count(freezeTarget) ||
+                            (usdsoqBlockFrozenRemove.count(freezeTarget) == 0 &&
+                             pcoinsdbview && pcoinsdbview->IsFrozenOutpoint(freezeTarget))) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): USDSOQ FREEZE of already-frozen "
+                                      "outpoint %s:%u at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-usdsoq-freeze-redundant");
+                        }
+                        usdsoqBlockFrozenAdd.insert(freezeTarget);
+                        usdsoqBlockFrozenRemove.erase(freezeTarget);
+                        usdsoqPendingFreezeOps.emplace_back(FREEZE_OP_FREEZE, freezeTarget);
                     } else if (freezeOp == FREEZE_OP_UNFREEZE) {
-                        if (!pcoinsdbview->EraseFrozenOutpoint(freezeTarget)) {
-                            LogPrintf("ERROR: USDSOQ: Failed to erase frozen outpoint "
-                                      "%s:%u at block %d\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight);
-                        } else {
-                            LogPrintf("USDSOQ: UNFREEZE applied — outpoint %s:%u "
-                                      "removed from frozen set at block %d\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight);
+                        if (usdsoqBlockFrozenRemove.count(freezeTarget) ||
+                            (usdsoqBlockFrozenAdd.count(freezeTarget) == 0 &&
+                             !(pcoinsdbview && pcoinsdbview->IsFrozenOutpoint(freezeTarget)))) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): USDSOQ UNFREEZE of an outpoint that "
+                                      "is not frozen %s:%u at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-usdsoq-unfreeze-redundant");
                         }
+                        usdsoqBlockFrozenRemove.insert(freezeTarget);
+                        usdsoqBlockFrozenAdd.erase(freezeTarget);
+                        usdsoqPendingFreezeOps.emplace_back(FREEZE_OP_UNFREEZE, freezeTarget);
                     }
                 }
             }
@@ -3883,12 +4243,54 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 for (unsigned int j = 0;
                      j < tx.vin.size() && j < txundoFreeze.vprevout.size(); j++) {
                     const CTxOut& prevOut = txundoFreeze.vprevout[j].txout;
+
+                    // SOQ-I015: marker-chain guard. Only an authority tx may
+                    // spend a v5 marker UTXO.
+                    //
+                    // BTCSOQ has had the equivalent rule at three layers since
+                    // Step 2D (bad-btcsoq-marker-spend, plus an ATMP mirror and a
+                    // script-layer default-deny). USDSOQ had it at none, and the
+                    // v5 spend path never required authority: CheckInputs' skip
+                    // needs an OP_5 OUTPUT, so a tx that only SPENDS the marker
+                    // runs its scripts normally; VerifyScript then routes v5 to
+                    // EvalScript's handler, which checks STRUCTURE ONLY (a
+                    // one-byte tag, a non-empty payload, one correctly sized
+                    // blob) and pushes true; and ConnectBlock's M-of-N check
+                    // only ever ran for txs that CREATE an OP_5 output. Every
+                    // witness element was fabricable from public data.
+                    //
+                    // The loss is not the marker's value. g_usdsoq_authority_
+                    // outpoint advances only on authority txs, so it kept
+                    // pointing at the spent marker and every later authority tx
+                    // died at input resolution with
+                    // bad-txns-inputs-missingorspent. USDSOQ mint, burn and
+                    // freeze were dead from that block on, for one ordinary
+                    // transaction, by anyone — and recovery was not an on-chain
+                    // operation, because every on-chain authority operation
+                    // needs the marker that was just destroyed.
+                    if (prevOut.scriptPubKey.size() == 34 &&
+                        prevOut.scriptPubKey[0] == OP_5 &&
+                        prevOut.scriptPubKey[1] == 32 &&
+                        !isAuthorityTx) {
+                        return state.DoS(100,
+                            error("ConnectBlock(): non-authority tx %s spends USDSOQ "
+                                  "authority marker %s:%u",
+                                tx.GetHash().ToString(),
+                                tx.vin[j].prevout.hash.ToString(), tx.vin[j].prevout.n),
+                            REJECT_INVALID, "bad-usdsoq-marker-spend");
+                    }
+
                     // IsAnyUSDSOQ(): the SOQ-ARCH-004 block below states that freeze
                     // "works on a confidential output whose amount is hidden". With the
                     // v7-only predicate here that was not true — a frozen v10 outpoint
                     // was spendable. Widened so the claim and the code agree.
                     if (prevOut.IsAnyUSDSOQ() && pcoinsdbview &&
-                        pcoinsdbview->IsFrozenOutpoint(tx.vin[j].prevout)) {
+                        // SOQ-I013: consult the in-block overlay as well as the
+                        // committed DB, so a freeze earlier in THIS block binds a
+                        // later spend in the same block, in both passes.
+                        ((usdsoqBlockFrozenAdd.count(tx.vin[j].prevout) > 0) ||
+                         (usdsoqBlockFrozenRemove.count(tx.vin[j].prevout) == 0 &&
+                          pcoinsdbview->IsFrozenOutpoint(tx.vin[j].prevout)))) {
                         return state.DoS(100,
                             error("ConnectBlock(): attempt to spend frozen USDSOQ UTXO %s:%u"
                                   " (registry)",
@@ -4089,11 +4491,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 nUSDSOQMinted - nUSDSOQBurned, fJustCheck ? " (dry-run, not committed)" : "");
 
             if (!fJustCheck) {
-                g_usdsoq_supply = supplyAfter; // commit only on a real block connect
-                if (pcoinsdbview && !pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply)) {
-                    LogPrintf("ERROR: USDSOQ: Failed to persist supply to LevelDB at block %d\n",
-                        pindex->nHeight);
-                }
+                usdsoqPendingSupply = supplyAfter;   // SOQ-I013: commit after Wait
+                usdsoqCommitSupply = true;
                 LogPrintf("USDSOQ: supply state: total_minted=%d total_burned=%d outstanding=%d\n",
                     g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
                     g_usdsoq_supply.Outstanding());
@@ -4526,25 +4925,59 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     // fJustCheck and real passes; the DB apply is deferred to
                     // the single post-gate commit point.
                     if (freezeOp == FREEZE_OP_FREEZE) {
-                        // Defense-in-depth: only freeze live v8 UTXOs;
-                        // skip + log otherwise (the authority tx itself is
-                        // valid — mirror the USDSOQ Q3 rule).
+                        // ⛔ WAS FAIL-OPEN, and the USDSOQ side was fixed first,
+                        // which briefly made this the asymmetric twin — the exact
+                        // pattern SOQ-I012/I013/I015 all came from. A FREEZE
+                        // naming a target that is not a live v8 UTXO used to be
+                        // skipped with a log line, so the issuer believed a coin
+                        // was frozen when consensus had ignored the op. A
+                        // compliance control that silently no-ops is worse than
+                        // one that is absent, because it reports success.
                         const CCoins* targetCoins = view.AccessCoins(freezeTarget.hash);
                         if (!targetCoins || !targetCoins->IsAvailable(freezeTarget.n) ||
                             !targetCoins->vout[freezeTarget.n].IsBTCSOQ()) {
-                            LogPrintf("BTCSOQ: FREEZE target %s:%u is not a live v8 "
-                                      "UTXO at block %d — skipping\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight);
-                        } else {
-                            btcsoqPendingFreezeOps.emplace_back(FREEZE_OP_FREEZE, freezeTarget);
-                            blockFrozenAdd.insert(freezeTarget);
-                            blockFrozenRemove.erase(freezeTarget);
-                            LogPrintf("BTCSOQ: FREEZE accepted — %s:%u at block %d%s\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight, fJustCheck ? " (dry-run)" : "");
+                            return state.DoS(100,
+                                error("ConnectBlock(): BTCSOQ FREEZE target %s:%u is not a "
+                                      "live v8 UTXO at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-btcsoq-freeze-dead-target");
                         }
+                        // ⛔ IDEMPOTENCY, same reasoning as the USDSOQ twin.
+                        // DisconnectBlock inverts freeze ops blindly with no
+                        // record of prior state, so a FREEZE of an ALREADY-frozen
+                        // outpoint was a no-op inbound and an UNFREEZE outbound: a
+                        // reorg silently lifted a freeze that predated the block.
+                        // Requiring a real state transition makes every op exactly
+                        // one change, which makes the blind inversion exactly
+                        // right.
+                        if (blockFrozenAdd.count(freezeTarget) ||
+                            (blockFrozenRemove.count(freezeTarget) == 0 &&
+                             pcoinsdbview && pcoinsdbview->IsBTCSOQFrozen(freezeTarget))) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): BTCSOQ FREEZE of already-frozen "
+                                      "outpoint %s:%u at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-btcsoq-freeze-redundant");
+                        }
+                        btcsoqPendingFreezeOps.emplace_back(FREEZE_OP_FREEZE, freezeTarget);
+                        blockFrozenAdd.insert(freezeTarget);
+                        blockFrozenRemove.erase(freezeTarget);
+                        LogPrintf("BTCSOQ: FREEZE accepted — %s:%u at block %d%s\n",
+                            freezeTarget.hash.ToString(), freezeTarget.n,
+                            pindex->nHeight, fJustCheck ? " (dry-run)" : "");
                     } else {
+                        if (blockFrozenRemove.count(freezeTarget) ||
+                            (blockFrozenAdd.count(freezeTarget) == 0 &&
+                             !(pcoinsdbview && pcoinsdbview->IsBTCSOQFrozen(freezeTarget)))) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): BTCSOQ UNFREEZE of an outpoint that "
+                                      "is not frozen %s:%u at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-btcsoq-unfreeze-redundant");
+                        }
                         btcsoqPendingFreezeOps.emplace_back(FREEZE_OP_UNFREEZE, freezeTarget);
                         blockFrozenRemove.insert(freezeTarget);
                         blockFrozenAdd.erase(freezeTarget);
@@ -4940,6 +5373,54 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 pindex->nHeight);
         }
     }
+    // ────────────────────────────────────────────────────────────────────────
+    // SOQ-I013: the USDSOQ commit point. Everything the USDSOQ block collected
+    // lands here, past control.Wait() and past the fJustCheck early-return, so
+    // it can only run for a block that is fully valid and actually being
+    // connected. Mirrors the BTCSOQ commit immediately below, which has worked
+    // this way since review 2C.
+    // ────────────────────────────────────────────────────────────────────────
+    if (usdsoqCommitOutpoint) {
+        g_usdsoq_authority_outpoint = usdsoqPendingOutpoint;
+        if (pcoinsdbview &&
+            !pcoinsdbview->WriteUSDSOQAuthorityOutpoint(g_usdsoq_authority_outpoint)) {
+            LogPrintf("ERROR: USDSOQ: Failed to persist authority outpoint to LevelDB "
+                      "at block %d\n", pindex->nHeight);
+        }
+        LogPrintf("USDSOQ: authority outpoint committed: %s:%u (block %d)\n",
+            g_usdsoq_authority_outpoint.hash.ToString(),
+            g_usdsoq_authority_outpoint.n, pindex->nHeight);
+    }
+    for (const auto& op : usdsoqPendingFreezeOps) {
+        if (op.first == FREEZE_OP_FREEZE) {
+            if (pcoinsdbview && !pcoinsdbview->WriteFrozenOutpoint(op.second)) {
+                LogPrintf("ERROR: USDSOQ: Failed to write frozen outpoint %s:%u at block %d\n",
+                    op.second.hash.ToString(), op.second.n, pindex->nHeight);
+            } else {
+                LogPrintf("USDSOQ: FREEZE committed — %s:%u at block %d\n",
+                    op.second.hash.ToString(), op.second.n, pindex->nHeight);
+            }
+        } else {
+            if (pcoinsdbview && !pcoinsdbview->EraseFrozenOutpoint(op.second)) {
+                LogPrintf("ERROR: USDSOQ: Failed to erase frozen outpoint %s:%u at block %d\n",
+                    op.second.hash.ToString(), op.second.n, pindex->nHeight);
+            } else {
+                LogPrintf("USDSOQ: UNFREEZE committed — %s:%u at block %d\n",
+                    op.second.hash.ToString(), op.second.n, pindex->nHeight);
+            }
+        }
+    }
+    if (usdsoqCommitSupply) {
+        g_usdsoq_supply = usdsoqPendingSupply;
+        if (pcoinsdbview && !pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply)) {
+            LogPrintf("ERROR: USDSOQ: Failed to persist supply to LevelDB at block %d\n",
+                pindex->nHeight);
+        }
+        LogPrintf("USDSOQ: supply state: total_minted=%d total_burned=%d outstanding=%d\n",
+            g_usdsoq_supply.TotalMinted(), g_usdsoq_supply.TotalBurned(),
+            g_usdsoq_supply.Outstanding());
+    }
+
     if (btcsoqCommitSupply) {
         g_btcsoq_supply = btcsoqPendingSupply;
         if (pcoinsdbview && !pcoinsdbview->WriteBTCSOQSupply(g_btcsoq_supply)) {

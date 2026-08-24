@@ -167,6 +167,18 @@ struct Params {
      *  See SECURITY_ISSUE_REGISTRY.md SOQ-I005-STAGENET for full rationale. */
     int32_t nUSDSOQAuthorityEnforcementHeight = 0;
 
+    /** SOQ-I008: height from which a USDSOQ authority TX must SPEND the tracked
+     *  authority outpoint (the Option D authority-UTXO chain). Before it, an
+     *  authority TX that carries an OP_5 marker but spends no authority UTXO is
+     *  accepted and merely re-points the tracker (BUG-16 replay exemption).
+     *
+     *  This was a `static const int ... = 54300` hardcoded inside ConnectBlock,
+     *  i.e. a stagenet calibration silently applied to EVERY network including
+     *  mainnet. A fresh mainnet would have run its first 54,300 blocks with the
+     *  authority-chain rule disabled. Now per-network: stagenet keeps 54300 so
+     *  its history still validates; every other network enforces from 0. */
+    int32_t nUSDSOQAuthorityInputEnforcementHeight = 0;
+
     /** BTCSOQ issuer authority (DL-BTCSOQ-CONSENSUS-NATIVE). Mirrors the USDSOQ
      *  authority: M-of-N Dilithium ML-DSA-44 public keys (hex, 1312 bytes) for
      *  MINT/BURN/FREEZE/ROTATE, loaded on activation. Empty = no authority

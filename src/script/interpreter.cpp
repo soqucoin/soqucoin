@@ -102,6 +102,32 @@ static inline void popstack(vector<valtype>& stack)
 // in STANDARD_SCRIPT_VERIFY_FLAGS for historical reasons (they were set
 // before the Dilithium migration). They do NOT gate this function in the
 // active Dilithium execution paths. See policy.h for the full flags comment.
+// SOQ-I010: SIGHASH_ANYPREVOUT (0x41) / ANYPREVOUTANYSCRIPT (0x42) must not be
+// honoured until DEPLOYMENT_APO activates.
+//
+// SignatureHash() has computed BIP 118 sighashes since June 2026 regardless of
+// SCRIPT_VERIFY_APO, and TransactionSignatureChecker::CheckSig() never sees
+// `flags`, so the deployment gated NOTHING at consensus — only relay policy
+// held the line. The argument recorded at CheckSig ("no funds at risk, a
+// non-APO signature simply will not match") is true as far as it goes: only the
+// key holder can produce an APO signature. What it misses is that the flag was
+// advertised as the gate, so activating APO would have been a no-op and the
+// Halborn Phase 2 sighash audit would have been gating an already-live feature.
+// It also leaves APO's rebindable-signature semantics — an APO signature is
+// replayable across any UTXO with the same scriptPubKey, and address reuse is
+// ordinary — reachable before anyone has reviewed them.
+//
+// Enforced at the call sites that actually hold `flags`, which avoids the
+// three-class interface change that was the stated reason for not gating it.
+static bool APOSigHashTypeAllowed(const std::vector<unsigned char>& vchSig, unsigned int flags)
+{
+    if (flags & SCRIPT_VERIFY_APO) return true;
+    if (vchSig.empty()) return true;  // let the normal path raise its own error
+    const int baseHashType = vchSig.back() & 0x7f;
+    return baseHashType != SIGHASH_ANYPREVOUT &&
+           baseHashType != SIGHASH_ANYPREVOUTANYSCRIPT;
+}
+
 bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int flags, ScriptError* serror)
 {
     // Empty signature is always valid (clean-stack: OP_CHECKSIG with no sig)
@@ -455,7 +481,30 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             std::array<uint8_t, 32> pubkey_hash_arr;
                             memcpy(pubkey_hash_arr.data(), vchPubkeyHashRP.data(), 32);
 
-                            // Verify the range proof with external binding
+                            // ⛔⛔ SOQ-I011: THIS VERIFIER DOES NOT BIND THE AMOUNT.
+                            // Default-constructed, so commit_params.A and .S are all-zero
+                            // (RingElement's default ctor zero-fills). Check 4 in
+                            // LatticeRangeProofV2::verify compares the prover-supplied
+                            // t_reconstruction against z_response*A + z_randomness*S, which
+                            // with zero generators collapses to "t_reconstruction == 0"
+                            // regardless of the responses. Any proof blob carrying a zero t
+                            // and a correct Fiat-Shamir seed verifies, and the seed is
+                            // computable from public data alone.
+                            //
+                            // Root cause: consensus.latticeBPSeed exists in chainparams for
+                            // exactly this and is read NOWHERE. LatticeCommitment::
+                            // PublicParams::generate() has no consensus caller. Seeding it
+                            // here is necessary but NOT sufficient: Check 4 is homogeneous
+                            // even with real generators, so (z, z_r, t) = (0, 0, 0) passes.
+                            // See soquobscura_degenerate_witness_tests.cpp, whose three
+                            // failures are deliberate, and the tripwire
+                            // witness_version_allocation_tests::
+                            // soquobscura_must_stay_dormant_on_every_network.
+                            //
+                            // Harmless today: DEPLOYMENT_SOQUOBSCURA is NOT_SCHEDULED on all
+                            // four networks and creating a v4/v10 output is consensus-
+                            // rejected (SOQ-ARCH-001 / SOQ-I009), so this code is
+                            // unreachable. Do NOT schedule an activation height.
                             latticebp::RangeProofParams rp_params;
                             if (!proof.verify(commitment, rp_params,
                                               sighash_arr, pubkey_hash_arr)) {
@@ -821,6 +870,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             if (!pubkey.IsValid())
                                 return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
 
+                            // SOQ-I010: APO sighash types are inert until DEPLOYMENT_APO activates.
+                            if (!APOSigHashTypeAllowed(vchSig, flags))
+                                return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
                             if (!checker.CheckSig(vchSig, vchPubKeyActual, script, sigversion))
                                 return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
 
@@ -1539,6 +1591,7 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
     return ss.GetHash();
 }
 
+
 // Strict post-quantum script verification — ECDSA paths completely removed
 // Active EvalScript opcodes: OP_CHECKFOLDPROOF (0xfc), OP_CHECKPATAGG (0xfd),
 //   OP_SOQUOBSCURA_RANGEPROOF (0xfa), OP_USDSOQ_MINT/BURN/FREEZE/ROTATE (0xf4-0xf7)
@@ -1922,6 +1975,11 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // The signing path passes the scriptPubKey (OP_1 <32-byte-hash>) to
     // SignatureHash. Passing scriptSig (empty for witness) produces a different
     // sighash, causing every Dilithium signature to fail verification.
+    // SOQ-I010: APO sighash types are inert until DEPLOYMENT_APO activates.
+    if (!APOSigHashTypeAllowed(sig, flags)) {
+        return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
+    }
+
     if (!checker.CheckSig(sig, pubkey, scriptPubKey, SIGVERSION_WITNESS_V0)) {
         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
     }
@@ -1968,19 +2026,33 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
     // even though APO was BIP9 ALWAYS_ACTIVE and SignatureHash() (lines
     // 1040-1130) already has a complete, audited APO sighash computation path.
     //
-    // Safety model after removal:
-    //   - Policy layer: STANDARD_SCRIPT_VERIFY_FLAGS now includes
-    //     SCRIPT_VERIFY_APO (policy.h). The mempool only relays TXs
-    //     matching active BIP9 deployments. On mainnet (APO not deployed),
-    //     APO-signed TXs still won't relay.
-    //   - Consensus layer: SignatureHash() handles APO types correctly.
-    //     If a non-APO-signed TX arrives with an APO sighash byte, the
-    //     resulting sighash won't match the signature — verification
-    //     fails naturally via Dilithium CPubKey::Verify(). No funds at risk.
-    //   - CheckSig() is a virtual method on BaseSignatureChecker and does
-    //     not receive `flags`, so flag-gating here would require an
-    //     invasive interface change across 3 classes. The policy layer
-    //     is the correct and sufficient gate.
+    // ⛔ SOQ-I010: THE SAFETY MODEL RECORDED HERE WAS WRONG. Corrected below;
+    // the original text is kept so the reasoning error stays legible.
+    //
+    //   ❌ "Policy layer: STANDARD_SCRIPT_VERIFY_FLAGS now includes
+    //      SCRIPT_VERIFY_APO (policy.h)."
+    //      FALSE. policy.h deliberately OMITS APO from
+    //      STANDARD_SCRIPT_VERIFY_FLAGS (SOQ-COV-012 explicitly lists it as one
+    //      of the three covenant flags left out). The gate named as sufficient
+    //      did not exist where it was said to be. Relay is gated instead by the
+    //      ATMP DeploymentActiveAtHeight block in validation.cpp.
+    //   ⚠️ "No funds at risk."  True but narrow: only the key holder can
+    //      produce an APO signature. What it misses is that an APO signature is
+    //      REBINDABLE — it does not commit to the prevout, so it is replayable
+    //      against any UTXO paying the same scriptPubKey, and address reuse is
+    //      ordinary. Those semantics were live on mainnet from genesis with
+    //      DEPLOYMENT_APO off, which also means activating APO would have been a
+    //      no-op and the Halborn Phase 2 sighash review would have been gating
+    //      an already-enforced feature.
+    //   ✅ "CheckSig() does not receive `flags`."  Still true, and still not
+    //      worth an interface change across three classes. The gate now lives at
+    //      the two call sites that DO hold `flags` — VerifyScript's v0/v1
+    //      Dilithium path and EvalScript's OP_CHECKDILITHIUMKEYHASH handler —
+    //      via APOSigHashTypeAllowed(). Mempool and consensus derive
+    //      SCRIPT_VERIFY_APO from the same DeploymentActiveAtHeight call, so the
+    //      two paths agree at off/off and on/on (no accept-then-reject split).
+    //
+    // Pinned by src/test/apo_hashtype_gate_tests.cpp.
     //
     // Related: SOQ-COV-003 (SignatureHash) still rejects ANYONECANPAY+APO.
 

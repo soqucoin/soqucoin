@@ -381,6 +381,16 @@ bool LatticeRangeProofV2::verify(
         }
     }
 
+    // ⛔⛔ SOQ-I011: the claim two paragraphs down, that Check 4 is "the binding
+    // security check" and that an adversary "cannot forge consistent (z, z_r, t)
+    // without Schwartz-Zippel collision", is an ASSERTION AND IT IS FALSE.
+    // t_reconstruction is supplied by the prover and Check 4 is homogeneous in
+    // (z_response, z_randomness, t_reconstruction), so the all-zero triple with an
+    // honest Fiat-Shamir seed satisfies Checks 1 to 4. Completing Check 5 as an
+    // upper bound would still accept z_randomness = 0 and would NOT make the proof
+    // bind. Do not read the SOQ-D001 note below as a theorem.
+    // See soquobscura_degenerate_witness_tests.cpp (three deliberate failures).
+
     // Check 5: Norm bound on z_randomness (Gaussian blinding factor response)
     // z_randomness = Σ α^i · r_i where r_i are Gaussian with σ=2.
     // After aggregation, the bound grows: β_accum = NORM_BOUND_BETA * q (mod q wrap).

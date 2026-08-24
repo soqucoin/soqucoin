@@ -40,6 +40,12 @@
 #include "uint256.h"
 #include "validation.h"
 
+#include "consensus/usdsoq.h"   // CUSDSOQAuthority, ComputeAuthorityKeyHash
+
+extern "C" {
+#include "crypto/dilithium/api.h"
+}
+
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
@@ -68,6 +74,92 @@ inline std::vector<unsigned char> PrefixedPubkey(const std::vector<unsigned char
     out.insert(out.end(), rawPubkey.begin(), rawPubkey.end());
     return out;
 }
+
+//! A real 2-of-3 ML-DSA-44 USDSOQ authority, installed into the consensus
+//! global for the lifetime of the object.
+//!
+//! SOQ-I009: before that fix, the USDSOQ harnesses ran with NO authority
+//! configured and relied on ConnectBlock falling straight through
+//! `isAuthorityTx && g_usdsoq_authority.IsInitialized()` — i.e. they exercised
+//! the authority money path with the authority verifier switched off, which is
+//! precisely the state that made forged markers profitable on mainnet. That
+//! fall-through is now a hard default-deny, so a test that wants an authority
+//! transaction has to bring a real authority and real signatures. This helper
+//! is the USDSOQ twin of the fixture already used by
+//! btcsoq_lifecycle_harness_tests.
+struct UsdsoqTestAuthority {
+    std::vector<std::vector<uint8_t>> pks;
+    std::vector<std::vector<uint8_t>> sks;
+
+    UsdsoqTestAuthority()
+    {
+        for (int i = 0; i < 3; i++) {
+            std::vector<uint8_t> pk(pqcrystals_dilithium2_PUBLICKEYBYTES);
+            std::vector<uint8_t> sk(pqcrystals_dilithium2_SECRETKEYBYTES);
+            BOOST_REQUIRE_EQUAL(pqcrystals_dilithium2_ref_keypair(pk.data(), sk.data()), 0);
+            pks.push_back(pk);
+            sks.push_back(sk);
+        }
+        LOCK(cs_main);
+        g_usdsoq_supply.Reset();
+        g_usdsoq_authority_outpoint.SetNull();
+        g_usdsoq_authority.Reset();   // never inherit a previous suite's authority
+        BOOST_REQUIRE(g_usdsoq_authority.Initialize(pks, 2));
+    }
+
+    ~UsdsoqTestAuthority()
+    {
+        LOCK(cs_main);
+        g_usdsoq_supply.Reset();
+        g_usdsoq_authority_outpoint.SetNull();
+        g_usdsoq_authority.Reset();   // do not leak into the next suite
+    }
+
+    //! The canonical marker script OP_5 <SHA256(concat(pubkeys))>. ConnectBlock
+    //! reconstructs exactly this when the tracked authority UTXO has already
+    //! been spent by UpdateCoins, so chained authority txs must use it.
+    CScript MarkerSpk() const
+    {
+        uint256 kh = ComputeAuthorityKeyHash(pks);
+        CScript s;
+        s << OP_5 << std::vector<unsigned char>(kh.begin(), kh.end());
+        return s;
+    }
+
+    static std::vector<uint8_t> SignWith(const uint256& msg, const std::vector<uint8_t>& sk)
+    {
+        std::vector<uint8_t> sig(pqcrystals_dilithium2_BYTES);
+        size_t siglen = 0;
+        BOOST_REQUIRE_EQUAL(pqcrystals_dilithium2_ref_signature(
+            sig.data(), &siglen, msg.begin(), 32, nullptr, 0, sk.data()), 0);
+        sig.resize(siglen);
+        BOOST_REQUIRE_EQUAL(sig.size(), (size_t)DILITHIUM_SIG_SIZE);
+        return sig;
+    }
+
+    //! Attach the M-of-N authority witness to `authIdx`, signing over
+    //! `scriptCode` exactly as ConnectBlock recomputes it (SIGHASH_ALL,
+    //! amount 0, BIP143). Layout matches the documented authority stack:
+    //!   [0] payout_sig  [1] payout_pk  [2] 0x55 tag  [3] payload
+    //!   [4..] auth sigs  [last] authority_set
+    void Sign(CMutableTransaction& tx, unsigned int authIdx, const CScript& scriptCode) const
+    {
+        CTransaction ctx(tx);
+        uint256 h = SignatureHash(scriptCode, ctx, authIdx, SIGHASH_ALL,
+                                  CAmount(0), SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<std::vector<unsigned char>>& w = tx.vin[authIdx].scriptWitness.stack;
+        w.clear();
+        w.push_back(std::vector<unsigned char>{0x00});   // [0] payout_sig placeholder
+        w.push_back(std::vector<unsigned char>{0x00});   // [1] payout_pk placeholder
+        w.push_back(std::vector<unsigned char>{0x55});   // [2] authority tag
+        w.push_back(std::vector<unsigned char>{0x00});   // [3] payload placeholder
+        std::vector<uint8_t> s0 = SignWith(h, sks[0]);
+        std::vector<uint8_t> s1 = SignWith(h, sks[1]);
+        w.push_back(std::vector<unsigned char>(s0.begin(), s0.end()));
+        w.push_back(std::vector<unsigned char>(s1.begin(), s1.end()));
+        w.push_back(std::vector<unsigned char>{0x00});   // [last] authority_set placeholder
+    }
+};
 
 struct DilithiumChainSetup : public TestingSetup {
     CKey coinbaseKey;
@@ -155,6 +247,24 @@ struct DilithiumChainSetup : public TestingSetup {
         BOOST_TEST_MESSAGE("reject: " << st.GetRejectReason()
             << (st.GetDebugMessage().empty() ? "" : " | " + st.GetDebugMessage()));
         return st.GetRejectReason();
+    }
+
+    //! Raw validity of a solved block.
+    //!
+    //! RejectReasonFor() cannot express "rejected with no reason", and that is
+    //! exactly what a SCRIPT failure inside a block produces: ConnectBlock
+    //! queues script checks and reports `control.Wait()` failure as
+    //! `state.DoS(100, false)` with an empty reject string (inherited from
+    //! upstream). So a rule enforced in VerifyScript is invisible to the r0vn
+    //! assertion primitive — it reads identically to "the block was fine".
+    //! Use this when the expected rejection comes from script verification
+    //! rather than from a named ConnectBlock rule.
+    bool BlockIsValid(const std::vector<CMutableTransaction>& txns)
+    {
+        CBlock B = BuildSolvedBlock(txns, coinbaseSpk);
+        CValidationState st;
+        LOCK(cs_main);
+        return TestBlockValidity(st, Params(), B, chainActive.Tip(), true, true);
     }
 
     //! Seed a mature, spendable coin of an arbitrary witness version into the UTXO

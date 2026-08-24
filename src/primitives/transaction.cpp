@@ -162,8 +162,25 @@ bool CTransaction::HasDilithiumSignatures() const
     //   [3] auth_payload         (32 bytes — PK hash)
     //   [4..N-1] auth_sig_i     (2420 bytes each — Dilithium authority sigs)
     //   [N] authority_set        (N, bitvector, pk0, pk1, ...)
+    // SOQ-I009: require the unforgeable OP_5 marker OUTPUT before looking at
+    // the witness at all. This is the same H1 fix that CheckInputs received in
+    // June 2026 ("require OP_5 output to prevent non-authority TXs from forging
+    // witness layout to bypass scripts") — it was applied there and missed
+    // here, leaving a third copy of the shape test that any transaction could
+    // satisfy with witness data alone. Witness data is not sighash-covered and
+    // is malleable in flight; the marker output is covered and is not.
+    bool hasAuthorityOutput = false;
+    for (const auto& txout : vout) {
+        const CScript& spk = txout.scriptPubKey;
+        if (spk.size() == 34 && spk[0] == 0x55 /* OP_5 */ && spk[1] == 32) {
+            hasAuthorityOutput = true;
+            break;
+        }
+    }
+
     for (const auto& txin : vin) {
-        if (!txin.scriptWitness.IsNull() && txin.scriptWitness.stack.size() >= 6) {
+        if (hasAuthorityOutput &&
+            !txin.scriptWitness.IsNull() && txin.scriptWitness.stack.size() >= 6) {
             const auto& stack = txin.scriptWitness.stack;
             // Authority tag is at stack[2] (after payout sig + payout pk)
             if (stack[2].size() == 1 && stack[2][0] == 0x55) {
