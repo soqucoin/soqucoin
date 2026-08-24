@@ -140,6 +140,7 @@ struct BTCSOQChainSetup : public TestingSetup {
             LOCK(cs_main);
             g_btcsoq_supply.Reset();
             g_btcsoq_authority_outpoint.SetNull();
+            g_btcsoq_authority.Reset();   // never inherit a previous suite's authority
             BOOST_REQUIRE(g_btcsoq_authority.Initialize(authKeys, 2));
         }
         uint256 kh = ComputeAuthorityKeyHash(authKeys);
@@ -157,6 +158,10 @@ struct BTCSOQChainSetup : public TestingSetup {
         LOCK(cs_main);
         g_btcsoq_supply.Reset();
         g_btcsoq_authority_outpoint.SetNull();
+        // Without this the authority stayed installed for every later suite, so
+        // authority_skip_gate_tests' no-keyset default-deny passed alone and
+        // failed in the full run. Link order must not decide test outcomes.
+        g_btcsoq_authority.Reset();
     }
 
     CBlock CreateAndProcessBlock(const std::vector<CMutableTransaction>& txns, const CScript& spk)

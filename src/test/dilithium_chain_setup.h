@@ -103,6 +103,7 @@ struct UsdsoqTestAuthority {
         LOCK(cs_main);
         g_usdsoq_supply.Reset();
         g_usdsoq_authority_outpoint.SetNull();
+        g_usdsoq_authority.Reset();   // never inherit a previous suite's authority
         BOOST_REQUIRE(g_usdsoq_authority.Initialize(pks, 2));
     }
 
@@ -111,6 +112,7 @@ struct UsdsoqTestAuthority {
         LOCK(cs_main);
         g_usdsoq_supply.Reset();
         g_usdsoq_authority_outpoint.SetNull();
+        g_usdsoq_authority.Reset();   // do not leak into the next suite
     }
 
     //! The canonical marker script OP_5 <SHA256(concat(pubkeys))>. ConnectBlock

@@ -89,6 +89,15 @@ struct AuthoritySkipChainSetup : public TestingSetup {
 
     AuthoritySkipChainSetup() : TestingSetup(CBaseChainParams::REGTEST)
     {
+        // These cases assert the NO-AUTHORITY default-deny, so the precondition
+        // has to be established rather than assumed. The authority globals are
+        // process-wide and another suite may have installed one.
+        {
+            LOCK(cs_main);
+            g_usdsoq_authority.Reset();
+            g_btcsoq_authority.Reset();
+        }
+
         victimKey.MakeNewKey(true);
         CPubKey vpk = victimKey.GetPubKey();
         BOOST_REQUIRE(vpk.IsValid());

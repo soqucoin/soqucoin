@@ -187,6 +187,22 @@ public:
     //! Check if authority is initialized (has keys)
     bool IsInitialized() const { return !authority_keys.empty() && threshold > 0; }
 
+    //! Return to the uninitialized state (no keys, threshold 0).
+    //!
+    //! Mirrors the Reset() the supply counters already expose. This exists for
+    //! TEST ISOLATION and nothing else: the authority globals are process-wide,
+    //! Initialize() refuses an empty key set, and there was no way back to
+    //! "uninitialized". A fixture that installed an authority therefore leaked
+    //! it into every suite that ran afterwards, so a test asserting the
+    //! no-authority default-deny passed alone and failed in the full run —
+    //! results depended on link order. Worse in the other direction: a test
+    //! could pass because an earlier suite left a global in a convenient state.
+    //!
+    //! Not reachable from consensus. Nothing in validation.cpp calls this;
+    //! on a real node the authority is installed once from chainparams and
+    //! changed only by an authorized on-chain rotation (RotateKeys).
+    void Reset() { authority_keys.clear(); threshold = 0; }
+
     //! Get a read-only reference to the key set
     const std::vector<std::vector<uint8_t>>& GetKeys() const { return authority_keys; }
 
