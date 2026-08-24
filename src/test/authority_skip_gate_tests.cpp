@@ -143,6 +143,58 @@ struct AuthoritySkipChainSetup : public TestingSetup {
         return block;
     }
 
+    // r0vn: a rejection has to be observed by NAME, not inferred from a tip that
+    // did not move. Every case in this file originally asserted only "the tip is
+    // unchanged", which passes just as happily for the WRONG rejection — the
+    // exact weakness this file exists to expose elsewhere. Returns the reject
+    // string, or "" if the block validated.
+    //
+    // Caveat that matters here: a failure inside VerifyScript surfaces as
+    // `state.DoS(100, false)` with an EMPTY reject string (ConnectBlock's
+    // control.Wait() path), so "" is ambiguous for script-layer rules. The
+    // rejections asserted below all come from CheckInputs' own named
+    // default-denies, which do carry a string.
+    std::string RejectReasonFor(const std::vector<CMutableTransaction>& txns)
+    {
+        CBlock B = BuildSolvedBlock(txns, victimSpk);
+        CValidationState st;
+        LOCK(cs_main);
+        if (TestBlockValidity(st, Params(), B, chainActive.Tip(), true, true)) return std::string();
+        return st.GetRejectReason();
+    }
+
+    // Build and solve a block without submitting it.
+    CBlock BuildSolvedBlock(const std::vector<CMutableTransaction>& txns, const CScript& spk)
+    {
+        const CChainParams& cp = Params();
+        std::unique_ptr<CBlockTemplate> tmpl = BlockAssembler(cp).CreateNewBlock(spk, true);
+        BOOST_REQUIRE(tmpl != nullptr);
+        CBlock& block = tmpl->block;
+        block.vtx.resize(1);
+        {
+            CMutableTransaction coinbaseMut(*block.vtx[0]);
+            coinbaseMut.vout.erase(
+                std::remove_if(coinbaseMut.vout.begin(), coinbaseMut.vout.end(),
+                    [](const CTxOut& o) {
+                        return o.scriptPubKey.size() >= 38 &&
+                               o.scriptPubKey[0] == OP_RETURN && o.scriptPubKey[1] == 0x24 &&
+                               o.scriptPubKey[2] == 0xaa && o.scriptPubKey[3] == 0x21 &&
+                               o.scriptPubKey[4] == 0xa9 && o.scriptPubKey[5] == 0xed;
+                    }),
+                coinbaseMut.vout.end());
+            coinbaseMut.vin[0].scriptWitness.stack.clear();
+            block.vtx[0] = MakeTransactionRef(std::move(coinbaseMut));
+        }
+        for (const CMutableTransaction& tx : txns)
+            block.vtx.push_back(MakeTransactionRef(tx));
+        GenerateCoinbaseCommitment(block, chainActive.Tip(), cp.GetConsensus(0));
+        unsigned int extraNonce = 0;
+        IncrementExtraNonce(&block, chainActive.Tip(), extraNonce);
+        while (!CheckProofOfWork(block.GetPoWHash(), block.nBits, cp.GetConsensus(0)))
+            ++block.nNonce;
+        return block;
+    }
+
     // Steal victim coinbase `cb` to attackerSpk. `markerOpN` picks the opcode of
     // the marker output: 5 == the USDSOQ authority marker (attack), 1 == an
     // ordinary Dilithium output (control). Everything else is identical, and the
@@ -203,6 +255,10 @@ BOOST_AUTO_TEST_CASE(control_no_marker_forged_witness_is_rejected)
     std::vector<CMutableTransaction> txns{ BuildForgedAuthoritySteal(coinbaseTxns[0], 1) };
     CBlock b = CreateAndProcessBlock(txns, victimSpk);
 
+    // Deliberately NOT string-pinned: this rejection comes from VerifyScript
+    // (NULLFAIL on the garbage witness), and ConnectBlock reports script-check
+    // failure as state.DoS(100, false) with an EMPTY reject string. There is no
+    // name to assert. Every OTHER case in this file names its string.
     BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() != b.GetHash(),
         "CONTROL FAILED: a block spending someone else's coin with a garbage "
         "witness connected even WITHOUT the OP_5 marker — the harness is not "
@@ -215,14 +271,9 @@ BOOST_AUTO_TEST_CASE(control_no_marker_forged_witness_is_rejected)
 // default-deny (bad-usdsoq-authority-unavailable) is what must catch this.
 BOOST_AUTO_TEST_CASE(op5_marker_does_not_skip_script_verification)
 {
-    const int heightBefore = chainActive.Height();
-    std::vector<CMutableTransaction> txns{ BuildForgedAuthoritySteal(coinbaseTxns[1], 5) };
-    CBlock b = CreateAndProcessBlock(txns, victimSpk);
-
-    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() != b.GetHash(),
-        "REGRESSION: a tx carrying an OP_5 <32> output and a forged "
-        "authority-shaped witness spent a UTXO it holds no key for.");
-    BOOST_CHECK_EQUAL(chainActive.Height(), heightBefore);
+    const std::string why = RejectReasonFor({ BuildForgedAuthoritySteal(coinbaseTxns[1], 5) });
+    BOOST_TEST_MESSAGE("reject: '" << why << "'");
+    BOOST_CHECK_EQUAL(why, "bad-usdsoq-authority-unavailable");
 }
 
 // Same forgery under MAINNET posture: DEPLOYMENT_USDSOQ withdrawn, exactly as
@@ -233,18 +284,13 @@ BOOST_AUTO_TEST_CASE(op5_marker_rejected_when_usdsoq_not_scheduled)
                                   Consensus::BIP9Deployment::NOT_SCHEDULED);
     SelectParams(CBaseChainParams::REGTEST);
 
-    const int heightBefore = chainActive.Height();
-    std::vector<CMutableTransaction> txns{ BuildForgedAuthoritySteal(coinbaseTxns[1], 5) };
-    CBlock b = CreateAndProcessBlock(txns, victimSpk);
-    const bool connected = (chainActive.Tip()->GetBlockHash() == b.GetHash());
+    const std::string why = RejectReasonFor({ BuildForgedAuthoritySteal(coinbaseTxns[1], 5) });
 
     UpdateRegtestActivationHeight(Consensus::DEPLOYMENT_USDSOQ, 0);  // restore
     SelectParams(CBaseChainParams::REGTEST);
 
-    BOOST_CHECK_MESSAGE(!connected,
-        "REGRESSION: forged USDSOQ authority tx connected with the deployment "
-        "NOT_SCHEDULED (mainnet posture).");
-    BOOST_CHECK_EQUAL(chainActive.Height(), heightBefore);
+    BOOST_TEST_MESSAGE("reject: '" << why << "'");
+    BOOST_CHECK_EQUAL(why, "bad-usdsoq-authority-not-active");
 }
 
 // The BTCSOQ twin, with BTCSOQ ACTIVE (stock regtest). Unlike USDSOQ, the
@@ -254,11 +300,10 @@ BOOST_AUTO_TEST_CASE(op5_marker_rejected_when_usdsoq_not_scheduled)
 // equivalent default-deny.
 BOOST_AUTO_TEST_CASE(op9_marker_caught_when_btcsoq_deployment_active)
 {
-    std::vector<CMutableTransaction> txns{
-        BuildForgedAuthoritySteal(coinbaseTxns[2], 9, BTCSOQ_OP_MINT) };
-    CBlock b = CreateAndProcessBlock(txns, victimSpk);
-    BOOST_CHECK_MESSAGE(chainActive.Tip()->GetBlockHash() != b.GetHash(),
-        "BTCSOQ default-deny did not fire with the deployment active");
+    const std::string why = RejectReasonFor({
+        BuildForgedAuthoritySteal(coinbaseTxns[2], 9, BTCSOQ_OP_MINT) });
+    BOOST_TEST_MESSAGE("reject: '" << why << "'");
+    BOOST_CHECK_EQUAL(why, "bad-btcsoq-authority-unavailable");
 }
 
 // The BTCSOQ twin under MAINNET posture: DEPLOYMENT_BTCSOQ withdrawn, exactly
@@ -271,28 +316,14 @@ BOOST_AUTO_TEST_CASE(op9_marker_skips_scripts_when_btcsoq_not_scheduled)
                                   Consensus::BIP9Deployment::NOT_SCHEDULED);
     SelectParams(CBaseChainParams::REGTEST);
 
-    const int heightBefore = chainActive.Height();
-    std::vector<CMutableTransaction> txns{
-        BuildForgedAuthoritySteal(coinbaseTxns[2], 9, BTCSOQ_OP_MINT) };
-    CBlock b = CreateAndProcessBlock(txns, victimSpk);
-
-    const bool connected = (chainActive.Tip()->GetBlockHash() == b.GetHash());
-    BOOST_TEST_MESSAGE("btcsoq (NOT_SCHEDULED) attack block connected = " << connected
-        << " (height " << heightBefore << " -> " << chainActive.Height() << ")");
-    if (!connected) {
-        LOCK(cs_main);
-        CValidationState st;
-        TestBlockValidity(st, Params(), b, chainActive.Tip(), false, false);
-        BOOST_TEST_MESSAGE("  reject reason: '" << st.GetRejectReason()
-            << "' debug: '" << st.GetDebugMessage() << "'");
-    }
+    const std::string why = RejectReasonFor({
+        BuildForgedAuthoritySteal(coinbaseTxns[2], 9, BTCSOQ_OP_MINT) });
 
     UpdateRegtestActivationHeight(Consensus::DEPLOYMENT_BTCSOQ, 0);  // restore
     SelectParams(CBaseChainParams::REGTEST);
 
-    BOOST_CHECK_MESSAGE(!connected,
-        "REGRESSION (BTCSOQ twin, mainnet posture): OP_9 marker + forged "
-        "witness skipped script verification for every input.");
+    BOOST_TEST_MESSAGE("reject: '" << why << "'");
+    BOOST_CHECK_EQUAL(why, "bad-btcsoq-authority-not-active");
 }
 
 // Positive control: SOQ-I009 must not break ordinary spending. A correctly
