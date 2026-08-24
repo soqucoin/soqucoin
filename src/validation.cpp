@@ -4906,25 +4906,59 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     // fJustCheck and real passes; the DB apply is deferred to
                     // the single post-gate commit point.
                     if (freezeOp == FREEZE_OP_FREEZE) {
-                        // Defense-in-depth: only freeze live v8 UTXOs;
-                        // skip + log otherwise (the authority tx itself is
-                        // valid — mirror the USDSOQ Q3 rule).
+                        // ⛔ WAS FAIL-OPEN, and the USDSOQ side was fixed first,
+                        // which briefly made this the asymmetric twin — the exact
+                        // pattern SOQ-I012/I013/I015 all came from. A FREEZE
+                        // naming a target that is not a live v8 UTXO used to be
+                        // skipped with a log line, so the issuer believed a coin
+                        // was frozen when consensus had ignored the op. A
+                        // compliance control that silently no-ops is worse than
+                        // one that is absent, because it reports success.
                         const CCoins* targetCoins = view.AccessCoins(freezeTarget.hash);
                         if (!targetCoins || !targetCoins->IsAvailable(freezeTarget.n) ||
                             !targetCoins->vout[freezeTarget.n].IsBTCSOQ()) {
-                            LogPrintf("BTCSOQ: FREEZE target %s:%u is not a live v8 "
-                                      "UTXO at block %d — skipping\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight);
-                        } else {
-                            btcsoqPendingFreezeOps.emplace_back(FREEZE_OP_FREEZE, freezeTarget);
-                            blockFrozenAdd.insert(freezeTarget);
-                            blockFrozenRemove.erase(freezeTarget);
-                            LogPrintf("BTCSOQ: FREEZE accepted — %s:%u at block %d%s\n",
-                                freezeTarget.hash.ToString(), freezeTarget.n,
-                                pindex->nHeight, fJustCheck ? " (dry-run)" : "");
+                            return state.DoS(100,
+                                error("ConnectBlock(): BTCSOQ FREEZE target %s:%u is not a "
+                                      "live v8 UTXO at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-btcsoq-freeze-dead-target");
                         }
+                        // ⛔ IDEMPOTENCY, same reasoning as the USDSOQ twin.
+                        // DisconnectBlock inverts freeze ops blindly with no
+                        // record of prior state, so a FREEZE of an ALREADY-frozen
+                        // outpoint was a no-op inbound and an UNFREEZE outbound: a
+                        // reorg silently lifted a freeze that predated the block.
+                        // Requiring a real state transition makes every op exactly
+                        // one change, which makes the blind inversion exactly
+                        // right.
+                        if (blockFrozenAdd.count(freezeTarget) ||
+                            (blockFrozenRemove.count(freezeTarget) == 0 &&
+                             pcoinsdbview && pcoinsdbview->IsBTCSOQFrozen(freezeTarget))) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): BTCSOQ FREEZE of already-frozen "
+                                      "outpoint %s:%u at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-btcsoq-freeze-redundant");
+                        }
+                        btcsoqPendingFreezeOps.emplace_back(FREEZE_OP_FREEZE, freezeTarget);
+                        blockFrozenAdd.insert(freezeTarget);
+                        blockFrozenRemove.erase(freezeTarget);
+                        LogPrintf("BTCSOQ: FREEZE accepted — %s:%u at block %d%s\n",
+                            freezeTarget.hash.ToString(), freezeTarget.n,
+                            pindex->nHeight, fJustCheck ? " (dry-run)" : "");
                     } else {
+                        if (blockFrozenRemove.count(freezeTarget) ||
+                            (blockFrozenAdd.count(freezeTarget) == 0 &&
+                             !(pcoinsdbview && pcoinsdbview->IsBTCSOQFrozen(freezeTarget)))) {
+                            return state.DoS(100,
+                                error("ConnectBlock(): BTCSOQ UNFREEZE of an outpoint that "
+                                      "is not frozen %s:%u at block %d",
+                                    freezeTarget.hash.ToString(), freezeTarget.n,
+                                    pindex->nHeight),
+                                REJECT_INVALID, "bad-btcsoq-unfreeze-redundant");
+                        }
                         btcsoqPendingFreezeOps.emplace_back(FREEZE_OP_UNFREEZE, freezeTarget);
                         blockFrozenRemove.insert(freezeTarget);
                         blockFrozenAdd.erase(freezeTarget);

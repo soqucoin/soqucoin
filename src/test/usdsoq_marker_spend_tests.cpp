@@ -1,17 +1,18 @@
 // Copyright (c) 2026 Soqucoin Labs Inc.
 // Distributed under the MIT software license.
 //
-// usdsoq_marker_spend_tests.cpp — SOQ-I015. Anyone can spend the USDSOQ
-// authority marker, which permanently bricks the issuer's control plane.
+// usdsoq_marker_spend_tests.cpp — SOQ-I015, FIXED in b9b4ccd04. Regression
+// guard for the rule that stops an ordinary transaction spending the USDSOQ
+// authority marker.
 //
-// THE DEFECT
-// ──────────
+// THE DEFECT, PAST TENSE
+// ──────────────────────
 // BTCSOQ forbids a non-authority spend of its v9 authority marker at three
 // layers: ConnectBlock (bad-btcsoq-marker-spend), the ATMP mirror, and
 // VerifyScript (SCRIPT_ERR_BTCSOQ_MARKER_SPEND). USDSOQ has no equivalent at
 // any layer.
 //
-// The v5 spend path does not require authority:
+// The v5 spend path did not require authority:
 //   * CheckInputs' authority skip needs an OP_5 *output*. A tx that spends the
 //     marker without creating one does not take the skip, so its scripts run.
 //   * VerifyScript routes v5 to EvalScript's USDSOQ handler, which validates
@@ -21,8 +22,9 @@
 //   * ConnectBlock only M-of-N-verifies transactions that CREATE an OP_5
 //     output. A tx that only SPENDS one is never verified by anybody.
 //
-// So the witness is fabricable from public data and the marker is spendable by
-// anyone.
+// So the witness was fabricable from public data and the marker was spendable
+// by anyone. Now rejected as bad-usdsoq-marker-spend at ConnectBlock, with an
+// ATMP mirror so policy stays a strict subset of consensus.
 //
 // THE CONSEQUENCE, which is worse than losing 10000 sats
 // ──────────────────────────────────────────────────────
@@ -131,7 +133,7 @@ BOOST_AUTO_TEST_CASE(an_ordinary_tx_must_not_spend_the_authority_marker)
     const std::string why = RejectReasonFor({steal});
     BOOST_TEST_MESSAGE("reject: '" << why << "'");
 
-    BOOST_CHECK_MESSAGE(!why.empty(),
+    BOOST_CHECK_MESSAGE(why == "bad-usdsoq-marker-spend",
         "SOQ-I015: an ordinary transaction spent the USDSOQ authority marker. "
         "BTCSOQ rejects this with bad-btcsoq-marker-spend at three layers; "
         "USDSOQ has no equivalent. The v5 witness above is fabricated from "

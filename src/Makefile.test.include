@@ -179,6 +179,7 @@ BITCOIN_TESTS =\
   test/usdsoq_reorg_tests.cpp \
   test/usdsoq_commit_discipline_tests.cpp \
   test/usdsoq_marker_spend_tests.cpp \
+  test/usdsoq_freeze_rules_tests.cpp \
   test/usdsoq_v7_conservation_harness_tests.cpp \
   test/usdsoq_v10_reject_path_tests.cpp \
   test/soquobscura_keyimage_deadcode_tests.cpp \
