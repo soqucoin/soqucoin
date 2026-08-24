@@ -2680,6 +2680,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
             if (hasAuthorityOutput) {
                 // This block advanced the authority outpoint.
                 // Find the authority input (the input whose prevout was an OP_5 output).
+                bool fRevertedToPrevout = false;
                 for (unsigned int k = 0; k < tx.vin.size(); ++k) {
                     const CCoins* coins = view.AccessCoins(tx.vin[k].prevout.hash);
                     if (coins && coins->IsAvailable(tx.vin[k].prevout.n)) {
@@ -2695,11 +2696,44 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                             LogPrintf("USDSOQ: reorg reversal — authority outpoint reverted to %s:%u\n",
                                 g_usdsoq_authority_outpoint.hash.ToString(),
                                 g_usdsoq_authority_outpoint.n);
+                            fRevertedToPrevout = true;
                             break;
                         }
                     }
                 }
-                break;  // Only one authority TX per block expected
+                if (!fRevertedToPrevout) {
+                    // SOQ-I012: no v5 marker input was restored, so this was the
+                    // BOOTSTRAP authority tx and there is no prior outpoint to go
+                    // back to. Disconnecting it must return the tracker to NULL so
+                    // the next authority tx takes the bootstrap path again.
+                    //
+                    // Without this the tracker kept pointing at the disconnected
+                    // block's marker — an outpoint that no longer exists on any
+                    // chain. ConnectBlock then sees a NON-null tracked outpoint,
+                    // finds no input spending it, and rejects the replacement
+                    // block with bad-usdsoq-authority-outpoint. The node forks
+                    // itself off the network, and because the tracker is written
+                    // through to LevelDB a restart does not clear it: recovery is
+                    // -reindex.
+                    //
+                    // Reachable the day USDSOQ activates on mainnet, because the
+                    // first authority tx after activation IS a bootstrap and a
+                    // one-block reorg is routine. Dormant until then: v5 outputs
+                    // cannot be created pre-activation (SOQ-I009).
+                    //
+                    // ⚠️ This exact gap was found during the BTCSOQ 2D review,
+                    // fixed for BTCSOQ, and recorded ONLY in a comment on the
+                    // BTCSOQ reversal below saying "the USDSOQ reversal inherits
+                    // this gap". A known defect written as prose instead of a bead
+                    // or a test stays unfixed. See usdsoq_reorg_tests.
+                    g_usdsoq_authority_outpoint = COutPoint();
+                    if (pcoinsdbview) {
+                        pcoinsdbview->WriteUSDSOQAuthorityOutpoint(g_usdsoq_authority_outpoint);
+                    }
+                    LogPrintf("USDSOQ: reorg reversal — bootstrap disconnected, "
+                              "authority outpoint reverted to null\n");
+                }
+                break;  // first authority tx spends the pre-block outpoint
             }
         }
     }
@@ -2934,8 +2968,9 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                     // authority tx. Disconnecting it must return the chain to
                     // the pre-bootstrap state: a NULL outpoint, so the next
                     // authority tx takes the bootstrap path again. (Review
-                    // finding; the USDSOQ reversal inherits this gap — fixed
-                    // here for BTCSOQ, which has no legacy chain to match.)
+                    // finding. The USDSOQ reversal had the same gap; it was
+                    // recorded here in prose and stayed unfixed until SOQ-I012.
+                    // Both sides now null-restore.)
                     g_btcsoq_authority_outpoint = COutPoint();
                     if (pcoinsdbview) {
                         pcoinsdbview->WriteBTCSOQAuthorityOutpoint(

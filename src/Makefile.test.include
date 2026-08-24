@@ -176,6 +176,7 @@ BITCOIN_TESTS =\
   test/witness_version_reservation_tests.cpp \
   test/apo_hashtype_gate_tests.cpp \
   test/dormancy_matrix_tests.cpp \
+  test/usdsoq_reorg_tests.cpp \
   test/usdsoq_v7_conservation_harness_tests.cpp \
   test/usdsoq_v10_reject_path_tests.cpp \
   test/soquobscura_keyimage_deadcode_tests.cpp \
