@@ -1250,6 +1250,13 @@ public:
         // See SECURITY_ISSUE_REGISTRY.md SOQ-I005-STAGENET.
         consensus.nUSDSOQAuthorityEnforcementHeight = 7700;
 
+        // SOQ-I008: was a hardcoded `static const int = 54300` inside
+        // ConnectBlock, so it applied to mainnet too. It is a STAGENET
+        // calibration (BUG-16: the pre-54300 chain has authority txs that do
+        // not spend the tracked outpoint). Keep the value here so stagenet
+        // history still validates; every other network defaults to 0.
+        consensus.nUSDSOQAuthorityInputEnforcementHeight = 54300;
+
         // SOQ-I007-STAGENET: UTXO cost minimum enforcement height.
         // Blocks 0–37200 may contain outputs below UTXO_COST_PER_BYTE minimum
         // (mined before DEPLOYMENT_UTXO_COST code existed on stagenet fleet).

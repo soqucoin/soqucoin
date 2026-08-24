@@ -51,34 +51,57 @@
 
 // USDSOQ-specific on top of the shared chain fixture.
 struct V10RejectPathSetup : public DilithiumChainSetup {
+    // SOQ-I009: a real 2-of-3 ML-DSA-44 authority. This fixture used to run with
+    // g_usdsoq_authority uninitialized, so ConnectBlock fell straight through the
+    // `isAuthorityTx && IsInitialized()` guard and the marker alone conferred
+    // authority. That fall-through is now a default-deny
+    // (bad-usdsoq-authority-unavailable), so these tests sign for real — which
+    // also means the reject-path assertions below now prove the rule fires
+    // AFTER a valid authority signature, not instead of one.
+    UsdsoqTestAuthority auth;
+
     // An AUTHORITY tx: it carries the OP_5 marker, so it is exempt from per-asset
     // conservation and takes the SOQ-ARCH-004 authority branch. `assetIn` is an
     // optional USDSOQ input to burn; `extraOut` an optional extra output.
-    // g_usdsoq_authority is never initialized in this fixture, so M-of-N signature
-    // verification is skipped and the marker alone confers authority status.
+    // `prevMarker` chains to an already-tracked authority UTXO; without it this is
+    // a bootstrap authority tx (the tracked outpoint is null).
     CMutableTransaction BuildAuthorityTx(const CTransaction& feeCoinbase,
                                          const COutPoint* assetIn, CAmount assetInVal,
                                          const CScript& assetInSpk,
-                                         const CTxOut* extraOut)
+                                         const CTxOut* extraOut,
+                                         const COutPoint* prevMarker = nullptr)
     {
         const CAmount feeVal = feeCoinbase.vout[0].nValue;
         CMutableTransaction tx; tx.nVersion = 2;
 
-        unsigned int feeIdx = 0;
+        // vin[0] is always the authority input: ConnectBlock's bootstrap path
+        // reads input 0, and its chained path requires the tracked outpoint.
+        unsigned int next = 0;
+        if (prevMarker) {
+            CTxIn m; m.prevout = *prevMarker; m.nSequence = CTxIn::SEQUENCE_FINAL;
+            tx.vin.push_back(m); next++;
+        }
+        unsigned int assetIdx = 0;
         if (assetIn) {
-            CTxIn a; a.prevout = *assetIn; a.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(a);
-            feeIdx = 1;
+            CTxIn a; a.prevout = *assetIn; a.nSequence = CTxIn::SEQUENCE_FINAL;
+            tx.vin.push_back(a); assetIdx = next++;
         }
         CTxIn f; f.prevout = COutPoint(feeCoinbase.GetHash(), 0);
         f.nSequence = CTxIn::SEQUENCE_FINAL; tx.vin.push_back(f);
+        const unsigned int feeIdx = next;
 
-        CTxOut mark; mark.nValue = 10000; mark.scriptPubKey = Spk(OP_5); tx.vout.push_back(mark);
+        CTxOut mark; mark.nValue = 10000; mark.scriptPubKey = auth.MarkerSpk();
+        tx.vout.push_back(mark);
         if (extraOut) tx.vout.push_back(*extraOut);
         CTxOut chg; chg.nValue = feeVal - 20000 - (extraOut ? extraOut->nValue : 0);
         chg.scriptPubKey = Spk(OP_1); tx.vout.push_back(chg);
 
-        if (assetIn) SignInput(tx, 0, assetInSpk, assetInVal);
+        if (assetIn) SignInput(tx, assetIdx, assetInSpk, assetInVal);
         SignInput(tx, feeIdx, coinbaseSpk, feeVal);
+        // Authority witness LAST: it overwrites input 0's stack, and the M-of-N
+        // sighash covers outputs and prevouts but not witness data, so ordering
+        // against the per-input signatures above is immaterial.
+        auth.Sign(tx, 0, auth.MarkerSpk());
         return tx;
     }
 };
@@ -196,8 +219,15 @@ BOOST_AUTO_TEST_CASE(authority_burn_of_transparent_usdsoq_input_is_accepted)
         "the authority mint block must connect before anything can be burned");
 
     // BuildAuthorityTx lays out [0] = OP_5 marker, [1] = extra output, [2] = change.
+    // SOQ-I008/I009: the burn is a CHAINED authority tx, so it must spend the
+    // tracked authority UTXO (the mint's marker at index 0). Previously the
+    // "must spend the tracked outpoint" rule was gated on a hardcoded height of
+    // 54300, which no regtest fixture ever reaches, so this requirement was
+    // silently inactive in every test.
     COutPoint v7op(mint.GetHash(), 1);
-    CMutableTransaction burn = BuildAuthorityTx(coinbaseTxns[4], &v7op, v7Val, Spk(OP_7), nullptr);
+    COutPoint prevMarker(mint.GetHash(), 0);
+    CMutableTransaction burn = BuildAuthorityTx(coinbaseTxns[4], &v7op, v7Val, Spk(OP_7),
+                                                nullptr, &prevMarker);
 
     BOOST_CHECK_MESSAGE(RejectReasonFor({burn}).empty(),
         "an authority burn of a transparent v7 input must connect");

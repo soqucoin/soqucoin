@@ -1949,13 +1949,36 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-inputvalues-outofrange");
     }
 
+    // SOQ-I009: an authority marker buys an exemption from value conservation,
+    // and the operation it exempts is only ever VERIFIED (M-of-N ML-DSA + op
+    // binding) inside ConnectBlock's `flags & SCRIPT_VERIFY_*` blocks. Granting
+    // the exemption while the verifier is dormant is the asymmetry that made a
+    // forged marker profitable, so the exemption is now gated on the same
+    // deployment state the verifier is. Test nets run both deployments active
+    // from height 0, so this changes nothing on any existing chain.
+    const Consensus::Params& spendCons = params.GetConsensus(nSpendHeight);
+    // "No verifier, no exemption." The authority globals are the same predicate
+    // ConnectBlock's default-denies use (bad-*-authority-unavailable): they are
+    // populated from chainparams at the first ConnectBlock that sets the
+    // deployment flag, i.e. before any transaction in that block is checked, so
+    // this is deterministic within the connect path. On mainnet, where no
+    // authority keyset is configured at all, they are never initialised and no
+    // marker can ever buy the ex-nihilo exemption.
+    const bool fUSDSOQActiveHere = DeploymentActiveAtHeight(
+        nSpendHeight, spendCons, Consensus::DEPLOYMENT_USDSOQ) &&
+        g_usdsoq_authority.IsInitialized();
+    const bool fBTCSOQActiveHere = DeploymentActiveAtHeight(
+        nSpendHeight, spendCons, Consensus::DEPLOYMENT_BTCSOQ) &&
+        g_btcsoq_authority.IsInitialized();
+
     // SOQ-AUD2-002: For authority transactions (witness v5 / OP_5 output),
     // the USDSOQ outputs are minted ex nihilo — they must NOT count in the
     // input-output value balance. Only SOQ outputs (fee change + marker) count.
     CAmount nValueOut = tx.GetValueOut();
     bool isAuthorityTx = false;
     for (const auto& txout : tx.vout) {
-        if (txout.scriptPubKey.size() == 34 &&
+        if (fUSDSOQActiveHere &&
+            txout.scriptPubKey.size() == 34 &&
             txout.scriptPubKey[0] == OP_5 &&
             txout.scriptPubKey[1] == 32) {
             isAuthorityTx = true;
@@ -1973,7 +1996,7 @@ bool CheckTxInputs(const CChainParams& params, const CTransaction& tx, CValidati
     // carry both markers (bad-txns-dual-authority-marker in CheckTransaction).
     bool isBTCSOQAuthorityTx = false;
     for (const auto& txout : tx.vout) {
-        if (IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
+        if (fBTCSOQActiveHere && IsBTCSOQAuthorityMarker(txout.scriptPubKey)) {
             isBTCSOQAuthorityTx = true;
             break;
         }
@@ -2260,6 +2283,52 @@ bool CheckInputs(const CTransaction& tx, CValidationState& state, const CCoinsVi
                         }
                         if (isBTCSOQAuthorityTx) break;
                     }
+                }
+            }
+
+            // =============================================================
+            // SOQ-I009: the skip must never outlive the thing that replaces
+            // it. Both flags above are pure SHAPE tests over attacker-chosen
+            // data (a marker output plus a witness layout), while the M-of-N
+            // ML-DSA verification that justifies skipping per-input scripts
+            // runs in ConnectBlock behind `flags & SCRIPT_VERIFY_USDSOQ` and
+            // `g_usdsoq_authority.IsInitialized()`. With the deployment
+            // dormant, or with no authority keyset configured, that verifier
+            // never runs — and the skip did, so a forged authority-shaped tx
+            // spent every one of its inputs with no signature check at all.
+            // That is theft of arbitrary UTXOs, not merely a dormant-asset
+            // mint. Proven in src/test/authority_skip_gate_tests.cpp.
+            //
+            // So: default-deny. If we cannot run the stronger check, we do
+            // not grant the exemption that stands in for it. The BTCSOQ side
+            // already had this instinct in ConnectBlock
+            // (bad-btcsoq-authority-unavailable); USDSOQ had none, and both
+            // sat inside the deployment gate where mainnet never reaches
+            // them. This is the single chokepoint that is live in BOTH the
+            // connect path and mempool accept, so policy cannot drift.
+            // =============================================================
+            if (isAuthorityTx) {
+                if (!(flags & SCRIPT_VERIFY_USDSOQ)) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-usdsoq-authority-not-active", false,
+                        "USDSOQ authority TX before USDSOQ activation");
+                }
+                if (!g_usdsoq_authority.IsInitialized()) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-usdsoq-authority-unavailable", false,
+                        "USDSOQ authority TX rejected: authority key set not initialized");
+                }
+            }
+            if (isBTCSOQAuthorityTx) {
+                if (!(flags & SCRIPT_VERIFY_BTCSOQ)) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-authority-not-active", false,
+                        "BTCSOQ authority TX before BTCSOQ activation");
+                }
+                if (!g_btcsoq_authority.IsInitialized()) {
+                    return state.DoS(100, false, REJECT_INVALID,
+                        "bad-btcsoq-authority-unavailable", false,
+                        "BTCSOQ authority TX rejected: authority key set not initialized");
                 }
             }
 
@@ -3473,6 +3542,80 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     // =========================================================================
+    // SOQ-I009: witness-version reservation (pre-activation).
+    //
+    // Direct generalisation of the SOQ-ARCH-001 rule above, and it should have
+    // shipped with it. Soqucoin inherited BIP141's "future witness versions are
+    // anyone-can-spend until activated" posture. That posture is right for a
+    // chain that has already launched and cannot retroactively forbid shapes.
+    // It is the wrong default for a chain that has NOT launched, because it
+    // leaves two live hazards on mainnet:
+    //
+    //   1. FUND-AND-SWEEP. A dormant version short-circuits to success in
+    //      VerifyScript, so an output of that shape confirms and is then
+    //      spendable by anybody. The failure direction is loss of funds, not a
+    //      safe no-op (bead premature-witness-standardness-m9mr).
+    //   2. EXEMPTION WITHOUT VERIFIER. v5/v9 markers buy an exemption from
+    //      value conservation and from per-input script verification, while
+    //      everything that verifies the exemption sits behind the deployment
+    //      flag. Reserving the shape removes the whole class rather than
+    //      patching each exemption (SOQ-I009 proper).
+    //
+    // So: an output may only use a witness version whose deployment is active
+    // in THIS block. v0/v1 are the always-available base Dilithium forms;
+    // v11-v16 are unallocated and can never be created until one is assigned a
+    // deployment. Policy already refuses to relay all of these
+    // (activeWitnessVersions, above), so this closes the miner-included path
+    // that policy cannot reach.
+    //
+    // Blast radius: v5/v7/v8/v9 are dormant on mainnet ONLY, so those cannot
+    // affect an existing chain. v3 (LatticeFold, retired) and v11-v16 are
+    // dormant on every network — neither has ever been relay-standard anywhere,
+    // so no honest wallet can have produced one, but this is the part of the
+    // rule that wants a stagenet resync before fleet deploy.
+    // v4/v10 are pre-empted by SOQ-ARCH-001 above and never reach this loop.
+    // =========================================================================
+    {
+        auto versionActive = [&flags](int version) -> bool {
+            switch (version) {
+            case 0: case 1: return true;                                  // base Dilithium forms
+            case 2:  return (flags & SCRIPT_VERIFY_PAT) != 0;             // PAT aggregation
+            case 3:  return (flags & SCRIPT_VERIFY_LATTICEFOLD) != 0;     // LatticeFold+ (retired)
+            case 4:  return (flags & SCRIPT_VERIFY_SOQUOBSCURA) != 0;     // confidential SOQ
+            case 5: case 7: return (flags & SCRIPT_VERIFY_USDSOQ) != 0;   // USDSOQ marker / holding
+            case 6:  return (flags & SCRIPT_VERIFY_P2WSH_DILITHIUM) != 0; // P2WSH-Dilithium
+            case 8: case 9: return (flags & SCRIPT_VERIFY_BTCSOQ) != 0;   // BTCSOQ holding / marker
+            case 10: return (flags & SCRIPT_VERIFY_USDSOQ) != 0 &&
+                            (flags & SCRIPT_VERIFY_SOQUOBSCURA) != 0;     // confidential USDSOQ
+            default: return false;                                        // v11-v16 unallocated
+            }
+        };
+
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+            const CTransaction& tx = *(block.vtx[i]);
+            for (const auto& txout : tx.vout) {
+                const CScript& spk = txout.scriptPubKey;
+                // The one shape every Soqucoin witness version uses: OP_N <32>.
+                if (spk.size() != 34 || spk[1] != 32) continue;
+                int version;
+                if (spk[0] == OP_0) {
+                    version = 0;
+                } else if (spk[0] >= OP_1 && spk[0] <= OP_16) {
+                    version = spk[0] - (OP_1 - 1);
+                } else {
+                    continue;  // not a witness program
+                }
+                if (!versionActive(version)) {
+                    return state.DoS(100,
+                        error("ConnectBlock(): witness v%d output in block %d before that "
+                              "version's deployment is active", version, pindex->nHeight),
+                        REJECT_INVALID, "bad-txns-witness-version-not-active");
+                }
+            }
+        }
+    }
+
+    // =========================================================================
     // SOQ-AUD2-002 / SOQ-I005: USDSOQ Consensus Enforcement
     // When DEPLOYMENT_USDSOQ is active, enforce:
     //   1. M-of-N Dilithium authority signature verification (SOQ-I005)
@@ -3530,6 +3673,24 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     nAuthorityOutputIndex = static_cast<int>(j);
                     break;
                 }
+            }
+
+            // SOQ-I009: default-deny, matching the BTCSOQ sibling below
+            // ("bad-btcsoq-authority-unavailable"). Without this, an ORDINARY
+            // correctly-signed transaction that merely carries an OP_5 marker
+            // took the ex-nihilo mint exemption in Consensus::CheckTxInputs and
+            // then found no verifier here, because the guard below is
+            // `isAuthorityTx && IsInitialized()` and simply fell through when
+            // the keyset was absent. That is unlimited USDSOQ minting the day
+            // the deployment activates without keys configured — which is the
+            // exact state CMainParams is in today. No authority ⇒ no authority
+            // transaction.
+            if (isAuthorityTx && !g_usdsoq_authority.IsInitialized()) {
+                return state.DoS(100,
+                    error("ConnectBlock(): USDSOQ authority tx %s at block %d but the "
+                          "authority key set is not initialized",
+                        tx.GetHash().ToString(), pindex->nHeight),
+                    REJECT_INVALID, "bad-usdsoq-authority-unavailable");
             }
 
             if (isAuthorityTx && g_usdsoq_authority.IsInitialized()) {
@@ -3773,8 +3934,13 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         // bootstrap without spending a previous authority UTXO.
                         // Without this gate, nodes replaying from genesis get stuck
                         // at the first post-bootstrap authority TX (BUG-16).
-                        static const int AUTHORITY_INPUT_ENFORCEMENT_HEIGHT = 54300;
-                        if (pindex->nHeight >= AUTHORITY_INPUT_ENFORCEMENT_HEIGHT) {
+                        // SOQ-I008: this was a hardcoded `static const int =
+                        // 54300`, a stagenet calibration applied to every
+                        // network. It is now a chain parameter (stagenet 54300,
+                        // everywhere else 0), so a fresh mainnet enforces the
+                        // authority-UTXO chain from genesis instead of leaving
+                        // it off for its first 54,300 blocks.
+                        if (pindex->nHeight >= consensus.nUSDSOQAuthorityInputEnforcementHeight) {
                             return state.DoS(100,
                                 error("ConnectBlock(): USDSOQ authority tx %s does not spend "
                                       "the tracked authority UTXO (expected %s:%u)",
