@@ -36,7 +36,6 @@ namespace pqwallet
 class PQKeyPair;
 class PQAddress;
 class PQTransactionBuilder;
-class PQFeeEstimator;
 
 /**
  * @brief Configuration for aggregation behavior

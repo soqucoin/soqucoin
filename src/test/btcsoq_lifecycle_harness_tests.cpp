@@ -269,15 +269,8 @@ struct BTCSOQChainSetup : public TestingSetup {
                                   SIGVERSION_WITNESS_V0, nullptr);
         std::vector<uint8_t> s0 = AuthSign(h, a0.sk);
         std::vector<uint8_t> s1 = AuthSign(h, a1.sk);
-        std::vector<std::vector<unsigned char>>& w = tx.vin[authIdx].scriptWitness.stack;
-        w.clear();
-        w.push_back(std::vector<unsigned char>{0x00});        // [0] payout_sig placeholder
-        w.push_back(std::vector<unsigned char>{0x00});        // [1] payout_pk placeholder
-        w.push_back(std::vector<unsigned char>{tag});         // [2] op tag (== signed OP_RETURN tag)
-        w.push_back(std::vector<unsigned char>{0x00});        // [3] payload placeholder
-        w.push_back(std::vector<unsigned char>(s0.begin(), s0.end())); // [4] auth sig 0
-        w.push_back(std::vector<unsigned char>(s1.begin(), s1.end())); // [5] auth sig 1
-        w.push_back(std::vector<unsigned char>{0x00});        // [6] authority_set placeholder
+        BuildAuthorityWitnessStack(
+            tx.vin[authIdx].scriptWitness.stack, tag, s0, s1);
     }
 
     // MINT MINT_SATS of v8 to `recipient`, bound to (btcTxid, btcVout).

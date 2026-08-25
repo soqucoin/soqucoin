@@ -123,7 +123,7 @@ SelectionResult PQCoinSelector::SelectForChannel(
     options.algorithm = SelectionAlgorithm::LARGEST_FIRST;
 
     // Channel funding needs slightly more than capacity for fees
-    auto& feeEstimator = PQFeeEstimator2::GetInstance();
+    auto& feeEstimator = PQFeeEstimator::GetInstance();
     auto feeEstimate = feeEstimator.EstimateL2Fee(L2OperationType::CHANNEL_OPEN, channelCapacity);
 
     int64_t targetAmount = channelCapacity + reserve + feeEstimate.absoluteFee;

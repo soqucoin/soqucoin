@@ -99,14 +99,14 @@ struct ChannelReserve {
 /**
  * @brief Block-aware, L2-ready fee estimator
  */
-class PQFeeEstimator2
+class PQFeeEstimator
 {
 public:
     //=========================================================================
     // Singleton access (shares state across wallet)
     //=========================================================================
 
-    static PQFeeEstimator2& GetInstance();
+    static PQFeeEstimator& GetInstance();
 
     //=========================================================================
     // Basic fee estimation (L1 transactions)
@@ -222,7 +222,7 @@ public:
 
 
 private:
-    PQFeeEstimator2() = default;
+    PQFeeEstimator() = default;
 
     // Cached state
     mutable double m_congestion{0.0};

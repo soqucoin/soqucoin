@@ -22,9 +22,9 @@ namespace pqwallet
 // Singleton instance
 //=============================================================================
 
-PQFeeEstimator2& PQFeeEstimator2::GetInstance()
+PQFeeEstimator& PQFeeEstimator::GetInstance()
 {
-    static PQFeeEstimator2 instance;
+    static PQFeeEstimator instance;
     return instance;
 }
 
@@ -32,7 +32,7 @@ PQFeeEstimator2& PQFeeEstimator2::GetInstance()
 // Basic L1 fee estimation
 //=============================================================================
 
-FeeEstimateResult PQFeeEstimator2::EstimateFee(
+FeeEstimateResult PQFeeEstimator::EstimateFee(
     ConfTarget confTarget,
     FeeEstimateMode mode,
     size_t txSize) const
@@ -83,12 +83,12 @@ FeeEstimateResult PQFeeEstimator2::EstimateFee(
     return result;
 }
 
-FeeRate PQFeeEstimator2::GetMinRelayFee() const
+FeeRate PQFeeEstimator::GetMinRelayFee() const
 {
     return MIN_RELAY_FEE;
 }
 
-FeeEstimateResult PQFeeEstimator2::GetSmartFee(const std::string& priority) const
+FeeEstimateResult PQFeeEstimator::GetSmartFee(const std::string& priority) const
 {
     ConfTarget target;
     FeeEstimateMode mode;
@@ -112,7 +112,7 @@ FeeEstimateResult PQFeeEstimator2::GetSmartFee(const std::string& priority) cons
 // Per-proof cost integration (Soqucoin-specific)
 //=============================================================================
 
-int64_t PQFeeEstimator2::CalculateFeeWithVerifyCost(
+int64_t PQFeeEstimator::CalculateFeeWithVerifyCost(
     const VerifyCostEstimate& verifyCost,
     size_t txSizeBytes,
     ConfTarget confTarget) const
@@ -133,7 +133,7 @@ int64_t PQFeeEstimator2::CalculateFeeWithVerifyCost(
 // L2 Lightning channel operations
 //=============================================================================
 
-FeeEstimateResult PQFeeEstimator2::EstimateL2Fee(
+FeeEstimateResult PQFeeEstimator::EstimateL2Fee(
     L2OperationType opType,
     ChannelCapacity capacity) const
 {
@@ -206,7 +206,7 @@ FeeEstimateResult PQFeeEstimator2::EstimateL2Fee(
     return result;
 }
 
-ChannelReserve PQFeeEstimator2::CalculateChannelReserve(
+ChannelReserve PQFeeEstimator::CalculateChannelReserve(
     ChannelCapacity capacity,
     bool isInitiator) const
 {
@@ -238,14 +238,14 @@ ChannelReserve PQFeeEstimator2::CalculateChannelReserve(
     return reserve;
 }
 
-int64_t PQFeeEstimator2::GetForceCloseBuffer() const
+int64_t PQFeeEstimator::GetForceCloseBuffer() const
 {
     // Estimate force close cost at 10x normal priority
     auto urgentEstimate = EstimateFee(1, FeeEstimateMode::CONSERVATIVE, 4000);
     return urgentEstimate.absoluteFee * 10;
 }
 
-bool PQFeeEstimator2::IsViableChannelCapacity(ChannelCapacity capacity) const
+bool PQFeeEstimator::IsViableChannelCapacity(ChannelCapacity capacity) const
 {
     // Minimum viable channel: reserves + fees + usable amount
     auto reserve = CalculateChannelReserve(capacity, true);
@@ -260,7 +260,7 @@ bool PQFeeEstimator2::IsViableChannelCapacity(ChannelCapacity capacity) const
 // Stablecoin/asset support
 //=============================================================================
 
-FeeEstimateResult PQFeeEstimator2::EstimateAssetFee(
+FeeEstimateResult PQFeeEstimator::EstimateAssetFee(
     const std::string& assetId,
     size_t txSizeBytes) const
 {
@@ -275,7 +275,7 @@ FeeEstimateResult PQFeeEstimator2::EstimateAssetFee(
 // Mempool tracking
 //=============================================================================
 
-void PQFeeEstimator2::UpdateFromMempool()
+void PQFeeEstimator::UpdateFromMempool()
 {
     // Congestion is measured from real mempool occupancy.
     //
@@ -312,7 +312,7 @@ void PQFeeEstimator2::UpdateFromMempool()
     m_congestion = std::max(0.0, std::min(1.0, occupancy));
 }
 
-double PQFeeEstimator2::GetMempoolCongestion() const
+double PQFeeEstimator::GetMempoolCongestion() const
 {
     return m_congestion;
 }
