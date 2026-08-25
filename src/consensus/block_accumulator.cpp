@@ -32,18 +32,42 @@
 // =========================================================================
 // AccumulateBlockRangeProofs
 // =========================================================================
-// Folds N individual range proof blobs into a single accumulator state.
+// Commits N individual range proof blobs to a single 72-byte accumulator state.
 //
-// The folding is done via random linear combination:
-//   1. Hash all proofs + commitments → Fiat-Shamir challenge seed
-//   2. Derive per-proof challenge rᵢ = H(seed, i)
-//   3. Combine: folded_state = H(r₀||proof₀||commit₀, r₁||proof₁||commit₁, ...)
-//   4. Hash folded_state → accumulator hash
+// What it actually does -- a hash chain, NOT an algebraic fold:
+//   1. Hash all proofs + commitments -> Fiat-Shamir seed
+//   2. Derive per-proof challenge r_i = SHA256d(seed || i)
+//   3. Chain: fold = H(domain || n || H(r_0||proof_0||commit_0) || ...)
+//   4. Serialise [version][count][seed][fold]
 //
-// This is a simplified but cryptographically sound approach that:
-//   - Is binding: changing any proof changes the Fiat-Shamir seed
-//   - Is sound: a false proof cannot cancel a true proof (with overwhelming probability)
-//   - Is deterministic: same inputs → same accumulator on all nodes
+// WHAT THIS DOES AND DOES NOT GIVE YOU. Read this before citing it as a
+// security property.
+//
+//   - Binding: yes. Changing any proof or commitment, or their order or count,
+//     changes the output, under SHA256d collision resistance. That is the whole
+//     of the guarantee.
+//   - Deterministic: yes. Same inputs give the same accumulator on every node,
+//     which is what consensus needs.
+//   - Sound: NO, and the earlier comment here claiming "a false proof cannot
+//     cancel a true proof" was misleading in two ways. First, there is no
+//     algebraic structure here for anything to cancel in, so the statement is
+//     vacuous rather than a property that was designed for. Second, and the
+//     part that matters: this function never inspects whether a proof is
+//     VALID. It commits to whatever bytes it is handed. An accumulator over N
+//     invalid proofs succeeds exactly as readily as one over N valid proofs.
+//
+// Validity comes only from per-input verification elsewhere. Note that the
+// range proof that verification relies on does not currently bind the committed
+// amount (SOQ-I011, tripwired and not fixed), so do not read a successful
+// accumulation as evidence that any amount is in range.
+//
+// The r_i challenges are redundant with the ordered writes into the fold
+// transcript: position is already committed by the write order and the count.
+// They are kept because the serialised format is consensus-visible.
+//
+// If LatticeFold+ algebraic folding is ever wired in, this becomes a real fold
+// with O(1) verification and the claims above have to be rewritten, not
+// extended.
 
 bool AccumulateBlockRangeProofs(
     const std::vector<std::vector<uint8_t>>& vProofData,
@@ -116,18 +140,18 @@ bool AccumulateBlockRangeProofs(
         challengeHasher.Finalize((unsigned char*)&vChallenges[i]);
     }
 
-    // Step 3: Compute folded state as random linear combination
+    // Step 3: build the folded state as a hash chain over
+    // (challenge_i, proof_i, commit_i). This is not a linear combination and
+    // there is no field arithmetic here; see the header comment.
     //
-    // Build the folded state: hash chain of (challenge_i, proof_i, commit_i)
-    // This is more robust than XOR (no cancellation attacks on identical proofs)
+    // What this buys, precisely:
+    //   1. The commitment fixes the exact multiset AND order of proofs the
+    //      miner included, so a miner cannot drop or reorder one silently.
+    //   2. It is binding under SHA256d collision resistance.
     //
-    // For consensus, this is sufficient because:
-    //   1. Individual proofs are still verified per-TX in CheckInputs()
-    //   2. The accumulator commitment ensures the miner included ALL proofs
-    //   3. The hash-chain fold is binding under collision resistance of SHA256d
-    //
-    // When LatticeFold+ algebraic folding is wired in (Phase 3), this will be
-    // upgraded to use the actual folding protocol for O(1) verification.
+    // What it does not buy: any statement about the proofs being valid. That
+    // is per-input verification's job, and see SOQ-I011 in the header for the
+    // current limits of that verification.
 
     CHash256 foldHasher;
     const char* foldDomain = "soqucoin-latticefold-fold-v1";

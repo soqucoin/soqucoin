@@ -381,38 +381,46 @@ bool LatticeRangeProofV2::verify(
         }
     }
 
-    // ⛔⛔ SOQ-I011: the claim two paragraphs down, that Check 4 is "the binding
-    // security check" and that an adversary "cannot forge consistent (z, z_r, t)
-    // without Schwartz-Zippel collision", is an ASSERTION AND IT IS FALSE.
+    // ⛔⛔ SOQ-I011 -- THIS VERIFIER DOES NOT BIND THE COMMITTED AMOUNT.
+    //
     // t_reconstruction is supplied by the prover and Check 4 is homogeneous in
     // (z_response, z_randomness, t_reconstruction), so the all-zero triple with an
     // honest Fiat-Shamir seed satisfies Checks 1 to 4. Completing Check 5 as an
     // upper bound would still accept z_randomness = 0 and would NOT make the proof
-    // bind. Do not read the SOQ-D001 note below as a theorem.
-    // See soquobscura_degenerate_witness_tests.cpp (three deliberate failures).
-
-    // Check 5: Norm bound on z_randomness (Gaussian blinding factor response)
-    // z_randomness = Σ α^i · r_i where r_i are Gaussian with σ=2.
-    // After aggregation, the bound grows: β_accum = NORM_BOUND_BETA * q (mod q wrap).
-    // We check the centered residue is not pathologically large — a prover who
-    // fabricates z_randomness without valid Gaussian r_i will fail the t_reconstruction
-    // check (SOQ-D001) with overwhelming probability.
+    // bind.
     //
-    // NOTE: z_response is intentionally NOT norm-bounded here. Its coefficients
-    // are α-power aggregations unreduced mod q (O(q) magnitude by construction).
-    // The t_reconstruction check (SOQ-D001, Check 4 above) is the binding security
-    // check for z_response — an adversary cannot forge consistent (z, z_r, t)
-    // without Schwartz-Zippel collision over Z_q[X]/(X^N+1).
-    // SECURITY NOTE: This norm check is defense-in-depth on z_randomness only.
+    // This comment block previously ended by asserting the opposite: that Check 4
+    // was "the binding security check" and that an adversary "cannot forge
+    // consistent (z, z_r, t) without Schwartz-Zippel collision". That assertion was
+    // false, and it has been removed rather than left standing under a correction,
+    // because a reader who skimmed to the confident-sounding paragraph got exactly
+    // the wrong answer. Nothing below claims binding any more. Do not reintroduce
+    // such a claim without a proof and a test that fails when it stops holding.
+    //
+    // See soquobscura_degenerate_witness_tests.cpp -- three of its cases fail ON
+    // PURPOSE and are the tripwire for this defect. Never "fix" them green.
+    // Status: tripwired, NOT fixed. Blocks CT activation, not launch.
+
+    // Check 5: nominally a norm bound on z_randomness (the Gaussian blinding
+    // factor response, z_randomness = Sum alpha^i * r_i with r_i Gaussian sigma=2).
+    //
+    // In its current form this check REJECTS NOTHING. The loop centres each
+    // coefficient and then discards it; there is no comparison and no early
+    // return. It is kept as the seam where a real bound will go, and is written
+    // out rather than deleted so the absence is visible at the call site instead
+    // of being an unexplained gap between Check 4 and the return.
+    //
+    // z_response is not norm-bounded here either. Its coefficients are alpha-power
+    // aggregations unreduced mod q, so they are O(q) by construction and a naive
+    // bound would reject honest proofs.
+    //
+    // Full Gaussian rejection-sampling enforcement is planned alongside the binary
+    // proof constraints (LNP22 full construction). Until then, treat this function
+    // as checking well-formedness, not range.
     for (size_t j = 0; j < LatticeParams::N; j++) {
         int64_t coeff = z_randomness.coeffs[j] % LatticeParams::Q;
         if (coeff > LatticeParams::Q / 2) coeff -= LatticeParams::Q; // center
-        // Accept any coeff that fits within q/2 (standard lattice norm acceptance)
-        // Use NORM_BOUND_BETA * 8380417 / 256 as the effective bound = q/2 (liberal)
-        // This is intentionally wide — the binding security is from t_reconstruction.
-        // SECURITY NOTE: Full Gaussian rejection sampling norm enforcement is planned
-        // for Phase 3 when we add binary proof constraints (LNP22 full construction).
-        (void)coeff; // No rejection on z_randomness in Phase 2 — t_recon is binding.
+        (void)coeff; // Deliberately unused: no rejection criterion is applied.
     }
 
     return valid == 1;
