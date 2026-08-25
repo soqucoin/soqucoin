@@ -225,7 +225,6 @@ private:
     PQFeeEstimator2() = default;
 
     // Cached state
-    mutable FeeRate m_cachedMinFee{1000}; // 1 sat/vB default
     mutable double m_congestion{0.0};
     mutable uint64_t m_lastUpdate{0};
 
