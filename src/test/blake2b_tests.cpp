@@ -239,8 +239,10 @@ BOOST_AUTO_TEST_CASE(blake2b_convenience_functions)
 }
 
 /**
- * Performance benchmark (informational, always passes)
- * Reports BLAKE2b-160 throughput for audit documentation
+ * Performance benchmark. Reports BLAKE2b-160 throughput for audit
+ * documentation. It asserts only that the benchmark actually ran and
+ * produced a hash -- there is no throughput threshold, so this will not
+ * fail on a slow machine.
  */
 BOOST_AUTO_TEST_CASE(blake2b_benchmark)
 {
@@ -274,8 +276,11 @@ BOOST_AUTO_TEST_CASE(blake2b_benchmark)
     BOOST_TEST_MESSAGE("  Throughput: " << static_cast<int>(ops_per_sec) << " hashes/sec");
     BOOST_TEST_MESSAGE("  Bandwidth:  " << static_cast<int>(mb_per_sec) << " MB/sec");
 
-    // Always pass - this is informational
-    BOOST_CHECK(true);
+    // Informational benchmark, but assert something real rather than
+    // BOOST_CHECK(true): the loop must have executed and produced a hash.
+    // A tautological assertion reads as coverage in the suite count and is not.
+    BOOST_CHECK_GT(duration.count(), 0);
+    BOOST_CHECK(hash != std::vector<unsigned char>(20, 0));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

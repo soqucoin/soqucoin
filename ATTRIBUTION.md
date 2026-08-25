@@ -43,7 +43,7 @@ upstream-dependencies section above.
 |------|--------|---------|-------|
 | `src/crypto/latticebp/` | Lattice-BP++ (confidential tx primitives) | MIT + **patent-pending** | Patent pending (provisional serials withheld); see [`LICENSE`](src/crypto/latticebp/LICENSE) |
 | `src/crypto/latticefold/` | LatticeFold+ verifier (Dilithium batch verify) | MIT | Halborn-remediated |
-| `src/crypto/binius/` | Binius binary-field commitments | MIT | Field arithmetic + commitment; exercised by `test/binius_tests.cpp` and the `binius_commit` fuzz target |
+| `src/crypto/binius/` | Binius commitment scheme | MIT | Hash-based commitment over a 32-byte field element vector; exercised by the `binius_commit` fuzz target |
 | `src/crypto/binius64/` | GF(2^128) field arithmetic | MIT | Halborn-remediated (SOQ-A001..A004) |
 | `src/crypto/pat/` | PAT — logarithmic Dilithium signature aggregation | MIT | Basis of `CHECKPATAGG` |
 | `src/pat/` | PAT Dilithium keystore (`CDilithiumKey`) | MIT | `dilithium-ref/` subdir keeps its own upstream license |

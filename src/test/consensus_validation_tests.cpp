@@ -289,62 +289,28 @@ BOOST_AUTO_TEST_CASE(timestamp_boundary_exactly_2hrs)
 }
 
 // ============================================
-// INTEGRATION WITH EXISTING TESTS
+// CROSS-REFERENCE NOTES (not tests)
 // ============================================
-
-/**
- * Test: Document PAT test coverage (already comprehensive)
- *
- * The PAT tests in pat_tests.cpp already cover:
- * - reject_tampered_merkle_root
- * - reject_tampered_pk_agg
- * - reject_tampered_msg_root
- * - reject_wrong_sibling_path
- *
- * These ARE the "PAT commitment mismatch" tests.
- */
-BOOST_AUTO_TEST_CASE(pat_tests_verification)
-{
-    // PAT tests exist in pat_tests.cpp with 17 comprehensive test cases:
-    // 1. proof_parsing_roundtrip
-    // 2. proof_parsing_invalid_size
-    // 3. verify_logic_check
-    // 4. create_verify_roundtrip_single
-    // 5. create_verify_roundtrip_multiple
-    // 6. reject_tampered_merkle_root ← PAT commitment mismatch
-    // 7. reject_tampered_pk_agg ← PAT commitment mismatch
-    // 8. reject_tampered_msg_root ← PAT commitment mismatch
-    // 9. reject_wrong_sibling_path ← PAT commitment mismatch
-    // 10. reject_swapped_signatures
-    // 11-17. Various edge cases
-
-    BOOST_CHECK(true); // Marker: PAT tests verified in pat_tests.cpp
-}
-
-// ============================================
-// ENFORCEMENT LOCATION DOCUMENTATION
-// ============================================
-
-/**
- * Test: Document enforcement locations for auditors
- */
-BOOST_AUTO_TEST_CASE(document_enforcement_code_locations)
-{
-    // COINBASE_MATURITY
-    // Definition: src/consensus/params.h:69 (nCoinbaseMaturity)
-    // Values: src/chainparams.cpp:174,338 (240 for DigiShield)
-    // Enforcement: src/validation.cpp:1355-1356, src/txmempool.cpp:551-552
-
-    // TIMESTAMP VALIDATION
-    // Median check: src/validation.cpp:3028
-    // Future check: src/validation.cpp:3032
-    // Function: ContextualCheckBlockHeader()
-
-    // PAT COMMITMENT
-    // Tests: src/test/pat_tests.cpp (17 test cases)
-    // Enforcement: OP_CHECKPATAGG in src/script/interpreter.cpp
-
-    BOOST_CHECK(true); // Marker: Locations documented
-}
+//
+// These were previously two BOOST_AUTO_TEST_CASEs whose only assertion was
+// BOOST_CHECK(true). They asserted nothing and inflated the suite's case count
+// with documentation. The content is kept here as comments; the fake cases are
+// gone. If you want these facts enforced, write a test that fails when they stop
+// being true -- a passing marker is not coverage.
+//
+// PAT commitment-mismatch coverage lives in test/pat_tests.cpp:
+//   reject_tampered_merkle_root, reject_tampered_pk_agg,
+//   reject_tampered_msg_root, reject_wrong_sibling_path,
+//   reject_swapped_signatures, plus parsing round-trips and edge cases.
+//
+// Enforcement locations, for auditors:
+//   COINBASE_MATURITY   definition  consensus/params.h (nCoinbaseMaturity)
+//                       values      chainparams.cpp
+//                       enforcement validation.cpp, txmempool.cpp
+//   TIMESTAMP           median/future checks in ContextualCheckBlockHeader()
+//   PAT COMMITMENT      OP_CHECKPATAGG in script/interpreter.cpp
+//
+// Line numbers were deliberately dropped: the previous version pinned exact
+// lines, which rot silently on the next edit and then mislead the next auditor.
 
 BOOST_AUTO_TEST_SUITE_END()
