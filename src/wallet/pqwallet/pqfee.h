@@ -220,17 +220,6 @@ public:
      */
     double GetMempoolCongestion() const;
 
-    /**
-     * @brief Get fee percentiles from recent blocks
-     * @param numBlocks Number of blocks to analyze (1-100)
-     * @return Fee rates at 10th, 50th, 90th percentile
-     */
-    struct FeePercentiles {
-        FeeRate p10; ///< 10th percentile (economy)
-        FeeRate p50; ///< Median fee rate
-        FeeRate p90; ///< 90th percentile (priority)
-    };
-    FeePercentiles GetRecentFeePercentiles(uint32_t numBlocks = 6) const;
 
 private:
     PQFeeEstimator2() = default;

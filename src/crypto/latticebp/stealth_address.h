@@ -95,6 +95,16 @@ public:
  *   - All outgoing transactions (with key images)
  *   - Account balance at any point in time
  */
+// NOT WIRED. Nothing in consensus, RPC or the wallet constructs or consults an
+// AuditKey; the class exists as the shape of the planned disclosure feature.
+// Treat it as a design sketch, not as available functionality.
+//
+// verifyCompleteness() was removed rather than left in place: it took the known
+// outputs, ignored them, and returned true unconditionally under a "Placeholder"
+// comment. An always-true completeness check is worse than a missing one -- the
+// day someone wires the audit path up, it passes silently and the disclosure is
+// certified complete without anything having been checked. Reintroduce it only
+// with an implementation and a test that fails on a hidden spend.
 class AuditKey
 {
 public:
@@ -106,10 +116,6 @@ public:
         const ViewKey& view_key,
         const SpendKey& spend_key,
         const std::vector<RingElement>& spent_outputs);
-
-    // Verify audit disclosure is complete (no hidden spends)
-    bool verifyCompleteness(
-        const std::vector<LatticePublicKey>& known_outputs) const;
 
     // Serialization
     std::vector<uint8_t> serialize() const;

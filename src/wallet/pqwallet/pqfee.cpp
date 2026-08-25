@@ -3,6 +3,12 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "wallet/pqwallet/pqfee.h"
+
+#include "policy/policy.h"
+#include "txmempool.h"
+#include "util.h"
+#include "validation.h"
+
 #include <algorithm>
 #include <cmath>
 #include <ctime>
@@ -271,8 +277,18 @@ FeeEstimateResult PQFeeEstimator2::EstimateAssetFee(
 
 void PQFeeEstimator2::UpdateFromMempool()
 {
-    // In production: query mempool for actual fee distribution
-    // For now: use time-based simulation
+    // Congestion is measured from real mempool occupancy.
+    //
+    // This previously simulated congestion from the hour of the day -- a sine
+    // wave over UTC business hours, with no reference to the mempool at all.
+    // That value is not inert: m_congestion is applied as a multiplier in
+    // EstimateFee() above, so pqestimatefee returned fabricated numbers that
+    // rose and fell on a clock. Anyone in a different timezone, or on a chain
+    // with a different load pattern, got a fee derived from nothing.
+    //
+    // Occupancy against -maxmempool is a real and standard proxy. It is
+    // deliberately a plain ratio rather than a fitted model: an honest crude
+    // signal beats a confident invented one.
 
     uint64_t now = static_cast<uint64_t>(std::time(nullptr));
 
@@ -282,41 +298,23 @@ void PQFeeEstimator2::UpdateFromMempool()
     }
     m_lastUpdate = now;
 
-    // Simulate congestion based on time of day (placeholder)
-    // Real implementation would query getmempoolinfo
-    int hour = (now / 3600) % 24;
+    const size_t nUsage = mempool.DynamicMemoryUsage();
+    const int64_t nMaxMempool =
+        GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
 
-    // Higher congestion during business hours (simulated)
-    if (hour >= 9 && hour <= 17) {
-        m_congestion = 0.6 + (std::sin(hour * 0.5) * 0.2);
-    } else {
-        m_congestion = 0.3;
+    if (nMaxMempool <= 0) {
+        m_congestion = 0.0;
+        return;
     }
+
+    double occupancy = static_cast<double>(nUsage) /
+                       static_cast<double>(nMaxMempool);
+    m_congestion = std::max(0.0, std::min(1.0, occupancy));
 }
 
 double PQFeeEstimator2::GetMempoolCongestion() const
 {
     return m_congestion;
-}
-
-PQFeeEstimator2::FeePercentiles PQFeeEstimator2::GetRecentFeePercentiles(
-    uint32_t numBlocks) const
-{
-    // In production: analyze recent blocks for actual fee distribution
-    // For now: return estimates based on current congestion
-
-    FeePercentiles result;
-
-    FeeRate baseRate = 5000; // 5 sat/vB baseline
-
-    // Adjust by congestion
-    baseRate = static_cast<FeeRate>(baseRate * (1.0 + m_congestion));
-
-    result.p10 = baseRate * 50 / 100;  // Economy: 50% of median
-    result.p50 = baseRate;             // Median
-    result.p90 = baseRate * 200 / 100; // Priority: 200% of median
-
-    return result;
 }
 
 //=============================================================================
