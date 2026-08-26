@@ -40,11 +40,22 @@ extern const std::string CURRENCY_UNIT;
  *      this constant exists to prevent, and the MoneyRange check downstream
  *      would be reading an already-wrapped value.
  *
- * So 10B coins is a deliberate cap with a 9.2x overflow margin, and the
- * consequence is real and worth knowing: NO SINGLE TRANSACTION MAY MOVE MORE
- * THAN 10B SOQ on either side, so a treasury or exchange consolidation larger
- * than that must be split. (For scale, the largest sum handled to date is the
- * 4.45B the pool consolidation trapped.)
+ * AND A THIRD BOUND EXISTS, DISCOVERED BY TEST WHEN 40B WAS TRIED (FC4,
+ * 2026-08-26): CompressAmount/DecompressAmount, the chainstate txout codec,
+ * computes roughly 9n + 81 in a uint64, so any amount above
+ * ~2,049,638,230,412,172,714 shors (~20.49B coins) with a non-round decimal
+ * tail fails to round-trip and would silently corrupt in the UTXO database.
+ * serialization_invariance_tests caught 40B * COIN - 1 decompressing to
+ * garbage. The static_assert below enforces this bound too.
+ *
+ * So 20B coins is the cap: 4.5x above the largest consolidation observed to
+ * date (the 4.45B the pool consolidation trapped), 80% of first-epoch
+ * emission, 2.4% under the codec ceiling, and 4.6x under the int64 additive
+ * ceiling. The consequence is real and worth knowing: NO SINGLE TRANSACTION
+ * MAY MOVE MORE THAN 20B SOQ on either side; a larger treasury or exchange
+ * consolidation must be split. (40B was ratified first, bead iwzf; the codec
+ * bound reduced it to 20B. Raising it above ~20.49B requires replacing the
+ * amount codec, which is chainstate-format surgery, not a constant bump.)
  *
  * The previous comment here claimed "maximum of 100B coins". That was wrong
  * twice over: the value is 10B, not 100B, and 100B coins in shors is 1e19,
@@ -54,12 +65,17 @@ extern const std::string CURRENCY_UNIT;
  * As this sanity check is used by consensus-critical validation code, the exact
  * value is consensus critical; changing it after genesis is a hard fork.
  * */
-static const CAmount MAX_MONEY = 10000000000 * COIN; // 10B SOQ, a per-TX ceiling
+static const CAmount MAX_MONEY = 20000000000 * COIN; // 20B SOQ, a per-TX ceiling
 
 //! The overflow bound argued for above, enforced rather than trusted: every
 //! accumulator in the validation path adds two in-range amounts before it calls
 //! MoneyRange, so twice MAX_MONEY has to remain representable.
-static_assert(MAX_MONEY > 0 && MAX_MONEY <= 4611686018427387903LL,
+static_assert(MAX_MONEY > 0 && MAX_MONEY <= 2049638230412172714LL,
+              "MAX_MONEY must fit the CompressAmount codec (~9n+81 in a uint64, "
+              "see the comment above): amounts past ~20.49B coins silently "
+              "corrupt in the chainstate. Raising this bound means replacing "
+              "the amount codec first.");
+static_assert(MAX_MONEY <= 4611686018427387903LL,
               "MAX_MONEY must satisfy 2 * MAX_MONEY <= INT64_MAX: validation "
               "accumulators sum before they range-check, so a larger value makes "
               "the check read an already-overflowed total");
