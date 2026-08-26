@@ -259,8 +259,11 @@ Note: Lattice-BP++ (SOQ-P002) and LatticeFold+ are deprecated and superseded by 
 > now marked as planned. Confidential outputs are **not active on any network** —
 > `DEPLOYMENT_SOQUOBSCURA` is `NOT_SCHEDULED` on mainnet, testnet, regtest and stagenet
 > — because the currently-shipped range verifier accepts an all-zero witness. See
-> `src/test/soquobscura_degenerate_witness_tests.cpp`, whose two failing tests are
-> committed red on purpose as the regression gate. Attribution for the LNP22/LaZer and
+> `src/test/soquobscura_degenerate_witness_tests.cpp`, whose three failing tests are
+> committed red on purpose as the regression gate (zero witness, wire-reachable zero
+> witness, and scaled witness; the scaled case staying red confirms the break is
+> homogeneity-wide, so no "reject all zeros" patch can legitimately turn this battery
+> green). Attribution for the LNP22/LaZer and
 > LaBRADOR upstreams this work builds on is in [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 ### Branch Structure
@@ -277,7 +280,7 @@ Note: Lattice-BP++ (SOQ-P002) and LatticeFold+ are deprecated and superseded by 
 
 ### Pre-Launch Policy
 
-Soqucoin Core is in **pre-genesis final validation**. The consensus stack has completed security audit (Halborn, 30 findings remediated) and is undergoing final pre-mainnet testing.
+Soqucoin Core is in **pre-genesis final validation**. The consensus stack has completed external security audit and is undergoing final pre-mainnet testing. The audit reports are published by Halborn: [blockchain node audit](https://www.halborn.com/audits/soqucoin/soqucoin-blockchain-node-a4f1f7), [architecture assessment](https://www.halborn.com/audits/soqucoin/blockchain-architecture-assessment---added-days-907771), and a [case study](https://www.halborn.com/case-studies/post/case-study-halborn-secures-soqucoin-the-first-native-post-quantum-scrypt-pow-blockchain).
 
 **How to contribute now:**
 

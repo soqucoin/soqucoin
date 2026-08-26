@@ -119,23 +119,16 @@ UniValue createbatchtransaction(const JSONRPCRequest& request)
 
     // Now aggregate using the chosen strategy
     valtype batch_proof;
-    // Note: LatticeFoldVerifier::IsEnabled() is not defined in the header I wrote,
-    // but I should add it or just check the deployment status.
-    // For now I'll assume it's available or check the deployment directly if possible.
-    // But to match the user's code I'll add IsEnabled() to verifier.h/cpp or just use the code as is and fix errors.
-    // The user code uses LatticeFoldVerifier::IsEnabled().
 
     if (use_fold) {
         // NOTE: no LatticeFold+ prover exists yet. Prover development was
         // deliberately deferred to Phase 2 alongside Lattice-BP++ (the
         // extension audit covered the verifier only); see bead
         // soqucoin-build-pq-privacy-system-w1d for status and scope.
-        // Until it ships, witness v3 spends cannot be constructed.
-        // batch_proof = LatticeFoldVerifier::CreatePlaceholderProof(tx); // 1.38 kB
-        // tx.vin[0].scriptSig = CScript() << OP_FALSE << OP_IF << OP_PUSHBYTES_23 << "soqucoin/latticefold+v1" << OP_ELSE << batch_proof << OP_ENDIF;
-
-        // Since CreatePlaceholderProof is not in my verifier.h, I will add a stub or just comment it out for now
-        // and put a dummy proof.
+        // Until it ships, witness v3 spends cannot be constructed. The
+        // zero-filled placeholder below is structurally shaped like a proof
+        // and carries none; no network accepts it (v3 is retired everywhere
+        // and dormant-version outputs are consensus-rejected at creation).
         batch_proof.resize(1380); // 1.38 kB
         const std::string tag = "soqucoin/latticefold+v1";
         tx.vin[0].scriptSig = CScript() << OP_FALSE << OP_IF << std::vector<unsigned char>(tag.begin(), tag.end()) << OP_ELSE << batch_proof << OP_ENDIF;
