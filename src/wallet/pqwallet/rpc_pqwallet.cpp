@@ -351,7 +351,7 @@ UniValue pqestimatefee(const JSONRPCRequest& request)
         priority = request.params[1].get_str();
     }
 
-    auto& estimator = PQFeeEstimator2::GetInstance();
+    auto& estimator = PQFeeEstimator::GetInstance();
     estimator.UpdateFromMempool();
 
     FeeEstimateMode mode = FeeEstimateMode::CONSERVATIVE;
@@ -436,7 +436,7 @@ UniValue pqchannelreserve(const JSONRPCRequest& request)
         isInitiator = request.params[1].get_bool();
     }
 
-    auto& estimator = PQFeeEstimator2::GetInstance();
+    auto& estimator = PQFeeEstimator::GetInstance();
     auto reserve = estimator.CalculateChannelReserve(capacity, isInitiator);
     bool isViable = estimator.IsViableChannelCapacity(capacity);
 

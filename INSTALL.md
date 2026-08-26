@@ -2,43 +2,8 @@
 
 ### Pre-compiled binaries
 
-Th
-### Post-Quantum Wallet Setup
-
-Soqucoin uses Dilithium (ML-DSA-44) keys. Legacy ECDSA wallets are **not supported**.
-
-1.  **Generate a new wallet**:
-    ```bash
-    ./src/soqucoin-cli createwallet "pq_wallet"
-    ```
-
-2.  **Get a Dilithium address**:
-    ```bash
-    ./src/soqucoin-cli -rpcwallet=pq_wallet getnewaddress
-    ```
-    *Addresses start with `sq1` (Bech32m).*
-
-3.  **Mining**:
-    Miners must use `generatetoaddress` with a valid Dilithium address.
-    ```bash
-    ./src/soqucoin-cli generatetoaddress 1 $(./src/soqucoin-cli getnewaddress)
-    ```
-
-### Building from Source
-
-**Dependencies**:
-*   Boost 1.85+
-*   OpenSSL 3.0+
-*   Clang 16+ (recommended for AVX2/NEON optimizations)
-
-**Build**:
-```bash
-./autogen.sh
-./configure --enable-fuzz --without-gui
-make -j$(nproc)
-```
- is
-by to download the latest precompiled binaries for your platform from the
+The easiest way to install the latest version of the Soqucoin Core software is
+to download the latest precompiled binaries for your platform from the
 [release page](https://github.com/soqucoin/soqucoin/releases). Currently,
 binaries are released for the following platforms:
 
@@ -94,6 +59,45 @@ and everyone can run the full release build process themselves to verify the
 output; resulting binaries are fully deterministic. Please refer to
 [the gitian building documentation](doc/gitian-building.md) for more
 information regarding that process.
+
+### Post-Quantum Wallet Setup
+
+Soqucoin uses Dilithium (ML-DSA-44) keys. Legacy ECDSA wallets are **not
+supported**.
+
+Note that this tree is Bitcoin Core 0.13-era in its wallet RPC surface: there is
+no `createwallet` and no `-rpcwallet` argument. A single wallet is loaded from
+the data directory, and `-disablewallet` turns it off entirely.
+
+1.  **Get a Dilithium address** (creates one in the loaded wallet):
+    ```bash
+    ./src/soqucoin-cli getnewaddress
+    ```
+    Mainnet addresses start with `sq1`. Stagenet uses `ssq1`.
+
+2.  **Mining**:
+    Miners must use `generatetoaddress` with a valid Dilithium address.
+    ```bash
+    ./src/soqucoin-cli generatetoaddress 1 $(./src/soqucoin-cli getnewaddress)
+    ```
+
+### Building from Source
+
+**Dependencies** (these are the floors `configure.ac` actually enforces, not
+aspirational versions):
+
+*   Boost 1.60.0 or later
+*   OpenSSL
+*   A C++14 compiler. C++17 is supported but optional, via `--enable-cxx17`.
+
+**Build**:
+```bash
+./autogen.sh
+./configure --without-gui
+make -j$(nproc)
+```
+
+Add `--enable-fuzz` only if you intend to build the fuzz targets.
 
 ### Compiling using packaged dependencies
 

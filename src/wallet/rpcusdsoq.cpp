@@ -104,19 +104,31 @@ UniValue mintusdsoq(const JSONRPCRequest& request)
     CMutableTransaction mtx;
     mtx.nVersion = 2;
 
-    // Create the USDSOQ output — Phase 4: v7 witness scriptPubKey makes it USDSOQ
-    // A v7 output (OP_7 <SHA256(pubkey)>) is classified as USDSOQ by IsUSDSOQ().
-    // For now, use the standard scriptPubKey. The v7 rewrite is Phase 4b.
+    // ⛔ The output built here is NOT classified as USDSOQ.
+    //
+    // IsUSDSOQ() recognises a v7 output, OP_7 <SHA256(pubkey)>. What goes in
+    // below is an ordinary scriptPubKey from GetScriptForDestination(), so the
+    // minted output is an ordinary transparent SOQ output that no USDSOQ rule
+    // will match. The comment this replaces said "for now" and deferred the
+    // rewrite to a numbered phase, which read as sequencing rather than as the
+    // functional gap it is.
+    //
+    // ⛔ Note also that this function does not check DEPLOYMENT_USDSOQ, though
+    // its own help text above states that it "Only works when DEPLOYMENT_USDSOQ
+    // is active". The sibling RPCs in this file do gate on VersionBitsTipState.
+    // Adding the gate here is a behavioural change to a mint path and is
+    // deliberately not being made as part of a comment sweep.
     CTxOut mintOutput(nAmount, scriptPubKey);
     mtx.vout.push_back(mintOutput);
 
     // Build witness stack for OP_USDSOQ_MINT (witness v5)
     // Stack: [opcode_tag=0x01] [payload: amount(8) + scriptPubKey] [sig(s)] [authority_set]
     //
-    // NOTE: In this initial implementation, we construct the raw transaction
-    // with the correct output format. Full M-of-N authority signing requires
-    // the authority key set to be loaded in the wallet. For stagenet testing,
-    // we use the wallet's default Dilithium key as a 1-of-1 authority.
+    // NOTE: the output format above is NOT the correct one (see the block
+    // marked above). M-of-N authority signing is also not implemented: this
+    // uses the wallet's default Dilithium key as a 1-of-1 authority, which is
+    // adequate for stagenet exercise and is not the production authority
+    // model.
 
     // Serialize amount as 8-byte LE payload
     std::vector<unsigned char> payload(8);

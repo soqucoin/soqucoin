@@ -36,6 +36,7 @@
 #include "script/interpreter.h"
 #include "script/script.h"
 #include "test/test_bitcoin.h"
+#include "test/testutil.h"
 #include "txdb.h"
 #include "uint256.h"
 #include "validation.h"
@@ -147,17 +148,10 @@ struct UsdsoqTestAuthority {
         CTransaction ctx(tx);
         uint256 h = SignatureHash(scriptCode, ctx, authIdx, SIGHASH_ALL,
                                   CAmount(0), SIGVERSION_WITNESS_V0, nullptr);
-        std::vector<std::vector<unsigned char>>& w = tx.vin[authIdx].scriptWitness.stack;
-        w.clear();
-        w.push_back(std::vector<unsigned char>{0x00});   // [0] payout_sig placeholder
-        w.push_back(std::vector<unsigned char>{0x00});   // [1] payout_pk placeholder
-        w.push_back(std::vector<unsigned char>{0x55});   // [2] authority tag
-        w.push_back(std::vector<unsigned char>{0x00});   // [3] payload placeholder
         std::vector<uint8_t> s0 = SignWith(h, sks[0]);
         std::vector<uint8_t> s1 = SignWith(h, sks[1]);
-        w.push_back(std::vector<unsigned char>(s0.begin(), s0.end()));
-        w.push_back(std::vector<unsigned char>(s1.begin(), s1.end()));
-        w.push_back(std::vector<unsigned char>{0x00});   // [last] authority_set placeholder
+        BuildAuthorityWitnessStack(
+            tx.vin[authIdx].scriptWitness.stack, 0x55, s0, s1);
     }
 };
 

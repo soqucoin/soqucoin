@@ -86,42 +86,6 @@ struct AggregationSavings {
     }
 };
 
-/**
- * @brief Fee estimation based on verification costs
- */
-class PQFeeEstimator
-{
-public:
-    /**
-     * @brief Get recommended fee rate (satoshis per vbyte)
-     * @return Current recommended rate
-     */
-    static int64_t GetRecommendedFeeRate();
-
-    /**
-     * @brief Calculate fee from verify cost and TX size
-     * @param verifyCost Verification cost estimate
-     * @param txSizeBytes Transaction size in bytes
-     * @param feeRate Fee rate (satoshis per vbyte)
-     * @return Recommended fee in satoshis
-     */
-    static int64_t CalculateFee(const VerifyCostEstimate& verifyCost,
-        size_t txSizeBytes,
-        int64_t feeRate);
-
-    /**
-     * @brief Check if PAT aggregation is cost-effective
-     * @param signatureCount Number of signatures
-     * @return true if PAT saves costs
-     */
-    static bool IsPATCostEffective(uint32_t signatureCount);
-
-    /**
-     * @brief Get PAT break-even threshold
-     * @return Minimum signatures for PAT benefit
-     */
-    static uint32_t GetPATThreshold();
-};
 
 } // namespace pqwallet
 } // namespace soqucoin

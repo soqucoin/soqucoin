@@ -27,9 +27,9 @@
 // Lattice-BP++ C API (for createshieldtx / createunshieldtx RPCs)
 #include "crypto/latticebp/capi.h"
 
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //  getdecoyoutputs — Fetch random confidential outputs for ring sigs
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 
 static UniValue getdecoyoutputs(const JSONRPCRequest& request)
 {
@@ -266,9 +266,9 @@ static UniValue getdecoyoutputs(const JSONRPCRequest& request)
     return result;
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //  getprivacystatus — Privacy layer activation and statistics
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 
 static UniValue getprivacystatus(const JSONRPCRequest& request)
 {
@@ -350,9 +350,9 @@ static UniValue getprivacystatus(const JSONRPCRequest& request)
     return result;
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //  createshieldtx — Build unsigned TX: transparent → confidential
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //
 // DESIGN: This RPC constructs an unsigned transaction that converts
 // transparent SOQ into a confidential output. The caller (soq-signer)
@@ -468,9 +468,20 @@ static UniValue createshieldtx(const JSONRPCRequest& request)
     scriptPubKey << stealthPK;
 
     // 5. Generate range proof
-    // Use a placeholder sighash/pubkey_hash — the real ones will be computed
-    // when the full TX is assembled and signed. For now we bind to the
-    // commitment itself (self-binding) to prevent proof re-use.
+    //
+    // ⛔ The proof produced here is NOT bound to the transaction that will
+    // eventually carry it. The real sighash is not known at this point --
+    // the caller assembles and signs the TX afterwards -- so the proof is
+    // bound to H(commitment) and H(stealth_pk) instead. Self-binding stops
+    // the proof being replayed against a DIFFERENT commitment; it does not
+    // tie it to a spending context, so the same proof remains valid across
+    // every transaction that reuses this commitment.
+    //
+    // This is reachable only when DEPLOYMENT_SOQUOBSCURA is THRESHOLD_ACTIVE,
+    // which it is not on any network (see the gate at the top of this
+    // function), so it is not a live exposure today. It must be fixed before
+    // that deployment is ever scheduled. Compare SOQ-D002, which was the same
+    // class of bug (a zero sighash) in the verifier.
     uint8_t sighashPlaceholder[32];
     uint8_t pubkeyHashPlaceholder[32];
     CSHA256().Write(commitment.data(), commitLen).Finalize(sighashPlaceholder);
@@ -508,9 +519,9 @@ static UniValue createshieldtx(const JSONRPCRequest& request)
     return result;
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //  createunshieldtx — Build components for: confidential → transparent
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //
 // DESIGN: This RPC generates the ring signature and key-image needed
 // to spend a confidential UTXO and produce a transparent output.
@@ -726,9 +737,9 @@ static UniValue createunshieldtx(const JSONRPCRequest& request)
     return result;
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //  getprivacyparams — Consensus parameters for soq-privacy-signer
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //
 // SOQ-H3: Exposes the Lattice-BP++ consensus seed so the signer can
 // initialize lbp_init() with the SAME params as the node. Without
@@ -781,9 +792,9 @@ static UniValue getprivacyparams(const JSONRPCRequest& request)
     return result;
 }
 
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 //  RPC Registration
-// ═══════════════════════════════════════════════════════════════════
+// ===================================================================
 
 static const CRPCCommand commands[] =
 {

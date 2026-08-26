@@ -303,14 +303,6 @@ AuditKey AuditKey::generateDisclosure(
     return ak;
 }
 
-bool AuditKey::verifyCompleteness(
-    const std::vector<LatticePublicKey>& known_outputs) const
-{
-    // Verify that every known output either has a matching key image
-    // (spent) or is still unspent (no matching image)
-    return true; // Placeholder — full implementation in Phase A7
-}
-
 std::vector<uint8_t> AuditKey::serialize() const {
     return view_key.serialize(); // Simplified for now
 }

@@ -99,14 +99,14 @@ struct ChannelReserve {
 /**
  * @brief Block-aware, L2-ready fee estimator
  */
-class PQFeeEstimator2
+class PQFeeEstimator
 {
 public:
     //=========================================================================
     // Singleton access (shares state across wallet)
     //=========================================================================
 
-    static PQFeeEstimator2& GetInstance();
+    static PQFeeEstimator& GetInstance();
 
     //=========================================================================
     // Basic fee estimation (L1 transactions)
@@ -220,23 +220,11 @@ public:
      */
     double GetMempoolCongestion() const;
 
-    /**
-     * @brief Get fee percentiles from recent blocks
-     * @param numBlocks Number of blocks to analyze (1-100)
-     * @return Fee rates at 10th, 50th, 90th percentile
-     */
-    struct FeePercentiles {
-        FeeRate p10; ///< 10th percentile (economy)
-        FeeRate p50; ///< Median fee rate
-        FeeRate p90; ///< 90th percentile (priority)
-    };
-    FeePercentiles GetRecentFeePercentiles(uint32_t numBlocks = 6) const;
 
 private:
-    PQFeeEstimator2() = default;
+    PQFeeEstimator() = default;
 
     // Cached state
-    mutable FeeRate m_cachedMinFee{1000}; // 1 sat/vB default
     mutable double m_congestion{0.0};
     mutable uint64_t m_lastUpdate{0};
 

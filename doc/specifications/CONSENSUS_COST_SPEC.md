@@ -298,7 +298,22 @@ The limit of 10 ensures block validation completes well within target block time
 
 ## 4. Post-Quantum Proof Verification Costs (Novel)
 
-Each post-quantum proof type has an assigned verification cost. The **total verification cost** in a block cannot exceed `MAX_BLOCK_VERIFY_COST` (80,000 units).
+> ⛔ **SPECIFIED, NOT ENFORCED.** This section describes a design that is not
+> implemented. `MAX_BLOCK_VERIFY_COST`, `MAX_LATTICEFOLD_PER_BLOCK`,
+> `MAX_PROOF_BYTES_PER_TX`, `MAX_PROOF_BYTES_PER_BLOCK` and the four
+> `*_VERIFY_COST` weights are defined in `consensus/consensus.h` and **read by
+> nothing**. No code accumulates a per-block verification cost and no block is
+> rejected for exceeding one. See `src/test/verify_cost_tests.cpp`, which pins
+> the constants against drift and documents the gap, and the tracking issue
+> `pq-verify-cost-unimplemented-obx2`.
+>
+> Read the tense below as design intent. It previously read as enforcement,
+> which is what this note exists to correct.
+
+Each post-quantum proof type is **assigned** a verification cost. Under the
+design, the total verification cost in a block would not be permitted to exceed
+`MAX_BLOCK_VERIFY_COST` (80,000 units). That ceiling is not currently applied to
+any block.
 
 | Proof Type | Cost | Benchmark¹ | Theoretical Max² |
 |------------|------|------------|------------------|

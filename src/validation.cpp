@@ -5262,12 +5262,23 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 const CTxOut& txout = tx.vout[j];
                 if (!txout.IsConfidential()) continue;
 
-                // Extract range proof and commitment from witness data.
-                // For confidential outputs, the proof data is serialized
-                // in the output's witness extension field.
-                // For now, use the scriptPubKey hash as commitment proxy
-                // (real commitment extraction will be wired when the
-                // confidential TX creation path is complete).
+                // Read the proof and commitment straight off the input
+                // witness stack (see the layout comment above). The previous
+                // comment here claimed a scriptPubKey-hash commitment proxy;
+                // that was residue from an earlier implementation and never
+                // described these lines.
+                //
+                // NOTE the indexing assumption: output j is paired with input
+                // j. That holds only for transactions built with a 1:1
+                // output-to-input correspondence, and nothing in this loop
+                // enforces it. Outputs beyond vin.size() get an empty witness
+                // and are silently skipped.
+                //
+                // This loop is NOT dead code. IsConfidential() is a shape
+                // predicate over scriptPubKey, so a crafted v4/v10-shaped
+                // output reaches it even though the deployment is
+                // NOT_SCHEDULED -- the "dormant feature with a live shape"
+                // pattern. Do not assume dormancy makes this unreachable.
                 const CScriptWitness& wit = (j < tx.vin.size()) ?
                     tx.vin[j].scriptWitness : CScriptWitness();
 

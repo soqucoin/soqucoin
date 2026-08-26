@@ -5,7 +5,7 @@
 <h1 align="center">Soqucoin™ Core</h1>
 
 <p align="center">
-  <strong>A post-quantum Layer 1 with native ML-DSA-44 signatures and confidential transactions — in stagenet, mainnet genesis in progress</strong>
+  <strong>A post-quantum Layer 1 with native ML-DSA-44 signatures. Running on stagenet, mainnet genesis in progress.</strong>
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 
 ## About
 
-Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It uses **PAT** (Practical Attestation Technique) for batch signature attestation and **SoquObscura** for post-quantum confidential transactions, built on the LNP22/LaZer proof system with LaBRADOR block-level proof aggregation.
+Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from the transaction authorization path and uses **NIST-standardized ML-DSA-44 (Dilithium)** signatures. It uses **PAT** (Practical Attestation Technique) for batch signature attestation. **SoquObscura**, the post-quantum confidential transaction system built on the LNP22/LaZer proof system with LaBRADOR block-level aggregation, is designed and partly in-tree but is **not activated on any network**. See the status note in the Architecture section before citing any of its figures.
 
 > **Why does this matter?** Quantum computers will eventually break ECDSA. Soqucoin makes all user transaction signatures quantum-resistant without requiring a soft-fork migration from an ECDSA-based design.
 
@@ -58,7 +58,14 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 | **Batch Verification** | PAT (Merkle-aggregated) | Constant-size proofs |
 | **Proof-of-Work** | Scrypt (N=1024, r=1, p=1) | Grover-resistant |
 
-### Confidential Transactions — SoquObscura (SOQ-P010)
+### Confidential Transactions: SoquObscura (SOQ-P010)
+
+> **STATUS: NOT ACTIVE ON ANY NETWORK.** `DEPLOYMENT_SOQUOBSCURA` is
+> `NOT_SCHEDULED` on mainnet, testnet, regtest and stagenet, and its BIP9 entry
+> is configured to never activate. The table below describes the **design**, not
+> behaviour you can observe on a running node. The reference sizes and timings
+> are measured against the research implementation, not against consensus code.
+> Confidential outputs do not currently hide amounts.
 
 | Component | Implementation | Security Level |
 |-----------|---------------|----------------|
@@ -154,7 +161,7 @@ Trust Model: Full cryptographic verification with witness data
 ### Prerequisites
 
 - C++14 compiler (GCC 7+ or Clang 8+)
-- Boost 1.70+
+- Boost 1.60.0+
 - OpenSSL 1.1+
 - libevent 2.1+
 
@@ -230,7 +237,7 @@ cp config.example.json config.json && nano config.json
 | Opcode | Hex | Witness | Purpose |
 |--------|-----|---------|----------|
 | `OP_CHECKPATAGG` | 0xfd | v2 | PAT Merkle commitment verification |
-| `OP_SOQUOBSCURA_VERIFY` | 0xfa | v4 | SoquObscura confidential tx verification |
+| `OP_SOQUOBSCURA_RANGEPROOF` | 0xfa | v4 | SoquObscura range proof verification (deployment `NOT_SCHEDULED`) |
 
 ### Prover Implementation Status
 
@@ -283,7 +290,7 @@ Soqucoin Core is in **pre-genesis final validation**. The consensus stack has co
 ### Code Style
 
 This project follows [Bitcoin Core contribution guidelines](CONTRIBUTING.md):
-- C++17 standard
+- C++14 standard (C++17 is optional, via `--enable-cxx17`)
 - 4-space indentation
 - No trailing whitespace
 - Signed commits required

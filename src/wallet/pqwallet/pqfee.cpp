@@ -3,6 +3,12 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "wallet/pqwallet/pqfee.h"
+
+#include "policy/policy.h"
+#include "txmempool.h"
+#include "util.h"
+#include "validation.h"
+
 #include <algorithm>
 #include <cmath>
 #include <ctime>
@@ -16,9 +22,9 @@ namespace pqwallet
 // Singleton instance
 //=============================================================================
 
-PQFeeEstimator2& PQFeeEstimator2::GetInstance()
+PQFeeEstimator& PQFeeEstimator::GetInstance()
 {
-    static PQFeeEstimator2 instance;
+    static PQFeeEstimator instance;
     return instance;
 }
 
@@ -26,7 +32,7 @@ PQFeeEstimator2& PQFeeEstimator2::GetInstance()
 // Basic L1 fee estimation
 //=============================================================================
 
-FeeEstimateResult PQFeeEstimator2::EstimateFee(
+FeeEstimateResult PQFeeEstimator::EstimateFee(
     ConfTarget confTarget,
     FeeEstimateMode mode,
     size_t txSize) const
@@ -77,12 +83,12 @@ FeeEstimateResult PQFeeEstimator2::EstimateFee(
     return result;
 }
 
-FeeRate PQFeeEstimator2::GetMinRelayFee() const
+FeeRate PQFeeEstimator::GetMinRelayFee() const
 {
     return MIN_RELAY_FEE;
 }
 
-FeeEstimateResult PQFeeEstimator2::GetSmartFee(const std::string& priority) const
+FeeEstimateResult PQFeeEstimator::GetSmartFee(const std::string& priority) const
 {
     ConfTarget target;
     FeeEstimateMode mode;
@@ -106,7 +112,7 @@ FeeEstimateResult PQFeeEstimator2::GetSmartFee(const std::string& priority) cons
 // Per-proof cost integration (Soqucoin-specific)
 //=============================================================================
 
-int64_t PQFeeEstimator2::CalculateFeeWithVerifyCost(
+int64_t PQFeeEstimator::CalculateFeeWithVerifyCost(
     const VerifyCostEstimate& verifyCost,
     size_t txSizeBytes,
     ConfTarget confTarget) const
@@ -127,7 +133,7 @@ int64_t PQFeeEstimator2::CalculateFeeWithVerifyCost(
 // L2 Lightning channel operations
 //=============================================================================
 
-FeeEstimateResult PQFeeEstimator2::EstimateL2Fee(
+FeeEstimateResult PQFeeEstimator::EstimateL2Fee(
     L2OperationType opType,
     ChannelCapacity capacity) const
 {
@@ -200,7 +206,7 @@ FeeEstimateResult PQFeeEstimator2::EstimateL2Fee(
     return result;
 }
 
-ChannelReserve PQFeeEstimator2::CalculateChannelReserve(
+ChannelReserve PQFeeEstimator::CalculateChannelReserve(
     ChannelCapacity capacity,
     bool isInitiator) const
 {
@@ -232,14 +238,14 @@ ChannelReserve PQFeeEstimator2::CalculateChannelReserve(
     return reserve;
 }
 
-int64_t PQFeeEstimator2::GetForceCloseBuffer() const
+int64_t PQFeeEstimator::GetForceCloseBuffer() const
 {
     // Estimate force close cost at 10x normal priority
     auto urgentEstimate = EstimateFee(1, FeeEstimateMode::CONSERVATIVE, 4000);
     return urgentEstimate.absoluteFee * 10;
 }
 
-bool PQFeeEstimator2::IsViableChannelCapacity(ChannelCapacity capacity) const
+bool PQFeeEstimator::IsViableChannelCapacity(ChannelCapacity capacity) const
 {
     // Minimum viable channel: reserves + fees + usable amount
     auto reserve = CalculateChannelReserve(capacity, true);
@@ -254,7 +260,7 @@ bool PQFeeEstimator2::IsViableChannelCapacity(ChannelCapacity capacity) const
 // Stablecoin/asset support
 //=============================================================================
 
-FeeEstimateResult PQFeeEstimator2::EstimateAssetFee(
+FeeEstimateResult PQFeeEstimator::EstimateAssetFee(
     const std::string& assetId,
     size_t txSizeBytes) const
 {
@@ -269,10 +275,20 @@ FeeEstimateResult PQFeeEstimator2::EstimateAssetFee(
 // Mempool tracking
 //=============================================================================
 
-void PQFeeEstimator2::UpdateFromMempool()
+void PQFeeEstimator::UpdateFromMempool()
 {
-    // In production: query mempool for actual fee distribution
-    // For now: use time-based simulation
+    // Congestion is measured from real mempool occupancy.
+    //
+    // This previously simulated congestion from the hour of the day -- a sine
+    // wave over UTC business hours, with no reference to the mempool at all.
+    // That value is not inert: m_congestion is applied as a multiplier in
+    // EstimateFee() above, so pqestimatefee returned fabricated numbers that
+    // rose and fell on a clock. Anyone in a different timezone, or on a chain
+    // with a different load pattern, got a fee derived from nothing.
+    //
+    // Occupancy against -maxmempool is a real and standard proxy. It is
+    // deliberately a plain ratio rather than a fitted model: an honest crude
+    // signal beats a confident invented one.
 
     uint64_t now = static_cast<uint64_t>(std::time(nullptr));
 
@@ -282,41 +298,23 @@ void PQFeeEstimator2::UpdateFromMempool()
     }
     m_lastUpdate = now;
 
-    // Simulate congestion based on time of day (placeholder)
-    // Real implementation would query getmempoolinfo
-    int hour = (now / 3600) % 24;
+    const size_t nUsage = mempool.DynamicMemoryUsage();
+    const int64_t nMaxMempool =
+        GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000;
 
-    // Higher congestion during business hours (simulated)
-    if (hour >= 9 && hour <= 17) {
-        m_congestion = 0.6 + (std::sin(hour * 0.5) * 0.2);
-    } else {
-        m_congestion = 0.3;
+    if (nMaxMempool <= 0) {
+        m_congestion = 0.0;
+        return;
     }
+
+    double occupancy = static_cast<double>(nUsage) /
+                       static_cast<double>(nMaxMempool);
+    m_congestion = std::max(0.0, std::min(1.0, occupancy));
 }
 
-double PQFeeEstimator2::GetMempoolCongestion() const
+double PQFeeEstimator::GetMempoolCongestion() const
 {
     return m_congestion;
-}
-
-PQFeeEstimator2::FeePercentiles PQFeeEstimator2::GetRecentFeePercentiles(
-    uint32_t numBlocks) const
-{
-    // In production: analyze recent blocks for actual fee distribution
-    // For now: return estimates based on current congestion
-
-    FeePercentiles result;
-
-    FeeRate baseRate = 5000; // 5 sat/vB baseline
-
-    // Adjust by congestion
-    baseRate = static_cast<FeeRate>(baseRate * (1.0 + m_congestion));
-
-    result.p10 = baseRate * 50 / 100;  // Economy: 50% of median
-    result.p50 = baseRate;             // Median
-    result.p90 = baseRate * 200 / 100; // Priority: 200% of median
-
-    return result;
 }
 
 //=============================================================================

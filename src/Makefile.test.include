@@ -160,7 +160,6 @@ BITCOIN_TESTS =\
   test/privacy_integration_tests.cpp \
   test/block_accumulator_tests.cpp \
   test/binius64_field_tests.cpp \
-  test/consensus_arch_tests.cpp \
   test/freeze_registry_tests.cpp \
   test/freeze_registry_harness_tests.cpp \
   test/ctxout_format_matrix_tests.cpp \
