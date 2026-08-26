@@ -41,6 +41,12 @@ typedef enum ScriptError_t {
     /* BTCSOQ consensus-native asset errors (DL-BTCSOQ-CONSENSUS-NATIVE) */
     SCRIPT_ERR_BTCSOQ_MARKER_SPEND,
 
+    /* Witness v10 (confidential USDSOQ): reject-path scaffolding. Fails closed
+     * when both gating deployments are active, because no confidential
+     * verifier is shipped (SOQ-I011). Replaced by real verification in the
+     * activation release. */
+    SCRIPT_ERR_CONFIDENTIAL_USDSOQ_UNVERIFIED,
+
     /* BIP 119: OP_CHECKTEMPLATEVERIFY */
     SCRIPT_ERR_CHECKTEMPLATEVERIFY,
 

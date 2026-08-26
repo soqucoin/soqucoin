@@ -57,16 +57,21 @@
 BOOST_FIXTURE_TEST_SUITE(soquobscura_keyimage_deadcode_tests, DilithiumChainSetup)
 
 // ---------------------------------------------------------------------------
-// The measurement. Two CONFIDENTIAL (witness v10) inputs are spent in one
-// transaction, both signed by the same key, so both witness stacks end in the
-// identical 0x00-prefixed pubkey. The key image is defined as the last witness
-// element, so if the loop ran at all the second input would be an intra-block
-// duplicate and the block would be rejected with
-// bad-txns-conf-intrablock-duplicate-keyimage.
+// The measurement, updated for FC4. Two CONFIDENTIAL (witness v10) inputs are
+// spent in one transaction with IDENTICAL trailing witness elements, so if the
+// key-image loop ran at all the second input would be an intra-block duplicate.
 //
-// It connects. And nothing is written to the key-image DB, which is checked
-// directly rather than inferred, so this cannot be read as "the loop ran and the
-// images happened to differ".
+// Before FC4 this case proved the loop dead by showing the block CONNECTS
+// (the loop resolves inputs after UpdateCoins has spent them; bead p4wv). FC4
+// gave v10 its own interpreter dispatch that FAILS CLOSED while the
+// confidential verifier is unshipped (bead jzg0, ruling r0vn), so the loop is
+// now dead twice over: its inputs resolve too late, AND no v10 spend can
+// connect at all while the gates are active. This case pins the stronger
+// posture, and still checks the key-image DB directly rather than inferring.
+//
+// When the activation release ships a real verifier and replaces the
+// fail-closed reject, this case must be revisited together with the loop's
+// scheduled REMOVAL (p4wv: remove in Phase 2, never revive).
 // ---------------------------------------------------------------------------
 BOOST_AUTO_TEST_CASE(connectblock_never_extracts_key_images_from_confidential_inputs)
 {
@@ -90,15 +95,21 @@ BOOST_AUTO_TEST_CASE(connectblock_never_extracts_key_images_from_confidential_in
     const LatticeKeyImageHash ki =
         LatticeKeyImageHash::FromSerializedKeyImage(tx.vin[0].scriptWitness.stack.back());
 
-    BOOST_CHECK_MESSAGE(RejectReasonFor({tx}).empty(),
-        "a block spending two confidential inputs whose key images are IDENTICAL must be "
-        "rejected once the key-image loop runs. It connects, so the loop does not run: "
-        "it resolves inputs through the coins view in ConnectBlock's LAST pass, after "
-        "UpdateCoins has already spent them (bead p4wv, third instance of the e2n pattern)");
+    // BlockIsValid, not RejectReasonFor: the rejection comes from VerifyScript
+    // (SCRIPT_ERR_CONFIDENTIAL_USDSOQ_UNVERIFIED), and script failures inside a
+    // block carry an EMPTY reject string, which RejectReasonFor cannot tell
+    // apart from a valid block. The exact script error is pinned separately in
+    // witness_version_allocation_tests / v10_fails_closed_when_both_gates_are_active.
+    BOOST_CHECK_MESSAGE(!BlockIsValid({tx}),
+        "a v10 spend must FAIL CLOSED while the confidential verifier is unshipped "
+        "(FC4 scaffolding, bead jzg0). If this block validates, either a real verifier "
+        "landed (update this case alongside the p4wv loop removal) or the fail-closed "
+        "dispatch regressed to anyone-can-spend");
 
-    CBlock connected = CreateAndProcessBlock({tx}, coinbaseSpk);
-    BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == connected.GetHash(),
-        "the block must actually connect for the DB assertion below to mean anything");
+    const uint256 tipBefore = chainActive.Tip()->GetBlockHash();
+    CBlock rejected = CreateAndProcessBlock({tx}, coinbaseSpk);
+    BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == tipBefore,
+        "a block spending v10 inputs must NOT connect while the verifier is unshipped");
 
     bool have;
     {
@@ -106,9 +117,9 @@ BOOST_AUTO_TEST_CASE(connectblock_never_extracts_key_images_from_confidential_in
         have = pcoinsdbview->HaveKeyImage(ki.hash);
     }
     BOOST_CHECK_MESSAGE(!have,
-        "ConnectBlock recorded no key image for a confidential spend. vBlockKeyImages is "
-        "always empty, so WriteKeyImage is never reached and the cross-block duplicate "
-        "check has an empty set to consult. Direct evidence, not inference.");
+        "no key image may be recorded for a confidential spend: the extraction loop is "
+        "dead (p4wv) and the spend itself cannot connect (jzg0). Direct evidence, not "
+        "inference.");
 }
 
 // ---------------------------------------------------------------------------

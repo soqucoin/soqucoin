@@ -126,7 +126,10 @@ const Row TABLE[] = {
     {  7, "is_usdsoq_holding",      SCRIPT_VERIFY_USDSOQ,             true,         true  },
     {  8, "is_btcsoq_holding",      SCRIPT_VERIFY_BTCSOQ,             true,         true  },
     {  9, "is_btcsoq_authority",    SCRIPT_VERIFY_BTCSOQ,             true,         true  },
-    { 10, "is_future_witness",      0,                                true,         false },
+    // v10 is ALLOCATED (confidential USDSOQ) with a COMPOUND gate: both
+    // deployments must be active (bead jzg0; validation versionActive case 10).
+    { 10, "is_confidential_usdsoq_witness",
+          SCRIPT_VERIFY_USDSOQ | SCRIPT_VERIFY_SOQUOBSCURA,           true,         false },
     { 11, "is_future_witness",      0,                                true,         false },
     { 12, "is_future_witness",      0,                                true,         false },
     { 13, "is_future_witness",      0,                                true,         false },
@@ -177,9 +180,10 @@ BOOST_AUTO_TEST_CASE(gates_do_not_leak_across_versions)
         if (gated.gate == 0) continue;
         for (const Row& other : TABLE) {
             if (other.version == gated.version) continue;
-            // Versions sharing a deployment flag by design (v5/v7 on USDSOQ,
-            // v8/v9 on BTCSOQ) are expected to move together.
-            if (other.gate == gated.gate) continue;
+            // Versions sharing any deployment flag by design (v5/v7 on USDSOQ,
+            // v8/v9 on BTCSOQ, and v10 whose COMPOUND gate contains both the
+            // USDSOQ and SOQUOBSCURA flags) are expected to move together.
+            if ((other.gate & gated.gate) != 0) continue;
             if (!other.anyoneCanSpendWhenOff) continue;
             const ScriptError serr = ScriptVerdict(Program(other.version),
                                                    SCRIPT_VERIFY_WITNESS | gated.gate);
@@ -189,6 +193,22 @@ BOOST_AUTO_TEST_CASE(gates_do_not_leak_across_versions)
                 "predicate, which is the v6 / P2WSH-Dilithium collision shape");
         }
     }
+}
+
+// v10's gate is COMPOUND: either flag alone must leave it dormant, and with
+// both set it must fail CLOSED on the scaffolding error, because no
+// confidential verifier ships before activation (SOQ-I011; Gate 0 ruling
+// r0vn). The activation release replaces the reject with real verification,
+// and this pin is the tripwire that makes that replacement deliberate.
+BOOST_AUTO_TEST_CASE(v10_fails_closed_when_both_gates_are_active)
+{
+    BOOST_CHECK_EQUAL(ScriptVerdict(Program(10), SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_USDSOQ),
+                      SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(ScriptVerdict(Program(10), SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_SOQUOBSCURA),
+                      SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(ScriptVerdict(Program(10),
+                          SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_USDSOQ | SCRIPT_VERIFY_SOQUOBSCURA),
+                      SCRIPT_ERR_CONFIDENTIAL_USDSOQ_UNVERIFIED);
 }
 
 // Shapes outside the allocated forms must fail CLOSED at the script layer, not
@@ -322,9 +342,10 @@ BOOST_AUTO_TEST_CASE(free_witness_versions_are_v11_through_v16)
     const std::vector<int> expected = {11, 12, 13, 14, 15, 16};
     BOOST_CHECK_MESSAGE(free_ == expected,
         "the free witness-version range has moved. v10 is TAKEN (confidential USDSOQ, Tier A) "
-        "even though interpreter.cpp still treats it as a generic future version, which is the "
-        "half-allocation tracked on bead jzg0. Derive this list from the code before allocating "
-        "anything, never from a design document");
+        "in every layer: transaction.h, validation.cpp versionActive, and since FC4 the "
+        "interpreter's own is_confidential_usdsoq_witness dispatch (bead jzg0 closed the "
+        "half-allocation). Derive this list from the code before allocating anything, never "
+        "from a design document");
 }
 
 // ⚠️ WITNESS v0 IS RELAY-STANDARD AND NOT SPENDABLE AS ITS NAME IMPLIES.

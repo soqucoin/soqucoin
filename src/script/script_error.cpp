@@ -42,6 +42,8 @@ const char* ScriptErrorString(const ScriptError serror)
         return "Attempt to spend a frozen USDSOQ UTXO";
     case SCRIPT_ERR_BTCSOQ_MARKER_SPEND:
         return "BTCSOQ authority marker may only be spent by an authority transaction";
+    case SCRIPT_ERR_CONFIDENTIAL_USDSOQ_UNVERIFIED:
+        return "Confidential USDSOQ spend rejected: no confidential verifier is shipped";
     case SCRIPT_ERR_CHECKTEMPLATEVERIFY:
         return "OP_CHECKTEMPLATEVERIFY hash mismatch";
     case SCRIPT_ERR_CHECKSIGFROMSTACK:
