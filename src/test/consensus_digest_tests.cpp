@@ -252,20 +252,27 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     const uint256 digest = ComputeConsensusDigest();
     BOOST_TEST_MESSAGE("CONSENSUS DIGEST: " << digest.ToString());
 
-    // Pinned 2026-08-20, Apple clang 21 arm64 -O2, at the v2.0.0 freeze candidate.
+    // Pinned 2026-08-26, Apple clang 21 arm64 -O2, at the FC4 candidate.
     //
-    // Moved from 0489e98d4d6465a42ef90a0d456c70804794b914cdd0e502ad0bbae3928a9fe7
-    // for ONE reason, verified by isolation rather than assumed: AbsorbGlobalLimits
-    // was added, bringing MAX_MONEY and the block limits under the digest for the
-    // first time. Rebuilding with that call removed reproduced the old value
-    // byte-for-byte on the new binary, which also proves the three other changes
-    // in the same commit moved nothing in consensus:
-    //   * -fno-strict-aliasing (bead eolo) perturbs no computed value;
-    //   * the v2.0.0 version bump does not reach consensus;
-    //   * adding SCRIPT_VERIFY_SCRIPT_RESTORE to relay policy (bead mxph) is
-    //     policy, not consensus.
+    // Moved from 5effd2ed86326721613bddbbe2002555b217e1008c27668557027dcacf6a7ce0
+    // for exactly the consensus inputs FC4 changed, each individually intended:
+    //   * MAX_MONEY 10B -> 20B (bead iwzf; AbsorbGlobalLimits input). 40B was
+    //     tried first and moved the digest to c346a6b6...; the CompressAmount
+    //     codec bound then reduced the value to 20B, so the 40B digest never
+    //     shipped anywhere.
+    //   * testnet CSV moved off the inherited 2016/2017 BIP9 window to
+    //     ALWAYS_ACTIVE (per-network deployment inputs).
+    //   * witness v10 gained its own gated dispatch failing closed under
+    //     USDSOQ+SOQUOBSCURA (bead jzg0; script-verdict matrix inputs, where
+    //     the flag sets cover it).
+    // The regtest BIP9 lever fix in the same commit mutates nothing at
+    // construction time and therefore contributes nothing here.
+    //
+    // Prior pin history: moved from 0489e98d... on 2026-08-20 when
+    // AbsorbGlobalLimits first brought MAX_MONEY and the block limits under
+    // the digest (verified by isolation at the time).
     const std::string expected =
-        "5effd2ed86326721613bddbbe2002555b217e1008c27668557027dcacf6a7ce0";
+        "f830d7d6e85f044feb88243263755a92c67a15a480e4f3c9d9ba074e0533bc80";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +
