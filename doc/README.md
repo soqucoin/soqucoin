@@ -18,8 +18,7 @@ The Soqucoin repo's [root README](/README.md) contains relevant information on t
 - [Benchmarking](benchmarking.md)
 
 ### Resources
-* Discuss on the [BitcoinTalk](https://bitcointalk.org/) forums, in the [Soqucoin thread](https://bitcointalk.org/index.php?topic=361813.0).
-* Discuss on [#soqucoin-dev](http://webchat.freenode.net/?channels=soqucoin-dev) on Freenode. If you don't have an IRC client use [webchat here](http://webchat.freenode.net/?channels=soqucoin-dev).
+* Project site: [soqucoin.com](https://soqucoin.com) and [soqu.org](https://soqu.org).
 
 ### Miscellaneous
 - [Assets Attribution](assets-attribution.md)
@@ -33,6 +32,6 @@ The Soqucoin repo's [root README](/README.md) contains relevant information on t
 License
 ---------------------
 Distributed under the [MIT software license](/COPYING).
-This product includes software developed by the Bitcoin developers for use in [Soqucoin Core](https://www.bitcoin.org/). 
+This product includes software developed by the Bitcoin Core and Dogecoin Core developers. 
 This product includes software developed by the OpenSSL Project for use in the [OpenSSL Toolkit](https://www.openssl.org/). This product includes
 cryptographic software written by Eric Young ([eay@cryptsoft.com](mailto:eay@cryptsoft.com)), and UPnP software written by Thomas Bernard.

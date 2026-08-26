@@ -101,9 +101,13 @@ There is no BIP9 miner-signaling activation.
 | **V6 Control Flow** | 13 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
 
 > [!NOTE]
-> **Witness version routing** in `VerifyScript()`: v0/v1 = Dilithium, v2 = PAT, v3 = LatticeFold,
-> v4 = Lattice-BP++, v5 = USDSOQ, v6 = L2SOQ (Stagenet prototype), v7-v16 = future (anyone-can-spend). Each handler pushes the witness
-> stack into `EvalScript()` with the corresponding opcode. Flag gating ensures soft fork safety.
+> **Witness version routing** in `VerifyScript()`: v0/v1 = Dilithium, v2 = PAT, v3 = LatticeFold
+> (retired, can never activate), v4 = SoquObscura confidential, v5 = USDSOQ authority,
+> v6 = P2WSH-Dilithium, v7 = USDSOQ holding, v8/v9 = BTCSOQ, v10 = confidential USDSOQ,
+> v11-v16 = unallocated. Each handler pushes the witness stack into `EvalScript()` with the
+> corresponding opcode. Flag gating ensures soft fork safety, and creating an output of a
+> dormant witness version is consensus-rejected in ConnectBlock (SOQ-I009,
+> `bad-txns-witness-version-not-active`).
 >
 > **Dormant features**: When the enforcement flag is not set, transactions using that witness version
 > pass as anyone-can-spend (standard BIP141 behavior). This allows future activation at a published
@@ -497,10 +501,13 @@ miner-signaling activation: the chain is merge-mined, so hashpower has no signal
 constituency, and the real activation precondition (audit clearance) is what a height encodes.
 
 > [!IMPORTANT]
-> **Pre-activation behavior**: Transactions using `NEVER_ACTIVE` witness versions (v4, v5) pass as
-> **anyone-can-spend** per BIP141. This is safe: miners won't mine these transactions, and
-> `fRequireStandard=true` on mainnet/stagenet rejects them from the mempool. Setting the
-> activation height in a released binary enables full consensus enforcement without a hard fork.
+> **Pre-activation behavior**: spends of dormant witness versions evaluate as anyone-can-spend
+> per BIP141 at the script layer, but this window cannot be funded: ConnectBlock
+> consensus-rejects the CREATION of any output whose witness version is not active
+> (SOQ-I009, `bad-txns-witness-version-not-active`) and any confidential output while
+> SoquObscura is dormant (SOQ-ARCH-001, `bad-txns-confidential-not-active`). Standardness
+> additionally keeps such transactions out of the mempool. Setting the activation height in
+> a released binary enables full consensus enforcement without a hard fork.
 
 ### Genesis Features (ALWAYS_ACTIVE)
 
@@ -546,11 +553,14 @@ supply invariant tracking. Design log: `DL-USDSOQ-STABLECOIN.md`.
 Witness v0 → Dilithium signature verification (inline)
 Witness v1 → Dilithium signature verification (inline, SHA-256 program)
 Witness v2 → PAT: OP_CHECKPATAGG via EvalScript()
-Witness v3 → LatticeFold: OP_CHECKFOLDPROOF via EvalScript()
-Witness v4 → Lattice-BP++: OP_LATTICEBP_RANGEPROOF via EvalScript()  [NEVER_ACTIVE]
-Witness v5 → USDSOQ: OP_USDSOQ_* via EvalScript()                   [NEVER_ACTIVE]
-Witness v6 → L2SOQ: 2-of-2 Dilithium P2WSH + CTV/CSV               [Prototype Active — Stagenet]
-Witness v7-v16 → Future: anyone-can-spend (BIP141 forward compatibility)
+Witness v3 → LatticeFold: OP_CHECKFOLDPROOF via EvalScript()        [retired, never activates]
+Witness v4 → SoquObscura: OP_SOQUOBSCURA_RANGEPROOF via EvalScript() [NOT_SCHEDULED]
+Witness v5 → USDSOQ authority: OP_USDSOQ_* via EvalScript()          [NOT_SCHEDULED on mainnet]
+Witness v6 → P2WSH-Dilithium script hash                             [NOT_SCHEDULED on mainnet]
+Witness v7 → USDSOQ holding                                          [NOT_SCHEDULED on mainnet]
+Witness v8/v9 → BTCSOQ holding / authority marker                    [NOT_SCHEDULED on mainnet]
+Witness v10 → Confidential USDSOQ (requires USDSOQ + SOQUOBSCURA)    [NOT_SCHEDULED]
+Witness v11-v16 → Unallocated: output creation consensus-rejected (SOQ-I009)
 ```
 
 Each handler pushes the witness stack into `EvalScript()` with the corresponding opcode. Flag gating
