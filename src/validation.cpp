@@ -691,7 +691,11 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         if (heightActive(Consensus::DEPLOYMENT_P2WSH_DILITHIUM)) activeWitnessVersions |= WitnessVersionBit(6);
         // BTCSOQ governs both the v8 holding form and the v9 authority marker.
         if (heightActive(Consensus::DEPLOYMENT_BTCSOQ))        activeWitnessVersions |= WitnessVersionBit(8) | WitnessVersionBit(9);
-        // v10-v16 are unallocated: never standard until one is assigned a deployment.
+        // v10 is ALLOCATED (confidential USDSOQ, gated on SOQUOBSCURA + USDSOQ
+        // together) but deliberately stays out of this mask: its Solver form and
+        // verifier ship with the activation release, and nothing is standard
+        // that Solver cannot name. v11-v16 are unallocated: never standard
+        // until one is assigned a deployment.
     }
 
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)

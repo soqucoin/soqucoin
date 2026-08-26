@@ -1669,12 +1669,18 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // Future witness versions (v10-v16): anyone-can-spend until soft fork.
     // NOTE: v6 (P2WSH-Dilithium), v7 (USDSOQ holding), v8 (BTCSOQ holding)
     // and v9 (BTCSOQ authority marker) are carved out above.
+    // Witness v10 is ALLOCATED: confidential USDSOQ (SOQ-ARCH-004), gated on
+    // DEPLOYMENT_USDSOQ and DEPLOYMENT_SOQUOBSCURA together (validation.cpp
+    // versionActive case 10). It is not a generic future version (bead jzg0).
+    bool is_confidential_usdsoq_witness = (scriptPubKey.size() == 34 &&
+                                           scriptPubKey[0] == OP_10 &&
+                                           scriptPubKey[1] == 32);
     bool is_future_witness = (scriptPubKey.size() == 34 &&
-                              scriptPubKey[0] >= OP_10 &&
+                              scriptPubKey[0] >= OP_11 &&
                               scriptPubKey[0] <= OP_16 &&
                               scriptPubKey[1] == 32);
 
-    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium && !is_usdsoq_holding && !is_btcsoq_holding && !is_btcsoq_authority) {
+    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium && !is_usdsoq_holding && !is_btcsoq_holding && !is_btcsoq_authority && !is_confidential_usdsoq_witness) {
         return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
@@ -1746,11 +1752,12 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         return set_success(serror);
     }
 
-    // Future witness versions (v4-v16): consensus-valid, no validation performed.
-    // SECURITY NOTE: Coins sent to v4-v16 outputs are anyone-can-spend at
-    // the consensus layer until a soft fork adds validation rules for that
-    // version. Standardness policy (IsStandard in policy/policy.cpp) MUST
-    // reject creation and relay of these outputs to prevent premature use.
+    // Dormant witness versions (v4-v10 allocated, v11-v16 unallocated):
+    // spends are anyone-can-spend at the script layer until each version's
+    // deployment activates. This window cannot be funded: creating an output
+    // of an inactive witness version is consensus-rejected in ConnectBlock
+    // (SOQ-I009, bad-txns-witness-version-not-active), and standardness
+    // (policy/policy.cpp) keeps such transactions out of the mempool.
     if (is_latticebp_witness) {
         if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
             return set_success(serror);  // Not active yet — anyone-can-spend
@@ -1922,6 +1929,21 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
             return set_success(serror);  // Not active yet — anyone-can-spend (soft-fork safe)
         }
         return set_error(serror, SCRIPT_ERR_BTCSOQ_MARKER_SPEND);
+    }
+
+    // Witness v10: confidential USDSOQ (bead jzg0, Gate 0 ruling r0vn).
+    // Dormant posture matches every allocated sibling. When BOTH gating
+    // deployments are active the spend FAILS CLOSED, because the confidential
+    // verifier is deliberately not shipped (SOQ-I011: the in-tree range
+    // verifier does not bind the amount — do not route to it). The activation
+    // release that schedules SOQUOBSCURA + USDSOQ replaces this reject with
+    // real verification; the scaffolding exists so activation is a rules
+    // change inside an existing dispatch, never a code-shape change.
+    if (is_confidential_usdsoq_witness) {
+        if (!(flags & SCRIPT_VERIFY_USDSOQ) || !(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
+            return set_success(serror);  // Not active yet — anyone-can-spend (soft-fork safe)
+        }
+        return set_error(serror, SCRIPT_ERR_CONFIDENTIAL_USDSOQ_UNVERIFIED);
     }
 
     if (is_future_witness) {

@@ -533,10 +533,13 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = 1230767999;   // December 31, 2008
 
         // Deployment of BIP68, BIP112, and BIP113.
-        // XXX: BIP heights and hashes all need to be updated to Soqucoin values
+        // CSV mirrors mainnet: ALWAYS_ACTIVE. The inherited 2016/2017 Dogecoin
+        // BIP9 window would resolve THRESHOLD_FAILED on a 2026-genesis chain,
+        // silently disabling BIP68/112/113 on testnet forever (F8 class; the
+        // exact hazard the mainnet comment describes). Fixed for FC4.
         consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 1456790400; // March 1st, 2016
-        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = 1493596800;   // May 1st, 2017
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
         // Deployment of SegWit (BIP141, BIP143, and BIP147)
         consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
@@ -985,8 +988,16 @@ public:
 
     void UpdateBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime, int64_t nTimeout)
     {
+        // ⚠️ ALL THREE, for the same reason as UpdateActivationHeight below:
+        // regtest's height-indexed consensus tree means a mutation applied to
+        // `consensus` alone is invisible to every block above height 19
+        // (bead tofg).
         consensus.vDeployments[d].nStartTime = nStartTime;
         consensus.vDeployments[d].nTimeout = nTimeout;
+        digishieldConsensus.vDeployments[d].nStartTime = nStartTime;
+        digishieldConsensus.vDeployments[d].nTimeout = nTimeout;
+        auxpowConsensus.vDeployments[d].nStartTime = nStartTime;
+        auxpowConsensus.vDeployments[d].nTimeout = nTimeout;
     }
 
     void UpdateActivationHeight(Consensus::DeploymentPos d, int nActivationHeight)
