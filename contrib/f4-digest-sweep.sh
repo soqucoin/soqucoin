@@ -54,6 +54,7 @@ mkdir -p "$WORK"
 
 echo "=== F4 cross-build consensus digest sweep ==="
 echo "source: $SRC"
+echo "host:   $(uname -s) $(uname -m)  cc=$(${CC:-cc} --version 2>/dev/null | head -1)"
 echo "commit: $(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo "levels: ${LEVELS[*]}"
 if [ -n "$(git -C "$SRC" status --porcelain 2>/dev/null)" ]; then
@@ -85,16 +86,34 @@ for lvl in "${LEVELS[@]}"; do
         ./autogen.sh >autogen.log 2>&1 || {
             echo "    autogen FAILED, see ${bd}/autogen.log"; exit 1; }
         # ⚠️ A fresh export does not inherit the working tree's configure
-        # environment, so boost and the homebrew include/lib paths must be given
-        # explicitly or configure dies on "Need at least boost 1.60.0". These
-        # mirror the options recorded in the working tree's config.status.
-        # Override with SOQ_CONFIGURE_EXTRA if your host differs.
-        BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
-        EXTRA="${SOQ_CONFIGURE_EXTRA:---with-incompatible-bdb --with-boost=${BREW_PREFIX}/opt/boost --without-gui}"
+        # environment, so dependency paths must be supplied or configure dies on
+        # "Need at least boost 1.60.0". The defaults are PLATFORM-DEPENDENT:
+        # on macOS the deps live under the homebrew prefix, on Linux they are in
+        # system paths and passing a homebrew prefix breaks the build.
+        #
+        # ⛔ THE LINUX CASE IS THE ONE THAT MATTERS FOR F4. nh6m was a GCC defect
+        # at -O2/-Os, and the fleet builds on Ubuntu with gcc, so a sweep that
+        # only ever runs on macOS/clang is evidence about the wrong toolchain.
+        # Override everything with SOQ_CONFIGURE_EXTRA / SOQ_LDFLAGS /
+        # SOQ_CPPFLAGS on an unusual host.
+        if command -v brew >/dev/null 2>&1; then
+            BREW_PREFIX="$(brew --prefix)"
+            DEF_EXTRA="--with-incompatible-bdb --with-boost=${BREW_PREFIX}/opt/boost --without-gui"
+            DEF_LD="-L${BREW_PREFIX}/lib"
+            DEF_CPP="-I${BREW_PREFIX}/include"
+        else
+            # System paths; let configure find boost the normal way.
+            DEF_EXTRA="--with-incompatible-bdb --without-gui"
+            DEF_LD=""
+            DEF_CPP=""
+        fi
+        EXTRA="${SOQ_CONFIGURE_EXTRA:-$DEF_EXTRA}"
+        LD_EXTRA="${SOQ_LDFLAGS-$DEF_LD}"
+        CPP_EXTRA="${SOQ_CPPFLAGS-$DEF_CPP}"
         # shellcheck disable=SC2086
         ./configure $EXTRA \
             CXXFLAGS="${lvl} -g" CFLAGS="${lvl} -g" \
-            LDFLAGS="-L${BREW_PREFIX}/lib" CPPFLAGS="-I${BREW_PREFIX}/include" \
+            ${LD_EXTRA:+LDFLAGS="$LD_EXTRA"} ${CPP_EXTRA:+CPPFLAGS="$CPP_EXTRA"} \
             >configure.log 2>&1 || {
             echo "    configure FAILED, see ${bd}/configure.log"; exit 1; }
         make -j"${NPROC}" -C src test/test_soqucoin >build.log 2>&1 || {
