@@ -37,10 +37,12 @@
 #include "amount.h"
 #include "consensus/consensus.h"
 #include "consensus/params.h"
+#include "crypto/pat/logarithmic.h"
 #include "crypto/sha256.h"
 #include "primitives/block.h"
 #include "script/interpreter.h"
 #include "script/script.h"
+#include "script/script_error.h"
 #include "soqucoin.h"
 #include "streams.h"
 #include "uint256.h"
@@ -174,6 +176,249 @@ void AbsorbScriptVerdicts(DigestBuilder& d)
     }
 }
 
+//! A deterministic byte vector. ⛔ NEVER use GetRandHashVec() or anything else
+//! random in this file: the digest has to be reproducible across builds forever,
+//! which is the entire point of the instrument.
+std::vector<unsigned char> FixedVec(size_t n, unsigned char seed)
+{
+    std::vector<unsigned char> v(n);
+    for (size_t i = 0; i < n; ++i) v[i] = (unsigned char)((seed + i * 31u) & 0xff);
+    return v;
+}
+
+//! A VALID PAT full-mode script, built from fixed material.
+//!
+//! This is the one place the digest reaches real consensus cryptography, and it
+//! matters more than the rest of this file put together: PAT is the only one of
+//! these features ACTIVE FROM GENESIS on mainnet (SCRIPT_VERIFY_PAT), and its
+//! proof construction is hash-tree arithmetic — exactly where an nh6m-class
+//! codegen difference expresses itself.
+//!
+//! Stack layout, per interpreter.cpp's OP_CHECKPATAGG handler:
+//!   <sigs...> <pks...> <msgs...> <count_le32> <proof> <agg_pk> <msg_root>
+//!
+//! The 32-byte "sigs" are not Dilithium signatures and are not meant to be. PAT
+//! verifies no signatures by design; it proves an aggregation relation over the
+//! supplied material. Fixed vectors are therefore a faithful input, and the
+//! upstream PAT tests use random ones of exactly this shape.
+bool BuildValidPatScript(uint32_t n, CScript& out)
+{
+    std::vector<std::vector<unsigned char> > sigs, pks, msgs;
+    for (uint32_t i = 0; i < n; ++i) {
+        sigs.push_back(FixedVec(32, (unsigned char)(0x10 + i)));
+        pks.push_back(FixedVec(32, (unsigned char)(0x40 + i)));
+        msgs.push_back(FixedVec(32, (unsigned char)(0x70 + i)));
+    }
+
+    std::vector<unsigned char> proof_data;
+    if (!pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data)) return false;
+
+    pat::LogarithmicProof proof;
+    if (!pat::ParseLogarithmicProof(proof_data, proof)) return false;
+
+    const std::vector<unsigned char> agg_pk(proof.pk_agg.begin(), proof.pk_agg.end());
+    const std::vector<unsigned char> msg_root(proof.msg_root.begin(), proof.msg_root.end());
+
+    out = CScript();
+    for (uint32_t i = 0; i < n; ++i) out << sigs[i];
+    for (uint32_t i = 0; i < n; ++i) out << pks[i];
+    for (uint32_t i = 0; i < n; ++i) out << msgs[i];
+    std::vector<unsigned char> count(4);
+    for (int i = 0; i < 4; ++i) count[i] = (unsigned char)((n >> (8 * i)) & 0xff);
+    out << count;
+    out << proof_data << agg_pk << msg_root;
+    out << OP_CHECKPATAGG;
+    return true;
+}
+
+//! ★★★ Custom-opcode and real-crypto verdicts. Bead 71z6.
+//!
+//! WHY THIS EXISTS. Until 2026-08-27 the script half of this digest absorbed
+//! only witness-program dispatch: AbsorbScriptVerdicts builds an
+//! `OP_N <program>` scriptPubKey and hands it a TWO-item, four-byte witness
+//! stack. Every witness-dispatched feature demands more than that and returns a
+//! shape error before reaching its verification math — PAT, for instance,
+//! requires witness->stack.size() >= 4 (interpreter.cpp:1644) and otherwise
+//! returns SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH. So the digest exercised the
+//! dispatch and NOT ONE LINE of consensus cryptography, while its own header
+//! claimed the interpreter was included because that is 'where a codegen
+//! difference could actually express itself'.
+//!
+//! That was demonstrated rather than argued: the v4 dispatch was changed from
+//! calling an unsound verifier to failing closed, a new ScriptError was added,
+//! and this digest did not move.
+//!
+//! Nothing else covered the gap. Functional tests run on ONE build, so an
+//! nh6m-class defect is invisible to them by construction. Differential
+//! validation replays stagenet history through a SINGLE binary, so it compares
+//! against history rather than against another build. This was the only
+//! cross-build instrument, and it stopped at shape checks.
+//!
+//! ⛔ RULES FOR EXTENDING THIS FUNCTION:
+//!   * Deterministic inputs only. No randomness, no clock, no host state.
+//!   * Absorb (ok, serr) for BOTH the gated-off and gated-on flag state, so a
+//!     change to gating moves the digest as well as a change to verification.
+//!   * Adding anything here MOVES THE DIGEST. Re-pin deliberately and say what
+//!     was added in the commit message.
+//!   * New ScriptError values go at the END of the enum. This function absorbs
+//!     the NUMERIC value, so inserting mid-enum renumbers every later error and
+//!     moves the digest for no behavioural reason.
+void AbsorbOpcodeVerdicts(DigestBuilder& d)
+{
+    BaseSignatureChecker checker;
+
+    // -- PAT, the genesis-active path, with material that reaches the crypto --
+    // Absorbed for several aggregation widths because the proof is a hash tree
+    // and the tree shape changes with n.
+    for (uint32_t n : {uint32_t(1), uint32_t(2), uint32_t(3), uint32_t(4)}) {
+        CScript patScript;
+        const bool built = BuildValidPatScript(n, patScript);
+        d.I64(built ? 1 : 0);
+        d.I64(n);
+        if (!built) continue;
+
+        // The proof bytes themselves are consensus-visible output of the PAT
+        // construction, so absorb the script directly as well as the verdict.
+        // If a codegen difference changes the hash tree, this catches it even if
+        // the verdict happens to stay the same.
+        d.U64(patScript.size());
+        d.Bytes((const unsigned char*)patScript.data(), patScript.size());
+
+        for (unsigned int flags : {(unsigned int)0, (unsigned int)SCRIPT_VERIFY_PAT}) {
+            std::vector<std::vector<unsigned char> > stack;
+            ScriptError serr = SCRIPT_ERR_OK;
+            const bool ok = EvalScript(stack, patScript, flags, checker,
+                                       SIGVERSION_BASE, &serr);
+            d.I64(flags);
+            d.I64(ok ? 1 : 0);
+            d.I64((int64_t)serr);
+            d.U64(stack.size());
+            for (const std::vector<unsigned char>& item : stack) {
+                d.U64(item.size());
+                if (!item.empty()) d.Bytes(item.data(), item.size());
+            }
+        }
+    }
+
+    // -- A tampered PAT proof must be rejected, and the REASON is absorbed --
+    // A codegen difference that broke the aggregation check would most likely
+    // show up as this flipping to accept.
+    {
+        CScript patScript;
+        if (BuildValidPatScript(3, patScript)) {
+            // Rebuild with one witness pk replaced, header left honest.
+            std::vector<std::vector<unsigned char> > sigs, pks, msgs;
+            for (uint32_t i = 0; i < 3; ++i) {
+                sigs.push_back(FixedVec(32, (unsigned char)(0x10 + i)));
+                pks.push_back(FixedVec(32, (unsigned char)(0x40 + i)));
+                msgs.push_back(FixedVec(32, (unsigned char)(0x70 + i)));
+            }
+            std::vector<unsigned char> proof_data;
+            if (pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data)) {
+                pat::LogarithmicProof proof;
+                if (pat::ParseLogarithmicProof(proof_data, proof)) {
+                    const std::vector<unsigned char> agg_pk(proof.pk_agg.begin(), proof.pk_agg.end());
+                    const std::vector<unsigned char> msg_root(proof.msg_root.begin(), proof.msg_root.end());
+                    pks[1] = FixedVec(32, 0xEE);  // tamper
+
+                    CScript bad;
+                    for (uint32_t i = 0; i < 3; ++i) bad << sigs[i];
+                    for (uint32_t i = 0; i < 3; ++i) bad << pks[i];
+                    for (uint32_t i = 0; i < 3; ++i) bad << msgs[i];
+                    std::vector<unsigned char> count(4, 0); count[0] = 3;
+                    bad << count << proof_data << agg_pk << msg_root;
+                    bad << OP_CHECKPATAGG;
+
+                    std::vector<std::vector<unsigned char> > stack;
+                    ScriptError serr = SCRIPT_ERR_OK;
+                    const bool ok = EvalScript(stack, bad, SCRIPT_VERIFY_PAT, checker,
+                                               SIGVERSION_BASE, &serr);
+                    d.I64(ok ? 1 : 0);
+                    d.I64((int64_t)serr);
+                }
+            }
+        }
+    }
+
+    // -- Every other custom opcode, in both gate states --
+    //
+    // These carry well-SHAPED but deliberately invalid payloads. That is not a
+    // weakness: nh6m lived in seed-derived statement-matrix construction, i.e.
+    // in deserialisation and derivation, which runs before any accept decision.
+    // Exercising the parse-and-derive path with fixed bytes is what catches that
+    // class. Where a payload cannot be made valid deterministically without a
+    // prover, the recorded verdict is a reject, and a codegen change that moves
+    // WHICH reject fires still moves the digest.
+    struct OpCase {
+        const char* name;
+        opcodetype op;
+        unsigned int gate;
+        int stack_items;
+        size_t item_size;
+    };
+    const OpCase opCases[] = {
+        { "checkpatagg_malformed",  OP_CHECKPATAGG,           SCRIPT_VERIFY_PAT,          4,   32 },
+        { "checkfoldproof",         OP_CHECKFOLDPROOF,        SCRIPT_VERIFY_LATTICEFOLD,  4, 1280 },
+        { "soquobscura_rangeproof", OP_SOQUOBSCURA_RANGEPROOF, SCRIPT_VERIFY_SOQUOBSCURA, 3,  256 },
+        { "usdsoq_mint",            OP_USDSOQ_MINT,           SCRIPT_VERIFY_USDSOQ,       4,   64 },
+        { "usdsoq_burn",            OP_USDSOQ_BURN,           SCRIPT_VERIFY_USDSOQ,       4,   64 },
+        { "usdsoq_freeze",          OP_USDSOQ_FREEZE,         SCRIPT_VERIFY_USDSOQ,       4,   64 },
+        { "usdsoq_rotate",          OP_USDSOQ_ROTATE,         SCRIPT_VERIFY_USDSOQ,       4,   64 },
+        { "checkdilithiumkeyhash",  OP_CHECKDILITHIUMKEYHASH, SCRIPT_VERIFY_DILITHIUM_KEYHASH, 3, 64 },
+    };
+
+    for (const OpCase& c : opCases) {
+        d.Str(c.name);
+        for (unsigned int flags : {(unsigned int)0, c.gate}) {
+            CScript script = CScript() << c.op;
+            std::vector<std::vector<unsigned char> > stack;
+            for (int i = 0; i < c.stack_items; ++i) {
+                stack.push_back(FixedVec(c.item_size, (unsigned char)(0x20 + i)));
+            }
+            ScriptError serr = SCRIPT_ERR_OK;
+            const bool ok = EvalScript(stack, script, flags, checker,
+                                       SIGVERSION_BASE, &serr);
+            d.I64(flags);
+            d.I64(ok ? 1 : 0);
+            d.I64((int64_t)serr);
+        }
+    }
+
+    // -- Satoshi Restoration arithmetic guards --
+    // Pure integer arithmetic with fixed operands: the cheapest possible probe
+    // for an arithmetic codegen difference, and it exercises the division and
+    // modulo guards that carry their own script errors.
+    {
+        struct ArithCase { const char* name; int64_t a; int64_t b; opcodetype op; };
+        const ArithCase arith[] = {
+            { "div_normal",   1000,  7, OP_DIV },
+            { "div_by_zero",  1000,  0, OP_DIV },
+            { "mod_normal",   1000,  7, OP_MOD },
+            { "mod_by_zero",  1000,  0, OP_MOD },
+            { "div_negative", -1000, 7, OP_DIV },
+            { "mod_negative", -1000, 7, OP_MOD },
+            { "mul_large",    1 << 30, 1 << 20, OP_MUL },
+            { "lshift",       1,      31, OP_LSHIFT },
+            { "rshift",       1 << 30, 15, OP_RSHIFT },
+        };
+        for (const ArithCase& a : arith) {
+            d.Str(a.name);
+            CScript script = CScript() << CScriptNum(a.a) << CScriptNum(a.b) << a.op;
+            std::vector<std::vector<unsigned char> > stack;
+            ScriptError serr = SCRIPT_ERR_OK;
+            const bool ok = EvalScript(stack, script, SCRIPT_VERIFY_SCRIPT_RESTORE,
+                                       checker, SIGVERSION_BASE, &serr);
+            d.I64(ok ? 1 : 0);
+            d.I64((int64_t)serr);
+            d.U64(stack.size());
+            for (const std::vector<unsigned char>& item : stack) {
+                d.U64(item.size());
+                if (!item.empty()) d.Bytes(item.data(), item.size());
+            }
+        }
+    }
+}
+
 //! Network-independent consensus constants. These live in headers rather than
 //! chainparams, so nothing above would notice them changing — and MAX_MONEY in
 //! particular is consensus-critical (MoneyRange gates every value check) and was
@@ -231,6 +476,7 @@ uint256 ComputeConsensusDigest()
     }
 
     AbsorbScriptVerdicts(d);
+    AbsorbOpcodeVerdicts(d);
 
     SelectParams(CBaseChainParams::MAIN);
     return d.Finalize();
@@ -271,12 +517,113 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // Prior pin history: moved from 0489e98d... on 2026-08-20 when
     // AbsorbGlobalLimits first brought MAX_MONEY and the block limits under
     // the digest (verified by isolation at the time).
+    //
+    // Moved from f830d7d6... on 2026-08-27 when AbsorbOpcodeVerdicts was added
+    // (bead 71z6). This was a COVERAGE change, not a rule change: no consensus
+    // rule moved, the digest simply started measuring things it had never
+    // measured. Before this, the script half of the digest absorbed only
+    // witness-program DISPATCH — AbsorbScriptVerdicts hands every witness
+    // version a two-item, four-byte witness stack, and every feature bails on
+    // its shape check before reaching any verification math (PAT requires
+    // >= 4 items, interpreter.cpp:1644). So the digest exercised no consensus
+    // cryptography at all, while claiming the interpreter was included because
+    // that is where a codegen difference expresses itself.
+    //
+    // Proven, not assumed: changing the v4 dispatch from calling an unsound
+    // verifier to failing closed, plus adding a ScriptError, did NOT move the
+    // old digest. The new function is guarded by
+    // opcode_coverage_actually_reaches_pat_crypto below, so the coverage cannot
+    // silently regress to shape-rejection again.
     const std::string expected =
-        "f830d7d6e85f044feb88243263755a92c67a15a480e4f3c9d9ba074e0533bc80";
+        "df60b54de75e72cf1cd7387cb0b1bc01191c1bccd0a1e7644927aa423750401b";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +
         ". Identify which consensus input moved before updating the constant.");
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ THE COVERAGE GUARD. Bead 71z6.
+//
+// A digest can be green, stable and cross-build identical while measuring
+// nothing that matters — which is exactly the state this file was in until
+// 2026-08-27. Pinning the constant does not detect that; only asserting that the
+// instrument reaches real cryptography does.
+//
+// This test therefore makes two claims about AbsorbOpcodeVerdicts' inputs:
+//   1. A VALID PAT proof can be built from fixed material, so the digest is not
+//      silently absorbing a construction failure.
+//   2. That proof is ACCEPTED with SCRIPT_VERIFY_PAT set — meaning execution got
+//      past every shape check and through the aggregation arithmetic — and a
+//      tampered one is REJECTED, meaning the check is load-bearing rather than
+//      vacuous.
+//
+// PAT is the case that matters most: it is the only one of these features active
+// from genesis on mainnet, and its proof is hash-tree arithmetic, the same shape
+// of code as the nh6m defect.
+//
+// ⛔ If this fails, do not re-pin the digest. The digest has stopped measuring
+// consensus cryptography and the pin is meaningless until it does again.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(opcode_coverage_actually_reaches_pat_crypto)
+{
+    BaseSignatureChecker checker;
+
+    for (uint32_t n : {uint32_t(1), uint32_t(2), uint32_t(3), uint32_t(4)}) {
+        CScript patScript;
+        BOOST_REQUIRE_MESSAGE(BuildValidPatScript(n, patScript),
+            "could not build a valid PAT proof at n=" + std::to_string(n) +
+            "; AbsorbOpcodeVerdicts is absorbing a construction failure, so the "
+            "digest is not measuring PAT at all");
+
+        std::vector<std::vector<unsigned char> > stack;
+        ScriptError serr = SCRIPT_ERR_OK;
+        const bool ok = EvalScript(stack, patScript, SCRIPT_VERIFY_PAT, checker,
+                                   SIGVERSION_BASE, &serr);
+        BOOST_CHECK_MESSAGE(ok,
+            "a VALID PAT proof at n=" + std::to_string(n) + " was rejected with "
+            "error " + std::to_string((int)serr) + ". Either PAT is broken, or the "
+            "digest's PAT input stopped being valid and is now recording a shape "
+            "rejection instead of the aggregation arithmetic — which is the exact "
+            "blindness bead 71z6 fixed.");
+    }
+
+    // The check must be load-bearing: tamper one witness pk, leave the header
+    // honest, and require rejection. A verifier that accepts this is measuring
+    // nothing, and a digest over it would be stable and worthless.
+    {
+        std::vector<std::vector<unsigned char> > sigs, pks, msgs;
+        for (uint32_t i = 0; i < 3; ++i) {
+            sigs.push_back(FixedVec(32, (unsigned char)(0x10 + i)));
+            pks.push_back(FixedVec(32, (unsigned char)(0x40 + i)));
+            msgs.push_back(FixedVec(32, (unsigned char)(0x70 + i)));
+        }
+        std::vector<unsigned char> proof_data;
+        BOOST_REQUIRE(pat::CreateLogarithmicProof(sigs, pks, msgs, proof_data));
+        pat::LogarithmicProof proof;
+        BOOST_REQUIRE(pat::ParseLogarithmicProof(proof_data, proof));
+        const std::vector<unsigned char> agg_pk(proof.pk_agg.begin(), proof.pk_agg.end());
+        const std::vector<unsigned char> msg_root(proof.msg_root.begin(), proof.msg_root.end());
+
+        pks[1] = FixedVec(32, 0xEE);
+
+        CScript bad;
+        for (uint32_t i = 0; i < 3; ++i) bad << sigs[i];
+        for (uint32_t i = 0; i < 3; ++i) bad << pks[i];
+        for (uint32_t i = 0; i < 3; ++i) bad << msgs[i];
+        std::vector<unsigned char> count(4, 0); count[0] = 3;
+        bad << count << proof_data << agg_pk << msg_root;
+                    bad << OP_CHECKPATAGG;
+
+        std::vector<std::vector<unsigned char> > stack;
+        ScriptError serr = SCRIPT_ERR_OK;
+        const bool ok = EvalScript(stack, bad, SCRIPT_VERIFY_PAT, checker,
+                                   SIGVERSION_BASE, &serr);
+        BOOST_CHECK_MESSAGE(!ok,
+            "a TAMPERED PAT proof was accepted. The aggregation check is not "
+            "load-bearing, so absorbing its verdict into the consensus digest "
+            "measures nothing.");
+    }
 }
 
 // Determinism within a single build. A digest that varies run to run would mean
