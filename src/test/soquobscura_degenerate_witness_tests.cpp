@@ -30,10 +30,42 @@
 // position, since every input to that hash is public.
 //
 // If a test here fails, do not "fix the test".
+//
+// =============================================================================
+// ⛔ 2026-08-27: WHAT CHANGED, AND WHY THREE ASSERTIONS NOW READ "ACCEPTED"
+//
+// These three cases used to assert REJECTION and therefore failed on purpose,
+// as a tripwire for the unsound verifier. That made the only CI job which runs
+// `make check` permanently red, so a genuine regression during the v2.2.0 freeze
+// soak was indistinguishable from the status quo (bead 1zc1). Marking them as
+// expected-failures was considered and rejected: it manages the symptom.
+//
+// The root cause was fixed instead. LatticeRangeProofV2 cannot be repaired in
+// place — every algebraic check on its accept path is HOMOGENEOUS in the
+// prover-supplied values, so seeding the generators from consensus.latticeBPSeed
+// is necessary but not sufficient (bead uv34 / SOQ-I011). So the v4 consensus
+// dispatch no longer calls it: interpreter.cpp fails closed with
+// SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_UNVERIFIED, mirroring what witness v10
+// already did. The real verifier arrives in the activation release, inside the
+// same dispatch, per the Gate 0 scaffolding ruling (bead r0vn).
+//
+// So the three cases below no longer describe a live exposure. They are
+// CHARACTERISATION TESTS: they document, by execution, the defect that justified
+// removing the class from consensus, and they will notice if anyone changes it.
+// The property that protects the chain is asserted at the BOTTOM of this file,
+// by driving the proven forgery through the real interpreter and requiring a
+// fail-closed reject.
+//
+// ⛔ Do not "tidy" the three ACCEPTED assertions into REJECTED ones. A green
+// result there without a re-derived soundness argument means a partial patch,
+// which is precisely the LatticeFold+ mistake (L2 above) repeating.
 // =============================================================================
 
 #include "crypto/latticebp/commitment.h"
 #include "crypto/latticebp/range_proof.h"
+#include "script/interpreter.h"
+#include "script/script.h"
+#include "script/script_error.h"
 #include "test/test_bitcoin.h"
 
 #include <array>
@@ -113,7 +145,7 @@ BOOST_AUTO_TEST_CASE(honest_proof_verifies)
 // zero and this proof is accepted while proving nothing about the committed
 // value.
 // ---------------------------------------------------------------------------
-BOOST_AUTO_TEST_CASE(all_zero_witness_with_correct_seed_must_reject)
+BOOST_AUTO_TEST_CASE(documented_unsoundness_all_zero_witness_is_accepted)
 {
     Fixture f;
     LatticeRangeProofV2 p;
@@ -125,11 +157,19 @@ BOOST_AUTO_TEST_CASE(all_zero_witness_with_correct_seed_must_reject)
     for (size_t k = 0; k < LatticeParams::K; k++) ZeroRing(p.t_reconstruction[k]);
     // version and challenge_seed deliberately UNTOUCHED — see L2 at the top.
 
-    BOOST_CHECK_MESSAGE(!f.Verify(p),
-        "ZERO-WITNESS FORGERY: the verifier accepted an all-zero witness carrying a "
-        "correct Fiat-Shamir seed. Every algebraic check on the accept path is "
-        "homogeneous in the prover-supplied values, so the proof establishes nothing "
-        "about the committed value. This is the LatticeFold+ break class.");
+    // ⛔ THE ASSERTION IS DELIBERATELY "ACCEPTED". Read the header before
+    // touching it. This records a PROVEN DEFECT in a class that consensus no
+    // longer calls; it does not endorse the behaviour. If this ever starts
+    // rejecting, someone has changed LatticeRangeProofV2 — and a partial patch
+    // here is worse than none, so re-derive soundness rather than flipping the
+    // assertion back.
+    BOOST_CHECK_MESSAGE(f.Verify(p),
+        "LatticeRangeProofV2 no longer accepts the all-zero witness. That is not "
+        "automatically good news: the accept path is homogeneous in the "
+        "prover-supplied values, so a change that rejects THIS input while leaving "
+        "homogeneity intact fixes nothing (the scaled-witness case below is the "
+        "non-zero member that catches such a patch). Do not wire this class back "
+        "into consensus on the strength of this test flipping.");
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +189,7 @@ BOOST_AUTO_TEST_CASE(all_zero_witness_with_correct_seed_must_reject)
 // DOMAIN_SEP || sighash || pubkey_hash || commitment, every term of which the
 // attacker knows. Nothing secret is used to build this blob.
 // ---------------------------------------------------------------------------
-BOOST_AUTO_TEST_CASE(wire_reachable_zero_witness_must_reject)
+BOOST_AUTO_TEST_CASE(documented_unsoundness_wire_reachable_zero_witness_is_accepted)
 {
     Fixture f;
     LatticeRangeProofV2 honest;
@@ -171,11 +211,15 @@ BOOST_AUTO_TEST_CASE(wire_reachable_zero_witness_must_reject)
         "the all-zero blob did not even deserialize; if this fails the wire path "
         "is not reachable and the severity of the in-memory finding drops");
 
-    BOOST_CHECK_MESSAGE(!f.Verify(forged),
-        "WIRE-REACHABLE ZERO-WITNESS FORGERY: a blob an attacker can construct from "
-        "public data alone deserialized and then VERIFIED. The range proof therefore "
-        "establishes nothing about the committed value, and the forgery needs no "
-        "secret, no grinding and no in-memory access.");
+    // ⛔ DELIBERATELY ASSERTS "ACCEPTED" — see the note on the previous case.
+    // This is the finding that justified removing the class from the consensus
+    // path: a blob an attacker builds from public data alone deserializes and
+    // verifies, needing no secret, no grinding and no in-memory access. The
+    // consensus posture is asserted separately, at the bottom of this file.
+    BOOST_CHECK_MESSAGE(f.Verify(forged),
+        "The wire-reachable all-zero blob is no longer accepted by "
+        "LatticeRangeProofV2. Re-derive soundness before concluding anything from "
+        "that: see the note on documented_unsoundness_all_zero_witness_is_accepted.");
 }
 
 // ---------------------------------------------------------------------------
@@ -317,7 +361,7 @@ BOOST_AUTO_TEST_CASE(zero_version_must_reject)
 //   - if it PASSES, the exploitable homogeneity is narrower than the comment above
 //     assumes, and THAT is worth knowing before anyone designs a fix around it.
 // ---------------------------------------------------------------------------
-BOOST_AUTO_TEST_CASE(scaled_witness_with_correct_seed_must_reject)
+BOOST_AUTO_TEST_CASE(documented_unsoundness_scaled_witness_is_accepted)
 {
     Fixture f;
     LatticeRangeProofV2 p;
@@ -340,12 +384,110 @@ BOOST_AUTO_TEST_CASE(scaled_witness_with_correct_seed_must_reject)
     for (size_t k = 0; k < LatticeParams::K; k++) scale(p.t_reconstruction[k]);
     // version and challenge_seed deliberately UNTOUCHED.
 
-    BOOST_CHECK_MESSAGE(!f.Verify(p),
-        "SCALED-WITNESS FORGERY: the verifier accepted a witness whose every value was "
-        "multiplied by a constant, with the honest Fiat-Shamir seed. This is a NON-ZERO "
-        "member of the same homogeneity break class, which means no 'reject if all "
-        "zeros' patch can legitimately make this battery green — the accept path itself "
-        "has to stop being homogeneous.");
+    // ⛔ DELIBERATELY ASSERTS "ACCEPTED". This is the most important of the three,
+    // because it is a NON-ZERO member of the break class: no "reject if all zeros"
+    // patch can satisfy it. The accept path itself has to stop being homogeneous.
+    BOOST_CHECK_MESSAGE(f.Verify(p),
+        "The scaled witness is no longer accepted. If the other two documented cases "
+        "still accept, this is a partial patch and the class is NOT fixed.");
+}
+
+// ===========================================================================
+// THE CONSENSUS POSTURE. This is the part that protects the chain, and it is
+// what the three cases above are evidence FOR.
+//
+// The v4 dispatch used to call LatticeRangeProofV2::verify(). It no longer does:
+// it fails closed. So the forgeries documented above are unreachable through the
+// consensus entry point regardless of the state of that class. These two tests
+// drive the real interpreter rather than the crypto object, which is the only
+// place the distinction is observable.
+// ===========================================================================
+
+namespace {
+
+//! The exact blob from documented_unsoundness_wire_reachable_zero_witness_is_accepted:
+//! version + honest Fiat-Shamir seed + an all-zero witness. Built from public
+//! data only, and accepted by LatticeRangeProofV2. If the consensus path ever
+//! routes back to that verifier, THIS is what gets through.
+std::vector<uint8_t> ForgedZeroWitnessBlob(const Fixture& f)
+{
+    LatticeRangeProofV2 honest;
+    BOOST_REQUIRE(f.Prove(honest));
+
+    const size_t elem_size = LatticeParams::N * 8;
+    const size_t expected_size = 1 + 32 + elem_size * 2 + LatticeParams::K * elem_size;
+
+    std::vector<uint8_t> blob(expected_size, 0x00);
+    blob[0] = static_cast<uint8_t>(RangeProofParams::PROOF_VERSION);
+    memcpy(blob.data() + 1, honest.challenge_seed.data(), 32);
+    return blob;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// ★★★ THE REGRESSION GUARD. Push the proven forgery through the real script
+// interpreter with SCRIPT_VERIFY_SOQUOBSCURA SET — the activated posture — and
+// require that it is REJECTED, with the fail-closed error rather than any
+// verification error.
+//
+// Asserting the specific error matters. SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED
+// would mean a verifier ran and said no, which is exactly the situation we are
+// getting out of. UNVERIFIED means no verifier ran at all.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(consensus_v4_path_fails_closed_on_the_proven_forgery)
+{
+    Fixture f;
+    const std::vector<uint8_t> forged = ForgedZeroWitnessBlob(f);
+
+    // Sanity: the class really does accept this. If it stops, the test below is
+    // still correct but stops being a forgery test, and we want to know.
+    {
+        LatticeRangeProofV2 parsed;
+        BOOST_REQUIRE(LatticeRangeProofV2::deserialize(forged, parsed));
+        BOOST_CHECK_MESSAGE(f.Verify(parsed),
+            "the reference forgery is no longer accepted by LatticeRangeProofV2; "
+            "see documented_unsoundness_all_zero_witness_is_accepted");
+    }
+
+    CScript script = CScript() << OP_SOQUOBSCURA_RANGEPROOF;
+    std::vector<std::vector<unsigned char> > stack;
+    stack.push_back(f.commitment.serialize());                                  // top-2
+    stack.push_back(std::vector<unsigned char>(f.pubkey_hash.begin(),
+                                              f.pubkey_hash.end()));            // top-1
+    stack.push_back(forged);                                                    // top
+
+    ScriptError serror = SCRIPT_ERR_OK;
+    BaseSignatureChecker checker;
+    const bool ok = EvalScript(stack, script, SCRIPT_VERIFY_SOQUOBSCURA, checker,
+                               SIGVERSION_BASE, &serror);
+
+    BOOST_CHECK_MESSAGE(!ok,
+        "CONSENSUS ACCEPTED THE ZERO-WITNESS FORGERY. The v4 dispatch has been "
+        "re-routed to a verifier. Revert that.");
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_UNVERIFIED);
+}
+
+// ---------------------------------------------------------------------------
+// The dormant posture, which is what every network actually runs today:
+// DEPLOYMENT_SOQUOBSCURA is nStartTime=0/nTimeout=0 and NOT_SCHEDULED on all
+// four networks, so the flag is never set and the opcode does not exist.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(consensus_v4_opcode_does_not_exist_while_dormant)
+{
+    Fixture f;
+    CScript script = CScript() << OP_SOQUOBSCURA_RANGEPROOF;
+    std::vector<std::vector<unsigned char> > stack;
+    stack.push_back(f.commitment.serialize());
+    stack.push_back(std::vector<unsigned char>(f.pubkey_hash.begin(),
+                                               f.pubkey_hash.end()));
+    stack.push_back(ForgedZeroWitnessBlob(f));
+
+    ScriptError serror = SCRIPT_ERR_OK;
+    BaseSignatureChecker checker;
+    BOOST_CHECK(!EvalScript(stack, script, 0 /* no SOQUOBSCURA */, checker,
+                            SIGVERSION_BASE, &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_BAD_OPCODE);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
