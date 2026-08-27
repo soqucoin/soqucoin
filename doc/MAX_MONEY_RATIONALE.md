@@ -158,11 +158,25 @@ genesis**:
   is the strongest contrary datapoint available.
 - Kaspa and Bitcoin are capped. Dogecoin and Ethereum are not.
 
-There is no consensus in the industry, and both models are defensible. But if the cap
-question is genuinely open, **it must be settled before genesis**, and it should be argued on
-monetary-policy grounds — miner-security-budget, exchange and listing perception, holder
-expectations — not on the basis of this constant. Raising it here would be arguing the wrong
-variable.
+There is no consensus in the industry, and both models are defensible.
+
+**⛔ CORRECTION, added after checking rather than assuming: that question is NOT open. It was
+decided deliberately, and it was decided with this comparison already in hand.**
+
+Bead `c61` weighed the 47B Moderate model against a Full 99B alternative, explicitly including
+the tail rate as a parameter (the ratified outcome is `nInitialSubsidy` 100,000,
+`nSubsidyHalvingInterval` 250,000, four halvings, **2,500 tail**). It was decided against
+written peer-comparison analyses, with a named stakeholder group, and locked on
+**2026-06-28** — three and a half months *after* Polkadot adopted its hard cap on
+**2026-03-14**.
+
+So the strongest apparently-contrary datapoint in the table above pre-dates the decision and
+was available to it. Uncapped-with-a-tail is a chosen monetary policy here, not an oversight,
+and changing it is a hard fork after genesis.
+
+The narrow claim this document does make stands on its own: `MAX_MONEY` is the wrong variable
+to move if anyone ever wants to revisit supply policy. It is a per-transaction ceiling forced
+by the amount codec, and it has nothing to say about total supply.
 
 ---
 
