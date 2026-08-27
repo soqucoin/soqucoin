@@ -412,113 +412,53 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     } else if (opcode == OP_SOQUOBSCURA_RANGEPROOF) {
 #ifndef BUILD_BITCOIN_INTERNAL
                         // =========================================================
-                        // SOQ-P003: Lattice-BP++ Range Proof Verification
-                        // Post-quantum confidential transaction amount hiding
-                        // using Ring-LWE commitments over Dilithium's cyclotomic
-                        // ring R_q = Z_q[X]/(X^256 + 1), q = 8380417.
+                        // SOQ-P003 / SOQ-I011: SoquObscura range proof.
+                        // REJECT-PATH SCAFFOLDING — no confidential verifier ships.
                         //
-                        // Stack layout:
-                        //   top:    proof_blob (serialized LatticeRangeProof)
+                        // Stack layout the activation release will consume:
+                        //   top:    proof_blob (serialized range proof)
                         //   top-1:  pubkey_hash (32 bytes, identity binding)
                         //   top-2:  commitment (serialized LatticeCommitment)
                         //
-                        // Fiat-Shamir binding: challenge = SHA256(domain ||
-                        //   sighash || pubkey_hash || bit_commitments)
+                        // -- Do NOT route this path to latticebp::LatticeRangeProofV2 --
+                        // That verifier does not bind the amount. Check 4 compares a
+                        // PROVER-SUPPLIED t_reconstruction against
+                        // z_response*A + z_randomness*S; both sides are
+                        // prover-controlled and the relation is HOMOGENEOUS, so
+                        // (z, z_r, t) = (0, 0, 0) carrying an honestly recomputed
+                        // Fiat-Shamir seed satisfies every check. Seeding the
+                        // generators from consensus.latticeBPSeed is NECESSARY BUT
+                        // NOT SUFFICIENT, because the relation remains homogeneous
+                        // with real generators. Bead: uv34 (SOQ-I011). The forgery
+                        // class is pinned by the 18 degenerate vectors on the
+                        // vendored corpus, two of whose three mutations are NON-ZERO,
+                        // so a reject-if-all-zeros patch cannot satisfy it either.
+                        //
+                        // Posture mirrors witness v10, whose dispatch already carries
+                        // this rule and fails closed with
+                        // SCRIPT_ERR_CONFIDENTIAL_USDSOQ_UNVERIFIED. The activation
+                        // release replaces this reject with real verification INSIDE
+                        // this existing dispatch, so activation is a rules change and
+                        // never a code-shape change (Gate 0 scaffolding ruling, bead
+                        // r0vn).
                         // =========================================================
 
-                        // Consensus gating: not active until soft-fork
+                        // Consensus gating: not active until soft-fork. The dormant
+                        // posture is unchanged — to a node today the opcode does not
+                        // exist. DEPLOYMENT_SOQUOBSCURA is nStartTime=0/nTimeout=0 and
+                        // NOT_SCHEDULED on all four networks, so this is the branch
+                        // every network takes, and the reject below is unreachable in
+                        // production. Guarded by
+                        // witness_version_allocation_tests::
+                        // soquobscura_must_stay_dormant_on_every_network.
                         if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
                             return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
                         }
 
-                        // Minimum stack: proof_blob + pubkey_hash + commitment = 3
-                        if (stack.size() < 3) {
-                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                        }
-
-                        const valtype& vchRangeProof = stacktop(-1);
-                        const valtype& vchPubkeyHashRP = stacktop(-2);
-                        const valtype& vchCommitment = stacktop(-3);
-
-                        // Validate pubkey_hash is exactly 32 bytes
-                        if (vchPubkeyHashRP.size() != 32) {
-                            return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
-                        }
-
-                        // Validate commitment matches expected serialized size
-                        if (vchCommitment.size() != latticebp::LatticeCommitment::SIZE) {
-                            return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
-                        }
-
-                        // Validate proof size within bounds
-                        if (vchRangeProof.empty() || vchRangeProof.size() > 16384) {
-                            return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
-                        }
-
-                        try {
-                            // Deserialize the range proof from raw bytes
-                            std::vector<uint8_t> proofBytes(vchRangeProof.begin(), vchRangeProof.end());
-                            latticebp::LatticeRangeProofV2 proof;
-                            if (!latticebp::LatticeRangeProofV2::deserialize(proofBytes, proof)) {
-                                return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
-                            }
-
-                            // Reconstruct commitment from serialized witness data
-                            std::vector<uint8_t> commitBytes(vchCommitment.begin(), vchCommitment.end());
-                            latticebp::LatticeCommitment commitment =
-                                latticebp::LatticeCommitment::deserialize(commitBytes);
-
-                            // Build sighash and pubkey_hash arrays for Fiat-Shamir binding
-                            std::array<uint8_t, 32> sighash_arr;
-                            {
-                                CHashWriter ss(SER_GETHASH, 0);
-                                ss << std::string("LatticeBP-RangeProof");
-                                ss.write((const char*)vchPubkeyHashRP.data(), 32);
-                                uint256 h = ss.GetHash();
-                                memcpy(sighash_arr.data(), h.begin(), 32);
-                            }
-
-                            std::array<uint8_t, 32> pubkey_hash_arr;
-                            memcpy(pubkey_hash_arr.data(), vchPubkeyHashRP.data(), 32);
-
-                            // ⛔⛔ SOQ-I011: THIS VERIFIER DOES NOT BIND THE AMOUNT.
-                            // Default-constructed, so commit_params.A and .S are all-zero
-                            // (RingElement's default ctor zero-fills). Check 4 in
-                            // LatticeRangeProofV2::verify compares the prover-supplied
-                            // t_reconstruction against z_response*A + z_randomness*S, which
-                            // with zero generators collapses to "t_reconstruction == 0"
-                            // regardless of the responses. Any proof blob carrying a zero t
-                            // and a correct Fiat-Shamir seed verifies, and the seed is
-                            // computable from public data alone.
-                            //
-                            // Root cause: consensus.latticeBPSeed exists in chainparams for
-                            // exactly this and is read NOWHERE. LatticeCommitment::
-                            // PublicParams::generate() has no consensus caller. Seeding it
-                            // here is necessary but NOT sufficient: Check 4 is homogeneous
-                            // even with real generators, so (z, z_r, t) = (0, 0, 0) passes.
-                            // See soquobscura_degenerate_witness_tests.cpp, whose three
-                            // failures are deliberate, and the tripwire
-                            // witness_version_allocation_tests::
-                            // soquobscura_must_stay_dormant_on_every_network.
-                            //
-                            // Harmless today: DEPLOYMENT_SOQUOBSCURA is NOT_SCHEDULED on all
-                            // four networks and creating a v4/v10 output is consensus-
-                            // rejected (SOQ-ARCH-001 / SOQ-I009), so this code is
-                            // unreachable. Do NOT schedule an activation height.
-                            latticebp::RangeProofParams rp_params;
-                            if (!proof.verify(commitment, rp_params,
-                                              sighash_arr, pubkey_hash_arr)) {
-                                return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
-                            }
-                        } catch (const std::exception& e) {
-                            return set_error(serror, SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_FAILED);
-                        }
-
-                        // Pop all 3 items and push true
-                        popstack(stack);
-                        popstack(stack);
-                        popstack(stack);
-                        stack.push_back(valtype(1, 1)); // true
+                        // Active, and no verifier ships: FAIL CLOSED. There is
+                        // deliberately no accept path and no stack push here.
+                        return set_error(serror,
+                                         SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_UNVERIFIED);
 #else
                         // Consensus shared lib: latticebp verification not available.
                         // This opcode is a future soft-fork — reject in shared lib context.

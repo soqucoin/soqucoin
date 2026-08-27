@@ -106,6 +106,19 @@ typedef enum ScriptError_t {
     SCRIPT_ERR_OP_CODESEPARATOR,
     SCRIPT_ERR_SIG_FINDANDDELETE,
 
+    /* OP_SOQUOBSCURA_RANGEPROOF (witness v4, confidential SOQ): reject-path
+     * scaffolding, the sibling of SCRIPT_ERR_CONFIDENTIAL_USDSOQ_UNVERIFIED.
+     * Fails closed when DEPLOYMENT_SOQUOBSCURA is active, because no
+     * confidential verifier is shipped — the in-tree LatticeRangeProofV2 does
+     * not bind the amount (SOQ-I011), so that path deliberately does not route
+     * to it. Replaced by real verification in the activation release.
+     *
+     * ⛔ APPENDED AT THE END ON PURPOSE. consensus_digest_tests hashes the
+     * NUMERIC ScriptError value (d.I64((int64_t)serr)), so inserting a value
+     * mid-enum renumbers every error after it and moves the consensus digest for
+     * a reason unrelated to any rule change. New errors go here. */
+    SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_UNVERIFIED,
+
     SCRIPT_ERR_ERROR_COUNT
 } ScriptError;
 
