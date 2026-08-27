@@ -64,12 +64,11 @@ in preference order:
 
 1. **Ceremony-day headline.** Gap of zero. This is what the section above means
    by immediacy, and it remains the strongest option.
-2. **21 September 2026.** Founder's birthday, and a private meaning that is
-   invisible to any reader, which is the good kind. Costs a gap equal to the
-   distance from 21 Sep to the ceremony. ⚠️ Cannot be selected before that date
-   arrives; check the majors on the day and keep anything usable. A Reuters, AP
-   or Bloomberg quantum story carries more weight with exchange and federal
-   readers than a trade outlet.
+2. **21 September 2026.** A preferred alternate date. On the proof axis it is
+   strictly better than the fallback below, because the gap to the ceremony is
+   shorter. ⚠️ Cannot be selected before that date arrives; check the majors on
+   the day and keep anything usable. A Reuters, AP or Bloomberg quantum story
+   carries more weight with exchange and federal readers than a trade outlet.
 3. **The pre-vetted fallback below.** Use only if neither of the above produced
    something usable.
 

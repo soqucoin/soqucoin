@@ -5,15 +5,14 @@
 > fleet topology and infrastructure detail. This one carries neither, and it is useful
 > to a reviewer reading `amount.h`, so it lives here instead.
 
-**Question asked (Casey, 2026-08-27):** is 20B truly the best number for Soqucoin, would
-comparable top-10 chains do the same given similar emissions tokenomics, why do we have
-MAX_MONEY at all, and is it related to the new emission schedule?
+**Scope.** This document records why `MAX_MONEY` is set to 20B, how that compares with
+other major chains, and how the constant relates to the emission schedule. It exists
+because the name invites a wrong reading, and because the value is fixed by constraints
+that are not visible from the constant alone.
 
-**Short answer:** the question contains a premise worth correcting before the comparison
-means anything. **On Soqucoin, MAX_MONEY is not a supply cap and structurally cannot be
-one.** It is a per-transaction ceiling. Soqucoin has **no supply cap at all** — that is a
-deliberate, already-ratified property of the emission schedule, and it is a separate
-decision from this constant.
+**Summary.** **On Soqucoin, `MAX_MONEY` is not a supply cap and structurally cannot be
+one.** It is a per-transaction ceiling. Soqucoin has **no supply cap at all**, which is a
+deliberate and separately ratified property of the emission schedule.
 
 Once that is straight, 20B is not really a choice. It is the largest round number under a
 hard structural bound, and the only way past it is replacing the chainstate amount codec.
@@ -145,8 +144,8 @@ constant is not the supply cap.
 
 ## 6. ⚠️ The question underneath the question
 
-Comparing against Bitcoin, Kaspa and Polkadot suggests what is really being asked is not
-about `MAX_MONEY` but about **whether Soqucoin should have a supply cap at all.**
+The comparison above raises a second and much larger question, which is not about
+`MAX_MONEY` at all: **whether Soqucoin should have a supply cap.**
 
 That is a separate decision, already ratified, and it is a **hard fork to change after
 genesis**:
