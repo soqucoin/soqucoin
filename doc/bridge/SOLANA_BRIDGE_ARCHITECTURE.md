@@ -1,5 +1,12 @@
 # Soqucoin-Solana Gateway Architecture
 
+> ⚠️ **Status (28 August 2026): historical design document. Not an operating service.**
+> The gateway described below has never operated and is not committed. No conversion,
+> redemption, or exchange service between pSOQ and SOQ exists or is offered today, and
+> nothing in this document is a promise of redemption, of backing, or of a timeline.
+> The conversion approach is being redesigned and is under review; this document is
+> retained for engineering history, and its dates and tables are superseded.
+
 > **Version**: 1.0 | **Status**: Shipped to Devnet/Stagenet
 > **Last Updated**: June 15, 2026
 > **Network**: Soqucoin ↔ Solana
