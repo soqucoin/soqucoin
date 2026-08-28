@@ -162,7 +162,7 @@ pSOQ was launched on Pump.fun before Soqucoin mainnet was active. This creates a
 | **Foundation Total** | **~180M pSOQ** | **18%** | See subordination below |
 | **Public Float** | ~820M pSOQ | 82% | Trading on Solana DEXs |
 
-### Backing Model: Foundation Commitment + Market Arbitrage
+### Backing Model: Foundation Commitment + Open Market Redemption
 
 #### Phase 1: Gateway Launch (Q3 2026)
 
@@ -176,12 +176,11 @@ Public pSOQ (senior): 820M
 Effective public backing: 180M / 820M = 22%
 ```
 
-#### Phase 2: Market Arbitrage (Ongoing)
+#### Phase 2: Open Redemption (Ongoing)
 
 ```
-Arbitrageurs lock additional SOQ to redeem pSOQ
-Sell pSOQ on Solana DEXs for profit
-Vault fills progressively
+Independent market participants lock additional SOQ to redeem pSOQ
+Vault fills progressively as redemptions occur
 
 Month 1: ~380M SOQ in vault (46% public backing)
 Month 3: ~580M SOQ in vault (70% public backing)
@@ -205,16 +204,16 @@ Month 6+: Approaching full backing
 3. Foundation cannot front-run public redemptions.
 4. Subordination is enforced by smart contract logic.
 
-### Expected Price Convergence
+### Illustrative Convergence Scenarios
 
-| Timeframe Post-Gateway | Est. Vault Balance | Public Backing | Expected pSOQ/SOQ |
+| Timeframe Post-Gateway | Est. Vault Balance | Public Backing | Illustrative pSOQ/SOQ |
 |-----------------------|-------------------|----------------|-------------------|
 | Gateway launch | 180M SOQ | 22% | 0.20 - 0.40 |
 | Month 1 | ~380M SOQ | 46% | 0.40 - 0.60 |
 | Month 3 | ~580M SOQ | 70% | 0.65 - 0.85 |
 | Month 6+ | ~800M+ SOQ | 97%+ | 0.90 - 1.00 |
 
-*Actual convergence depends on SOQ liquidity and arbitrageur participation.*
+*Illustrative only — not a projection or promise. Actual convergence depends on SOQ liquidity and independent market participation.*
 
 ### Why This Model Works
 
@@ -357,7 +356,7 @@ sacrificing long-term credibility.
 | 10B SOQ | ~200,000 | ~139 days | ❌ Unnecessary delay |
 
 **Justification:**
-- Sufficient on-chain liquidity for arbitrage peg maintenance
+- Sufficient on-chain liquidity for redemption-driven price convergence
 - Aligns with Stage 2 (LatticeFold+) activation, signaling maturity
 - Exchange listings likely by this point
 - Conservative threshold, prioritizing stability over speed
