@@ -1,11 +1,12 @@
 # pSOQ ↔ SOQ Gateway Architecture
 
-> ⚠️ **Status (28 August 2026): historical design document. Not an operating service.**
-> The gateway described below has never operated and is not committed. No conversion,
-> redemption, or exchange service between pSOQ and SOQ exists or is offered today, and
-> nothing in this document is a promise of redemption, of backing, or of a timeline.
-> The conversion approach is being redesigned and is under review; this document is
-> retained for engineering history, and its dates and tables are superseded.
+> ⚠️ **Status (28 August 2026): a design in active development. No service is operating yet.**
+> The gateway described below remains the planned automated path between pSOQ and native
+> SOQ, and it stays open source. It is not live: no conversion, redemption, or exchange
+> service between pSOQ and SOQ operates or is offered today, and it will not operate
+> before third-party audit and review. Nothing in this document is a promise of
+> redemption, of backing, or of a timeline; the specific dates and backing tables below
+> predate the current review and will be revised.
 
 > **Status:** Shipped to Devnet/Stagenet  
 > **Target Activation:** Q3 2026 (after block 100,000 / 5B SOQ mined)  
