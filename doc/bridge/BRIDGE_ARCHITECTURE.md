@@ -104,9 +104,9 @@ We mitigate this through multi-signature threshold requirements and active monit
 
 ### Peg Maintenance
 
-The 1:1 peg is maintained through arbitrage:
-- If pSOQ trades below SOQ: Arbitrageurs buy pSOQ, redeem for SOQ, and sell SOQ.
-- If pSOQ trades above SOQ: Arbitrageurs buy SOQ, lock for pSOQ, and sell pSOQ.
+The 1:1 redemption rate is what holds the two prices together:
+- If pSOQ trades below SOQ: holders can redeem pSOQ for SOQ at 1:1, reducing pSOQ supply until prices converge.
+- If pSOQ trades above SOQ: holders can lock SOQ for pSOQ at 1:1, increasing pSOQ supply until prices converge.
 
 This assumes:
 1. Gateway is operational
