@@ -123,7 +123,14 @@ struct Params {
     /** Soqucoin-specific parameters */
     bool fDigishieldDifficultyCalculation;
     bool fPowAllowDigishieldMinDifficultyBlocks; // Allow minimum difficulty blocks where a retarget would normally occur
-    bool fSimplifiedRewards;                     // Use block height derived rewards rather than previous block hash derived
+    bool fSimplifiedRewards = false;             // Use block height derived rewards rather than previous block hash derived.
+                                                 // Every live network sets true explicitly on the tiers it schedules; only
+                                                 // the testnet base tier (height 0 only, consensus-unreachable: genesis is
+                                                 // skipped) leaves it defaulted. The default is false DELIBERATELY: it is
+                                                 // the value zero-initialization has always produced, and the consensus
+                                                 // digest absorbs this field per tier — defaulting true would move the
+                                                 // digest for a hygiene change. Was an uninitialized read (UB for any
+                                                 // non-static instance) until 2026-08-29.
     int nInitialSubsidy = 100000;                // Epoch-0 block reward in whole SOQ; halved each nSubsidyHalvingInterval (GetSoqucoinBlockSubsidy). Mainnet/testnet/stagenet = 100000 (47B model, bead c61); regtest keeps 500000 as a test fixture.
 
     uint256 nMinimumChainWork;

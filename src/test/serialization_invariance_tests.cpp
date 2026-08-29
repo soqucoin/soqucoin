@@ -194,6 +194,23 @@ BOOST_AUTO_TEST_CASE(amount_compression_roundtrips_at_boundaries)
     }
 }
 
+// The codec's uint64 overflow boundary, pinned exactly. 2049638230412172403 is
+// the FIRST amount whose round-trip corrupts (verified exhaustively for 2M
+// values below it and by 200M random samples across [0, bound), 2026-08-29).
+// The amount.h static_assert keeps MAX_MONEY strictly below this value; if
+// this test ever moves, that assert's bound must move with it.
+BOOST_AUTO_TEST_CASE(amount_compression_overflow_boundary_is_pinned)
+{
+    const uint64_t kFirstCorrupt = 2049638230412172403ULL;
+    BOOST_CHECK_EQUAL(
+        CTxOutCompressor::DecompressAmount(CTxOutCompressor::CompressAmount(kFirstCorrupt - 1)),
+        kFirstCorrupt - 1);
+    BOOST_CHECK(
+        CTxOutCompressor::DecompressAmount(CTxOutCompressor::CompressAmount(kFirstCorrupt)) !=
+        kFirstCorrupt);
+    BOOST_CHECK_LT((uint64_t)MAX_MONEY, kFirstCorrupt);
+}
+
 // A spent output travels through the undo file in compressed form and must come
 // back identical, or a reorg restores a different UTXO than it removed.
 BOOST_AUTO_TEST_CASE(txundo_roundtrips_every_script_shape)

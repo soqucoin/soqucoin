@@ -70,11 +70,13 @@ static const CAmount MAX_MONEY = 20000000000 * COIN; // 20B SOQ, a per-TX ceilin
 //! The overflow bound argued for above, enforced rather than trusted: every
 //! accumulator in the validation path adds two in-range amounts before it calls
 //! MoneyRange, so twice MAX_MONEY has to remain representable.
-static_assert(MAX_MONEY > 0 && MAX_MONEY <= 2049638230412172714LL,
-              "MAX_MONEY must fit the CompressAmount codec (~9n+81 in a uint64, "
-              "see the comment above): amounts past ~20.49B coins silently "
-              "corrupt in the chainstate. Raising this bound means replacing "
-              "the amount codec first.");
+static_assert(MAX_MONEY > 0 && MAX_MONEY < 2049638230412172403LL,
+              "MAX_MONEY must fit the CompressAmount codec: 2049638230412172403 "
+              "koinu is the FIRST amount whose compress/decompress round-trip "
+              "corrupts (uint64 overflow in the codec; driven exhaustively near "
+              "the bound, 2026-08-29), so the bound is exclusive. Amounts past "
+              "it silently corrupt in the chainstate. Raising this bound means "
+              "replacing the amount codec first.");
 static_assert(MAX_MONEY <= 4611686018427387903LL,
               "MAX_MONEY must satisfy 2 * MAX_MONEY <= INT64_MAX: validation "
               "accumulators sum before they range-check, so a larger value makes "

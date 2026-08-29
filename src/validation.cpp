@@ -1265,8 +1265,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
 
         for (const auto& txin : tx.vin) {
             const CCoins* c = view.AccessCoins(txin.prevout.hash);
+            // IsAnyUSDSOQ(): must match the ConnectBlock freeze-spend guard,
+            // which was widened to v7 AND v10 so a frozen confidential outpoint
+            // is unspendable too. With IsUSDSOQ() (v7 only) here, a spend of a
+            // frozen v10 outpoint relayed and then rejected in-block — the
+            // accept-then-reject/template-poison class. Phase A audit, lane A3.
             if (c && c->IsAvailable(txin.prevout.n) &&
-                c->vout[txin.prevout.n].IsUSDSOQ() &&
+                c->vout[txin.prevout.n].IsAnyUSDSOQ() &&
                 pcoinsdbview && pcoinsdbview->IsFrozenOutpoint(txin.prevout)) {
                 return state.DoS(100, false, REJECT_INVALID,
                     "bad-txns-spend-frozen-usdsoq", false,
@@ -2696,16 +2701,12 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
                         const CTxOut& restoredOut = txundo.vprevout[j].txout;
                         // Must match the CONNECT-side predicate at the supply
                         // accounting loop, which counts IsAnyUSDSOQ() (v7 AND
-                        // v10). That widening was done under bead n1vf and
-                        // applied to the connect path only, leaving this mirror
-                        // v7-only. Currently masked — an authority tx spending a
-                        // confidential input is refused by
-                        // bad-txns-usdsoq-conf-input, so a v10 amount never
-                        // reaches the counter for this to miss — but "correct
-                        // via a different rule" is not correct by construction.
-                        // If SOQ-ARCH-004 is ever relaxed or reordered, a v10
-                        // burn would inflate total_burned permanently on reorg.
-                        // THE TWO PREDICATES MUST MOVE TOGETHER.
+                        // v10). Both sides use IsAnyUSDSOQ() (the n1vf widening
+                        // reached this mirror too; an earlier revision of this
+                        // comment claimed otherwise and was stale). If either
+                        // side ever changes, THE TWO PREDICATES MUST MOVE
+                        // TOGETHER, or a v10 burn would inflate total_burned
+                        // permanently on reorg.
                         if (restoredOut.IsAnyUSDSOQ()) {
                             nUSDSOQReversedBurn += restoredOut.nValue;
                         }
