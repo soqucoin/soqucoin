@@ -114,6 +114,7 @@ testScripts = [
     'pat_basic.py',
     'maxreorgdepth.py',
     'genesis-migration.py',
+    'mining-gate.py',
     'getauxblock.py',
     'wallet.py',
     'wallet-accounts.py',

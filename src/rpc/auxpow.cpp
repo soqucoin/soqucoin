@@ -38,6 +38,8 @@ static std::vector<std::unique_ptr<CBlockTemplate> > vNewBlockTemplate;
 
 void AuxMiningCheck()
 {
+    EnsureMiningRPCsEnabled();
+
     if (!g_connman)
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
 
@@ -50,9 +52,10 @@ void AuxMiningCheck()
 
     /* Soqucoin uses Dogecoin-model dual mining: both legacy Scrypt blocks
        AND AuxPoW blocks are accepted simultaneously (fAllowLegacyBlocks = true
-       even in the AuxPoW phase). Enforce the Vanguard Window: AuxPoW blocks
-       are not accepted before nAuxpowStartHeight (mainnet=1000, stagenet=100).
-       Solo mining via getblocktemplate/submitblock is always available.  */
+       even in the AuxPoW phase). AuxPoW blocks are not accepted before
+       nAuxpowStartHeight — which is 0 on mainnet (AuxPoW from genesis, no
+       Vanguard Window; bead inu, ratified 2026-06-29), so on mainnet this
+       check never fires. Regtest keeps 20 as a test fixture. */
     {
         LOCK(cs_main);
         const Consensus::Params& consensusParams = Params().GetConsensus(chainActive.Height() + 1);

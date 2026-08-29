@@ -43,6 +43,18 @@ using namespace std;
 // SECURITY NOTE: Pre-mainnet critical fix. See PRE-MAINNET-MINING-FIXES.md
 static CCriticalSection cs_blocktemplate;
 
+// See the contract in rpc/mining.h. Read-only introspection (getmininginfo,
+// getnetworkhashps, prioritisetransaction) stays available regardless.
+void EnsureMiningRPCsEnabled()
+{
+    const bool fDefault = Params().NetworkIDString() != CBaseChainParams::MAIN;
+    if (!GetBoolArg("-enablemining", fDefault))
+        throw JSONRPCError(RPC_METHOD_NOT_FOUND,
+            "Mining RPCs are disabled (launch-period default on mainnet). "
+            "Restart with -enablemining=1 to serve mining work; the supported "
+            "path for miners is the pool.");
+}
+
 /**
  * Return average network hashes per second based on the last 'lookup' blocks,
  * or from the last difficulty change if 'lookup' is nonpositive.
@@ -193,6 +205,8 @@ UniValue generate(const JSONRPCRequest& request)
             "\nGenerate 11 blocks\n" +
             HelpExampleCli("generate", "11"));
 
+    EnsureMiningRPCsEnabled();
+
     int nGenerate = request.params[0].get_int();
     uint64_t nMaxTries = 1000000;
     if (request.params.size() > 1) {
@@ -234,6 +248,8 @@ UniValue generatetoaddress(const JSONRPCRequest& request)
             "\nExamples:\n"
             "\nGenerate 11 blocks to myaddress\n" +
             HelpExampleCli("generatetoaddress", "11 \"myaddress\""));
+
+    EnsureMiningRPCsEnabled();
 
     int nGenerate = request.params[0].get_int();
     uint64_t nMaxTries = 1000000;
@@ -429,6 +445,8 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
 
             "\nExamples:\n" +
             HelpExampleCli("getblocktemplate", "") + HelpExampleRpc("getblocktemplate", ""));
+
+    EnsureMiningRPCsEnabled();
 
     LOCK(cs_main);
 
