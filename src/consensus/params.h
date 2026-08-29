@@ -7,6 +7,7 @@
 #ifndef BITCOIN_CONSENSUS_PARAMS_H
 #define BITCOIN_CONSENSUS_PARAMS_H
 
+#include "amount.h"
 #include "uint256.h"
 #include <array>
 #include <limits>
@@ -205,6 +206,22 @@ struct Params {
      *  Different per-network: mainnet, stagenet, regtest each get unique A.
      *  MUST match between soqucoind and soq-privacy-signer for proof verification. */
     std::array<uint8_t, 32> latticeBPSeed = {};
+
+    /** Genesis-migration one-shot allocation (DL-GENESIS-MIGRATION-IMPLEMENTATION §A).
+     *  At exactly nHeight == nMigrationHeight (non-zero, hash set), the coinbase must
+     *  carry the committed allocation outputs as vout[1..N] (a trailing segwit
+     *  witness-commitment output is excluded from the committed range): their standard
+     *  vector serialization must double-SHA256 to hashMigrationOutputs, their values
+     *  must sum to exactly nMigrationTotal, and the permitted block reward becomes
+     *  subsidy + fees + nMigrationTotal with vout[0] (the miner) still bounded by
+     *  subsidy + fees. With the defaults below the rule is INERT: validation is
+     *  byte-for-byte unchanged on every network. Mainnet values are set only at the
+     *  genesis ceremony (doc/GENESIS_CEREMONY.md), the same trust model as the genesis
+     *  fields. Regtest arms via the -migrationoutputs/-migrationtotal/-migrationheight
+     *  test-only args. */
+    uint256 hashMigrationOutputs;   // null = inert
+    CAmount nMigrationTotal = 0;    // exact sum of the committed outputs, in sats
+    int nMigrationHeight = 0;       // 0 = inert; the one height the rule applies at
 };
 
 /**

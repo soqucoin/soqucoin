@@ -113,6 +113,7 @@ testScripts = [
     'latticefold_basic.py',
     'pat_basic.py',
     'maxreorgdepth.py',
+    'genesis-migration.py',
     'getauxblock.py',
     'wallet.py',
     'wallet-accounts.py',

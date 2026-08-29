@@ -83,6 +83,12 @@ public:
     const CCheckpointData& Checkpoints() const { return checkpointData; }
     const ChainTxData& TxData() const { return chainTxData; }
     const std::string& Bech32HRP() const { return bech32HRP; }
+    /** Genesis-migration committed allocation outputs, in committed order — the
+     *  preimage of Consensus::Params::hashMigrationOutputs. Used only by the block
+     *  template builder (miner.cpp); validation consults the hash alone. Empty on
+     *  every network until the genesis ceremony compiles the ceremony vector in
+     *  beside the constants (regtest injects it via -migrationoutputs). */
+    const std::vector<CTxOut>& MigrationOutputs() const { return vMigrationOutputs; }
 
 protected:
     CChainParams() {}
@@ -104,6 +110,7 @@ protected:
     bool fMineBlocksOnDemand;
     CCheckpointData checkpointData;
     ChainTxData chainTxData;
+    std::vector<CTxOut> vMigrationOutputs;
 };
 
 /**
@@ -150,5 +157,17 @@ void UpdateRegtestActivationHeight(Consensus::DeploymentPos d, int nActivationHe
  * for functional tests. Regtest only.
  */
 void UpdateRegtestMaxReorgDepth(int nMaxReorgDepth);
+
+/**
+ * Arms the genesis-migration allocation rule on regtest
+ * (DL-GENESIS-MIGRATION-IMPLEMENTATION §A1). Sets the three consensus constants
+ * exactly as given — hash, total and height are taken independently so tests can
+ * arm deliberately inconsistent values (tamper case 10) — and installs vOutputs
+ * as the miner's committed vector. Regtest only; it mutates the regtest
+ * singleton, so a test that arms the rule MUST disarm it (null hash, 0, 0, {})
+ * before it returns.
+ */
+void UpdateRegtestMigrationParams(const uint256& hashOutputs, CAmount nTotal, int nHeight,
+                                  const std::vector<CTxOut>& vOutputs);
 
 #endif // BITCOIN_CHAINPARAMS_H

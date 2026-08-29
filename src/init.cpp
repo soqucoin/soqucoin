@@ -20,6 +20,7 @@
 #include "consensus/usdsoq.h"
 #include "crypto/scrypt.h" // for scrypt_detect_sse2
 #include "fs.h"
+#include "hash.h"
 #include "httprpc.h"
 #include "httpserver.h"
 #include "key.h"
@@ -32,6 +33,7 @@
 #include "rpc/server.h"
 #include "scheduler.h"
 #include "script/sigcache.h"
+#include "streams.h"
 #include "script/standard.h"
 #include "timedata.h"
 #include "torcontrol.h"
@@ -446,6 +448,9 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-limitdescendantcount=<n>", strprintf("Do not accept transactions if any ancestor would have <n> or more in-mempool descendants (default: %u)", DEFAULT_DESCENDANT_LIMIT));
         strUsage += HelpMessageOpt("-limitdescendantsize=<n>", strprintf("Do not accept transactions if any ancestor would have more than <n> kilobytes of in-mempool descendants (default: %u).", DEFAULT_DESCENDANT_SIZE_LIMIT));
         strUsage += HelpMessageOpt("-bip9params=deployment:start:end", "Use given start/end times for specified BIP9 deployment (regtest-only)");
+        strUsage += HelpMessageOpt("-migrationoutputs=<hex>", "Arm the genesis-migration allocation rule with this hex-serialized CTxOut vector (regtest-only; requires -migrationheight)");
+        strUsage += HelpMessageOpt("-migrationheight=<n>", "Height at which the genesis-migration allocation rule applies (regtest-only; requires -migrationoutputs)");
+        strUsage += HelpMessageOpt("-migrationtotal=<n>", "Override the armed nMigrationTotal in sats (regtest-only; default: the sum of -migrationoutputs, override exists to test the mismatch reject)");
     }
     std::string debugCategories = "addrman, alert, bench, cmpctblock, coindb, db, http, libevent, lock, mempool, mempoolrej, net, proxy, prune, rand, reindex, rpc, selectcoins, tor, zmq"; // Don't translate these and qt below
     if (mode == HMM_BITCOIN_QT)
@@ -1177,6 +1182,55 @@ bool AppInitParameterInteraction()
         }
         UpdateRegtestMaxReorgDepth((int)nDepth);
         LogPrintf("Setting regtest finality horizon (nMaxReorgDepth) to %d\n", (int)nDepth);
+    }
+
+    if (IsArgSet("-migrationoutputs") || IsArgSet("-migrationheight") || IsArgSet("-migrationtotal")) {
+        // Arm the genesis-migration allocation rule for testing
+        // (DL-GENESIS-MIGRATION-IMPLEMENTATION §A1). Regtest only — on real
+        // networks the constants are consensus, set at the genesis ceremony.
+        if (!chainparams.MineBlocksOnDemand()) {
+            return InitError("Genesis-migration parameters may only be overridden on regtest.");
+        }
+        if (!IsArgSet("-migrationoutputs") || !IsArgSet("-migrationheight")) {
+            return InitError("-migrationoutputs and -migrationheight must be set together.");
+        }
+        const std::string strOutputs = GetArg("-migrationoutputs", "");
+        if (!IsHex(strOutputs) || strOutputs.empty()) {
+            return InitError("Invalid -migrationoutputs (expected a hex-serialized CTxOut vector)");
+        }
+        std::vector<CTxOut> vOutputs;
+        try {
+            std::vector<unsigned char> raw = ParseHex(strOutputs);
+            CDataStream ss(raw, SER_NETWORK, PROTOCOL_VERSION);
+            ss >> vOutputs;
+            if (!ss.empty()) throw std::ios_base::failure("trailing bytes");
+        } catch (const std::exception& e) {
+            return InitError(strprintf("Invalid -migrationoutputs (%s)", e.what()));
+        }
+        if (vOutputs.empty()) {
+            return InitError("Invalid -migrationoutputs (the committed vector must be non-empty)");
+        }
+        int64_t nMigrationHeight;
+        if (!ParseInt64(GetArg("-migrationheight", ""), &nMigrationHeight) || nMigrationHeight <= 0) {
+            return InitError("Invalid -migrationheight (expected a positive integer)");
+        }
+        CAmount nMigrationTotal = 0;
+        for (const CTxOut& out : vOutputs) {
+            nMigrationTotal += out.nValue;
+        }
+        if (IsArgSet("-migrationtotal")) {
+            int64_t nOverride;
+            if (!ParseInt64(GetArg("-migrationtotal", ""), &nOverride) || nOverride < 0) {
+                return InitError("Invalid -migrationtotal (expected a non-negative integer)");
+            }
+            nMigrationTotal = nOverride;
+        }
+        CHashWriter hasher(SER_GETHASH, PROTOCOL_VERSION);
+        hasher << vOutputs;
+        const uint256 hashOutputs = hasher.GetHash();
+        UpdateRegtestMigrationParams(hashOutputs, nMigrationTotal, (int)nMigrationHeight, vOutputs);
+        LogPrintf("Arming regtest genesis-migration rule: height=%d total=%d outputs=%u hash=%s\n",
+                  (int)nMigrationHeight, nMigrationTotal, (unsigned)vOutputs.size(), hashOutputs.ToString());
     }
     return true;
 }

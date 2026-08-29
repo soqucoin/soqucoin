@@ -202,6 +202,19 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     coinbaseTx.vout[0].nValue = nFees + GetSoqucoinBlockSubsidy(nHeight, consensus, pindexPrev->GetBlockHash());
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
 
+    // Genesis-migration one-shot allocation (DL-GENESIS-MIGRATION-IMPLEMENTATION §A3):
+    // at the armed height, append the committed outputs after the miner output. The
+    // consensus rule in ConnectBlock binds every miner regardless — this template
+    // insertion is a convenience, not a trust assumption — and GenerateCoinbaseCommitment
+    // below appends the witness commitment AFTER them, which validation excludes from
+    // the committed range. TestBlockValidity at the end of this function fails loudly
+    // if the compiled-in vector does not match the armed constants.
+    if (consensus.nMigrationHeight != 0 && nHeight == consensus.nMigrationHeight &&
+        !consensus.hashMigrationOutputs.IsNull()) {
+        const std::vector<CTxOut>& vMigration = chainparams.MigrationOutputs();
+        coinbaseTx.vout.insert(coinbaseTx.vout.end(), vMigration.begin(), vMigration.end());
+    }
+
     // SOQUCOIN: Force Dilithium-only coinbase outputs (witness v1)
     if (nHeight >= consensus.dilithiumOnlyHeight && (scriptPubKeyIn.size() != 34 || scriptPubKeyIn[0] != OP_1 || scriptPubKeyIn[1] != 32)) {
         LogPrintf("%s: Coinbase must pay to Dilithium witness v1 address (OP_1 <32-byte-hash>)\n", __func__);
