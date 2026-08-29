@@ -39,4 +39,17 @@ public:
 
 UniValue BIP22ValidationResult(const CValidationState& state);
 
+/**
+ * Launch mining posture (ratified 2026-08-29, bead
+ * launch-mining-posture-gate-92yq): the work-serving RPCs — getblocktemplate,
+ * generate, generatetoaddress and the createauxblock/getauxblock/submitauxblock
+ * family — refuse to serve unless -enablemining is set. Default: ON everywhere
+ * except mainnet. This is deliberately friction, not a security boundary (the
+ * source is public); its purpose is that the default path for hashrate is the
+ * pool, whose vesting and caps are the launch-period dump controls. submitblock
+ * is NOT gated: blocks arrive over P2P regardless, so gating it buys nothing.
+ * Revisit the mainnet default in a post-launch release.
+ */
+void EnsureMiningRPCsEnabled();
+
 #endif // BITCOIN_RPCMINING_H
