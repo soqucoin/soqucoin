@@ -439,6 +439,14 @@ public:
         assert(consensus.hashGenesisBlock == uint256S("0x1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691"));
         assert(genesis.hashMerkleRoot == uint256S("0x5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69"));
 
+        // Genesis-migration allocation constants (DL-GENESIS-MIGRATION-IMPLEMENTATION §A1).
+        // Deliberately NOT set here: hashMigrationOutputs stays null, nMigrationTotal 0,
+        // nMigrationHeight 0, so the rule is inert. If a migration window is ever run,
+        // the ceremony sets all three beside these genesis pins (with vMigrationOutputs
+        // compiled in and asserted against the hash) at a scheduled post-genesis height,
+        // per doc/GENESIS_CEREMONY.md. Struct defaults propagate into digishieldConsensus
+        // and auxpowConsensus via the copies above.
+
         // SOQ-H3: Lattice-BP++ consensus seed — derived from genesis hash
         consensus.latticeBPSeed = ComputeSoquObscuraSeed(
             consensus.hashGenesisBlock,
@@ -1020,6 +1028,24 @@ public:
         consensus.nMaxReorgDepth = nMaxReorgDepth;
         digishieldConsensus.nMaxReorgDepth = nMaxReorgDepth;
     }
+
+    void UpdateMigrationParams(const uint256& hashOutputs, CAmount nTotal, int nHeight,
+                               const std::vector<CTxOut>& vOutputs)
+    {
+        // ⚠️ ALL THREE structs, for the same height-indexed-tree reason as
+        // UpdateActivationHeight above (bead tofg): a migration height above 19
+        // resolves to auxpowConsensus, not `consensus`.
+        consensus.hashMigrationOutputs = hashOutputs;
+        consensus.nMigrationTotal = nTotal;
+        consensus.nMigrationHeight = nHeight;
+        digishieldConsensus.hashMigrationOutputs = hashOutputs;
+        digishieldConsensus.nMigrationTotal = nTotal;
+        digishieldConsensus.nMigrationHeight = nHeight;
+        auxpowConsensus.hashMigrationOutputs = hashOutputs;
+        auxpowConsensus.nMigrationTotal = nTotal;
+        auxpowConsensus.nMigrationHeight = nHeight;
+        vMigrationOutputs = vOutputs;
+    }
 };
 static CRegTestParams regTestParams;
 
@@ -1423,4 +1449,10 @@ void UpdateRegtestActivationHeight(Consensus::DeploymentPos d, int nActivationHe
 void UpdateRegtestMaxReorgDepth(int nMaxReorgDepth)
 {
     regTestParams.UpdateMaxReorgDepth(nMaxReorgDepth);
+}
+
+void UpdateRegtestMigrationParams(const uint256& hashOutputs, CAmount nTotal, int nHeight,
+                                  const std::vector<CTxOut>& vOutputs)
+{
+    regTestParams.UpdateMigrationParams(hashOutputs, nTotal, nHeight, vOutputs);
 }

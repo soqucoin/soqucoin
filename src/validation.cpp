@@ -99,6 +99,7 @@ CTxMemPool mempool(::minRelayTxFeeRate);
  */
 static bool IsSuperMajority(int minVersion, const CBlockIndex* pstart, unsigned nRequired, const Consensus::Params& consensusParams);
 static void CheckBlockIndex(const Consensus::Params& consensusParams);
+static int GetWitnessCommitmentIndex(const CBlock& block);
 
 /** Constant stuff for coinbase transactions we create: */
 CScript COINBASE_FLAGS;
@@ -3634,6 +3635,58 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     LogPrint("bench", "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs]\n", (unsigned)block.vtx.size(), 0.001 * (nTime3 - nTime2), 0.001 * (nTime3 - nTime2) / block.vtx.size(), nInputs <= 1 ? 0 : 0.001 * (nTime3 - nTime2) / (nInputs - 1), nTimeConnect * 0.000001);
 
     CAmount blockReward = nFees + GetSoqucoinBlockSubsidy(pindex->nHeight, chainparams.GetConsensus(pindex->nHeight), hashPrevBlock);
+
+    // =========================================================================
+    // Genesis-migration one-shot allocation (DL-GENESIS-MIGRATION-IMPLEMENTATION
+    // §A2, bead gm-consensus-rule-bxws). Inert on every network until all three
+    // constants are armed: with nMigrationHeight == 0 or a null hash this block
+    // is byte-for-byte the pre-existing subsidy check. At exactly the armed
+    // height, the coinbase must carry the committed allocation outputs as
+    // vout[1..N] in committed order (a trailing segwit witness-commitment
+    // output, which the miner appends after them, is not part of the committed
+    // range): their standard serialization must hash to hashMigrationOutputs,
+    // their values must sum to exactly nMigrationTotal, and the miner's own
+    // output vout[0] stays bounded by subsidy + fees while the permitted total
+    // becomes subsidy + fees + nMigrationTotal.
+    // =========================================================================
+    {
+        const Consensus::Params& migrationConsensus = chainparams.GetConsensus(pindex->nHeight);
+        if (migrationConsensus.nMigrationHeight != 0 &&
+            pindex->nHeight == migrationConsensus.nMigrationHeight &&
+            !migrationConsensus.hashMigrationOutputs.IsNull()) {
+            const CTransaction& coinbase = *block.vtx[0];
+            size_t committedEnd = coinbase.vout.size();
+            const int commitpos = GetWitnessCommitmentIndex(block);
+            if (commitpos > 0 && (size_t)commitpos == coinbase.vout.size() - 1)
+                committedEnd--;
+            if (committedEnd < 2)
+                return state.DoS(100,
+                    error("ConnectBlock(): migration block %d carries no committed outputs", pindex->nHeight),
+                    REJECT_INVALID, "bad-cb-migration-missing");
+            const std::vector<CTxOut> committed(coinbase.vout.begin() + 1, coinbase.vout.begin() + committedEnd);
+            CHashWriter hasher(SER_GETHASH, PROTOCOL_VERSION);
+            hasher << committed;
+            if (hasher.GetHash() != migrationConsensus.hashMigrationOutputs)
+                return state.DoS(100,
+                    error("ConnectBlock(): migration block %d committed outputs do not match hashMigrationOutputs", pindex->nHeight),
+                    REJECT_INVALID, "bad-cb-migration-outputs");
+            CAmount committedSum = 0;
+            for (const CTxOut& out : committed)
+                committedSum += out.nValue; // per-output and total bounds already enforced by CheckTransaction
+            if (committedSum != migrationConsensus.nMigrationTotal)
+                return state.DoS(100,
+                    error("ConnectBlock(): migration block %d committed sum %d != nMigrationTotal %d",
+                        pindex->nHeight, committedSum, migrationConsensus.nMigrationTotal),
+                    REJECT_INVALID, "bad-cb-migration-total");
+            if (coinbase.vout[0].nValue > blockReward)
+                return state.DoS(100,
+                    error("ConnectBlock(): migration block %d miner output pays too much (actual=%d vs limit=%d)",
+                        pindex->nHeight, coinbase.vout[0].nValue, blockReward),
+                    REJECT_INVALID, "bad-cb-migration-miner-value");
+            blockReward += migrationConsensus.nMigrationTotal;
+        }
+    }
+
     if (block.vtx[0]->GetValueOut() > blockReward)
         return state.DoS(100,
             error("ConnectBlock(): coinbase pays too much (actual=%d vs limit=%d)",

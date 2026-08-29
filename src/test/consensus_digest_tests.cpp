@@ -114,6 +114,13 @@ void AbsorbConsensus(DigestBuilder& d, const Consensus::Params& c)
     d.I64(c.fDigishieldDifficultyCalculation ? 1 : 0);
     d.I64(c.fSimplifiedRewards ? 1 : 0);
 
+    // Genesis-migration allocation constants (DL-GENESIS-MIGRATION-IMPLEMENTATION
+    // §A1). Null/0/0 today on every network — absorbed so that ARMING them at the
+    // ceremony is a digest move, exactly like touching a genesis field.
+    d.Hash(c.hashMigrationOutputs);
+    d.I64(c.nMigrationTotal);
+    d.I64(c.nMigrationHeight);
+
     // The derived privacy seed. THIS is the field whose class of defect F4 exists
     // for: it is computed at startup by HKDF over the genesis hash, so it is both
     // public and code-derived, and the nh6m bug made exactly that kind of value
@@ -498,7 +505,7 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     const uint256 digest = ComputeConsensusDigest();
     BOOST_TEST_MESSAGE("CONSENSUS DIGEST: " << digest.ToString());
 
-    // Pinned 2026-08-26, Apple clang 21 arm64 -O2, at the FC4 candidate.
+    // Pinned 2026-08-29, Apple clang 21 arm64 -O2, at the FC4 candidate.
     //
     // Moved from 5effd2ed86326721613bddbbe2002555b217e1008c27668557027dcacf6a7ce0
     // for exactly the consensus inputs FC4 changed, each individually intended:
@@ -534,8 +541,18 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // old digest. The new function is guarded by
     // opcode_coverage_actually_reaches_pat_crypto below, so the coverage cannot
     // silently regress to shape-rejection again.
+    //
+    // Moved from df60b54d... on 2026-08-29 when AbsorbConsensus gained the three
+    // genesis-migration allocation constants (hashMigrationOutputs,
+    // nMigrationTotal, nMigrationHeight — DL-GENESIS-MIGRATION-IMPLEMENTATION
+    // §A1, bead gm-consensus-rule-bxws). A COVERAGE change again, not a rule
+    // change: the constants are null/0/0 on every network, so the absorbed
+    // values are the inert defaults — but arming them at a ceremony must move
+    // the digest exactly like touching a genesis field, so they are absorbed
+    // from the day they exist. The F4 sweep is re-run against the FC4 tag
+    // (bead 71z6), which covers this move on the fleet toolchain.
     const std::string expected =
-        "df60b54de75e72cf1cd7387cb0b1bc01191c1bccd0a1e7644927aa423750401b";
+        "43eb9d6bc5907f9d7ba13aba375c63ada6ef3d915f1941e6c754a35f971b5a24";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +

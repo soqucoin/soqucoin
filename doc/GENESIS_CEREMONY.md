@@ -150,6 +150,26 @@ be checked later.
    accidental spillover).
 7. Tag the freeze candidate. The soak clock starts at fleet deploy.
 
+## The migration allocation constants stay null at this ceremony
+
+The freeze candidate carries an inert consensus rule for a one-shot coinbase
+allocation at a parameterized height (`hashMigrationOutputs`,
+`nMigrationTotal`, `nMigrationHeight` in `consensus/params.h`; enforcement in
+`ConnectBlock`). **This ceremony sets none of them.** They ship null/0/0 on
+every network, which the migration_rule_tests suite pins as byte-for-byte
+unchanged validation, and the consensus digest absorbs them so any later
+arming is a visible digest move.
+
+If an allocation event is ever scheduled, it happens as its own pin-setting
+release at a pre-announced future height, with its own procedure: the
+committed output vector is produced by a deterministic tool run on two
+independent RPC providers whose commitment hashes must match, published in
+full before the constants are set, compiled in beside a build-time assertion
+that the vector hashes to `hashMigrationOutputs` and sums to
+`nMigrationTotal`, and soaked like any other consensus release. Nothing about
+this launch depends on that event, and skipping it forever changes nothing
+here.
+
 ## What does not change
 
 Testnet, regtest, and stagenet genesis parameters. Message-start bytes,
