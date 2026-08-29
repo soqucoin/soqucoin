@@ -551,8 +551,18 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // the digest exactly like touching a genesis field, so they are absorbed
     // from the day they exist. The F4 sweep is re-run against the FC4 tag
     // (bead 71z6), which covers this move on the fleet toolchain.
+    //
+    // Moved from 43eb9d6b... on 2026-08-29 when stagenet gained the
+    // height-gated mainnet-maturity mirror tier (nCoinbaseMaturity 240 from
+    // height 100000, bead maturity-tier-doc-divergence-x48g). A RULE change
+    // on stagenet, made deliberately by ruling: the single absorbed input
+    // that moves is stagenet GetConsensus(1000000).nCoinbaseMaturity, 30 ->
+    // 240 (the other sampled heights are all below the gate). Mainnet,
+    // testnet and regtest inputs are untouched. The tag-day F4 sweep covers
+    // this pin on the fleet toolchain; the digest moves again at the genesis
+    // ceremony as designed.
     const std::string expected =
-        "43eb9d6bc5907f9d7ba13aba375c63ada6ef3d915f1941e6c754a35f971b5a24";
+        "449625478996b2b5003bfdf63a5700d7fd17b67b36daaa6a928e557a371b2de3";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +

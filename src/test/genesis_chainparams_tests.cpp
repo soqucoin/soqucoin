@@ -197,6 +197,28 @@ BOOST_AUTO_TEST_CASE(launch_ibd_thresholds_are_zero_on_every_network)
     }
 }
 
+// Stagenet mirrors mainnet's effective coinbase maturity (240) from height
+// 100,000, HEIGHT-GATED so historical spends of pre-gate coinbases stay valid
+// and the stagenet history replay is unaffected (ruled 2026-08-29, bead
+// maturity-tier-doc-divergence-x48g). Maturity is read from the tier at the
+// COINBASE's height, so the boundary below is about when a coinbase was MINED.
+BOOST_AUTO_TEST_CASE(stagenet_maturity_mirrors_mainnet_from_the_gate_height)
+{
+    SelectParams(CBaseChainParams::STAGENET);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(0).nCoinbaseMaturity, 30);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(1).nCoinbaseMaturity, 30);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(100).nCoinbaseMaturity, 30);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(99999).nCoinbaseMaturity, 30);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(100000).nCoinbaseMaturity, 240);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(100001).nCoinbaseMaturity, 240);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(1000000).nCoinbaseMaturity, 240);
+
+    // The value being mirrored: mainnet's effective maturity from height 1.
+    SelectParams(CBaseChainParams::MAIN);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(1).nCoinbaseMaturity, 240);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(1000000).nCoinbaseMaturity, 240);
+}
+
 // ============================================================================
 // BIP9 Deployment Sanity Tests
 //

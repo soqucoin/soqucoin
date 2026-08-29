@@ -1070,6 +1070,7 @@ class CStageNetParams : public CChainParams
 private:
     Consensus::Params digishieldConsensus;
     Consensus::Params auxpowConsensus;
+    Consensus::Params maturityMirrorConsensus;
 
 public:
     CStageNetParams()
@@ -1336,9 +1337,30 @@ public:
         auxpowConsensus.nHeightEffective = 100;
         auxpowConsensus.fAllowLegacyBlocks = true;
 
+        // Mainnet-maturity mirror from block 100,000 (ruled 2026-08-29, bead
+        // maturity-tier-doc-divergence-x48g): coinbases MINED at height >=
+        // 100000 mature at 240 like mainnet's post-genesis tiers, so the soak
+        // exercises launch maturity. HEIGHT-GATED, not retroactive: maturity is
+        // read from the tier at the COINBASE's height (CheckTxInputs), so every
+        // historical spend of a pre-gate coinbase stays valid and the stagenet
+        // history replay (differential validation) is unaffected.
+        // ⚠ OPERATIONAL CONSTRAINT: the FC4 fleet deploy must COMPLETE before
+        // stagenet reaches 100000 (~2026-09-25 at 1440 blocks/day from 61372 on
+        // 08-29). A pre-FC4 node spending a post-gate coinbase at depth < 240
+        // would bake history the FC4 binary rejects, forcing a stagenet reset.
+        // The consensus digest absorbs nCoinbaseMaturity per tier, so this
+        // change re-pins the digest deliberately (see the pin history in
+        // consensus_digest_tests.cpp).
+        maturityMirrorConsensus = auxpowConsensus;
+        maturityMirrorConsensus.nHeightEffective = 100000;
+        maturityMirrorConsensus.nCoinbaseMaturity = 240;
+        maturityMirrorConsensus.pLeft = NULL;
+        maturityMirrorConsensus.pRight = NULL;
+
         pConsensusRoot = &digishieldConsensus;
         digishieldConsensus.pLeft = &consensus;
         digishieldConsensus.pRight = &auxpowConsensus;
+        auxpowConsensus.pRight = &maturityMirrorConsensus;
 
         // Message start - unique for stagenet
         pchMessageStart[0] = 0x53; // 'S'
