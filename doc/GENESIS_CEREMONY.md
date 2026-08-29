@@ -128,11 +128,24 @@ be checked later.
 
 1. Branch from the FC4 candidate. All other FC4 consensus changes must
    already be in, so one soak covers everything.
-2. Edit `src/chainparams.cpp` `CreateGenesisBlock` (the mainnet call site near
-   line 433): new `pszTimestamp`, new `nTime`, nonce 0.
-3. Mine the nonce: build, run with a temporary search loop (the pattern used
-   for the 2025/2026 testnet and stagenet geneses; scrypt at nBits 0x1e0ffff0
-   takes seconds), and record nonce, block hash, and merkle root.
+2. Edit `src/chainparams.cpp`: give MAINNET its own `CreateGenesisBlock`
+   wrapper — the pattern testnet3 and stagenet already use — carrying the new
+   `pszTimestamp` and the new unspendable output script, and switch only the
+   mainnet call site (near line 445) to it with the new `nTime` and nonce 0.
+   ⛔ Do NOT edit the shared 5-arg "Nintondo" wrapper: REGTEST calls it too,
+   and re-messaging it re-mines the regtest genesis, which breaks every
+   regtest-pinned fixture and cross-language KAT (snapshot-tool corpus,
+   functional tests). Regtest's genesis must not move at this ceremony.
+3. Mine the nonce with the in-tree harness:
+   `src/test/test_soqucoin --run_test=genesis_remine_tests/mine_mainnet_genesis
+   --log_level=message` (scrypt at nBits 0x1e0ffff0 takes seconds). Record
+   nonce, block hash, merkle root, and the scrypt PoW hash.
+   ⚠️ `mine_mainnet_genesis` is a DELIBERATE inline copy of the genesis
+   construction (it cannot `SelectParams(MAIN)` while the pins are stale), so
+   the same three inputs must be edited there too — `pszTimestamp`,
+   `genesisOutputScript`, `genesis.nTime` — before building. If the two files
+   disagree, the miner mines the wrong block; the pin assert catches it
+   loudly, but only after a wasted loop.
 4. Update every pin, in one commit:
    - `src/chainparams.cpp:439` mainnet `hashGenesisBlock` assert
    - `src/chainparams.cpp:440` mainnet `hashMerkleRoot` assert
