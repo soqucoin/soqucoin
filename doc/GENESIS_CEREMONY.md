@@ -141,9 +141,13 @@ be checked later.
    - `src/test/consensus_digest_tests.cpp` digest pins (the digest hashes
      `hashGenesisBlock`; the pinned digests WILL change and that is the
      tripwire working, not breaking)
-5. Run the full unit suite. Expected result: everything green except exactly
-   the three deliberate SoquObscura tripwires. Any fourth failure stops the
-   ceremony.
+5. Run the full unit suite. Expected result: **everything green, zero
+   failures. Any failure stops the ceremony.** (Until 2026-08-27 this step
+   expected exactly three deliberate SoquObscura tripwire failures; those
+   cases were converted to green characterisation tests when the v4 dispatch
+   was made fail-closed — see the header of
+   `src/test/soquobscura_degenerate_witness_tests.cpp`. A red case on
+   ceremony day is a real regression, full stop.)
 6. Differential validation: replay the full stagenet history against the new
    binary and diff verdicts transaction by transaction (stagenet and testnet
    geneses are untouched, so history replays identically; this catches

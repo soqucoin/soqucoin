@@ -173,19 +173,23 @@ is listed in section 14. Witness v2 outputs are not relay-standard
 (src/script/standard.cpp has no v2 form), so v2 spends arrive only in
 mined blocks.
 
-## 8. Tests that are red on purpose: do not report them as breakage
+## 8. The zero-witness battery: green since 2026-08-27, and why
 
-`src/test/soquobscura_degenerate_witness_tests.cpp` commits exactly three
-deliberately failing tests as a regression gate for the zero-witness
-forgery class (SOQ-I011 family):
-`all_zero_witness_with_correct_seed_must_reject`,
-`wire_reachable_zero_witness_must_reject`, and
-`scaled_witness_with_correct_seed_must_reject`. Line 32 states the
-convention: if a test here fails, do not "fix the test". These tests assert
-that a known-dangerous acceptance path STAYS closed; a change that turns
-them green is the alarm, not a fix. The scaled case staying red is itself
-evidence that the break is homogeneity wide, so a shallow "reject all
-zeros" patch cannot legitimately green this battery.
+`src/test/soquobscura_degenerate_witness_tests.cpp` used to commit exactly
+three deliberately failing tests as a regression gate for the zero-witness
+forgery class (SOQ-I011 family). **As of 2026-08-27 the suite is expected
+to run with ZERO failures**: the root cause was fixed rather than the
+symptom managed. The unsound verifier (`LatticeRangeProofV2`, whose accept
+path is homogeneous in the prover-supplied values) is no longer reachable
+from consensus — the witness-v4 dispatch fails closed with
+`SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_UNVERIFIED`, mirroring witness v10 — so
+the three cases were converted to green CHARACTERISATION tests: they
+document, by execution, the defect that justified removing the class from
+consensus, while the protecting property (the interpreter's fail-closed
+reject of the proven forgery) is asserted at the bottom of the same file.
+The file header records the full reasoning. Do not report the absence of
+red tests as a regression, and do not "tidy" the documented-unsoundness
+assertions into rejections without a re-derived soundness argument.
 
 Companion pinning tests (green, and must stay green) live in
 `src/test/witness_version_allocation_tests.cpp`, including
@@ -194,15 +198,23 @@ any commit that schedules SoquObscura activation on any network.
 
 ## 9. Test inventory: executed, then counted
 
-Executed on 2026-08-26 at the commit this document describes, full
-unfiltered run of the built unit suite:
+Executed on 2026-08-29 at merge commit acdacea86 (the FC4 candidate base:
+MAX_MONEY 20B, witness v4 fail-closed, digest opcode+params coverage, the
+inert genesis-migration rule, the -enablemining gate), full unfiltered run
+of the built unit suite:
 
-    721 test cases: 717 passed, 3 failed, 1 skipped
-    5,630,914 assertions: 3 failed
+    737 test cases: 736 passed, 0 failed, 1 skipped
+    5,389,194 assertions: 0 failed
 
-The 3 failures are exactly the three deliberate tripwires of section 8.
-The 1 skipped case is `script_PushData`, explicitly disabled in source
+Zero failures is the expected state since 2026-08-27 (section 8: the three
+deliberate tripwires were converted to green characterisation tests when
+the v4 dispatch was made fail-closed). The 1 skipped case is
+`script_PushData`, explicitly disabled in source
 (src/test/script_tests.cpp:195), a legacy ECDSA-era case.
+
+Prior inventory for the record, executed 2026-08-26 at the pre-FC4 commit
+this document originally described: 721 cases, 717 passed, 3 failed (the
+then-deliberate tripwires), 1 skipped.
 
 Static inventory: src/Makefile.test.include builds 96 unit-test files plus
 harness files, and 3 wallet test files (11 cases,
