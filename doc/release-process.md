@@ -13,6 +13,11 @@ Before every minor and major release:
 * Update version in sources (see below)
 * Write release notes (see below)
 * Update `src/chainparams.cpp` nMinimumChainWork with information from the getblockchaininfo rpc.
+  - ⚠ The mainnet value MUST come from a live Soqucoin mainnet node. It ships as
+    `0x00` at launch: an unreachable value (e.g. one inherited from an upstream
+    codebase) latches every fresh node in IBD, and IsInitialBlockDownload()
+    gates getblocktemplate and the auxpow work RPCs, so no node can serve
+    mining work (Phase A pre-launch audit finding, 2026-08-29).
 * Update `src/chainparams.cpp` defaultAssumeValid  with information from the getblockhash rpc.
   - The selected value must not be orphaned so it may be useful to set the value two blocks back from the tip.
   - Testnet should be set some tens of thousands back from the tip due to reorgs there.

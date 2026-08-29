@@ -168,6 +168,35 @@ BOOST_AUTO_TEST_CASE(bip34_height_safety_testnet3)
     BOOST_CHECK_GT(consensus.BIP34Height, 16);
 }
 
+BOOST_AUTO_TEST_CASE(launch_ibd_thresholds_are_zero_on_every_network)
+{
+    // nMinimumChainWork is an IBD heuristic, and IsInitialBlockDownload()
+    // gates the work-serving RPCs (getblocktemplate exempts only
+    // stagenet/regtest; AuxMiningCheck exempts nothing). An unreachable
+    // value therefore latches every fresh node in IBD and no node can serve
+    // mining work: the chain never leaves height 0. Mainnet shipped exactly
+    // that (the upstream pin for upstream block 5,050,000) until the Phase A
+    // pre-launch audit drove it on 2026-08-29. Both fields stay 0x00 until a
+    // post-launch release re-pins them from a live Soqucoin mainnet node
+    // (doc/release-process.md).
+    const std::map<std::string, std::string> networks = {
+        {CBaseChainParams::MAIN, "main"},
+        {CBaseChainParams::TESTNET, "test"},
+        {CBaseChainParams::REGTEST, "regtest"},
+        {CBaseChainParams::STAGENET, "stagenet"},
+    };
+    for (const auto& net : networks) {
+        SelectParams(net.first);
+        const Consensus::Params& consensus = Params().GetConsensus(0);
+        BOOST_CHECK_MESSAGE(consensus.nMinimumChainWork == uint256S("0x00"),
+            net.second + ": nMinimumChainWork must be zero pre-launch, got " +
+            consensus.nMinimumChainWork.ToString());
+        BOOST_CHECK_MESSAGE(consensus.defaultAssumeValid == uint256S("0x00"),
+            net.second + ": defaultAssumeValid must be zero pre-launch, got " +
+            consensus.defaultAssumeValid.ToString());
+    }
+}
+
 // ============================================================================
 // BIP9 Deployment Sanity Tests
 //
