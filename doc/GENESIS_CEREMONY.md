@@ -141,6 +141,10 @@ be checked later.
    - `src/test/consensus_digest_tests.cpp` digest pins (the digest hashes
      `hashGenesisBlock`; the pinned digests WILL change and that is the
      tripwire working, not breaking)
+   - verify mainnet `nMinimumChainWork` and `defaultAssumeValid` are still
+     `0x00` (launch posture — a fresh chain has no accumulated work, and
+     IsInitialBlockDownload() gates the work-serving RPCs; both fields get
+     real values only in post-launch releases per doc/release-process.md)
 5. Run the full unit suite. Expected result: **everything green, zero
    failures. Any failure stops the ceremony.** (Until 2026-08-27 this step
    expected exactly three deliberate SoquObscura tripwire failures; those

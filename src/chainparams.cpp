@@ -361,8 +361,16 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight   = Consensus::BIP9Deployment::NOT_SCHEDULED;
 
 
-        // The best chain should have at least this much work.
-        consensus.nMinimumChainWork = uint256S("0x000000000000000000000000000000000000000000000e993d2aa86cf246a49b"); // 5,050,000
+        // The best chain should have at least this much work. Zero for launch:
+        // this field is an IBD heuristic, and IsInitialBlockDownload() gates the
+        // work-serving RPCs (getblocktemplate exempts only stagenet/regtest;
+        // AuxMiningCheck exempts nothing), so any unreachable value here means a
+        // fresh mainnet can never serve mining work and never leaves height 0.
+        // The inherited upstream pin (chainwork at upstream block 5,050,000) did
+        // exactly that; found and driven 2026-08-29 (Phase A pre-launch audit,
+        // lane A1). Re-pin to real accumulated work in post-launch releases as
+        // part of the checkpoint-update routine (doc/release-process.md).
+        consensus.nMinimumChainWork = uint256S("0x00");
 
         // By default assume that the signatures in ancestors of this block are valid.
         consensus.defaultAssumeValid = uint256S("0x00");
