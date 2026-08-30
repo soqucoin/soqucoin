@@ -136,17 +136,33 @@ be checked later.
    and re-messaging it re-mines the regtest genesis, which breaks every
    regtest-pinned fixture and cross-language KAT (snapshot-tool corpus,
    functional tests). Regtest's genesis must not move at this ceremony.
-3. Mine the nonce with the in-tree harness:
+3. Disable the stale pins for the mine step (rehearsal-proven 2026-08-29):
+   the network param objects are constructed at static init, so with the new
+   message and the old pins, `test_soqucoin` aborts in `CMainParams` BEFORE
+   any test runs — including the miner. Temporarily comment the two mainnet
+   asserts (`hashGenesisBlock`, `hashMerkleRoot`) and build. They are
+   RESTORED, with the freshly mined values, in the pins commit of step 5 —
+   the commit diff must show both asserts present and armed.
+4. Mine the nonce with the in-tree harness:
    `src/test/test_soqucoin --run_test=genesis_remine_tests/mine_mainnet_genesis
-   --log_level=message` (scrypt at nBits 0x1e0ffff0 takes seconds). Record
-   nonce, block hash, merkle root, and the scrypt PoW hash.
+   --log_level=message`. Record nonce, block hash, merkle root, and the
+   scrypt PoW hash.
+   ⚠️ Budget 15–60 minutes, not seconds (rehearsal-measured 2026-08-29:
+   ~7.7 kH/s single-threaded scrypt, ~1M expected attempts at nBits
+   0x1e0ffff0; the rehearsal run needed 5.09M attempts = 11 minutes on an
+   unlucky draw). Do not schedule the ceremony against a deadline a slow
+   nonce would blow.
    ⚠️ `mine_mainnet_genesis` is a DELIBERATE inline copy of the genesis
    construction (it cannot `SelectParams(MAIN)` while the pins are stale), so
    the same three inputs must be edited there too — `pszTimestamp`,
    `genesisOutputScript`, `genesis.nTime` — before building. If the two files
    disagree, the miner mines the wrong block; the pin assert catches it
    loudly, but only after a wasted loop.
-4. Update every pin, in one commit:
+   An independent cross-check of the miner's output is staged at
+   `~/ceremony-prep/recompute_genesis.py` (pure-Python scrypt/sha256d over the
+   header; self-checks byte-exact against the previous pinned genesis before
+   computing the new one).
+5. Update every pin, in one commit:
    - `src/chainparams.cpp:439` mainnet `hashGenesisBlock` assert
    - `src/chainparams.cpp:440` mainnet `hashMerkleRoot` assert
    - the scrypt PoW hash recorded in the comment near line 435
@@ -158,18 +174,18 @@ be checked later.
      `0x00` (launch posture — a fresh chain has no accumulated work, and
      IsInitialBlockDownload() gates the work-serving RPCs; both fields get
      real values only in post-launch releases per doc/release-process.md)
-5. Run the full unit suite. Expected result: **everything green, zero
+6. Run the full unit suite. Expected result: **everything green, zero
    failures. Any failure stops the ceremony.** (Until 2026-08-27 this step
    expected exactly three deliberate SoquObscura tripwire failures; those
    cases were converted to green characterisation tests when the v4 dispatch
    was made fail-closed — see the header of
    `src/test/soquobscura_degenerate_witness_tests.cpp`. A red case on
    ceremony day is a real regression, full stop.)
-6. Differential validation: replay the full stagenet history against the new
+7. Differential validation: replay the full stagenet history against the new
    binary and diff verdicts transaction by transaction (stagenet and testnet
    geneses are untouched, so history replays identically; this catches
    accidental spillover).
-7. Tag the freeze candidate. The soak clock starts at fleet deploy.
+8. Tag the freeze candidate. The soak clock starts at fleet deploy.
 
 ## The migration allocation constants stay null at this ceremony
 
