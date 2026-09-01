@@ -123,6 +123,7 @@ BITCOIN_TESTS =\
   test/miner_tests.cpp \
   test/net_tests.cpp \
   test/netbase_tests.cpp \
+  test/pat_canonical_ordering_tests.cpp \
   test/pat_v2_unfundable_tests.cpp \
   test/pmt_tests.cpp \
   test/policyestimator_tests.cpp \

@@ -99,7 +99,7 @@ BOOST_AUTO_TEST_CASE(v6_output_accepted_once_p2wsh_dilithium_active)
 // ALWAYS_ACTIVE on every network, and until 2026-08-31 that made a v2 output
 // fundable — while the v2 spend path binds neither the witness program nor the
 // sighash, so a stranger could sweep any v2 output that confirmed (the spend
-// itself is driven in pat_v2_spend_poc_tests.cpp). Nothing could RELAY one,
+// itself is driven in pat_v2_unfundable_tests.cpp, PIN 1). Nothing could RELAY one,
 // because Solver never names the v2 form, so the exposure was the miner-
 // included path — which is exactly the path this rule exists to close.
 //
