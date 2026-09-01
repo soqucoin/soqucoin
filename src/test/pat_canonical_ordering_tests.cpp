@@ -92,42 +92,60 @@ BOOST_AUTO_TEST_CASE(duplicate_messages_still_give_an_order_independent_proof)
         "pat-canonical-ordering-not-total-97dz.");
 }
 
-// The consequence stated directly: with duplicate messages, the (sig, pk)
-// pairing that lands in each Merkle leaf must be decided by the ordering — not
-// by the caller, and not by the standard library. Distinct from the case above:
-// there the two entries differ only in which sig pairs with which pk, so this
-// fails if the tie-break reaches only as far as the pubkey.
-BOOST_AUTO_TEST_CASE(duplicate_message_pairing_is_decided_by_the_ordering)
+// The ordering sorts TUPLES, and must never sort the three field vectors
+// independently — that would silently re-pair signatures with the wrong public
+// keys while still producing a well-formed proof.
+//
+// So this batch is NOT a permutation: the multiset of tuples genuinely differs,
+// {(sA,pA),(sB,pB)} against {(sB,pA),(sA,pB)}, with the same messages and the
+// same pk and sig multisets. pk_agg and msg_root are identical across the two;
+// only the leaves distinguish them. A proof that cannot tell these apart has
+// lost the sig-to-pk binding.
+BOOST_AUTO_TEST_CASE(different_pairings_are_not_conflated)
 {
     const CValType sA = Fixed(0xA1), sB = Fixed(0xB1);
     const CValType pA = Fixed(0xA2), pB = Fixed(0xB2);
     const CValType m  = Fixed(0xCC);
 
-    // Same multiset of (sig, pk) pairs, same messages — only the order differs.
-    const CValType forward  = ProofOver({sA, sB}, {pA, pB}, {m, m});
-    const CValType backward = ProofOver({sB, sA}, {pB, pA}, {m, m});
+    // Signatures swapped, public keys left alone, so the PAIRING changes.
+    const CValType paired  = ProofOver({sA, sB}, {pA, pB}, {m, m});
+    const CValType repaired = ProofOver({sB, sA}, {pA, pB}, {m, m});
 
-    BOOST_CHECK_MESSAGE(forward == backward,
-        "The (sig, pk) pairing still follows presentation order. See "
-        "duplicate_messages_still_give_an_order_independent_proof — both invert together.");
+    BOOST_CHECK_MESSAGE(paired != repaired,
+        "Two batches that pair the same signatures with DIFFERENT public keys "
+        "produced the same proof. The ordering is sorting the field vectors "
+        "independently rather than sorting tuples, so the sig-to-pk binding is "
+        "gone — a proof would then attest to a pairing nobody signed.");
 }
 
 // Fully identical tuples are the one case the (message, pubkey, signature) key
-// cannot separate. That is harmless and worth pinning as such: identical tuples
+// cannot separate. That is harmless, and this pins it as such: identical tuples
 // produce identical leaves at either position, so the tree is the same whichever
 // way they land. The original-position tie-break exists so the PERMUTATION is
 // decided too, and std::sort's handling of equivalent elements never enters the
 // result at all.
+//
+// ⛔ The repeated tuple is permuted against a DISTINCT third tuple, so the two
+// copies carry different original positions in each presentation and the
+// positional tie-break is actually exercised. Permuting a batch of nothing but
+// identical tuples is a no-op on the input, and a test built that way passes on
+// any implementation whatsoever — it measures only that the function is
+// deterministic across two calls.
 BOOST_AUTO_TEST_CASE(fully_identical_tuples_are_order_independent)
 {
-    const CValType s = Fixed(0x77), p = Fixed(0x88), m = Fixed(0x99);
+    const CValType s  = Fixed(0x77), p  = Fixed(0x88), m  = Fixed(0x99);  // T, twice
+    const CValType su = Fixed(0xA7), pu = Fixed(0xA8), mu = Fixed(0xA9);  // U, distinct
 
-    const CValType a = ProofOver({s, s, s}, {p, p, p}, {m, m, m});
-    const CValType b = ProofOver({s, s, s}, {p, p, p}, {m, m, m});
+    // One multiset {T, T, U}, three genuinely different presentations of it.
+    const CValType ttu = ProofOver({s, s, su}, {p, p, pu}, {m, m, mu});
+    const CValType tut = ProofOver({s, su, s}, {p, pu, p}, {m, mu, m});
+    const CValType utt = ProofOver({su, s, s}, {pu, p, p}, {mu, m, m});
 
-    BOOST_CHECK_MESSAGE(a == b,
-        "A batch of identical tuples is not reproducible, which would mean the "
-        "ordering depends on something outside its inputs entirely.");
+    BOOST_CHECK_MESSAGE(ttu == tut && tut == utt,
+        "A batch containing two identical tuples produced different proofs "
+        "depending on where those copies sat in the input. The positional "
+        "tie-break is leaking presentation order into the result, which it must "
+        "never do — it exists only to make the key space totally ordered.");
 }
 
 // Create and Verify must derive the SAME order — they call one function for
