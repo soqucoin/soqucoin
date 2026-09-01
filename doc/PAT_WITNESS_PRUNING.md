@@ -36,7 +36,11 @@ coincidence.
   horizon and it has been fully validated by this node
   (`BLOCK_VALID_SCRIPTS`). Consensus already refuses reorganizations deeper
   than the horizon, so an eligible block's witnesses can never again be needed
-  for validation by this node.
+  for validation by this node. The genesis block is exempt from the validity
+  requirement: `ConnectBlock` early-returns for it before validity is raised
+  (its coinbase is unspendable, there is nothing to script-check), it carries
+  no witnesses, and it is final by definition; without the exemption, file 0
+  could never become whole-file eligible.
 - **`BLOCK_WITNESS_PRUNED`**: a new `BlockStatus` flag (bit 256, the next free
   bit after `BLOCK_OPT_WITNESS`) recording per block-index entry that the
   stored data is the stripped form.

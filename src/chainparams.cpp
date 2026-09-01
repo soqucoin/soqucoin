@@ -1033,8 +1033,15 @@ public:
 
     void UpdateMaxReorgDepth(int nMaxReorgDepth)
     {
+        // ⚠️ ALL THREE structs, for the same height-indexed-tree reason as the
+        // setters below (bead tofg): GetConsensus resolves heights above the
+        // regtest auxpow boundary to auxpowConsensus, so a caller reading the
+        // horizon at the tip height saw 0 here until 2026-09-01 — found when
+        // witness-prune eligibility became the first consumer to read
+        // nMaxReorgDepth at a high height through this override.
         consensus.nMaxReorgDepth = nMaxReorgDepth;
         digishieldConsensus.nMaxReorgDepth = nMaxReorgDepth;
+        auxpowConsensus.nMaxReorgDepth = nMaxReorgDepth;
     }
 
     void UpdateMigrationParams(const uint256& hashOutputs, CAmount nTotal, int nHeight,

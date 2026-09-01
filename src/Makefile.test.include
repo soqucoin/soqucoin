@@ -177,6 +177,7 @@ BITCOIN_TESTS =\
   test/dilithium_keyhash_committed_tests.cpp \
   test/usdsoq_v7_holding_tests.cpp \
   test/authority_skip_gate_tests.cpp \
+  test/witness_prune_tests.cpp \
   test/witness_version_reservation_tests.cpp \
   test/apo_hashtype_gate_tests.cpp \
   test/dormancy_matrix_tests.cpp \

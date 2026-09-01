@@ -77,6 +77,7 @@ bool fReindex = false;
 bool fTxIndex = false;
 bool fHavePruned = false;
 bool fPruneMode = false;
+bool fWitnessPrune = false;
 bool fIsBareMultisigStd = DEFAULT_PERMIT_BAREMULTISIG;
 bool fRequireStandard = true;
 bool fCheckBlockIndex = false;
@@ -5823,6 +5824,282 @@ void PruneAndFlush()
     CValidationState state;
     fCheckForPruning = true;
     FlushStateToDisk(state, FLUSH_STATE_NONE);
+}
+
+// =============================================================================
+// PAT witness pruning, route R1 (doc/PAT_WITNESS_PRUNING.md §3).
+//
+// Compaction rewrites an eligible block file with every transaction
+// re-serialized under SERIALIZE_TRANSACTION_NO_WITNESS, into a FRESH file
+// number. The original is never modified in place; the crash-safety property
+// is that at every instant the block index points only at data that exists on
+// disk, and the single destructive step (deleting the originals) runs after
+// the index durably points away from them.
+//
+// nFile couples the block position AND the undo position (chain.h GetBlockPos
+// / GetUndoPos share the field), so moving a block to a new file number must
+// carry its undo data too. The rev file is HARDLINKED to the new number
+// before the index moves: both names stay valid simultaneously, so neither
+// side of the index flush has a window where undo reads fail. Found during
+// implementation; recorded in the specification §3.
+// =============================================================================
+
+void RotateBlockFileForTests()
+{
+    LOCK(cs_main);
+    LOCK(cs_LastBlockFile);
+    FlushBlockFile(true);
+    nLastBlockFile++;
+    if ((int)vinfoBlockFile.size() <= nLastBlockFile) {
+        vinfoBlockFile.resize(nLastBlockFile + 1);
+    }
+    setDirtyFileInfo.insert(nLastBlockFile);
+}
+
+bool WitnessFileEligibleForCompaction(int nFile)
+{
+    AssertLockHeld(cs_main);
+
+    const int nTipHeight = chainActive.Height();
+    if (nTipHeight < 0) return false;
+    // The finality horizon is the property that makes witness pruning safe at
+    // all (spec §6). Disabled horizon (regtest default) means nothing is ever
+    // eligible; init refuses to enable the feature in that state, and this
+    // guard keeps the invariant even for direct callers.
+    const int nHorizon = Params().GetConsensus(nTipHeight).nMaxReorgDepth;
+    if (nHorizon <= 0) return false;
+
+    {
+        LOCK(cs_LastBlockFile);
+        if (nFile < 0 || nFile >= (int)vinfoBlockFile.size()) return false;
+        if (nFile == nLastBlockFile) return false;   // never the append file
+        if (vinfoBlockFile[nFile].nBlocks == 0) return false;
+    }
+
+    // Whole-file rule (spec §1/§3): EVERY block in the file must qualify.
+    // A stale fork block, an unvalidated block, or one within the horizon
+    // makes the whole file ineligible; it ages into eligibility naturally.
+    for (const std::pair<const uint256, CBlockIndex*>& item : mapBlockIndex) {
+        const CBlockIndex* pindex = item.second;
+        if (pindex->nFile != nFile) continue;
+        if (pindex->nStatus & BLOCK_WITNESS_PRUNED) return false; // a compaction product
+        if (!(pindex->nStatus & BLOCK_HAVE_DATA)) return false;
+        // Genesis never reaches BLOCK_VALID_SCRIPTS: ConnectBlock early-returns
+        // for it before validity is raised (its coinbase is unspendable, there
+        // is nothing to script-check). It is axiomatically final and carries no
+        // witnesses, so it is exempt from the validity requirement — without
+        // this, file 0 could never become whole-file eligible.
+        if (pindex->nHeight > 0 && !pindex->IsValid(BLOCK_VALID_SCRIPTS)) return false;
+        if (!chainActive.Contains(pindex)) return false;
+        if (nTipHeight - pindex->nHeight <= nHorizon) return false; // strictly deeper required
+    }
+    return true;
+}
+
+//! Compact one eligible file into nTargetFile = (snapshot of nLastBlockFile)+1.
+//! See the block comment above for the ordering argument.
+static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCrashPoint)
+{
+    const CChainParams& chainparams = Params();
+
+    // ---- Snapshot under cs_main: the block list and the append-file number.
+    std::vector<CBlockIndex*> vBlocks;
+    int nSnapshotLastBlockFile;
+    uint64_t nSourceUndoSize;
+    {
+        LOCK(cs_main);
+        if (!WitnessFileEligibleForCompaction(nFile)) return true; // raced; skip
+        {
+            LOCK(cs_LastBlockFile);
+            nSnapshotLastBlockFile = nLastBlockFile;
+            nSourceUndoSize = vinfoBlockFile[nFile].nUndoSize;
+        }
+        for (const std::pair<const uint256, CBlockIndex*>& item : mapBlockIndex) {
+            if (item.second->nFile == nFile) vBlocks.push_back(item.second);
+        }
+        std::sort(vBlocks.begin(), vBlocks.end(),
+                  [](const CBlockIndex* a, const CBlockIndex* b) { return a->nDataPos < b->nDataPos; });
+    }
+    const int nTargetFile = nSnapshotLastBlockFile + 1;
+    // Allocation is DERIVED, not persisted, until commit: a crash before the
+    // commit leaves no trace of the target in the index or file info, so the
+    // next pass derives the same number and overwrites the partial file. That
+    // is the garbage collection for the pre-commit crash window.
+
+    // ---- I/O outside cs_main (spec §3 lock discipline). The source blocks
+    // are final by eligibility, so reading their positions unlocked is safe.
+    struct NewPos { CBlockIndex* pindex; unsigned int nDataPos; };
+    std::vector<NewPos> vNewPos;
+    uint64_t nTargetSize = 0;
+    unsigned int nLowestHeight = std::numeric_limits<unsigned int>::max();
+    unsigned int nHighestHeight = 0;
+    uint64_t nEarliestTime = std::numeric_limits<uint64_t>::max();
+    uint64_t nLatestTime = 0;
+    {
+        const CDiskBlockPos targetStart(nTargetFile, 0);
+        // Remove any partial file from an interrupted pass, then write fresh.
+        fs::remove(GetBlockPosFilename(targetStart, "blk"));
+        CAutoFile fileout(OpenBlockFile(targetStart), SER_DISK,
+                          CLIENT_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
+        if (fileout.IsNull()) {
+            strError = strprintf("witnessprune: cannot open target block file %d", nTargetFile);
+            return false;
+        }
+        for (CBlockIndex* pindex : vBlocks) {
+            CBlock block;
+            if (!ReadBlockFromDisk(block, pindex, chainparams.GetConsensus(pindex->nHeight))) {
+                strError = strprintf("witnessprune: cannot read block %s from file %d",
+                                     pindex->GetBlockHash().ToString(), nFile);
+                return false;
+            }
+            CDataStream ssBlock(SER_DISK, CLIENT_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
+            ssBlock << block;
+            const unsigned int nSize = (unsigned int)ssBlock.size();
+            fileout << FLATDATA(chainparams.MessageStart()) << nSize;
+            const long filePos = ftell(fileout.Get());
+            if (filePos < 0) {
+                strError = "witnessprune: ftell failed on target file";
+                return false;
+            }
+            fileout.write(&ssBlock[0], ssBlock.size());
+            vNewPos.push_back({pindex, (unsigned int)filePos});
+            nTargetSize = (uint64_t)filePos + nSize;
+            nLowestHeight = std::min<unsigned int>(nLowestHeight, pindex->nHeight);
+            nHighestHeight = std::max<unsigned int>(nHighestHeight, pindex->nHeight);
+            nEarliestTime = std::min<uint64_t>(nEarliestTime, block.GetBlockTime());
+            nLatestTime = std::max<uint64_t>(nLatestTime, block.GetBlockTime());
+        }
+        FileCommit(fileout.Get());
+    }
+
+    // Carry the undo data: hardlink rev(nFile) to rev(nTargetFile). Both names
+    // are valid simultaneously, so undo reads work on either side of the index
+    // flush. Fall back to a copy where the filesystem refuses links.
+    const fs::path revSrc = GetBlockPosFilename(CDiskBlockPos(nFile, 0), "rev");
+    const fs::path revDst = GetBlockPosFilename(CDiskBlockPos(nTargetFile, 0), "rev");
+    if (fs::exists(revSrc)) {
+        fs::remove(revDst); // a partial pass may have left one
+        try {
+            fs::create_hard_link(revSrc, revDst);
+        } catch (const fs::filesystem_error&) {
+            try {
+                fs::copy_file(revSrc, revDst);
+            } catch (const fs::filesystem_error& e) {
+                strError = strprintf("witnessprune: cannot carry undo file %d -> %d: %s",
+                                     nFile, nTargetFile, e.what());
+                return false;
+            }
+        }
+    }
+
+    if (nTestCrashPoint == 1) return true; // §7.3b: crash before any commit
+
+    // ---- Commit under the locks: move the index, retire the source file
+    // info, advance the append pointer past the target. If the append file
+    // rotated while we worked, our derived target number may collide with it:
+    // abandon this attempt (the written file is orphaned data no index entry
+    // references, cleaned by the next pass) and let the next pass retry.
+    {
+        LOCK(cs_main);
+        LOCK(cs_LastBlockFile);
+        if (nLastBlockFile != nSnapshotLastBlockFile) {
+            LogPrintf("witnessprune: append file rotated during compaction of %d; retrying next pass\n", nFile);
+            return true;
+        }
+        if ((int)vinfoBlockFile.size() <= nTargetFile + 1) {
+            vinfoBlockFile.resize(nTargetFile + 2);
+        }
+        CBlockFileInfo& target = vinfoBlockFile[nTargetFile];
+        target.SetNull();
+        target.nBlocks = (unsigned int)vNewPos.size();
+        target.nSize = nTargetSize;
+        target.nUndoSize = nSourceUndoSize;
+        target.nHeightFirst = nLowestHeight;
+        target.nHeightLast = nHighestHeight;
+        target.nTimeFirst = nEarliestTime;
+        target.nTimeLast = nLatestTime;
+        vinfoBlockFile[nFile].SetNull();
+        nLastBlockFile = nTargetFile + 1; // appends continue in a fresh file
+        if ((int)vinfoBlockFile.size() <= nLastBlockFile) {
+            vinfoBlockFile.resize(nLastBlockFile + 1);
+        }
+        setDirtyFileInfo.insert(nFile);
+        setDirtyFileInfo.insert(nTargetFile);
+        setDirtyFileInfo.insert(nLastBlockFile);
+
+        for (const NewPos& np : vNewPos) {
+            np.pindex->nFile = nTargetFile;
+            np.pindex->nDataPos = np.nDataPos;
+            // nUndoPos is an offset within the rev file, and the rev file was
+            // carried byte-identically, so the offset is unchanged.
+            np.pindex->nStatus |= BLOCK_WITNESS_PRUNED;
+            setDirtyBlockIndex.insert(np.pindex);
+        }
+
+        // The reindex-refusal marker (spec §2). Written before the index
+        // flush below; if the flag write is lost to a crash here, a reindex
+        // fails LOUDLY partway (stripped blocks cannot re-verify scripts)
+        // rather than silently believing, so the failure direction is safe.
+        pblocktree->WriteFlag("witnessprunedblocks", true);
+    }
+
+    // Durable index flush, then and only then the destructive step.
+    FlushStateToDisk();
+
+    if (nTestCrashPoint == 2) return true; // §7.3b: crash before deletion
+
+    fs::remove(GetBlockPosFilename(CDiskBlockPos(nFile, 0), "blk"));
+    fs::remove(revSrc);
+    LogPrintf("witnessprune: compacted file %d -> %d (%u blocks, %u stripped bytes)\n",
+              nFile, nTargetFile, (unsigned)vNewPos.size(), (unsigned)nTargetSize);
+    return true;
+}
+
+bool CompactWitnessFiles(std::string& strError, int nTestCrashPoint)
+{
+    // Orphan sweep: a crash between the index flush and the deletion leaves
+    // original files that no index entry references (spec §3, crash window 2).
+    // Criterion: a retired file-info slot, not the append file, present on
+    // disk, with zero index entries pointing at it.
+    std::vector<int> vEligible;
+    std::vector<int> vOrphans;
+    {
+        LOCK(cs_main);
+        int nFiles;
+        int nAppend;
+        {
+            LOCK(cs_LastBlockFile);
+            nFiles = (int)vinfoBlockFile.size();
+            nAppend = nLastBlockFile;
+        }
+        std::set<int> setReferenced;
+        for (const std::pair<const uint256, CBlockIndex*>& item : mapBlockIndex) {
+            if (item.second->nStatus & BLOCK_HAVE_DATA) setReferenced.insert(item.second->nFile);
+        }
+        for (int f = 0; f < nFiles; ++f) {
+            if (f == nAppend) continue;
+            bool fEmptyInfo;
+            {
+                LOCK(cs_LastBlockFile);
+                fEmptyInfo = (vinfoBlockFile[f].nBlocks == 0);
+            }
+            if (fEmptyInfo && setReferenced.count(f) == 0 &&
+                fs::exists(GetBlockPosFilename(CDiskBlockPos(f, 0), "blk"))) {
+                vOrphans.push_back(f);
+            }
+            if (WitnessFileEligibleForCompaction(f)) vEligible.push_back(f);
+        }
+    }
+    for (int f : vOrphans) {
+        LogPrintf("witnessprune: removing orphaned original file %d from an interrupted pass\n", f);
+        fs::remove(GetBlockPosFilename(CDiskBlockPos(f, 0), "blk"));
+        fs::remove(GetBlockPosFilename(CDiskBlockPos(f, 0), "rev"));
+    }
+    for (int f : vEligible) {
+        if (!CompactOneWitnessFile(f, strError, nTestCrashPoint)) return false;
+        if (nTestCrashPoint != 0) return true; // simulate at most one crash per pass
+    }
+    return true;
 }
 
 /** Update chainActive and related internal data structures. */
