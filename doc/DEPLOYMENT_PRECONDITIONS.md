@@ -52,6 +52,18 @@ feature that satisfies its own row and violates one of these is **not** ready.
    feature actually engages — for example that a newly created output of that
    type is no longer anyone-can-spend.
 
+   ⛔ **The first test written for any new output or script type is: create one,
+   fund it, mine it, and TRY TO STEAL IT.** Unit-testing a verifier proves what
+   it computes, never what it *authorizes*. This is not a style preference — it
+   is the control that failed. `DL-PAT-REMEDIATION.md` prescribed exactly this
+   test for witness v2 and it was never written, which is the direct reason a
+   fund-loss defect (bead `pat-v2-anyone-can-spend-ae6u`) survived a full L1
+   audit: every PAT test asserted the proof arithmetic, and none asserted that a
+   stranger could not spend the output. A verifier-only test suite is green in
+   precisely the case that loses the money. The test belongs in
+   `witness_version_reservation_tests.cpp`, must drive a real block through
+   `ConnectBlock`, and must be shown to fail against the pre-fix rule.
+
 6. **A rollback posture must be written down BEFORE the height is set.** A
    soft-fork cannot be cleanly un-activated without coordination.
 
@@ -78,8 +90,24 @@ P2WSH-Dilithium, v6) would never execute even once height-activated. Confirm the
 launch binary carries the `g7c` fix (`7117c22f9`).
 
 ### `DEPLOYMENT_CHECKPATAGG` (bit 3) — `ALWAYS_ACTIVE`
-PAT, the Practical **Attestation** Technique. Dilithium aggregation via
-`OP_CHECKPATAGG` and witness v2.
+PAT, the Practical **Attestation** Technique: Dilithium batch attestation via
+`OP_CHECKPATAGG`.
+
+⛔ **This deployment no longer means "witness v2 outputs are allowed."** Ruled
+2026-08-31: PAT's attestation is block metadata — a commitment in the coinbase,
+validated in `ConnectBlock` — and not an output type. **Witness v2 is
+permanently unfundable at consensus, unconditionally and not gated on this
+deployment** (`validation.cpp` `versionActive` case 2). Read the flag as "the
+PAT commitment rules are in force", never as a witness-version gate.
+
+The reason is recorded because it is counter-intuitive: the v2 spend path binds
+neither the witness program nor the sighash, and PAT by design verifies no
+signature — only the internal consistency of witness-supplied 32-byte tuples. So
+any v2 output that ever confirmed would be spendable by anybody. That is not a
+binding bug to fix: PAT stores 32-byte commitments, and a commitment cannot
+verify a signature, which is information-theoretic. Unfundability is therefore
+the control, and it must not be re-openable by flipping a deployment. Pinned by
+`pat_v2_unfundable_tests.cpp` and `witness_version_reservation_tests.cpp`.
 
 **This is the only Soqucoin-specific consensus cryptography live at launch, so it
 carries the launch risk the others defer.**
