@@ -3552,6 +3552,20 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // The attested set derives from the same flags that gate v7/v8 fundability,
     // so the set and fundability cannot disagree. Enforcement happens after the
     // loop, once the batch is complete.
+    //
+    // Gated on fScriptChecks, the assumevalid/checkpoint window where signature
+    // verification itself is skipped. The attestation attests those same
+    // signatures, so recomputing it there is the same class of redundant work
+    // assumevalid exists to skip — and it is NOT cheap: a sighash per input
+    // (which the base code does not compute at all in this window), SHA3 over
+    // every 2,420-byte signature and 1,312-byte key, and an O(n log n) Merkle
+    // build per block. Every historical commitment was verified by the nodes
+    // that ran full checks, the same trust statement assumevalid already makes.
+    //
+    // ⛔ Collection and the enforcement block below are gated TOGETHER. Skipping
+    // only collection would compare a present commitment against an empty batch
+    // and reject valid historical blocks (bad-blk-pat-commitment-empty) during
+    // fast sync.
     patattest::PatBatch patBatch;
     patattest::AttestedSetParams patParams;
     patParams.fUsdsoqActive = (flags & SCRIPT_VERIFY_USDSOQ) != 0;
@@ -3643,18 +3657,21 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     tx.GetHash().ToString(), FormatStateMessage(state));
             control.Add(vChecks);
 
-            // PAT attestation tuple collection. The prevouts consulted here
-            // are exactly the ones this transaction spends (view.HaveInputs
-            // held above, UpdateCoins has not yet run for this transaction),
-            // so in-block chained spends resolve the same way the producer
-            // resolves them.
-            patattest::AppendTuples(patBatch, tx,
-                [&view](const COutPoint& out, CTxOut& txOut) -> bool {
-                    const CCoins* coins = view.AccessCoins(out.hash);
-                    if (coins == nullptr || !coins->IsAvailable(out.n)) return false;
-                    txOut = coins->vout[out.n];
-                    return true;
-                }, patParams);
+            // PAT attestation tuple collection (skipped with fScriptChecks —
+            // see the gate rationale at the batch declaration above). The
+            // prevouts consulted here are exactly the ones this transaction
+            // spends (view.HaveInputs held above, UpdateCoins has not yet run
+            // for this transaction), so in-block chained spends resolve the
+            // same way the producer resolves them.
+            if (fScriptChecks) {
+                patattest::AppendTuples(patBatch, tx,
+                    [&view](const COutPoint& out, CTxOut& txOut) -> bool {
+                        const CCoins* coins = view.AccessCoins(out.hash);
+                        if (coins == nullptr || !coins->IsAvailable(out.n)) return false;
+                        txOut = coins->vout[out.n];
+                        return true;
+                    }, patParams);
+            }
         }
 
         CTxUndo undoDummy;
@@ -5488,8 +5505,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // rather than first-match-wins: a first-match scan makes validation depend
     // on coinbase output order and lets a miner place a decoy ahead of the
     // real commitment (spec §6).
+    //
+    // Skipped with fScriptChecks, TOGETHER with the collection above: inside
+    // the assumevalid window the batch was never collected, so enforcing here
+    // would compare any present commitment against an empty batch and reject
+    // valid historical blocks. The trust statement is the one assumevalid
+    // already makes — these commitments were verified by every node that ran
+    // full checks when the blocks were new.
     // =========================================================================
-    {
+    if (fScriptChecks) {
         uint256 committed;
         const int nCommitments = patattest::FindCommitments(*block.vtx[0], committed);
         uint256 computed;
