@@ -2563,6 +2563,18 @@ bool ApplyTxInUndo(const CTxInUndo& undo, CCoinsViewCache& view, const COutPoint
 
 bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockIndex* pindex, CCoinsViewCache& view, bool* pfClean)
 {
+    // PAT witness pruning (doc/PAT_WITNESS_PRUNING.md §6): eligibility requires
+    // depth strictly beyond nMaxReorgDepth, and consensus refuses deeper
+    // reorganizations, so a disconnect request for a witness-pruned block means
+    // the finality rule itself has been violated. Halt loudly rather than
+    // improvise on a chain state the pruning safety argument no longer covers.
+    if (pindex->nStatus & BLOCK_WITNESS_PRUNED) {
+        return AbortNode(state,
+            "witness-pruned-block-disconnect: a block beyond the finality horizon "
+            "was asked to disconnect; the node cannot validate a reorganization "
+            "this deep and must not guess");
+    }
+
     assert(pindex->GetBlockHash() == view.GetBestBlock());
 
     if (pfClean)
@@ -5902,17 +5914,36 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
 {
     const CChainParams& chainparams = Params();
 
-    // ---- Snapshot under cs_main: the block list and the append-file number.
+    // ---- Snapshot under cs_main: the block list, and RESERVE the target file
+    // number by advancing the append pointer past it. FindBlockPos only ever
+    // allocates forward from nLastBlockFile, so a reserved number can never be
+    // rotated into by concurrent block writes — the collision is impossible by
+    // construction, not detected after the fact (found in review: a
+    // commit-time check runs after the disk damage it would detect).
+    //
+    // The reservation is in-memory until the next index flush. If the process
+    // crashes before the commit below, a restart may re-derive file numbers
+    // over a leftover partial target: blk files are position-addressed, so
+    // stray tail bytes behind a rotated-into file are inert, and the orphan
+    // sweep removes any partial target whose file info is empty and which no
+    // index entry references.
     std::vector<CBlockIndex*> vBlocks;
-    int nSnapshotLastBlockFile;
+    int nTargetFile;
     uint64_t nSourceUndoSize;
     {
         LOCK(cs_main);
         if (!WitnessFileEligibleForCompaction(nFile)) return true; // raced; skip
         {
             LOCK(cs_LastBlockFile);
-            nSnapshotLastBlockFile = nLastBlockFile;
             nSourceUndoSize = vinfoBlockFile[nFile].nUndoSize;
+            nTargetFile = nLastBlockFile + 1;
+            if ((int)vinfoBlockFile.size() <= nTargetFile + 1) {
+                vinfoBlockFile.resize(nTargetFile + 2);
+            }
+            vinfoBlockFile[nTargetFile].SetNull();
+            nLastBlockFile = nTargetFile + 1; // appends continue in a fresh file
+            setDirtyFileInfo.insert(nTargetFile);
+            setDirtyFileInfo.insert(nLastBlockFile);
         }
         for (const std::pair<const uint256, CBlockIndex*>& item : mapBlockIndex) {
             if (item.second->nFile == nFile) vBlocks.push_back(item.second);
@@ -5920,11 +5951,6 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
         std::sort(vBlocks.begin(), vBlocks.end(),
                   [](const CBlockIndex* a, const CBlockIndex* b) { return a->nDataPos < b->nDataPos; });
     }
-    const int nTargetFile = nSnapshotLastBlockFile + 1;
-    // Allocation is DERIVED, not persisted, until commit: a crash before the
-    // commit leaves no trace of the target in the index or file info, so the
-    // next pass derives the same number and overwrites the partial file. That
-    // is the garbage collection for the pre-commit crash window.
 
     // ---- I/O outside cs_main (spec §3 lock discipline). The source blocks
     // are final by eligibility, so reading their positions unlocked is safe.
@@ -5994,21 +6020,12 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
 
     if (nTestCrashPoint == 1) return true; // §7.3b: crash before any commit
 
-    // ---- Commit under the locks: move the index, retire the source file
-    // info, advance the append pointer past the target. If the append file
-    // rotated while we worked, our derived target number may collide with it:
-    // abandon this attempt (the written file is orphaned data no index entry
-    // references, cleaned by the next pass) and let the next pass retry.
+    // ---- Commit under the locks: fill the reserved target's file info, move
+    // the index, retire the source file info. The append pointer was already
+    // advanced at reservation time, so no rotation can have touched the target.
     {
         LOCK(cs_main);
         LOCK(cs_LastBlockFile);
-        if (nLastBlockFile != nSnapshotLastBlockFile) {
-            LogPrintf("witnessprune: append file rotated during compaction of %d; retrying next pass\n", nFile);
-            return true;
-        }
-        if ((int)vinfoBlockFile.size() <= nTargetFile + 1) {
-            vinfoBlockFile.resize(nTargetFile + 2);
-        }
         CBlockFileInfo& target = vinfoBlockFile[nTargetFile];
         target.SetNull();
         target.nBlocks = (unsigned int)vNewPos.size();
@@ -6019,13 +6036,8 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
         target.nTimeFirst = nEarliestTime;
         target.nTimeLast = nLatestTime;
         vinfoBlockFile[nFile].SetNull();
-        nLastBlockFile = nTargetFile + 1; // appends continue in a fresh file
-        if ((int)vinfoBlockFile.size() <= nLastBlockFile) {
-            vinfoBlockFile.resize(nLastBlockFile + 1);
-        }
         setDirtyFileInfo.insert(nFile);
         setDirtyFileInfo.insert(nTargetFile);
-        setDirtyFileInfo.insert(nLastBlockFile);
 
         for (const NewPos& np : vNewPos) {
             np.pindex->nFile = nTargetFile;
@@ -6050,7 +6062,7 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
 
     fs::remove(GetBlockPosFilename(CDiskBlockPos(nFile, 0), "blk"));
     fs::remove(revSrc);
-    LogPrintf("witnessprune: compacted file %d -> %d (%u blocks, %u stripped bytes)\n",
+    LogPrintf("witnessprune: compacted file %d -> %d (%u blocks, %u bytes written)\n",
               nFile, nTargetFile, (unsigned)vNewPos.size(), (unsigned)nTargetSize);
     return true;
 }

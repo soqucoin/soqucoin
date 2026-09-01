@@ -154,7 +154,7 @@ enum BlockStatus: uint32_t {
     //! doc/PAT_WITNESS_PRUNING.md. Base data, undo data and the PAT
     //! attestation commitment are intact; signatures cannot be re-verified.
     //! A disconnect of a block carrying this flag is a finality-rule
-    //! violation and halts the node.
+    //! violation; DisconnectBlock refuses it via AbortNode.
     BLOCK_WITNESS_PRUNED    =   256,
 };
 

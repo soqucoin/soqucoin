@@ -76,13 +76,23 @@ whole trailing files age out together.
 
 Compaction of file *n* writes the stripped data to a **new file number** *m*
 (allocated from the same `blk*.dat` series; nothing requires file numbers to be
-height-ordered, since every read goes through `nFile`/`nDataPos`). The original
-file is never modified in place, which is what removes the crash window
-entirely:
+height-ordered, since every read goes through `nFile`/`nDataPos`). The number
+*m* is **reserved before any I/O** by advancing the append pointer past it
+under the file lock: the block-write path only ever allocates forward from the
+append pointer, so concurrent block-file rotation can never collide with the
+compaction target. The collision is impossible by construction rather than
+detected after the fact; a detection check at commit time would run after the
+disk damage it detects (found in review). The original file is never modified
+in place, which is what removes the crash window entirely:
 
-1. Read every block in file *n*; re-serialize each with
-   `SERIALIZE_TRANSACTION_NO_WITNESS` into file *m*, with fresh per-block
-   offsets. Flush and fsync file *m*.
+1. Reserve *m* (above), then read every block in file *n* and re-serialize
+   each with `SERIALIZE_TRANSACTION_NO_WITNESS` into file *m*, with fresh
+   per-block offsets. Flush and fsync file *m*. The reservation is in-memory
+   until the next index flush; a crash here can lose it, leaving a partial
+   file *m* that a later restart may allocate over — harmless, because block
+   files are position-addressed (stray tail bytes are unreachable) and the
+   orphan sweep removes any partial target whose file info is empty and which
+   no index entry references.
 2. Update every affected `CBlockIndex` entry (`nFile` = *m*, new `nDataPos`,
    `BLOCK_WITNESS_PRUNED`) and the `CBlockFileInfo` records, and flush the
    block index durably.

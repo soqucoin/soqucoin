@@ -16,10 +16,17 @@
 #include "chainparams.h"
 #include "consensus/pat_attestation.h"
 #include "test/dilithium_chain_setup.h"
+#include "init.h"
 #include "txdb.h"
 #include "validation.h"
 
 #include <boost/test/unit_test.hpp>
+
+#include <atomic>
+
+// The process-wide shutdown flag AbortNode sets (init.cpp). Declared here so
+// the disconnect-guard test can clear it after deliberately tripping it.
+extern std::atomic<bool> fRequestShutdown;
 
 namespace {
 
@@ -299,6 +306,47 @@ BOOST_AUTO_TEST_CASE(crash_windows_leave_readable_state_and_converge)
     BOOST_CHECK(!fs::exists(GetBlockPosFilename(CDiskBlockPos(0, 0), "rev")));
     for (CBlockIndex* p : vFile0) BOOST_CHECK_EQUAL(p->nFile, nNewFile);
     allReadable("after the converging pass");
+}
+
+// §6 — the finality assertion. A disconnect request for a witness-pruned
+// block means the finality rule itself failed; DisconnectBlock must refuse via
+// AbortNode rather than improvise. The guard fires before the view is touched,
+// so driving it with the live view is safe. Fails if the guard is removed or
+// reordered after the undo machinery.
+BOOST_AUTO_TEST_CASE(disconnect_of_pruned_block_aborts)
+{
+    RotateBlockFileForTests();
+    ScopedRegtestHorizon horizon(3);
+    for (int i = 0; i < 4; ++i) CreateAndProcessBlock({}, Spk(OP_1));
+    std::string strError;
+    BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
+
+    LOCK(cs_main);
+    CBlockIndex* pPruned = nullptr;
+    for (const auto& item : mapBlockIndex) {
+        if ((item.second->nStatus & BLOCK_WITNESS_PRUNED) && item.second->nHeight > 0) {
+            pPruned = item.second;
+            break;
+        }
+    }
+    BOOST_REQUIRE(pPruned != nullptr);
+
+    CBlock block;
+    BOOST_REQUIRE(ReadBlockFromDisk(block, pPruned, Params().GetConsensus(pPruned->nHeight)));
+
+    BOOST_REQUIRE(!ShutdownRequested());
+    CValidationState state;
+    CCoinsViewCache view(pcoinsTip);
+    BOOST_CHECK_MESSAGE(!DisconnectBlock(block, state, pPruned, view, nullptr),
+        "DisconnectBlock accepted a witness-pruned block; the finality assertion "
+        "of doc/PAT_WITNESS_PRUNING.md section 6 is gone");
+    BOOST_CHECK_MESSAGE(ShutdownRequested(),
+        "the refusal must go through AbortNode: a quiet error return leaves the "
+        "node running on a chain state the pruning safety argument does not cover");
+
+    // AbortNode sets the process-wide shutdown flag; clear it so later suites
+    // in this binary are unaffected.
+    fRequestShutdown = false;
 }
 
 BOOST_AUTO_TEST_SUITE_END()
