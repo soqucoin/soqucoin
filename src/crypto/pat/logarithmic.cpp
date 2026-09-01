@@ -2,7 +2,6 @@
 #include <crypto/pat/logarithmic.h>
 #include <crypto/sha3.h>
 #include <cstdint>
-#include <numeric>
 
 using namespace std;
 using namespace pat;
@@ -14,6 +13,76 @@ static uint256 PatHash(const CValType& data)
     uint256 hash;
     hasher.Finalize(hash.begin());
     return hash;
+}
+
+// =========================================================================
+// Canonical ordering — TOTAL by construction.
+//
+// The batch is sorted so that the same batch always yields the same proof.
+// That property is consensus-critical for the PAT block attestation: every
+// node recomputes the attestation over a block and compares it against the
+// coinbase commitment, so two nodes deriving different proofs from the same
+// block would be a chain split.
+//
+// ⛔ Until 2026-08-31 the key was PatHash(message) ALONE, sorted with a bare
+// std::sort. Two entries over the same message compared EQUIVALENT, and the
+// standard gives no guarantee about the relative order of equivalent elements
+// under std::sort — it is not stable, and implementations may differ. Identical
+// input could therefore produce different proofs on different platforms. The
+// gap was measured, not theorised (pat_canonical_ordering_tests.cpp, bead
+// pat-canonical-ordering-not-total-97dz).
+//
+// The key is now the triple (message, pubkey, signature), with the entry's
+// original position as a final tie-break. That last term only ever separates
+// entries whose three commitments are ALL equal — i.e. genuinely identical
+// tuples — and those produce identical leaves at either position, so it cannot
+// reintroduce the malleability the ordering exists to prevent. Its purpose is
+// to make the key space strictly totally ordered, so that std::sort's treatment
+// of equivalent elements never enters the result at all.
+//
+// ⛔ Create and Verify MUST derive the order the same way. They call this one
+// function for that reason: two copies of the sort is a place where the halves
+// can silently drift apart.
+// =========================================================================
+namespace {
+
+struct CanonicalKey {
+    uint256 msg;
+    uint256 pk;
+    uint256 sig;
+    uint32_t pos;
+
+    bool operator<(const CanonicalKey& o) const
+    {
+        if (msg != o.msg) return msg < o.msg;
+        if (pk  != o.pk)  return pk  < o.pk;
+        if (sig != o.sig) return sig < o.sig;
+        return pos < o.pos;
+    }
+};
+
+} // namespace
+
+//! The canonical order of a batch, as indices into the caller's vectors.
+//! Hashes each field exactly once rather than inside the comparator, which also
+//! takes the sort from O(n log n) hash computations down to O(n).
+static std::vector<uint32_t> CanonicalOrder(const vector<CValType>& vSignatures,
+                                            const vector<CValType>& vPublicKeys,
+                                            const vector<CValType>& vMessages)
+{
+    const size_t n = vMessages.size();
+    std::vector<CanonicalKey> keys(n);
+    for (size_t i = 0; i < n; ++i) {
+        keys[i].msg = PatHash(vMessages[i]);
+        keys[i].pk  = PatHash(vPublicKeys[i]);
+        keys[i].sig = PatHash(vSignatures[i]);
+        keys[i].pos = (uint32_t)i;
+    }
+    std::sort(keys.begin(), keys.end());
+
+    std::vector<uint32_t> order(n);
+    for (size_t i = 0; i < n; ++i) order[i] = keys[i].pos;
+    return order;
 }
 
 static uint256 LeafHash(uint32_t idx, const CValType& sig, const CValType& pk, const CValType& msg)
@@ -114,12 +183,9 @@ bool pat::CreateLogarithmicProof(
     size_t n = vSignatures.size();
     if (n == 0 || n > 1 << 20 || n != vPublicKeys.size() || n != vMessages.size()) return false;
 
-    // Sort indices by message hash (canonical order)
-    vector<uint32_t> order(n);
-    iota(order.begin(), order.end(), 0);
-    sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
-        return PatHash(vMessages[a]) < PatHash(vMessages[b]);
-    });
+    // Canonical order — see CanonicalOrder above. Verify derives it the same
+    // way, from the same function; the two must never diverge.
+    const vector<uint32_t> order = CanonicalOrder(vSignatures, vPublicKeys, vMessages);
 
     // Build leaves and collect sorted public keys for hash aggregation
     vector<uint256> leaves(n);
@@ -253,13 +319,10 @@ bool pat::VerifyLogarithmicProof(
     }
 
     // Step 3: Apply canonical ordering (CRITICAL FOR SECURITY)
-    // Sort indices by message hash to match CreateLogarithmicProof
-    // This ensures deterministic verification and prevents proof malleability
-    std::vector<uint32_t> order(n);
-    std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
-        return PatHash(vClaimedMsgs[a]) < PatHash(vClaimedMsgs[b]);
-    });
+    // Derived by the SAME function CreateLogarithmicProof uses, so the two
+    // halves cannot drift apart. See CanonicalOrder above for why the key is
+    // the (message, pubkey, signature) triple and not the message alone.
+    const std::vector<uint32_t> order = CanonicalOrder(vClaimedSigs, vClaimedPks, vClaimedMsgs);
 
     // Create sorted views of the witness data
     std::vector<CValType> sorted_sigs(n), sorted_pks(n), sorted_msgs(n);
