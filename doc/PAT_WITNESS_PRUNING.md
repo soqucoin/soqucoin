@@ -9,9 +9,9 @@ proves the semantics.
 pruning is **local node policy, not consensus**. No rule in this document
 affects block validity, and none of it may move the consensus digest; the
 implementation asserts that. What this document fixes precisely is the node's
-own storage behaviour and, critically, what it tells the network it can serve —
-because a node that silently serves less than it advertises breaks other
-nodes' sync, which is the one way local policy becomes a network problem.
+own storage behaviour and, critically, what it tells the network it can serve.
+A node that silently serves less than it advertises breaks other nodes' sync,
+which is the one way local policy becomes a network problem.
 
 **What it delivers.** The storage benefit PAT was researched for: a node may
 discard the raw witness data (Dilithium signatures, ~2,420 bytes each, and
@@ -110,7 +110,7 @@ A node with witness pruning enabled:
 - Serves `getdata` for blocks **within** the window normally, both `MSG_BLOCK`
   and `MSG_WITNESS_BLOCK`.
 - Answers `getdata` for any block **beyond** the window with `notfound`, for
-  both message types — including `MSG_BLOCK`, even though the stripped base
+  both message types, including `MSG_BLOCK`, even though the stripped base
   data exists locally. Serving base-only blocks to a peer that will attempt
   script validation manufactures the silent-break failure mode; the stripped
   data is for this node's own RPC and audit trail, not for relay. This matches
@@ -169,8 +169,8 @@ must halt loudly rather than improvise.
 ## 8. Staging
 
 - **Stage 1**: the stripping serializer round-trip, eligibility logic,
-  `BLOCK_WITNESS_PRUNED`, and the compaction rewrite with its crash-ordering —
-  everything local, behind the default-off flag. Unit tests 1–4.
+  `BLOCK_WITNESS_PRUNED`, and the compaction rewrite with its crash ordering.
+  Everything local, behind the default-off flag. Unit tests 1–4.
 - **Stage 2**: the network contract — service bits, `getdata` window rules —
   plus functional tests 5–6 and the digest assertion. The feature is not
   enableable on a network-connected node until stage 2 lands; stage 1 gates
