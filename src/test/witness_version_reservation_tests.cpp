@@ -92,6 +92,35 @@ BOOST_AUTO_TEST_CASE(v6_output_accepted_once_p2wsh_dilithium_active)
         "dormancy rejection above proves nothing");
 }
 
+// ⛔ THE STEAL TEST for witness v2 (PAT). Bead pat-v2-anyone-can-spend-ae6u.
+//
+// Every other case in this file gates on a DORMANT deployment. v2 is the
+// opposite shape and that is the whole point: DEPLOYMENT_CHECKPATAGG is
+// ALWAYS_ACTIVE on every network, and until 2026-08-31 that made a v2 output
+// fundable — while the v2 spend path binds neither the witness program nor the
+// sighash, so a stranger could sweep any v2 output that confirmed (the spend
+// itself is driven in pat_v2_unfundable_tests.cpp, PIN 1). Nothing could
+// RELAY one, because Solver never names the v2 form, so the exposure was the
+// miner-included path — which is exactly the path this rule exists to close.
+//
+// The rule is now unconditional rather than deployment-gated, because PAT's
+// attestation is a coinbase commitment and not an output type at all. This test
+// asserts the deployment is active first: if the rejection ever starts
+// depending on dormancy, the guarantee has silently weakened to the one that
+// already failed.
+BOOST_AUTO_TEST_CASE(v2_output_unfundable_even_though_checkpatagg_is_active)
+{
+    const int h = chainActive.Height() + 1;
+    const auto& dep = Params().GetConsensus(h).vDeployments[Consensus::DEPLOYMENT_CHECKPATAGG];
+    BOOST_REQUIRE_MESSAGE(dep.nStartTime == Consensus::BIP9Deployment::ALWAYS_ACTIVE,
+        "DEPLOYMENT_CHECKPATAGG is no longer ALWAYS_ACTIVE on regtest, so this test "
+        "would now be proving dormancy rather than unconditional unfundability. Read "
+        "bead pat-v2-anyone-can-spend-ae6u before changing it.");
+
+    CMutableTransaction tx = SpendTo(coinbaseTxns[14], Spk(OP_2));
+    BOOST_CHECK_EQUAL(RejectReasonFor({tx}), "bad-txns-witness-version-not-active");
+}
+
 // v3 (LatticeFold) is retired and never activates on ANY network, so a v3
 // output is permanently anyone-can-spend at the script layer. Consensus must
 // refuse to create one everywhere, not just on mainnet.

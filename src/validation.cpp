@@ -684,7 +684,16 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             return VersionBitsState(chainActive.Tip(), cons, pos, versionbitscache) == THRESHOLD_ACTIVE;
         };
         // v0/v1 are the always-standard base forms and are handled by Solver.
-        if (bip9Active(Consensus::DEPLOYMENT_CHECKPATAGG))     activeWitnessVersions |= WitnessVersionBit(2);
+        // v2 (PAT) is deliberately absent and must stay absent: it is
+        // permanently unfundable at consensus (ConnectBlock's versionActive),
+        // because PAT's attestation is a coinbase commitment rather than an
+        // output type. Setting the bit from DEPLOYMENT_CHECKPATAGG would state
+        // the opposite of the consensus rule. It would also have no effect —
+        // Solver never names the v2 form, so IsStandard returns false before it
+        // reads this mask (witness_version_allocation_tests
+        // mask_bits_for_v2_v3_v4_cannot_affect_standardness) — and a dead bit
+        // that contradicts consensus is exactly the kind of disagreement this
+        // mask exists to prevent. Bead pat-v2-anyone-can-spend-ae6u.
         if (bip9Active(Consensus::DEPLOYMENT_LATTICEFOLD))     activeWitnessVersions |= WitnessVersionBit(3);
         if (heightActive(Consensus::DEPLOYMENT_SOQUOBSCURA))   activeWitnessVersions |= WitnessVersionBit(4);
         // USDSOQ governs both the v5 authority marker and the v7 holding form.
@@ -3745,24 +3754,45 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     //      patching each exemption (SOQ-I009 proper).
     //
     // So: an output may only use a witness version whose deployment is active
-    // in THIS block. v0/v1 are the always-available base Dilithium forms;
-    // v11-v16 are unallocated and can never be created until one is assigned a
-    // deployment. Policy already refuses to relay all of these
-    // (activeWitnessVersions, above), so this closes the miner-included path
-    // that policy cannot reach.
+    // in THIS block. v0/v1 are the always-available base Dilithium forms; v2 is
+    // permanently unfundable (see the case below); v11-v16 are unallocated and
+    // can never be created until one is assigned a deployment. Policy already
+    // refuses to relay all of these (activeWitnessVersions, above), so this
+    // closes the miner-included path that policy cannot reach.
     //
     // Blast radius: v5/v7/v8/v9 are dormant on mainnet ONLY, so those cannot
     // affect an existing chain. v3 (LatticeFold, retired) and v11-v16 are
     // dormant on every network — neither has ever been relay-standard anywhere,
     // so no honest wallet can have produced one, but this is the part of the
     // rule that wants a stagenet resync before fleet deploy.
+    // ⛔ v2 is the one version whose posture TIGHTENS here rather than merely
+    // being pinned: it was fundable on every network until 2026-08-31, because
+    // DEPLOYMENT_CHECKPATAGG is ALWAYS_ACTIVE. Nothing could relay one (Solver
+    // never named the form, so the v2 policy bit was dead), so only a directly
+    // mined output could exist — but stagenet must be checked for one before
+    // the fleet takes this rule, or a node running it will reject the chain.
     // v4/v10 are pre-empted by SOQ-ARCH-001 above and never reach this loop.
     // =========================================================================
     {
         auto versionActive = [&flags](int version) -> bool {
             switch (version) {
             case 0: case 1: return true;                                  // base Dilithium forms
-            case 2:  return (flags & SCRIPT_VERIFY_PAT) != 0;             // PAT aggregation
+            // v2 (PAT) is PERMANENTLY unfundable, and not gated on
+            // SCRIPT_VERIFY_PAT like the rest. PAT's attestation is block
+            // metadata — a commitment in the coinbase, validated here in
+            // ConnectBlock — not a UTXO, so there is no v2 output type to
+            // create and nothing that needs to be payable.
+            //
+            // This is a hard "no" rather than a dormancy gate because the v2
+            // spend path in interpreter.cpp binds NEITHER the witness program
+            // NOR the sighash: it delegates to OP_CHECKPATAGG, which by design
+            // verifies no signature, only the internal consistency of
+            // attacker-supplied 32-byte tuples. Anyone can mint a self-
+            // consistent proof, so any v2 output that ever confirmed would be
+            // spendable by anybody. Unfundability is therefore the control, and
+            // it must not be re-openable by flipping a deployment.
+            // Ruled 2026-08-31; bead pat-v2-anyone-can-spend-ae6u.
+            case 2:  return false;                                        // PAT attestation is not an output type
             case 3:  return (flags & SCRIPT_VERIFY_LATTICEFOLD) != 0;     // LatticeFold+ (retired)
             case 4:  return (flags & SCRIPT_VERIFY_SOQUOBSCURA) != 0;     // confidential SOQ
             case 5: case 7: return (flags & SCRIPT_VERIFY_USDSOQ) != 0;   // USDSOQ marker / holding
