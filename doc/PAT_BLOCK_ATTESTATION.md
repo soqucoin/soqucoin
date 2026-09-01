@@ -151,11 +151,18 @@ is easy to overstate:
 
 ### The sighash
 
-`msg` is the sighash for that input as computed by `SignatureHash` with
-`scriptCode` equal to the prevout `scriptPubKey` and `SIGVERSION_WITNESS_V0`:
-the same value `CheckSig` verified against. It must be taken from the
-verification that already happened rather than derived a second time. Two
-independent derivations of the same value is the drift hazard that
+`msg` is the sighash for that input, byte-identical to the value `CheckSig`
+verified against. Stated in implementable terms: `SignatureHash(scriptCode,
+tx, nIn, nHashType, amount, SIGVERSION_WITNESS_V0, txdata)`, where `scriptCode`
+is the prevout `scriptPubKey`, `nHashType` is the trailing byte of the witness
+signature (exactly as `TransactionSignatureChecker::CheckSig` extracts it), and
+`amount` is the prevout value.
+
+The collector MUST obtain this value through the same `SignatureHash` function
+and the same argument derivation that `CheckSig` uses, either by capturing the
+value at verification time or by invoking the identical code path with
+identical arguments. What is prohibited is an independent reimplementation of
+the derivation: two implementations of the same value is the drift hazard that
 `CreateLogarithmicProof` and `VerifyLogarithmicProof` carried until PR #65.
 
 APO sighash types (`DEPLOYMENT_APO`, dormant) change what a sighash covers.
@@ -211,6 +218,20 @@ OP_RETURN OP_PUSHBYTES_34 0x50 0x41 <32-byte attestation hash>
 36 bytes total; magic `PA` (`0x50 0x41`). This does not collide with
 LatticeFold's `LF` (`0x4C 0x46`), and the 36-byte length is distinct from
 SegWit's 38-byte `aa21a9ed` form.
+
+**The 32-byte attestation hash is defined as:**
+
+```
+attestation_hash = SHA3-256(0x02 || proof)
+```
+
+where `proof` is the complete 100-byte PAT proof (`merkle_root || pk_agg ||
+msg_root || count`) produced by `CreateLogarithmicProof` over the block's
+canonical batch. The `0x02` prefix is a domain separator, continuing the scheme
+already used inside the proof (`0x00` for leaf hashes, `0x01` for internal
+nodes, `logarithmic.cpp`), so an attestation hash can never be confused with a
+tree node. Committing the hash of the whole proof rather than `merkle_root`
+alone binds `pk_agg`, `msg_root`, and `count` in the commitment as well.
 
 **Exactly one.** A block carrying more than one output that parses as a PAT
 commitment is invalid. This differs deliberately from the LatticeFold
