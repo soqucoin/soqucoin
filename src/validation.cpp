@@ -16,6 +16,7 @@
 #include "consensus/btcsoq.h"
 #include "consensus/privacy.h"
 #include "consensus/block_accumulator.h"
+#include "consensus/pat_attestation.h"
 #include "consensus/validation.h"
 #include "fs.h"
 #include "hash.h"
@@ -3544,6 +3545,32 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
     std::vector<PrecomputedTransactionData> txdata;
     txdata.reserve(block.vtx.size()); // Required so that pointers to individual PrecomputedTransactionData don't get invalidated
+
+    // PAT block attestation (doc/PAT_BLOCK_ATTESTATION.md): tuples are
+    // collected inside the loop below, per transaction, because the view
+    // resolves each transaction's prevouts only until UpdateCoins spends them.
+    // The attested set derives from the same flags that gate v7/v8 fundability,
+    // so the set and fundability cannot disagree. Enforcement happens after the
+    // loop, once the batch is complete.
+    //
+    // Gated on fScriptChecks, the assumevalid/checkpoint window where signature
+    // verification itself is skipped. The attestation attests those same
+    // signatures, so recomputing it there is the same class of redundant work
+    // assumevalid exists to skip — and it is NOT cheap: a sighash per input
+    // (which the base code does not compute at all in this window), SHA3 over
+    // every 2,420-byte signature and 1,312-byte key, and an O(n log n) Merkle
+    // build per block. Every historical commitment was verified by the nodes
+    // that ran full checks, the same trust statement assumevalid already makes.
+    //
+    // ⛔ Collection and the enforcement block below are gated TOGETHER. Skipping
+    // only collection would compare a present commitment against an empty batch
+    // and reject valid historical blocks (bad-blk-pat-commitment-empty) during
+    // fast sync.
+    patattest::PatBatch patBatch;
+    patattest::AttestedSetParams patParams;
+    patParams.fUsdsoqActive = (flags & SCRIPT_VERIFY_USDSOQ) != 0;
+    patParams.fBtcsoqActive = (flags & SCRIPT_VERIFY_BTCSOQ) != 0;
+
     for (unsigned int i = 0; i < block.vtx.size(); i++) {
         const CTransaction& tx = *(block.vtx[i]);
 
@@ -3629,6 +3656,22 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 return error("ConnectBlock(): CheckInputs on %s failed with %s",
                     tx.GetHash().ToString(), FormatStateMessage(state));
             control.Add(vChecks);
+
+            // PAT attestation tuple collection (skipped with fScriptChecks —
+            // see the gate rationale at the batch declaration above). The
+            // prevouts consulted here are exactly the ones this transaction
+            // spends (view.HaveInputs held above, UpdateCoins has not yet run
+            // for this transaction), so in-block chained spends resolve the
+            // same way the producer resolves them.
+            if (fScriptChecks) {
+                patattest::AppendTuples(patBatch, tx,
+                    [&view](const COutPoint& out, CTxOut& txOut) -> bool {
+                        const CCoins* coins = view.AccessCoins(out.hash);
+                        if (coins == nullptr || !coins->IsAvailable(out.n)) return false;
+                        txOut = coins->vout[out.n];
+                        return true;
+                    }, patParams);
+            }
         }
 
         CTxUndo undoDummy;
@@ -3652,9 +3695,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // constants are armed: with nMigrationHeight == 0 or a null hash this block
     // is byte-for-byte the pre-existing subsidy check. At exactly the armed
     // height, the coinbase must carry the committed allocation outputs as
-    // vout[1..N] in committed order (a trailing segwit witness-commitment
-    // output, which the miner appends after them, is not part of the committed
-    // range): their standard serialization must hash to hashMigrationOutputs,
+    // vout[1..N] in committed order (trailing block-commitment outputs — the
+    // segwit witness, LatticeFold, and PAT attestation commitments, which the
+    // producer appends after them — are not part of the committed range): their standard serialization must hash to hashMigrationOutputs,
     // their values must sum to exactly nMigrationTotal, and the miner's own
     // output vout[0] stays bounded by subsidy + fees while the permitted total
     // becomes subsidy + fees + nMigrationTotal.
@@ -3665,9 +3708,31 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             pindex->nHeight == migrationConsensus.nMigrationHeight &&
             !migrationConsensus.hashMigrationOutputs.IsNull()) {
             const CTransaction& coinbase = *block.vtx[0];
+            // The committed range excludes TRAILING block-commitment outputs.
+            // Originally only the SegWit witness commitment; generalised
+            // 2026-09-01 when the PAT attestation commitment (also appended by
+            // GenerateCoinbaseCommitment, after the SegWit one) made "the
+            // witness commitment is last" false for any migration block that
+            // contains attested spends. Walk back over every recognised
+            // block-commitment shape so the exclusion does not depend on the
+            // order the producer appends them in. LatticeFold's commitment is
+            // included for the same reason even though it cannot fire while
+            // the deployment is withdrawn.
+            const auto isBlockCommitmentOutput = [](const CTxOut& out) -> bool {
+                const CScript& s = out.scriptPubKey;
+                // SegWit witness commitment: >=38 bytes, OP_RETURN 0x24 aa21a9ed.
+                if (s.size() >= 38 && s[0] == OP_RETURN && s[1] == 0x24 &&
+                    s[2] == 0xaa && s[3] == 0x21 && s[4] == 0xa9 && s[5] == 0xed)
+                    return true;
+                uint256 ignored;
+                if (patattest::ParseCommitmentScript(s, ignored)) return true;   // PAT ('PA')
+                std::vector<uint8_t> raw(s.begin(), s.end());
+                if (BlockProofAccumulator::ParseCoinbaseCommitment(raw, ignored))
+                    return true;                                                 // LatticeFold ('LF')
+                return false;
+            };
             size_t committedEnd = coinbase.vout.size();
-            const int commitpos = GetWitnessCommitmentIndex(block);
-            if (commitpos > 0 && (size_t)commitpos == coinbase.vout.size() - 1)
+            while (committedEnd > 1 && isBlockCommitmentOutput(coinbase.vout[committedEnd - 1]))
                 committedEnd--;
             if (committedEnd < 2)
                 return state.DoS(100,
@@ -5427,6 +5492,68 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
     }
 
+    // =========================================================================
+    // PAT block attestation enforcement (doc/PAT_BLOCK_ATTESTATION.md §7,
+    // epic pat-completion-epic-xlab phase 3). Optional-but-verified: a miner
+    // MAY emit the coinbase commitment; any commitment present MUST match the
+    // attestation recomputed over the tuples collected in the loop above; from
+    // nPatCommitmentMandatoryHeight onward, a block with attested spends and
+    // no commitment is invalid. The four reject reasons are named in the spec
+    // and pinned by string in pat_commitment_rule_tests.
+    //
+    // Unlike the LatticeFold check above, MORE THAN ONE commitment is invalid
+    // rather than first-match-wins: a first-match scan makes validation depend
+    // on coinbase output order and lets a miner place a decoy ahead of the
+    // real commitment (spec §6).
+    //
+    // Skipped with fScriptChecks, TOGETHER with the collection above: inside
+    // the assumevalid window the batch was never collected, so enforcing here
+    // would compare any present commitment against an empty batch and reject
+    // valid historical blocks. The trust statement is the one assumevalid
+    // already makes — these commitments were verified by every node that ran
+    // full checks when the blocks were new.
+    // =========================================================================
+    if (fScriptChecks) {
+        uint256 committed;
+        const int nCommitments = patattest::FindCommitments(*block.vtx[0], committed);
+        uint256 computed;
+        const bool fHaveAttestation = patattest::ComputeBlockAttestation(patBatch, computed);
+
+        if (nCommitments > 1) {
+            return state.DoS(100,
+                error("ConnectBlock(): block %d carries %d PAT commitments, only one is permitted",
+                      pindex->nHeight, nCommitments),
+                REJECT_INVALID, "bad-blk-pat-commitment-duplicate");
+        }
+        if (nCommitments == 1) {
+            if (!fHaveAttestation) {
+                return state.DoS(100,
+                    error("ConnectBlock(): block %d carries a PAT commitment but has no attested spends",
+                          pindex->nHeight),
+                    REJECT_INVALID, "bad-blk-pat-commitment-empty");
+            }
+            if (committed != computed) {
+                return state.DoS(100,
+                    error("ConnectBlock(): block %d PAT commitment mismatch (committed %s, computed %s)",
+                          pindex->nHeight,
+                          committed.ToString().substr(0, 16), computed.ToString().substr(0, 16)),
+                    REJECT_INVALID, "bad-blk-pat-commitment");
+            }
+            LogPrintf("PAT: block %d attestation verified (%u tuples, hash=%s)\n",
+                pindex->nHeight, (unsigned)patBatch.size(), computed.ToString().substr(0, 16));
+        } else if (fHaveAttestation) {
+            const int nMandatory =
+                chainparams.GetConsensus(pindex->nHeight).nPatCommitmentMandatoryHeight;
+            if (nMandatory != 0 && pindex->nHeight >= nMandatory) {
+                return state.DoS(100,
+                    error("ConnectBlock(): block %d has %u attested spends but no PAT commitment "
+                          "(mandatory from height %d)",
+                          pindex->nHeight, (unsigned)patBatch.size(), nMandatory),
+                    REJECT_INVALID, "bad-blk-missing-pat-commitment");
+            }
+        }
+    }
+
     if (!control.Wait())
         return state.DoS(100, false);
     int64_t nTime4 = GetTimeMicros();
@@ -6645,6 +6772,65 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
                     blockAccum.nProofCount,
                     blockAccum.hashAccumulator.ToString().substr(0, 16));
             }
+        }
+    }
+
+    // =========================================================================
+    // PAT block attestation commitment (doc/PAT_BLOCK_ATTESTATION.md §6-§7,
+    // epic pat-completion-epic-xlab phase 3). If the block contains attested
+    // Dilithium spends, compute the batch attestation and add its hash as a
+    // 36-byte OP_RETURN 'PA' output in the coinbase. Optional-but-verified:
+    // emitting is the miner's side of the contract; ConnectBlock verifies any
+    // commitment that is present and, past nPatCommitmentMandatoryHeight,
+    // requires one. The tuple construction is patattest::AppendTuples — the
+    // SAME function ConnectBlock recomputes with, which is what prevents
+    // producer/validator drift.
+    // =========================================================================
+    if (pcoinsTip != nullptr && block.vtx.size() > 1) {
+        const int nHeight = pindexPrev == nullptr ? 0 : pindexPrev->nHeight + 1;
+        const Consensus::Params& patConsensus = Params().GetConsensus(nHeight);
+
+        // The attested set at this height (spec §2, Decision 1): the same
+        // DeploymentActiveAtHeight facts ConnectBlock turns into
+        // SCRIPT_VERIFY_USDSOQ / SCRIPT_VERIFY_BTCSOQ.
+        patattest::AttestedSetParams patParams;
+        patParams.fUsdsoqActive = Consensus::DeploymentActiveAtHeight(
+            nHeight, patConsensus, Consensus::DEPLOYMENT_USDSOQ);
+        patParams.fBtcsoqActive = Consensus::DeploymentActiveAtHeight(
+            nHeight, patConsensus, Consensus::DEPLOYMENT_BTCSOQ);
+
+        // Prevouts: outputs created earlier in this block first (in-block
+        // chained spends), then the chain view. Same resolution order the
+        // validator sees, because ConnectBlock's view gains each transaction's
+        // outputs before the next transaction is connected.
+        std::map<uint256, CTransactionRef> inBlock;
+        for (const auto& txRef : block.vtx) inBlock[txRef->GetHash()] = txRef;
+        const auto lookup = [&inBlock](const COutPoint& out, CTxOut& txOut) -> bool {
+            const auto it = inBlock.find(out.hash);
+            if (it != inBlock.end()) {
+                if (out.n >= it->second->vout.size()) return false;
+                txOut = it->second->vout[out.n];
+                return true;
+            }
+            const CCoins* coins = pcoinsTip->AccessCoins(out.hash);
+            if (coins == nullptr || !coins->IsAvailable(out.n)) return false;
+            txOut = coins->vout[out.n];
+            return true;
+        };
+
+        uint256 attestation;
+        uint256 existing;
+        if (patattest::FindCommitments(*block.vtx[0], existing) == 0 &&
+            patattest::ComputeBlockAttestation(
+                patattest::CollectBatch(block, lookup, patParams), attestation)) {
+            CTxOut patOut;
+            patOut.nValue = 0;
+            patOut.scriptPubKey = patattest::BuildCommitmentScript(attestation);
+            CMutableTransaction tx(*block.vtx[0]);
+            tx.vout.push_back(patOut);
+            block.vtx[0] = MakeTransactionRef(std::move(tx));
+            LogPrintf("PAT: added block attestation commitment (hash=%s)\n",
+                attestation.ToString().substr(0, 16));
         }
     }
 

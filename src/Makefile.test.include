@@ -125,6 +125,7 @@ BITCOIN_TESTS =\
   test/netbase_tests.cpp \
   test/pat_attestation_tests.cpp \
   test/pat_canonical_ordering_tests.cpp \
+  test/pat_commitment_rule_tests.cpp \
   test/pat_v2_unfundable_tests.cpp \
   test/pmt_tests.cpp \
   test/policyestimator_tests.cpp \

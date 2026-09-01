@@ -170,4 +170,8 @@ void UpdateRegtestMaxReorgDepth(int nMaxReorgDepth);
 void UpdateRegtestMigrationParams(const uint256& hashOutputs, CAmount nTotal, int nHeight,
                                   const std::vector<CTxOut>& vOutputs);
 
+/** Test-only (regtest): set the PAT mandatory-commitment height
+ *  (doc/PAT_BLOCK_ATTESTATION.md §7). 0 restores the never-mandatory default. */
+void UpdateRegtestPatCommitmentMandatoryHeight(int nHeight);
+
 #endif // BITCOIN_CHAINPARAMS_H

@@ -165,6 +165,12 @@ identical arguments. What is prohibited is an independent reimplementation of
 the derivation: two implementations of the same value is the drift hazard that
 `CreateLogarithmicProof` and `VerifyLogarithmicProof` carried until PR #65.
 
+A witness signature can be empty in a malformed block. The collector uses
+`nHashType = 0` for an empty signature so the computation stays total; such a
+block fails script verification regardless, so the value never reaches a
+connected chain, but a collector that could fail differently on different
+nodes would itself be a divergence surface.
+
 APO sighash types (`DEPLOYMENT_APO`, dormant) change what a sighash covers.
 Because `msg` is defined as whatever the input actually verified against, the
 attestation inherits an APO activation automatically; the APO activation review

@@ -60,17 +60,30 @@ struct PatBatch {
     size_t size() const { return sigs.size(); }
 };
 
-//! Collect the attested tuples of a block (spec §2-§4). `prevoutLookup` must
-//! return the output being spent (from the UTXO view in ConnectBlock, or the
-//! block template's known prevouts in the miner) and return false when it
-//! cannot; an input whose prevout cannot be resolved contributes nothing,
-//! which is safe because such a block is invalid long before the attestation
-//! is compared.
+//! Append one transaction's attested tuples to a batch, in input order
+//! (spec §2-§4). This is the collection primitive: ConnectBlock calls it per
+//! transaction inside its main loop, where the UTXO view still holds that
+//! transaction's prevouts, and CollectBatch below composes it over a whole
+//! block. Both consumers therefore run the identical tuple construction.
 //!
-//! Total over block bytes: never fails, returns an empty batch for a block
-//! with no attested spends. A witness signature can be empty in a malformed
-//! block; the collector uses nHashType = 0 for it so the function stays total
-//! (the block is rejected by script verification regardless).
+//! `prevoutLookup` must return the output being spent and return false when
+//! it cannot; an input whose prevout cannot be resolved contributes nothing,
+//! which is safe because such a block is invalid long before the attestation
+//! is compared. A coinbase transaction contributes nothing by definition.
+//!
+//! Total over transaction bytes: never fails. A witness signature can be
+//! empty in a malformed block; the collector uses nHashType = 0 for it so the
+//! computation stays total (the block is rejected by script verification
+//! regardless).
+void AppendTuples(PatBatch& batch, const CTransaction& tx,
+                  const std::function<bool(const COutPoint&, CTxOut&)>& prevoutLookup,
+                  const AttestedSetParams& params);
+
+//! Collect the attested tuples of a whole block: AppendTuples over every
+//! non-coinbase transaction, in block order. Used by the commitment producer
+//! and by tests; ConnectBlock collects incrementally with AppendTuples
+//! instead, because its view resolves each transaction's prevouts only while
+//! that transaction is being connected.
 PatBatch CollectBatch(const CBlock& block,
                       const std::function<bool(const COutPoint&, CTxOut&)>& prevoutLookup,
                       const AttestedSetParams& params);
