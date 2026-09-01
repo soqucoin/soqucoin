@@ -47,8 +47,19 @@
  *    - Prevents message substitution or reordering attacks
  *
  * 4. Non-malleability: Canonical ordering prevents proof malleability
- *    - All inputs sorted by PatHash(message) before tree construction
+ *    - All inputs sorted before tree construction by the TOTAL key
+ *      (PatHash(message), PatHash(pk), PatHash(sig)), with the entry's original
+ *      position as a final tie-break
  *    - Same batch always produces identical proof regardless of input order
+ *
+ *    ⛔ The key is the full triple, not PatHash(message) alone. Keying on the
+ *    message left entries over the SAME message comparing equivalent, and
+ *    std::sort gives no guarantee about the relative order of equivalent
+ *    elements, so identical input could produce different proofs on different
+ *    standard-library implementations. That is a chain split once the block
+ *    attestation makes every node recompute this from block data. Do not
+ *    narrow this key. See CanonicalOrder in logarithmic.cpp and bead
+ *    pat-canonical-ordering-not-total-97dz.
  *
  * PERFORMANCE
  * ===========
