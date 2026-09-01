@@ -1,0 +1,332 @@
+# PAT block attestation — consensus specification
+
+**Status:** SPECIFICATION, pre-implementation. Phase 3 of the PAT completion
+epic (`pat-completion-epic-xlab`). Nothing in this document is implemented;
+§10 lists the decisions required before implementation begins.
+
+**Purpose.** This document defines the rules a node follows to compute, commit,
+and verify the per-block PAT attestation. The attestation is recomputed
+independently by every node and compared byte-for-byte against the miner's
+commitment, so any ambiguity in this definition is a consensus-divergence risk.
+The standard this document is written to: an independent implementer must be
+able to produce identical bytes from this document alone.
+
+---
+
+## 1. Definition
+
+One PAT proof per block, computed over the Dilithium signatures carried by that
+block's attested spends (§2). The proof is committed in the coinbase and
+validated in `ConnectBlock`. The attestation is block metadata. It is not an
+output type: witness v2 is permanently unfundable (`validation.cpp`
+`versionActive` case 2), so no value can be paid into the attestation machinery.
+
+The attestation enables witness pruning: nodes may discard attested raw witness
+data past the finality horizon while retaining the attestation (phase 5 of the
+epic). The attestation does not assert that the attested signatures are valid.
+Signature validity is established by per-input script verification. The
+attestation attests to what the block contained; it does not authorize
+anything.
+
+---
+
+## 2. The attested set — DECISION 1
+
+This is the most divergence-prone definition in the document, for two reasons:
+several witness versions reach the same Dilithium verification code by
+different routes, and the set of active versions changes as deployments
+activate. The rule must therefore be defined explicitly for every witness
+version, including the versions that can never contribute. An implementation
+that derives the set from "whatever the code collects" will agree with the
+specification today and diverge from it at a future activation height.
+
+### Disposition of all seventeen witness versions
+
+| Version | Carries a Dilithium signature per input? | Attested? | Basis |
+|---|---|---|---|
+| v0, v1 | Yes. Witness is exactly `[sig, pubkey]`; verified by the single-key path (`interpreter.cpp:1906`) | **Yes** | Active from genesis; the base spend forms |
+| v2 (PAT) | No spend can exist. Permanently unfundable (PR #63) | No | Nothing to attest; no v2 output can ever be created |
+| v3 (LatticeFold) | No spend can exist. Retired; never activates on any network; unfundable under the reservation rule | No | Same basis as v2 |
+| v4 (confidential SOQ) | No. Witness carries `[range_proof, pubkey_hash, commitment]`; there is no per-input Dilithium signature over a sighash | No | Wrong payload shape; also unfundable while `SOQUOBSCURA` is dormant, and fails closed if activated (no verifier ships) |
+| v5 (USDSOQ authority marker) | Not per-input. Authority transactions carry M-of-N ML-DSA signatures verified whole-transaction in `ConnectBlock`; they skip `VerifyScript` entirely | No — see the authority-signature note below | Not a per-input tuple; a different verification model |
+| v6 (P2WSH-Dilithium) | Sometimes. A witnessScript may perform zero, one, or many signature checks (`OP_CHECKSIGFROMSTACK`, `OP_CHECKDILITHIUMSIG` variants) at positions the block structure does not expose | No — see the v6 note below | No 1:1 spend-to-tuple mapping exists without re-executing scripts |
+| v7 (USDSOQ holding) | Yes, once `USDSOQ` activates. Falls through to the same single-key path as v1; witness is exactly `[sig, pubkey]` | **Decision 1** | Identical verification to v1; dormant at genesis |
+| v8 (BTCSOQ holding) | Yes, once `BTCSOQ` activates. Same fall-through | **Decision 1** | Identical verification to v1; dormant at genesis |
+| v9 (BTCSOQ authority marker) | Not per-input. Same whole-transaction M-of-N model as v5 | No — see the authority-signature note below | Same basis as v5 |
+| v10 (confidential USDSOQ) | No. Same payload shape as v4; compound gate; fails closed if activated | No | Same basis as v4 |
+| v11–v16 | No spend can exist. Unallocated; unfundable under the reservation rule | No | Same basis as v2/v3 |
+
+### The rule, as specified
+
+A spend is attested if and only if it is a witness spend whose witness stack is
+exactly two items and whose verification is the single-key Dilithium path. At
+genesis that set is v0 and v1. Whether the set extends to v7 and v8 at their
+activation heights is Decision 1 (§10), and the tradeoffs are set out there
+rather than assumed here.
+
+### The authority-signature note (v5, v9)
+
+Authority transactions do carry real Dilithium signatures (M-of-N ML-DSA,
+verified whole-transaction in `ConnectBlock`). Excluding them means those
+signatures are not attested and their witness data is not prunable in phase 5.
+This exclusion is a deliberate scope decision, recorded with its costs:
+
+- Authority events (mint, burn, freeze, rotate) are administrative and rare, so
+  the storage cost of retaining their witnesses is negligible.
+- Their verification model is whole-transaction over a custom digest, so they do
+  not fit the per-input `(sig, pk, sighash)` tuple shape without a second,
+  parallel tuple definition. A second tuple shape doubles the divergence
+  surface of §3 for negligible benefit.
+
+If the design contract "every Dilithium signature in a block is committed" is
+read to include authority signatures, that contract must be amended to match
+whatever Decision 1 rules, and the public documentation corrected with it
+(tracked under `pat-public-claims-correction-pq03`).
+
+### The v6 note
+
+v6 (P2WSH-Dilithium, dormant, pending audit) executes an arbitrary
+witnessScript. Signature checks inside it are data-dependent: their number and
+their inputs are known only by executing the script. Including v6 would require
+the attestation to re-execute scripts during commitment computation, which is a
+substantially larger consensus surface and the place where an ordering
+ambiguity would be hardest to detect. v6 witness data is therefore not
+attested and not prunable. If v6 volume becomes material (L2SOQ channel
+transactions are the expected source), extending the attestation to v6 is
+future work with its own specification, not an amendment to this one.
+
+---
+
+## 3. The tuple — DECISION 2
+
+PAT batches triples of 32-byte commitments; `VerifyLogarithmicProof`
+structurally requires 32-byte fields. A Dilithium signature is 2,420 bytes and
+a public key 1,312, so each field enters the batch by hash.
+
+For each attested spend, in the order fixed by §4:
+
+| Field | Value |
+|---|---|
+| `sig` | `SHA3-256(witness.stack[0])`: the signature exactly as it appears in the witness |
+| `pk`  | `SHA3-256(canonical public key)`: see below |
+| `msg` | the sighash already computed for that input's verification |
+
+`SHA3-256` is PAT's own hash (`PatHash` in `logarithmic.cpp`), used here for
+consistency with the proof's internal hashing.
+
+### The public-key encoding duality
+
+Consensus accepts two encodings of the same key: the bare 1,312-byte form and a
+`0x00`-prefixed 1,313-byte form (FIPS 204 Table 3). `VerifyScript` strips the
+prefix before hashing to compare against the witness program
+(`interpreter.cpp:1921`). Tracked as bead
+`dilithium-pubkey-encoding-duality-flpa`.
+
+**Specified (pending Decision 2):** `pk` commits to the stripped canonical
+form, the same bytes that are SHA-256'd to produce the witness program.
+
+The precise consequence of each option, stated carefully because the difference
+is easy to overstate:
+
+- Neither option is a consensus-divergence risk. The attestation is computed
+  from block bytes, and all nodes see identical block bytes, so both options
+  are deterministic per block.
+- Committing raw witness bytes means the same logical spend attests differently
+  depending on which encoding the relaying path delivered, and witness
+  malleability allows a third party to choose that encoding for an unconfirmed
+  transaction. The attestation remains internally consistent, but downstream
+  consumers (auditors recomputing attestations from canonical key material,
+  future L2SOQ references into attestation entries) cannot reproduce it without
+  knowing which encoding was mined.
+- Committing the stripped form makes the attestation independent of the
+  duality at the cost of one normalisation step, which mirrors what
+  `VerifyScript` already does. If bead `flpa` is later resolved by rejecting
+  one encoding outright, the stripped-form rule remains correct with no
+  amendment.
+
+### The sighash
+
+`msg` is the sighash for that input as computed by `SignatureHash` with
+`scriptCode` equal to the prevout `scriptPubKey` and `SIGVERSION_WITNESS_V0`:
+the same value `CheckSig` verified against. It must be taken from the
+verification that already happened rather than derived a second time. Two
+independent derivations of the same value is the drift hazard that
+`CreateLogarithmicProof` and `VerifyLogarithmicProof` carried until PR #65.
+
+APO sighash types (`DEPLOYMENT_APO`, dormant) change what a sighash covers.
+Because `msg` is defined as whatever the input actually verified against, the
+attestation inherits an APO activation automatically; the APO activation review
+must confirm this (§8, item 5).
+
+---
+
+## 4. Canonical order
+
+Implemented and merged (PR #65). Entries are sorted by the total key
+`(PatHash(msg), PatHash(pk), PatHash(sig))` with the entry's original position
+as a final tie-break, via `CanonicalOrder` in `crypto/pat/logarithmic.cpp`.
+Both `CreateLogarithmicProof` and `VerifyLogarithmicProof` derive the order
+from that one function.
+
+"Original position" for the attestation is defined as transaction index within
+the block, then input index within the transaction, ascending, coinbase first.
+This is stated explicitly because it feeds a tie-break: an implementation that
+collected tuples in a different order would agree on every batch except one
+containing fully identical tuples, which is the least-testable place to
+disagree.
+
+Pinned by `pat_canonical_ordering_tests.cpp`, including known-answer vectors. A
+vector mismatch on a new platform is the divergence, caught in a test.
+
+---
+
+## 5. Empty and oversized batches
+
+- `CreateLogarithmicProof` returns false for `n = 0` (`logarithmic.cpp:184`).
+  A block with no attested spends has no attestation. Specified: such a block
+  MUST NOT carry a PAT commitment, and a commitment present on such a block is
+  invalid. A coinbase-only block is the common case, so this rule is exercised
+  by every empty block on the chain.
+- `n > 2^20` is rejected by the same guard. No block can approach this bound
+  under current size limits; the rule is stated so that the failure mode is a
+  defined rejection rather than silent absence.
+
+---
+
+## 6. Commitment placement and encoding
+
+An `OP_RETURN` output in the coinbase, following the established in-tree shape
+(the SegWit witness commitment, and the LatticeFold accumulator at
+`block_accumulator.h:90`):
+
+```
+OP_RETURN OP_PUSHBYTES_34 0x50 0x41 <32-byte attestation hash>
+```
+
+36 bytes total; magic `PA` (`0x50 0x41`). This does not collide with
+LatticeFold's `LF` (`0x4C 0x46`), and the 36-byte length is distinct from
+SegWit's 38-byte `aa21a9ed` form.
+
+**Exactly one.** A block carrying more than one output that parses as a PAT
+commitment is invalid. This differs deliberately from the LatticeFold
+validator, which accepts the first matching output and stops
+(`validation.cpp:5401`); that behaviour depends on coinbase output order and
+permits a decoy ahead of the intended commitment. The same observation applies
+to LatticeFold itself and is recorded for a separate review; LatticeFold is
+withdrawn, so it is not urgent.
+
+A 2-byte magic is a weak tag: any 36-byte `OP_RETURN` beginning with the same
+four bytes parses as a commitment. The coinbase is miner-controlled, so a
+malformed or decoy commitment causes the miner's own block to fail validation
+and confers no advantage on anyone else. This reasoning step is recorded so it
+does not have to be rediscovered.
+
+---
+
+## 7. Validation and activation
+
+Ratified fail-safe shape: optional-but-verified at genesis, mandatory at a
+scheduled height.
+
+At genesis:
+
+1. A miner MAY emit the commitment.
+2. A node that observes one MUST verify it: recompute the attestation over the
+   block per §2–§5 and compare. A mismatch rejects the block.
+3. A block without a commitment is valid.
+
+From the scheduled height, a block with attested spends and no commitment is
+invalid.
+
+Rationale: a mandatory-from-genesis rule converts any commitment-computation
+bug into a chain halt. Optional-but-verified provides full PAT function from
+block 1 without that risk, using `DeploymentActiveAtHeight` exactly as
+`doc/DEPLOYMENT_PRECONDITIONS.md` rule 1 prescribes.
+
+Note that this differs from LatticeFold's shape, which is mandatory whenever
+the block has confidential outputs (`bad-blk-missing-latticefold-commitment`,
+`validation.cpp:5416`). That is the chain-halt posture the ratified plan
+rejected; it must not be copied here.
+
+Reject reasons, named so tests can pin them by string:
+
+| Condition | Reject reason |
+|---|---|
+| Commitment present, recomputation differs | `bad-blk-pat-commitment` |
+| More than one PAT commitment in the coinbase | `bad-blk-pat-commitment-duplicate` |
+| Commitment present on a block with no attested spends | `bad-blk-pat-commitment-empty` |
+| Attested spends present, no commitment, past the mandatory height | `bad-blk-missing-pat-commitment` |
+
+---
+
+## 8. Determinism hazards
+
+The complete risk surface, collected for review as a single list:
+
+1. **Tie-breaking in the canonical ordering.** Closed by PR #65 and pinned by
+   known-answer vectors. This was a measured defect, not a hypothetical.
+2. **The attested set changing under deployment activation** (§2). Open;
+   Decision 1.
+3. **Public-key encoding duality** (§3). Addressed by committing the canonical
+   stripped form, pending Decision 2; coupled to bead `flpa`.
+4. **Sighash provenance.** `msg` must come from the verification that happened,
+   never from a second derivation.
+5. **APO sighash types.** Dormant. Activation changes what a sighash covers;
+   the attestation inherits the change automatically, and the APO activation
+   review must confirm it.
+6. **Collection order feeding the positional tie-break** (§4).
+7. **Digest blindness to ordering.** The consensus digest currently absorbs PAT
+   proof bytes only for distinct-message batches, so it cannot detect an
+   ordering regression. See §9.
+
+---
+
+## 9. Digest and cross-build evidence
+
+The attestation is consensus cryptography and must be inside the consensus
+digest, swept across optimisation levels and platforms by
+`contrib/f4-digest-sweep.sh`.
+
+Two items enter the same deliberate re-pin, and they are distinct:
+
+1. The block attestation computation itself.
+2. A duplicate-message PAT batch added to `AbsorbOpcodeVerdicts`. The digest
+   already absorbs PAT proof bytes, but only for batches built by
+   `BuildValidPatScript`, whose messages are all distinct (`0x70+i`). Its
+   material never reaches the ordering's tie path, which is why the digest did
+   not move when the canonical ordering was corrected in PR #65. Without this
+   addition the F4 sweep does not cover canonical ordering. Bead
+   `pat-canonical-ordering-not-total-97dz` remains open until it lands.
+
+One re-pin, one sweep. The working rule this epic has now confirmed three
+times: when adding a check or a tripwire, identify the input that would make it
+fail. A check with no such input is documentation presenting itself as
+coverage.
+
+---
+
+## 10. Decisions required before implementation
+
+1. **The attested set (§2).** Either the set extends to v7/v8 at their
+   activation heights under the two-item single-key rule, or it is frozen at
+   v0/v1 permanently. The tradeoffs are: extension honours the "every
+   single-key Dilithium signature is committed" contract and keeps v7/v8
+   witnesses prunable, at the cost that every relevant future activation is
+   also an attestation change and must be reviewed as one; freezing makes the
+   attested set invariant for the life of the chain, at the cost that v7/v8
+   witnesses are never prunable and the design contract must be restated.
+   In both options the authority signatures (v5/v9) and v6 witnessScript
+   checks remain out of scope, per §2.
+2. **The public-key commitment (§3).** Canonical stripped form, or raw witness
+   bytes. Consequences are set out in §3; neither is a consensus-divergence
+   risk, and the difference is auditability and coupling to bead `flpa`.
+
+The magic bytes (§6) are specified as `PA` rather than left open; there is no
+tradeoff to rule on, only a collision to avoid.
+
+---
+
+Related: `DL-PAT-COMPLETION-PLAN-2026-08-31.md` (soqucoin-ops),
+`doc/DEPLOYMENT_PRECONDITIONS.md`, `crypto/pat/logarithmic.h`, beads
+`pat-completion-epic-xlab`, `pat-canonical-ordering-not-total-97dz`,
+`dilithium-pubkey-encoding-duality-flpa`, `pat-public-claims-correction-pq03`.
