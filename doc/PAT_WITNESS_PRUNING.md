@@ -70,19 +70,37 @@ it is eligible (§1). Per-block rewriting inside a shared file would fragment
 it and complicate crash recovery for no benefit at the finality horizon, where
 whole trailing files age out together.
 
-Compaction of file *n*:
+Compaction of file *n* writes the stripped data to a **new file number** *m*
+(allocated from the same `blk*.dat` series; nothing requires file numbers to be
+height-ordered, since every read goes through `nFile`/`nDataPos`). The original
+file is never modified in place, which is what removes the crash window
+entirely:
 
 1. Read every block in file *n*; re-serialize each with
-   `SERIALIZE_TRANSACTION_NO_WITNESS` into a replacement file written
-   alongside, with fresh per-block offsets.
-2. Flush and fsync the replacement; record the new `nDataPos` for every
-   affected `CBlockIndex` entry and set `BLOCK_WITNESS_PRUNED`; flush the
-   block index.
-3. Rename the replacement over file *n* only after the index flush succeeds.
-   A crash before the rename leaves the original file and a stale replacement
-   (harmless, re-compacted next pass); a crash after leaves a consistent
-   stripped file with a consistent index. The index is the source of truth at
-   every intermediate point.
+   `SERIALIZE_TRANSACTION_NO_WITNESS` into file *m*, with fresh per-block
+   offsets. Flush and fsync file *m*.
+2. Update every affected `CBlockIndex` entry (`nFile` = *m*, new `nDataPos`,
+   `BLOCK_WITNESS_PRUNED`) and the `CBlockFileInfo` records, and flush the
+   block index durably.
+3. Delete file *n*, only after step 2 has succeeded.
+
+Crash analysis, the property this ordering is chosen for: **at every instant
+the index points only at data that exists on disk.** A crash before step 2
+leaves the index on file *n*, which is intact; the partial or complete file
+*m* is inert and is re-created or garbage-collected on the next pass. A crash
+between steps 2 and 3 leaves the index durably on file *m*, which was fsynced
+before the index moved; the original file *n* is an orphan, deleted on the
+next pass. There is no state in which reads resolve into a file whose contents
+do not match the recorded positions.
+
+An earlier draft of this section renamed the replacement over file *n* and
+ordered the index flush around the rename. Both orders of that design have a
+broken window (index flushed first points at offsets the old file does not
+have; rename first leaves old offsets against the new, smaller file), and
+patching it requires a saved original and a startup recovery pass. Writing to
+a fresh file number needs neither, because the only destructive operation is
+the last step and it acts on data the index no longer references. Found in
+review; recorded so the rename design does not come back as a simplification.
 
 Compaction runs opportunistically at the same trigger points as
 `FindFilesToPrune` (post-flush, off the validation hot path). It must never
@@ -107,6 +125,30 @@ A node with witness pruning enabled:
 - **Advertises `NODE_NETWORK_LIMITED` (bit 10, the BIP159 value) instead of
   `NODE_NETWORK`**, and keeps `NODE_WITNESS`: everything within the window is
   stored in full and served in full, witness included.
+
+  The flag does not exist in this codebase yet, and the peer logic assumes the
+  full/client dichotomy, so stage 2 is more than setting a bit. The concrete
+  touchpoints, verified against the tree so the landing cannot silently be
+  partial:
+
+  1. `src/protocol.h`: define `NODE_NETWORK_LIMITED = (1 << 10)`; service
+     flags currently end at `NODE_XTHIN = (1 << 4)` and bit 10 is free.
+  2. `src/init.cpp:825` (`nLocalServices`): clear `NODE_NETWORK`, set
+     `NODE_NETWORK_LIMITED` when witness pruning is enabled. Precedent two
+     lines away: `init.cpp:1855` already does exactly this clearing for
+     `-prune`.
+  3. `src/net_processing.cpp:1465`: `fClient = !(nServices & NODE_NETWORK)`
+     classifies a limited peer as a pure client, which would stop us
+     requesting within-window blocks from limited peers. The classification
+     must learn the third state (limited: usable for recent blocks, never for
+     deep IBD).
+  4. `src/init.cpp:820` (`nRelevantServices`) and `src/net.cpp:1598` (the DNS
+     seed `requiredServiceBits` filter): outbound selection must still prefer
+     full nodes while an IBD is in progress, or a fresh node can strand itself
+     on limited peers that cannot serve its sync.
+  5. The `getdata` block-serving path: enforce the window (§4, both message
+     types answered `notfound` beyond it) regardless of what was advertised,
+     so the contract holds even against peers that ignore service bits.
 - Serves `getdata` for blocks **within** the window normally, both `MSG_BLOCK`
   and `MSG_WITNESS_BLOCK`.
 - Answers `getdata` for any block **beyond** the window with `notfound`, for
@@ -151,8 +193,14 @@ must halt loudly rather than improvise.
    depth `nMaxReorgDepth + 1` is. Uses `UpdateRegtestMaxReorgDepth` to make
    the boundary reachable cheaply.
 3. **Index consistency**: after compaction, every affected `CBlockIndex` reads
-   back the stripped block from its new position; `BLOCK_WITNESS_PRUNED` set
-   on exactly the compacted range.
+   back the stripped block from its new file and position; `BLOCK_WITNESS_PRUNED`
+   set on exactly the compacted range; the original file number is gone and the
+   replacement file number is recorded.
+3b. **Crash-window simulation**: interrupt compaction after the replacement
+   fsync but before the index flush, and separately after the index flush but
+   before the original's deletion; in both states every indexed block reads
+   back correctly on restart, and the next pass converges (re-compacts or
+   garbage-collects the orphan).
 4. **Reindex refusal**: `-reindex` on a pruned datadir fails with the named
    error.
 5. **Serving rules, functional**: within-window `getdata` served with witness;
