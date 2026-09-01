@@ -268,10 +268,18 @@ The complete risk surface, collected for review as a single list:
 
 1. **Tie-breaking in the canonical ordering.** Closed by PR #65 and pinned by
    known-answer vectors. This was a measured defect, not a hypothetical.
-2. **The attested set changing under deployment activation** (§2). Open;
-   Decision 1.
-3. **Public-key encoding duality** (§3). Addressed by committing the canonical
-   stripped form, pending Decision 2; coupled to bead `flpa`.
+2. **The attested set changing under deployment activation** (§2). Ruled
+   (Decision 1): the set extends to v7 and v8 at their activation heights, so
+   the hazard is managed rather than removed. Each such activation is an
+   attestation change, and the activation review must re-verify the
+   attested-set tests with the deployment active and withdrawn. This
+   requirement is carried as a precondition on the `DEPLOYMENT_USDSOQ` and
+   `DEPLOYMENT_BTCSOQ` rows of `doc/DEPLOYMENT_PRECONDITIONS.md`.
+3. **Public-key encoding duality** (§3). Ruled (Decision 2): `pk` commits to
+   the canonical stripped form, so both accepted encodings of a key attest
+   identically. Coupled to bead `flpa`: if the duality is later closed by
+   rejecting one encoding, the rule stands unamended, but the coupling note in
+   §3 must be revisited.
 4. **Sighash provenance.** `msg` must come from the verification that happened,
    never from a second derivation.
 5. **APO sighash types.** Dormant. Activation changes what a sighash covers;

@@ -205,6 +205,14 @@ Stablecoin authority opcodes, witness v5 (authority) and v7 (holdings).
    is compound-gated on USDSOQ **and** SOQUOBSCURA, and fails closed when both are
    active. Activating both without satisfying the SoquObscura row above turns a
    fail-closed reject into a live confidential path with no verifier.
+5. ☐ **This activation is also a PAT attestation change.** Under
+   `doc/PAT_BLOCK_ATTESTATION.md` §2 (Decision 1, ruled 2026-09-01), v7 holdings
+   join the attested set at this height: every node's recomputed block
+   attestation changes definition at the activation boundary, which is exactly
+   the divergence class the attestation specification exists to prevent. The
+   attested-set tests must pass with the deployment active and withdrawn, and
+   the fleet-coverage requirement of rule 2 applies to the attestation rule as
+   much as to the opcodes.
 
 ### `DEPLOYMENT_BTCSOQ` (bit 14)
 Bitcoin-backed consensus asset, witness v8 (holding) and v9 (authority).
@@ -218,6 +226,12 @@ Bitcoin-backed consensus asset, witness v8 (holding) and v9 (authority).
    field is 64-byte Ed25519-shaped, which cannot carry ML-DSA-44 (bead `23q1`).
    ⛔ This violates the standing rule: ML-DSA-44 only in the bridge signing path.
 4. ☐ Halborn Phase 2 clearance for the BTCSOQ layer.
+5. ☐ **This activation is also a PAT attestation change.** Under
+   `doc/PAT_BLOCK_ATTESTATION.md` §2 (Decision 1, ruled 2026-09-01), v8 holdings
+   join the attested set at this height. Same obligation as the corresponding
+   USDSOQ precondition: the attested-set tests must pass with the deployment
+   active and withdrawn, and full fleet coverage before the height applies to
+   the attestation rule as much as to the opcodes.
 
 ### `DEPLOYMENT_CTV` (bit 7), `DEPLOYMENT_APO` (bit 8), `DEPLOYMENT_CSFS` (bit 9)
 BIP 119 `OP_CHECKTEMPLATEVERIFY`, BIP 118 `SIGHASH_ANYPREVOUT`, BIP 348
