@@ -50,8 +50,8 @@ specification today and diverge from it at a future activation height.
 | v4 (confidential SOQ) | No. Witness carries `[range_proof, pubkey_hash, commitment]`; there is no per-input Dilithium signature over a sighash | No | Wrong payload shape; also unfundable while `SOQUOBSCURA` is dormant, and fails closed if activated (no verifier ships) |
 | v5 (USDSOQ authority marker) | Not per-input. Authority transactions carry M-of-N ML-DSA signatures verified whole-transaction in `ConnectBlock`; they skip `VerifyScript` entirely | No — see the authority-signature note below | Not a per-input tuple; a different verification model |
 | v6 (P2WSH-Dilithium) | Sometimes. A witnessScript may perform zero, one, or many signature checks (`OP_CHECKSIGFROMSTACK`, `OP_CHECKDILITHIUMSIG` variants) at positions the block structure does not expose | No — see the v6 note below | No 1:1 spend-to-tuple mapping exists without re-executing scripts |
-| v7 (USDSOQ holding) | Yes, once `USDSOQ` activates. Falls through to the same single-key path as v1; witness is exactly `[sig, pubkey]` | **Decision 1** | Identical verification to v1; dormant at genesis |
-| v8 (BTCSOQ holding) | Yes, once `BTCSOQ` activates. Same fall-through | **Decision 1** | Identical verification to v1; dormant at genesis |
+| v7 (USDSOQ holding) | Yes, once `USDSOQ` activates. Falls through to the same single-key path as v1; witness is exactly `[sig, pubkey]` | **Yes, from the `USDSOQ` activation height** (Decision 1) | Identical verification to v1; dormant at genesis |
+| v8 (BTCSOQ holding) | Yes, once `BTCSOQ` activates. Same fall-through | **Yes, from the `BTCSOQ` activation height** (Decision 1) | Identical verification to v1; dormant at genesis |
 | v9 (BTCSOQ authority marker) | Not per-input. Same whole-transaction M-of-N model as v5 | No — see the authority-signature note below | Same basis as v5 |
 | v10 (confidential USDSOQ) | No. Same payload shape as v4; compound gate; fails closed if activated | No | Same basis as v4 |
 | v11–v16 | No spend can exist. Unallocated; unfundable under the reservation rule | No | Same basis as v2/v3 |
@@ -82,8 +82,10 @@ This exclusion is a deliberate scope decision, recorded with its costs:
   surface of §3 for negligible benefit.
 
 If the design contract "every Dilithium signature in a block is committed" is
-read to include authority signatures, that contract must be amended to match
-whatever Decision 1 rules, and the public documentation corrected with it
+read to include authority signatures, it overstates what is attested. The
+accurate statement of the ruled scope is: every single-key Dilithium spend
+signature is committed; authority M-of-N signatures and v6 witnessScript checks
+are not. The public documentation must state the contract in that form
 (tracked under `pat-public-claims-correction-pq03`).
 
 ### The v6 note
