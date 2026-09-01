@@ -1,8 +1,8 @@
 # PAT block attestation — consensus specification
 
-**Status:** SPECIFICATION, pre-implementation. Phase 3 of the PAT completion
-epic (`pat-completion-epic-xlab`). Nothing in this document is implemented;
-§10 lists the decisions required before implementation begins.
+**Status:** SPECIFICATION, ratified. Phase 3 of the PAT completion epic
+(`pat-completion-epic-xlab`). Both open decisions were ruled on 2026-09-01;
+§10 records the rulings. Implementation may begin against this document.
 
 **Purpose.** This document defines the rules a node follows to compute, commit,
 and verify the per-block PAT attestation. The attestation is recomputed
@@ -50,19 +50,22 @@ specification today and diverge from it at a future activation height.
 | v4 (confidential SOQ) | No. Witness carries `[range_proof, pubkey_hash, commitment]`; there is no per-input Dilithium signature over a sighash | No | Wrong payload shape; also unfundable while `SOQUOBSCURA` is dormant, and fails closed if activated (no verifier ships) |
 | v5 (USDSOQ authority marker) | Not per-input. Authority transactions carry M-of-N ML-DSA signatures verified whole-transaction in `ConnectBlock`; they skip `VerifyScript` entirely | No — see the authority-signature note below | Not a per-input tuple; a different verification model |
 | v6 (P2WSH-Dilithium) | Sometimes. A witnessScript may perform zero, one, or many signature checks (`OP_CHECKSIGFROMSTACK`, `OP_CHECKDILITHIUMSIG` variants) at positions the block structure does not expose | No — see the v6 note below | No 1:1 spend-to-tuple mapping exists without re-executing scripts |
-| v7 (USDSOQ holding) | Yes, once `USDSOQ` activates. Falls through to the same single-key path as v1; witness is exactly `[sig, pubkey]` | **Decision 1** | Identical verification to v1; dormant at genesis |
-| v8 (BTCSOQ holding) | Yes, once `BTCSOQ` activates. Same fall-through | **Decision 1** | Identical verification to v1; dormant at genesis |
+| v7 (USDSOQ holding) | Yes, once `USDSOQ` activates. Falls through to the same single-key path as v1; witness is exactly `[sig, pubkey]` | **Yes, from the `USDSOQ` activation height** (Decision 1) | Identical verification to v1; dormant at genesis |
+| v8 (BTCSOQ holding) | Yes, once `BTCSOQ` activates. Same fall-through | **Yes, from the `BTCSOQ` activation height** (Decision 1) | Identical verification to v1; dormant at genesis |
 | v9 (BTCSOQ authority marker) | Not per-input. Same whole-transaction M-of-N model as v5 | No — see the authority-signature note below | Same basis as v5 |
 | v10 (confidential USDSOQ) | No. Same payload shape as v4; compound gate; fails closed if activated | No | Same basis as v4 |
 | v11–v16 | No spend can exist. Unallocated; unfundable under the reservation rule | No | Same basis as v2/v3 |
 
-### The rule, as specified
+### The rule, as ruled (Decision 1, 2026-09-01)
 
 A spend is attested if and only if it is a witness spend whose witness stack is
 exactly two items and whose verification is the single-key Dilithium path. At
-genesis that set is v0 and v1. Whether the set extends to v7 and v8 at their
-activation heights is Decision 1 (§10), and the tradeoffs are set out there
-rather than assumed here.
+genesis that set is v0 and v1. The set extends to v7 at the `USDSOQ` activation
+height and to v8 at the `BTCSOQ` activation height, from those heights forward.
+Consequently each of those activations is also an attestation change: the
+activation review must confirm full fleet coverage before the height, per
+`doc/DEPLOYMENT_PRECONDITIONS.md` rule 2, and must re-verify the attested-set
+tests with the deployment active and withdrawn.
 
 ### The authority-signature note (v5, v9)
 
@@ -79,8 +82,10 @@ This exclusion is a deliberate scope decision, recorded with its costs:
   surface of §3 for negligible benefit.
 
 If the design contract "every Dilithium signature in a block is committed" is
-read to include authority signatures, that contract must be amended to match
-whatever Decision 1 rules, and the public documentation corrected with it
+read to include authority signatures, it overstates what is attested. The
+accurate statement of the ruled scope is: every single-key Dilithium spend
+signature is committed; authority M-of-N signatures and v6 witnessScript checks
+are not. The public documentation must state the contract in that form
 (tracked under `pat-public-claims-correction-pq03`).
 
 ### The v6 note
@@ -122,7 +127,7 @@ prefix before hashing to compare against the witness program
 (`interpreter.cpp:1921`). Tracked as bead
 `dilithium-pubkey-encoding-duality-flpa`.
 
-**Specified (pending Decision 2):** `pk` commits to the stripped canonical
+**Ruled (Decision 2, 2026-09-01):** `pk` commits to the stripped canonical
 form, the same bytes that are SHA-256'd to produce the witness program.
 
 The precise consequence of each option, stated carefully because the difference
@@ -146,11 +151,18 @@ is easy to overstate:
 
 ### The sighash
 
-`msg` is the sighash for that input as computed by `SignatureHash` with
-`scriptCode` equal to the prevout `scriptPubKey` and `SIGVERSION_WITNESS_V0`:
-the same value `CheckSig` verified against. It must be taken from the
-verification that already happened rather than derived a second time. Two
-independent derivations of the same value is the drift hazard that
+`msg` is the sighash for that input, byte-identical to the value `CheckSig`
+verified against. Stated in implementable terms: `SignatureHash(scriptCode,
+tx, nIn, nHashType, amount, SIGVERSION_WITNESS_V0, txdata)`, where `scriptCode`
+is the prevout `scriptPubKey`, `nHashType` is the trailing byte of the witness
+signature (exactly as `TransactionSignatureChecker::CheckSig` extracts it), and
+`amount` is the prevout value.
+
+The collector MUST obtain this value through the same `SignatureHash` function
+and the same argument derivation that `CheckSig` uses, either by capturing the
+value at verification time or by invoking the identical code path with
+identical arguments. What is prohibited is an independent reimplementation of
+the derivation: two implementations of the same value is the drift hazard that
 `CreateLogarithmicProof` and `VerifyLogarithmicProof` carried until PR #65.
 
 APO sighash types (`DEPLOYMENT_APO`, dormant) change what a sighash covers.
@@ -206,6 +218,20 @@ OP_RETURN OP_PUSHBYTES_34 0x50 0x41 <32-byte attestation hash>
 36 bytes total; magic `PA` (`0x50 0x41`). This does not collide with
 LatticeFold's `LF` (`0x4C 0x46`), and the 36-byte length is distinct from
 SegWit's 38-byte `aa21a9ed` form.
+
+**The 32-byte attestation hash is defined as:**
+
+```
+attestation_hash = SHA3-256(0x02 || proof)
+```
+
+where `proof` is the complete 100-byte PAT proof (`merkle_root || pk_agg ||
+msg_root || count`) produced by `CreateLogarithmicProof` over the block's
+canonical batch. The `0x02` prefix is a domain separator, continuing the scheme
+already used inside the proof (`0x00` for leaf hashes, `0x01` for internal
+nodes, `logarithmic.cpp`), so an attestation hash can never be confused with a
+tree node. Committing the hash of the whole proof rather than `merkle_root`
+alone binds `pk_agg`, `msg_root`, and `count` in the commitment as well.
 
 **Exactly one.** A block carrying more than one output that parses as a PAT
 commitment is invalid. This differs deliberately from the LatticeFold
@@ -265,10 +291,18 @@ The complete risk surface, collected for review as a single list:
 
 1. **Tie-breaking in the canonical ordering.** Closed by PR #65 and pinned by
    known-answer vectors. This was a measured defect, not a hypothetical.
-2. **The attested set changing under deployment activation** (§2). Open;
-   Decision 1.
-3. **Public-key encoding duality** (§3). Addressed by committing the canonical
-   stripped form, pending Decision 2; coupled to bead `flpa`.
+2. **The attested set changing under deployment activation** (§2). Ruled
+   (Decision 1): the set extends to v7 and v8 at their activation heights, so
+   the hazard is managed rather than removed. Each such activation is an
+   attestation change, and the activation review must re-verify the
+   attested-set tests with the deployment active and withdrawn. This
+   requirement is carried as a precondition on the `DEPLOYMENT_USDSOQ` and
+   `DEPLOYMENT_BTCSOQ` rows of `doc/DEPLOYMENT_PRECONDITIONS.md`.
+3. **Public-key encoding duality** (§3). Ruled (Decision 2): `pk` commits to
+   the canonical stripped form, so both accepted encodings of a key attest
+   identically. Coupled to bead `flpa`: if the duality is later closed by
+   rejecting one encoding, the rule stands unamended, but the coupling note in
+   §3 must be revisited.
 4. **Sighash provenance.** `msg` must come from the verification that happened,
    never from a second derivation.
 5. **APO sighash types.** Dormant. Activation changes what a sighash covers;
@@ -305,24 +339,23 @@ coverage.
 
 ---
 
-## 10. Decisions required before implementation
+## 10. Decisions — RULED 2026-09-01
 
-1. **The attested set (§2).** Either the set extends to v7/v8 at their
-   activation heights under the two-item single-key rule, or it is frozen at
-   v0/v1 permanently. The tradeoffs are: extension honours the "every
-   single-key Dilithium signature is committed" contract and keeps v7/v8
-   witnesses prunable, at the cost that every relevant future activation is
-   also an attestation change and must be reviewed as one; freezing makes the
-   attested set invariant for the life of the chain, at the cost that v7/v8
-   witnesses are never prunable and the design contract must be restated.
-   In both options the authority signatures (v5/v9) and v6 witnessScript
-   checks remain out of scope, per §2.
-2. **The public-key commitment (§3).** Canonical stripped form, or raw witness
-   bytes. Consequences are set out in §3; neither is a consensus-divergence
-   risk, and the difference is auditability and coupling to bead `flpa`.
+1. **The attested set (§2): the set extends.** Attestation covers every
+   two-item single-key Dilithium spend, so v7 joins at the `USDSOQ` activation
+   height and v8 at the `BTCSOQ` activation height. Basis for the ruling: the
+   extension honours the "every single-key Dilithium signature is committed"
+   contract and keeps v7/v8 witnesses prunable, and the added process cost is
+   one review item on an activation checklist that `DEPLOYMENT_PRECONDITIONS.md`
+   rule 2 already imposes. Authority signatures (v5/v9) and v6 witnessScript
+   checks remain out of scope, per §2, with their costs recorded there.
+2. **The public-key commitment (§3): the canonical stripped form.** Basis for
+   the ruling: both encodings of a key attest identically, third parties cannot
+   choose which encoding of an unconfirmed transaction's key is attested, and
+   the rule needs no amendment if bead `flpa` later rejects one encoding.
 
-The magic bytes (§6) are specified as `PA` rather than left open; there is no
-tradeoff to rule on, only a collision to avoid.
+The magic bytes (§6) are specified as `PA`; there was no tradeoff to rule on,
+only a collision to avoid.
 
 ---
 

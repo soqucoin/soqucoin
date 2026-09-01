@@ -205,6 +205,14 @@ Stablecoin authority opcodes, witness v5 (authority) and v7 (holdings).
    is compound-gated on USDSOQ **and** SOQUOBSCURA, and fails closed when both are
    active. Activating both without satisfying the SoquObscura row above turns a
    fail-closed reject into a live confidential path with no verifier.
+5. ☐ **This activation is also a PAT attestation change.** Under
+   `doc/PAT_BLOCK_ATTESTATION.md` §2 (Decision 1, ruled 2026-09-01), v7 holdings
+   join the attested set at this height: every node's recomputed block
+   attestation changes definition at the activation boundary, which is exactly
+   the divergence class the attestation specification exists to prevent. The
+   attested-set tests must pass with the deployment active and withdrawn, and
+   the fleet-coverage requirement of rule 2 applies to the attestation rule as
+   much as to the opcodes.
 
 ### `DEPLOYMENT_BTCSOQ` (bit 14)
 Bitcoin-backed consensus asset, witness v8 (holding) and v9 (authority).
@@ -218,6 +226,12 @@ Bitcoin-backed consensus asset, witness v8 (holding) and v9 (authority).
    field is 64-byte Ed25519-shaped, which cannot carry ML-DSA-44 (bead `23q1`).
    ⛔ This violates the standing rule: ML-DSA-44 only in the bridge signing path.
 4. ☐ Halborn Phase 2 clearance for the BTCSOQ layer.
+5. ☐ **This activation is also a PAT attestation change.** Under
+   `doc/PAT_BLOCK_ATTESTATION.md` §2 (Decision 1, ruled 2026-09-01), v8 holdings
+   join the attested set at this height. Same obligation as the corresponding
+   USDSOQ precondition: the attested-set tests must pass with the deployment
+   active and withdrawn, and full fleet coverage before the height applies to
+   the attestation rule as much as to the opcodes.
 
 ### `DEPLOYMENT_CTV` (bit 7), `DEPLOYMENT_APO` (bit 8), `DEPLOYMENT_CSFS` (bit 9)
 BIP 119 `OP_CHECKTEMPLATEVERIFY`, BIP 118 `SIGHASH_ANYPREVOUT`, BIP 348
@@ -242,6 +256,19 @@ Witness v6: P2WSH with Dilithium. Covenant script execution and L2SOQ Lightning.
    before any adjacent version is allocated. A v6 collision with P2WSH-Dilithium
    was green in CI once already and forced a reallocation to v10. Never derive
    the free list from a document.
+3. ☐ **The audit scope must include every opcode reachable from `EvalScript`,
+   not only the covenant set.** A v6 witnessScript executes with the live flag
+   set, and `SCRIPT_VERIFY_PAT` is always on, so a witnessScript consisting of
+   `OP_CHECKPATAGG` verifies attacker-supplied self-consistent tuples and
+   succeeds: an anyone-can-spend contract. The funder chooses the script, so
+   this is self-inflicted in the same class as funding `OP_TRUE`, and it steals
+   from nobody. It is recorded here because the v6 activation review must
+   treat "which opcodes can a witnessScript reach, and what does each one
+   actually bind" as in scope; the PAT anyone-can-spend defect (bead
+   `pat-v2-anyone-can-spend-ae6u`) came from precisely this question going
+   unasked at a different dispatch site. Note that v6 witness data is also
+   outside the PAT block attestation (`doc/PAT_BLOCK_ATTESTATION.md` §2), so
+   these scripts stay unpruned regardless.
 
 ### `DEPLOYMENT_V6_CONTROLFLOW` (bit 13)
 `IF`/`CLTV`/`CSV`/`DROP`/`SHA256`/`EQUAL` inside v6 `EvalScript`, for the eLTOO
