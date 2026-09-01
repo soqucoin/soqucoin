@@ -216,8 +216,9 @@ struct Params {
 
     /** Genesis-migration one-shot allocation (DL-GENESIS-MIGRATION-IMPLEMENTATION §A).
      *  At exactly nHeight == nMigrationHeight (non-zero, hash set), the coinbase must
-     *  carry the committed allocation outputs as vout[1..N] (a trailing segwit
-     *  witness-commitment output is excluded from the committed range): their standard
+     *  carry the committed allocation outputs as vout[1..N] (trailing block-commitment
+     *  outputs — segwit witness, LatticeFold, PAT attestation — are excluded from the
+     *  committed range): their standard
      *  vector serialization must double-SHA256 to hashMigrationOutputs, their values
      *  must sum to exactly nMigrationTotal, and the permitted block reward becomes
      *  subsidy + fees + nMigrationTotal with vout[0] (the miner) still bounded by
@@ -229,6 +230,17 @@ struct Params {
     uint256 hashMigrationOutputs;   // null = inert
     CAmount nMigrationTotal = 0;    // exact sum of the committed outputs, in sats
     int nMigrationHeight = 0;       // 0 = inert; the one height the rule applies at
+
+    /** PAT block attestation — the mandatory-commitment height (doc/PAT_BLOCK_ATTESTATION.md §7).
+     *  The attestation itself is optional-but-verified from genesis: a miner MAY
+     *  emit the coinbase commitment, any node that sees one MUST verify it, and a
+     *  block without one is valid. From this height onward, a block that contains
+     *  attested spends and carries no commitment is invalid
+     *  (bad-blk-missing-pat-commitment). 0 = never mandatory, the launch posture
+     *  on every network; a real height is set only by a coordinated release under
+     *  doc/DEPLOYMENT_PRECONDITIONS.md rules 1-2. Same inert-by-default model as
+     *  the migration fields above. Absorbed by the consensus digest. */
+    int nPatCommitmentMandatoryHeight = 0;  // 0 = never mandatory
 };
 
 /**

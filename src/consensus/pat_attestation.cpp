@@ -54,63 +54,70 @@ bool IsAttestedVersion(int version, const AttestedSetParams& params)
     }
 }
 
+void AppendTuples(PatBatch& batch, const CTransaction& tx,
+                  const std::function<bool(const COutPoint&, CTxOut&)>& prevoutLookup,
+                  const AttestedSetParams& params)
+{
+    if (tx.IsCoinBase()) return; // spends nothing
+
+    const PrecomputedTransactionData txdata(tx);
+
+    // Input order within the transaction is part of the "original position"
+    // of spec §4 (transaction index, then input index). CreateLogarithmicProof
+    // applies the canonical ordering internally, using insertion order as the
+    // positional tie-break, so insertion order here IS the consensus
+    // definition. Do not reorder.
+    for (size_t in = 0; in < tx.vin.size(); ++in) {
+        CTxOut prevout;
+        if (!prevoutLookup(tx.vin[in].prevout, prevout)) continue;
+
+        const int version = WitnessVersionOf(prevout.scriptPubKey);
+        if (version < 0 || !IsAttestedVersion(version, params)) continue;
+
+        // Spec §2: attested iff the witness stack is exactly two items
+        // (the single-key Dilithium shape, [sig, pubkey]).
+        const CScriptWitness& wit = tx.vin[in].scriptWitness;
+        if (wit.stack.size() != 2) continue;
+
+        const std::vector<unsigned char>& sig = wit.stack[0];
+        const std::vector<unsigned char>& pubkey = wit.stack[1];
+
+        // Spec §3: pk commits to the canonical stripped form — the same
+        // normalisation TransactionSignatureChecker::CheckSig and
+        // VerifyScript perform (Decision 2).
+        const unsigned char* pkData = pubkey.data();
+        size_t pkSize = pubkey.size();
+        if (pkSize == 1313 && pubkey[0] == 0x00) {
+            pkData += 1;
+            pkSize -= 1;
+        }
+
+        // Spec §3: msg is the sighash CheckSig verified against, obtained
+        // through the same SignatureHash function with the same argument
+        // derivation: nHashType from the trailing signature byte,
+        // scriptCode from the prevout, amount from the prevout value.
+        // An empty signature cannot verify, so the block is invalid
+        // regardless; nHashType = 0 keeps this function total.
+        const int nHashType = sig.empty() ? 0 : sig.back();
+        const uint256 sighash = SignatureHash(prevout.scriptPubKey, tx, in,
+                                              nHashType, prevout.nValue,
+                                              SIGVERSION_WITNESS_V0, &txdata);
+
+        const uint256 pkHash = Sha3(pkData, pkSize);
+        batch.sigs.push_back(Sha3Vec(sig));
+        batch.pks.push_back(std::vector<unsigned char>(pkHash.begin(), pkHash.end()));
+        batch.msgs.push_back(std::vector<unsigned char>(sighash.begin(), sighash.end()));
+    }
+}
+
 PatBatch CollectBatch(const CBlock& block,
                       const std::function<bool(const COutPoint&, CTxOut&)>& prevoutLookup,
                       const AttestedSetParams& params)
 {
     PatBatch batch;
-
-    // Block order — transaction index, then input index — is the "original
-    // position" of spec §4. CreateLogarithmicProof applies the canonical
-    // ordering internally, using insertion order as the positional tie-break,
-    // so insertion order here IS the consensus definition. Do not reorder.
-    for (size_t txIdx = 1; txIdx < block.vtx.size(); ++txIdx) { // coinbase spends nothing
-        const CTransaction& tx = *block.vtx[txIdx];
-        const PrecomputedTransactionData txdata(tx);
-
-        for (size_t in = 0; in < tx.vin.size(); ++in) {
-            CTxOut prevout;
-            if (!prevoutLookup(tx.vin[in].prevout, prevout)) continue;
-
-            const int version = WitnessVersionOf(prevout.scriptPubKey);
-            if (version < 0 || !IsAttestedVersion(version, params)) continue;
-
-            // Spec §2: attested iff the witness stack is exactly two items
-            // (the single-key Dilithium shape, [sig, pubkey]).
-            const CScriptWitness& wit = tx.vin[in].scriptWitness;
-            if (wit.stack.size() != 2) continue;
-
-            const std::vector<unsigned char>& sig = wit.stack[0];
-            const std::vector<unsigned char>& pubkey = wit.stack[1];
-
-            // Spec §3: pk commits to the canonical stripped form — the same
-            // normalisation TransactionSignatureChecker::CheckSig and
-            // VerifyScript perform (Decision 2).
-            const unsigned char* pkData = pubkey.data();
-            size_t pkSize = pubkey.size();
-            if (pkSize == 1313 && pubkey[0] == 0x00) {
-                pkData += 1;
-                pkSize -= 1;
-            }
-
-            // Spec §3: msg is the sighash CheckSig verified against, obtained
-            // through the same SignatureHash function with the same argument
-            // derivation: nHashType from the trailing signature byte,
-            // scriptCode from the prevout, amount from the prevout value.
-            // An empty signature cannot verify, so the block is invalid
-            // regardless; nHashType = 0 keeps this function total.
-            const int nHashType = sig.empty() ? 0 : sig.back();
-            const uint256 sighash = SignatureHash(prevout.scriptPubKey, tx, in,
-                                                  nHashType, prevout.nValue,
-                                                  SIGVERSION_WITNESS_V0, &txdata);
-
-            const uint256 pkHash = Sha3(pkData, pkSize);
-            batch.sigs.push_back(Sha3Vec(sig));
-            batch.pks.push_back(std::vector<unsigned char>(pkHash.begin(), pkHash.end()));
-            batch.msgs.push_back(std::vector<unsigned char>(sighash.begin(), sighash.end()));
-        }
+    for (size_t txIdx = 1; txIdx < block.vtx.size(); ++txIdx) {
+        AppendTuples(batch, *block.vtx[txIdx], prevoutLookup, params);
     }
-
     return batch;
 }
 

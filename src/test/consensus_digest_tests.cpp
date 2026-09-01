@@ -37,6 +37,7 @@
 #include "amount.h"
 #include "consensus/consensus.h"
 #include "consensus/params.h"
+#include "consensus/pat_attestation.h"
 #include "crypto/pat/logarithmic.h"
 #include "crypto/sha256.h"
 #include "primitives/block.h"
@@ -120,6 +121,11 @@ void AbsorbConsensus(DigestBuilder& d, const Consensus::Params& c)
     d.Hash(c.hashMigrationOutputs);
     d.I64(c.nMigrationTotal);
     d.I64(c.nMigrationHeight);
+
+    // PAT mandatory-commitment height (doc/PAT_BLOCK_ATTESTATION.md sec. 7).
+    // 0 = never mandatory on every network today; scheduling it is a consensus
+    // change and must move the digest.
+    d.I64(c.nPatCommitmentMandatoryHeight);
 
     // The derived privacy seed. THIS is the field whose class of defect F4 exists
     // for: it is computed at startup by HKDF over the genesis hash, so it is both
@@ -208,13 +214,21 @@ std::vector<unsigned char> FixedVec(size_t n, unsigned char seed)
 //! verifies no signatures by design; it proves an aggregation relation over the
 //! supplied material. Fixed vectors are therefore a faithful input, and the
 //! upstream PAT tests use random ones of exactly this shape.
-bool BuildValidPatScript(uint32_t n, CScript& out)
+//! fSharedMessage = true gives every entry the SAME message. That is the
+//! canonical-ordering tie path: with the message key equal, ordering falls to
+//! the pk/sig tie-breaks and the positional term (CanonicalOrder in
+//! crypto/pat/logarithmic.cpp). Absorbing this batch is what makes the digest
+//! sensitive to ordering at all — with distinct messages only, the digest was
+//! blind to the ordering defect PR #65 fixed (bead
+//! pat-canonical-ordering-not-total-97dz).
+bool BuildValidPatScript(uint32_t n, CScript& out, bool fSharedMessage = false)
 {
     std::vector<std::vector<unsigned char> > sigs, pks, msgs;
     for (uint32_t i = 0; i < n; ++i) {
         sigs.push_back(FixedVec(32, (unsigned char)(0x10 + i)));
         pks.push_back(FixedVec(32, (unsigned char)(0x40 + i)));
-        msgs.push_back(FixedVec(32, (unsigned char)(0x70 + i)));
+        msgs.push_back(FixedVec(32, fSharedMessage ? (unsigned char)0x70
+                                                   : (unsigned char)(0x70 + i)));
     }
 
     std::vector<unsigned char> proof_data;
@@ -270,6 +284,56 @@ bool BuildValidPatScript(uint32_t n, CScript& out)
 //!   * New ScriptError values go at the END of the enum. This function absorbs
 //!     the NUMERIC value, so inserting mid-enum renumbers every later error and
 //!     moves the digest for no behavioural reason.
+//! The PAT block-attestation pipeline (doc/PAT_BLOCK_ATTESTATION.md), absorbed
+//! end to end over fixed batches: CreateLogarithmicProof through the canonical
+//! ordering to the domain-separated attestation hash and the 36-byte coinbase
+//! commitment script. This is the value every node recomputes per block and
+//! compares byte-for-byte against the miner's commitment, so a cross-build
+//! difference anywhere in the pipeline is a chain split; absorbing it is what
+//! makes the F4 sweep evidence for the attestation, not just for the opcode.
+//! The duplicate-message batch is deliberate: it is the ordering tie path
+//! (bead pat-canonical-ordering-not-total-97dz).
+void AbsorbPatAttestation(DigestBuilder& d)
+{
+    struct BatchSpec {
+        uint32_t n;
+        bool fSharedMessage;
+    };
+    for (const BatchSpec& spec : {BatchSpec{3, false}, BatchSpec{2, true}}) {
+        patattest::PatBatch batch;
+        for (uint32_t i = 0; i < spec.n; ++i) {
+            batch.sigs.push_back(FixedVec(32, (unsigned char)(0x10 + i)));
+            batch.pks.push_back(FixedVec(32, (unsigned char)(0x40 + i)));
+            batch.msgs.push_back(FixedVec(32, spec.fSharedMessage
+                                                  ? (unsigned char)0x70
+                                                  : (unsigned char)(0x70 + i)));
+        }
+        d.I64(spec.n);
+        d.I64(spec.fSharedMessage ? 1 : 0);
+
+        uint256 attestation;
+        const bool ok = patattest::ComputeBlockAttestation(batch, attestation);
+        d.I64(ok ? 1 : 0);
+        if (!ok) continue;
+        d.Hash(attestation);
+
+        const CScript commitment = patattest::BuildCommitmentScript(attestation);
+        d.U64(commitment.size());
+        d.Bytes((const unsigned char*)commitment.data(), commitment.size());
+
+        // The parser must invert the builder; absorb that verdict too, so a
+        // codegen difference in either direction is visible.
+        uint256 parsed;
+        d.I64(patattest::ParseCommitmentScript(commitment, parsed) ? 1 : 0);
+        d.I64(parsed == attestation ? 1 : 0);
+    }
+
+    // The empty batch has NO attestation (spec sec. 5) — a rule every
+    // coinbase-only block exercises, absorbed as the verdict.
+    uint256 unused;
+    d.I64(patattest::ComputeBlockAttestation(patattest::PatBatch(), unused) ? 1 : 0);
+}
+
 void AbsorbOpcodeVerdicts(DigestBuilder& d)
 {
     BaseSignatureChecker checker;
@@ -305,6 +369,32 @@ void AbsorbOpcodeVerdicts(DigestBuilder& d)
                 if (!item.empty()) d.Bytes(item.data(), item.size());
             }
         }
+    }
+
+    // -- The canonical-ordering tie path: duplicate-message batches --
+    // Every batch above has distinct messages, so nothing above reaches the
+    // ordering's tie-breaks; the digest measured NOTHING about ordering until
+    // this section existed, and did not move when the ordering was corrected
+    // (PR #65). Absorbing the proof bytes of shared-message batches puts the
+    // tie path inside the digest, so the F4 cross-build sweep now covers the
+    // single highest-risk element of the PAT attestation: an ordering that
+    // differs by compiler or platform (bead pat-canonical-ordering-not-total-97dz).
+    for (uint32_t n : {uint32_t(2), uint32_t(3)}) {
+        CScript dupScript;
+        const bool built = BuildValidPatScript(n, dupScript, /*fSharedMessage=*/true);
+        d.I64(built ? 1 : 0);
+        d.I64(n);
+        if (!built) continue;
+
+        d.U64(dupScript.size());
+        d.Bytes((const unsigned char*)dupScript.data(), dupScript.size());
+
+        std::vector<std::vector<unsigned char> > stack;
+        ScriptError serr = SCRIPT_ERR_OK;
+        const bool ok = EvalScript(stack, dupScript, SCRIPT_VERIFY_PAT, checker,
+                                   SIGVERSION_BASE, &serr);
+        d.I64(ok ? 1 : 0);
+        d.I64((int64_t)serr);
     }
 
     // -- A tampered PAT proof must be rejected, and the REASON is absorbed --
@@ -484,6 +574,7 @@ uint256 ComputeConsensusDigest()
 
     AbsorbScriptVerdicts(d);
     AbsorbOpcodeVerdicts(d);
+    AbsorbPatAttestation(d);
 
     SelectParams(CBaseChainParams::MAIN);
     return d.Finalize();
@@ -561,8 +652,29 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // testnet and regtest inputs are untouched. The tag-day F4 sweep covers
     // this pin on the fleet toolchain; the digest moves again at the genesis
     // ceremony as designed.
+    //
+    // Moved from 44962547... on 2026-09-01 with the PAT block-attestation
+    // wiring (doc/PAT_BLOCK_ATTESTATION.md §9, epic pat-completion-epic-xlab
+    // phase 3). A COVERAGE change plus one inert field, in the single
+    // deliberate re-pin the plan prescribed:
+    //   1. AbsorbConsensus gained nPatCommitmentMandatoryHeight (0 = never
+    //      mandatory on every network today; scheduling it must move the
+    //      digest).
+    //   2. AbsorbOpcodeVerdicts gained duplicate-message PAT batches — the
+    //      canonical-ordering TIE PATH. Until this, every absorbed batch had
+    //      distinct messages, so the digest measured nothing about ordering
+    //      and did not move when the ordering defect was fixed (PR #65, bead
+    //      pat-canonical-ordering-not-total-97dz). This closes that bead's
+    //      digest half: the F4 sweep now covers ordering.
+    //   3. AbsorbPatAttestation is new: the block-attestation pipeline end to
+    //      end (canonical batch -> proof -> domain-separated hash -> 36-byte
+    //      commitment script -> parser round-trip), over a distinct-message
+    //      and a duplicate-message batch, plus the empty-batch verdict.
+    // The rules themselves (producer, ConnectBlock enforcement) ship in the
+    // same commit; their reject paths are driven in pat_commitment_rule_tests.
+    // The sweep of record re-runs against the tag as always.
     const std::string expected =
-        "449625478996b2b5003bfdf63a5700d7fd17b67b36daaa6a928e557a371b2de3";
+        "c4029fd7baefc9718ec0ca8a1ae9e4830d82c2bd1e27d240cf34365975936730";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +

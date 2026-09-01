@@ -1054,6 +1054,14 @@ public:
         auxpowConsensus.nMigrationHeight = nHeight;
         vMigrationOutputs = vOutputs;
     }
+
+    void UpdatePatCommitmentMandatoryHeight(int nHeight)
+    {
+        // Same height-indexed-tree caveat as the setters above (bead tofg).
+        consensus.nPatCommitmentMandatoryHeight = nHeight;
+        digishieldConsensus.nPatCommitmentMandatoryHeight = nHeight;
+        auxpowConsensus.nPatCommitmentMandatoryHeight = nHeight;
+    }
 };
 static CRegTestParams regTestParams;
 
@@ -1485,4 +1493,9 @@ void UpdateRegtestMigrationParams(const uint256& hashOutputs, CAmount nTotal, in
                                   const std::vector<CTxOut>& vOutputs)
 {
     regTestParams.UpdateMigrationParams(hashOutputs, nTotal, nHeight, vOutputs);
+}
+
+void UpdateRegtestPatCommitmentMandatoryHeight(int nHeight)
+{
+    regTestParams.UpdatePatCommitmentMandatoryHeight(nHeight);
 }
