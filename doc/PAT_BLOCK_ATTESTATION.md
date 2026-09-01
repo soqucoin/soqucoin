@@ -1,8 +1,8 @@
 # PAT block attestation — consensus specification
 
-**Status:** SPECIFICATION, pre-implementation. Phase 3 of the PAT completion
-epic (`pat-completion-epic-xlab`). Nothing in this document is implemented;
-§10 lists the decisions required before implementation begins.
+**Status:** SPECIFICATION, ratified. Phase 3 of the PAT completion epic
+(`pat-completion-epic-xlab`). Both open decisions were ruled on 2026-09-01;
+§10 records the rulings. Implementation may begin against this document.
 
 **Purpose.** This document defines the rules a node follows to compute, commit,
 and verify the per-block PAT attestation. The attestation is recomputed
@@ -56,13 +56,16 @@ specification today and diverge from it at a future activation height.
 | v10 (confidential USDSOQ) | No. Same payload shape as v4; compound gate; fails closed if activated | No | Same basis as v4 |
 | v11–v16 | No spend can exist. Unallocated; unfundable under the reservation rule | No | Same basis as v2/v3 |
 
-### The rule, as specified
+### The rule, as ruled (Decision 1, 2026-09-01)
 
 A spend is attested if and only if it is a witness spend whose witness stack is
 exactly two items and whose verification is the single-key Dilithium path. At
-genesis that set is v0 and v1. Whether the set extends to v7 and v8 at their
-activation heights is Decision 1 (§10), and the tradeoffs are set out there
-rather than assumed here.
+genesis that set is v0 and v1. The set extends to v7 at the `USDSOQ` activation
+height and to v8 at the `BTCSOQ` activation height, from those heights forward.
+Consequently each of those activations is also an attestation change: the
+activation review must confirm full fleet coverage before the height, per
+`doc/DEPLOYMENT_PRECONDITIONS.md` rule 2, and must re-verify the attested-set
+tests with the deployment active and withdrawn.
 
 ### The authority-signature note (v5, v9)
 
@@ -122,7 +125,7 @@ prefix before hashing to compare against the witness program
 (`interpreter.cpp:1921`). Tracked as bead
 `dilithium-pubkey-encoding-duality-flpa`.
 
-**Specified (pending Decision 2):** `pk` commits to the stripped canonical
+**Ruled (Decision 2, 2026-09-01):** `pk` commits to the stripped canonical
 form, the same bytes that are SHA-256'd to produce the witness program.
 
 The precise consequence of each option, stated carefully because the difference
@@ -305,24 +308,23 @@ coverage.
 
 ---
 
-## 10. Decisions required before implementation
+## 10. Decisions — RULED 2026-09-01
 
-1. **The attested set (§2).** Either the set extends to v7/v8 at their
-   activation heights under the two-item single-key rule, or it is frozen at
-   v0/v1 permanently. The tradeoffs are: extension honours the "every
-   single-key Dilithium signature is committed" contract and keeps v7/v8
-   witnesses prunable, at the cost that every relevant future activation is
-   also an attestation change and must be reviewed as one; freezing makes the
-   attested set invariant for the life of the chain, at the cost that v7/v8
-   witnesses are never prunable and the design contract must be restated.
-   In both options the authority signatures (v5/v9) and v6 witnessScript
-   checks remain out of scope, per §2.
-2. **The public-key commitment (§3).** Canonical stripped form, or raw witness
-   bytes. Consequences are set out in §3; neither is a consensus-divergence
-   risk, and the difference is auditability and coupling to bead `flpa`.
+1. **The attested set (§2): the set extends.** Attestation covers every
+   two-item single-key Dilithium spend, so v7 joins at the `USDSOQ` activation
+   height and v8 at the `BTCSOQ` activation height. Basis for the ruling: the
+   extension honours the "every single-key Dilithium signature is committed"
+   contract and keeps v7/v8 witnesses prunable, and the added process cost is
+   one review item on an activation checklist that `DEPLOYMENT_PRECONDITIONS.md`
+   rule 2 already imposes. Authority signatures (v5/v9) and v6 witnessScript
+   checks remain out of scope, per §2, with their costs recorded there.
+2. **The public-key commitment (§3): the canonical stripped form.** Basis for
+   the ruling: both encodings of a key attest identically, third parties cannot
+   choose which encoding of an unconfirmed transaction's key is attested, and
+   the rule needs no amendment if bead `flpa` later rejects one encoding.
 
-The magic bytes (§6) are specified as `PA` rather than left open; there is no
-tradeoff to rule on, only a collision to avoid.
+The magic bytes (§6) are specified as `PA`; there was no tradeoff to rule on,
+only a collision to avoid.
 
 ---
 

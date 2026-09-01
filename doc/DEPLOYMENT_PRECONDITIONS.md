@@ -242,6 +242,19 @@ Witness v6: P2WSH with Dilithium. Covenant script execution and L2SOQ Lightning.
    before any adjacent version is allocated. A v6 collision with P2WSH-Dilithium
    was green in CI once already and forced a reallocation to v10. Never derive
    the free list from a document.
+3. ☐ **The audit scope must include every opcode reachable from `EvalScript`,
+   not only the covenant set.** A v6 witnessScript executes with the live flag
+   set, and `SCRIPT_VERIFY_PAT` is always on, so a witnessScript consisting of
+   `OP_CHECKPATAGG` verifies attacker-supplied self-consistent tuples and
+   succeeds: an anyone-can-spend contract. The funder chooses the script, so
+   this is self-inflicted in the same class as funding `OP_TRUE`, and it steals
+   from nobody. It is recorded here because the v6 activation review must
+   treat "which opcodes can a witnessScript reach, and what does each one
+   actually bind" as in scope; the PAT anyone-can-spend defect (bead
+   `pat-v2-anyone-can-spend-ae6u`) came from precisely this question going
+   unasked at a different dispatch site. Note that v6 witness data is also
+   outside the PAT block attestation (`doc/PAT_BLOCK_ATTESTATION.md` §2), so
+   these scripts stay unpruned regardless.
 
 ### `DEPLOYMENT_V6_CONTROLFLOW` (bit 13)
 `IF`/`CLTV`/`CSV`/`DROP`/`SHA256`/`EQUAL` inside v6 `EvalScript`, for the eLTOO
