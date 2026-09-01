@@ -347,6 +347,8 @@ libsoqucoin_consensus_a_SOURCES = \
   consensus/params.h \
   consensus/block_accumulator.cpp \
   consensus/block_accumulator.h \
+  consensus/pat_attestation.cpp \
+  consensus/pat_attestation.h \
   consensus/usdsoq.cpp \
   consensus/usdsoq.h \
   consensus/btcsoq.cpp \
