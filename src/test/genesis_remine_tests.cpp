@@ -125,12 +125,15 @@ BOOST_AUTO_TEST_CASE(mine_stagenet_genesis)
 
 BOOST_AUTO_TEST_CASE(mine_mainnet_genesis)
 {
-    // Reproduce the mainnet genesis block construction
-    // From chainparams.cpp line 320:
-    // genesis = CreateGenesisBlock(1386325540, 99943, 0x1e0ffff0, 1, 88 * COIN);
+    // Reproduce the mainnet genesis block construction — DELIBERATE inline
+    // copy of CreateGenesisBlockMainnet (chainparams.cpp); this test cannot
+    // SelectParams(MAIN) while the pins are stale. The three inputs below
+    // (pszTimestamp, genesisOutputScript, nTime) MUST match chainparams.cpp
+    // exactly or the miner mines the wrong block.
+    // Ceremony 2026-09-02: genesis = CreateGenesisBlockMainnet(1788365451, 3319596, 0x1e0ffff0, 1, 88 * COIN);
 
-    const char* pszTimestamp = "Nintondo";
-    const CScript genesisOutputScript = CScript() << ParseHex("040184710fa689ad5023690c80f3a49c8f13f8d45b8c857fbcbc8bc4a8e4d3eb4b10f4d4604fa08dce601aaf0f470216fe1b51850b4acf21b179c45070ac7b03a9") << OP_CHECKSIG;
+    const char* pszTimestamp = "The Block 26/Aug/2026 First quantum-resistant Bitcoin transaction mined BTC 965186 d3b0f490";
+    const CScript genesisOutputScript = CScript() << OP_RETURN;
 
     CMutableTransaction txNew;
     txNew.nVersion = 1;
@@ -141,7 +144,7 @@ BOOST_AUTO_TEST_CASE(mine_mainnet_genesis)
     txNew.vout[0].scriptPubKey = genesisOutputScript;
 
     CBlock genesis;
-    genesis.nTime = 1386325540;
+    genesis.nTime = 1788365451;
     genesis.nBits = 0x1e0ffff0;
     genesis.nNonce = 0;  // Will be mined
     genesis.nVersion = 1;
