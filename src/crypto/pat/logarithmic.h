@@ -8,11 +8,12 @@
  * prevent rogue-key attacks and ensure message integrity.
  *
  * A PAT proof commits a batch of n signatures to 100 bytes. Re-verifying the
- * PROOF takes the proof plus its witness data (a logarithmic Merkle path and a
- * linear set of 96-byte hash tuples; see WITNESS DATA below). The tuples are
- * 32-byte commitments, so this artifact attests the batch; it cannot verify a
- * signature. On the chain, witnesses carry the FULL signatures and every node
- * verifies each one natively.
+ * PROOF takes the proof plus its witness data: a logarithmic Merkle path and a
+ * linear set of 96-byte tuples, each three 32-byte commitments of
+ * (sig, pk, msg) (see WITNESS DATA below). Because that witness contains only
+ * commitments, the artifact attests the batch; it cannot verify a signature.
+ * On the chain, witnesses carry the FULL signatures and every node verifies
+ * each one natively.
  *
  * PROOF FORMAT (100 bytes total)
  * ================================
@@ -75,8 +76,8 @@
  *   are verified natively); retained storage after witness pruning past the
  *   finality horizon is ~25x smaller (base data + attestation kept, raw
  *   signatures discarded; the public figure of record); the Full-Mode proof
- *   verification artifact for n=1024 is ~98KB (100 + 32*log2(n) + 96n bytes,
- *   an internal quantity, not on-chain bytes). The 100-byte commitment alone
+ *   verification artifact for n=1024 is ~98KB (100 + 32*ceil(log2(n)) + 96*n
+ *   bytes, an internal quantity, not on-chain bytes). The 100-byte commitment alone
  *   is not the on-chain footprint; the "~9,661x" comparison was retracted.
  *
  * MERKLE TREE CONSTRUCTION
