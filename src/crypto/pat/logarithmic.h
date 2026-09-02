@@ -8,8 +8,9 @@
  * prevent rogue-key attacks and ensure message integrity.
  *
  * Instead of verifying n individual Dilithium signatures (each ~2.5KB), verifiers
- * only need to validate a 100-byte proof plus logarithmic witness data. This provides
- * massive savings for batch transaction validation and block verification.
+ * only need to validate a 100-byte proof plus witness data (a logarithmic Merkle
+ * path and a linear set of 96-byte tuples; see WITNESS DATA below). End-to-end
+ * this is a ~25x reduction versus carrying raw signatures.
  *
  * PROOF FORMAT (100 bytes total)
  * ================================
@@ -67,7 +68,9 @@
  * - Verification time (Simple mode): O(1) - < 4µs constant time
  * - Verification time (Full mode): O(log n) - tree traversal + hash computation
  * - Creation time: O(n log n) - sorting + tree construction
- * - Commitment reduction: ~9,661× for n=1024 (100 bytes vs 2.5MB)
+ * - End-to-end reduction: ~25x for n=1024 (~98KB proof+witness vs ~2.5MB raw
+ *   signatures). The 100-byte figure is the commitment alone, not the on-chain
+ *   footprint; the earlier "~9,661x" comparison of the two was retracted.
  *
  * MERKLE TREE CONSTRUCTION
  * ========================
