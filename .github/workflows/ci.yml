@@ -187,14 +187,29 @@ jobs:
       # recursive hash of its recipe, patches and toolchain, so a stale restore
       # is safe: changed packages rebuild, unchanged ones are reused, and
       # cached sources avoid the upstream fetch either way.
+      #
+      # The key must rotate whenever the package build ids can: actions/cache
+      # never saves on an exact-key hit, so any build-id input missing from the
+      # key degrades to rebuild-every-run-with-no-save. Build ids hash the
+      # meta_depends files (depends/Makefile:111 — Makefile, funcs.mk, hosts/*,
+      # builders/*) and the toolchain's --version output (depends/Makefile:79).
+      # The toolchain half can change with no repo diff (apt installs the
+      # current mingw each run), so it enters the key as a fingerprint step.
+      - name: Toolchain fingerprint for the depends cache key
+        id: toolchain
+        run: |
+          echo "hash=$( (x86_64-w64-mingw32-g++ --version; x86_64-w64-mingw32-ar --version; g++ --version) | sha256sum | cut -c1-12 )" >> "$GITHUB_OUTPUT"
+
       - name: Depends cache
         uses: actions/cache@v5
         with:
           path: |
             depends/built
             depends/sources
-          key: windows-x64-depends-${{ hashFiles('depends/packages/**', 'depends/patches/**') }}
-          restore-keys: windows-x64-depends-
+          key: windows-x64-depends-${{ steps.toolchain.outputs.hash }}-${{ hashFiles('depends/packages/**', 'depends/patches/**', 'depends/Makefile', 'depends/funcs.mk', 'depends/hosts/**', 'depends/builders/**') }}
+          restore-keys: |
+            windows-x64-depends-${{ steps.toolchain.outputs.hash }}-
+            windows-x64-depends-
 
       - name: Build depends
         run: |
