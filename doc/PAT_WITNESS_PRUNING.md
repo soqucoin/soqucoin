@@ -1,7 +1,8 @@
 # PAT witness pruning — specification (route R1)
 
-**Status:** SPECIFICATION, pre-implementation. Phase 5 of the PAT completion
-epic (`pat-completion-epic-xlab`), ruled route **R1** (compaction rewrite) on
+**Status:** IMPLEMENTED (stage 1: storage semantics, PR #71; stage 2: network
+contract, this document's §4). Phase 5 of the PAT completion epic
+(`pat-completion-epic-xlab`), ruled route **R1** (compaction rewrite) on
 2026-08-31; route R2 (split witness storage) is a post-launch migration once R1
 proves the semantics.
 
@@ -95,7 +96,12 @@ in place, which is what removes the crash window entirely:
    no index entry references.
 2. Update every affected `CBlockIndex` entry (`nFile` = *m*, new `nDataPos`,
    `BLOCK_WITNESS_PRUNED`) and the `CBlockFileInfo` records, and flush the
-   block index durably.
+   block index durably. Because `nFile` addresses a block's undo data as well
+   as its block data (`GetBlockPos`/`GetUndoPos` share the field), the `rev`
+   file is **hardlinked** to the new number before the index moves — both
+   names are valid simultaneously, so undo reads have no window on either side
+   of the flush (copy fallback where the filesystem refuses links). Found in
+   stage-1 implementation.
 3. Delete file *n*, only after step 2 has succeeded.
 
 Crash analysis, the property this ordering is chosen for: **at every instant
@@ -170,7 +176,17 @@ A node with witness pruning enabled:
   data exists locally. Serving base-only blocks to a peer that will attempt
   script validation manufactures the silent-break failure mode; the stripped
   data is for this node's own RPC and audit trail, not for relay. This matches
-  the BIP159 contract peers already understand.
+  the BIP159 contract peers already understand. The implementation refuses all
+  four block `getdata` types beyond the window (`MSG_FILTERED_BLOCK` and
+  `MSG_CMPCT_BLOCK` included: the compact path falls back to a full block send
+  for old blocks, which would be the stripped block), and it decides by depth
+  alone, not by whether the block happens to be compacted yet — the window
+  must be deterministic to peers, and compaction is whole-file and lazy.
+- On the requesting side, this node never asks a limited peer for a block
+  deeper than the horizon **minus a two-block margin** below that peer's
+  best-known tip: the peer's live tip may be ahead of our view of it, which
+  shrinks its servable window from under a request measured against the stale
+  view.
 - Headers service is unaffected; headers are never pruned.
 
 Fleet, pool, and seed nodes run unpruned. Witness pruning is for operators who
@@ -237,7 +253,15 @@ must halt loudly rather than improvise.
   plus functional tests 5–6 and the digest assertion. The feature is not
   enableable on a network-connected node until stage 2 lands; stage 1 gates
   `-witnessprune` behind `-connect=0`/regtest so the storage semantics can
-  soak without a node ever under-serving what it advertises.
+  soak without a node ever under-serving what it advertises. Stage 2 removes
+  that gate: it exists only because the network contract was missing.
+
+Outbound peer selection deliberately keeps requiring `NODE_NETWORK`
+(`REQUIRED_SERVICES`, and the DNS-seed filter): limited peers serve inbound
+requests and within-window fetches, but a fresh node must never fill its
+outbound slots with peers that cannot serve its initial sync. Relaxing this
+post-launch (dialling limited peers once out of IBD, as later upstream
+versions do) is a possible follow-up, not part of the contract.
 
 ---
 

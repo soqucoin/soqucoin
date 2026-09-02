@@ -216,6 +216,9 @@ struct CNodeState {
     bool fProvidesHeaderAndIDs;
     //! Whether this peer can give us witnesses
     bool fHaveWitness;
+    //! Whether this peer is a NODE_NETWORK_LIMITED peer (BIP159): serves only
+    //! blocks within the finality horizon of its tip, never a deep sync.
+    bool fLimitedNode;
     //! Whether this peer wants witnesses in cmpctblocks/blocktxns
     bool fWantsCmpctWitness;
     /**
@@ -244,6 +247,7 @@ struct CNodeState {
         fPreferHeaderAndIDs = false;
         fProvidesHeaderAndIDs = false;
         fHaveWitness = false;
+        fLimitedNode = false;
         fWantsCmpctWitness = false;
         fSupportsDesiredCmpctVersion = false;
     }
@@ -560,6 +564,16 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
             }
             if (!State(nodeid)->fHaveWitness && IsWitnessEnabled(pindex->pprev, consensusParams)) {
                 // We wouldn't download this block or its descendants from this peer.
+                return;
+            }
+            if (state->fLimitedNode &&
+                state->pindexBestKnownBlock->nHeight - pindex->nHeight >= consensusParams.nMaxReorgDepth - 2) {
+                // A limited peer serves only blocks within the finality horizon
+                // of its tip and answers notfound beyond it. Its live tip may be
+                // ahead of pindexBestKnownBlock, shrinking the servable window
+                // from under a request measured against our stale view — hence
+                // the two-block margin. We wouldn't download this block or its
+                // descendants from this peer.
                 return;
             }
             if (pindex->nStatus & BLOCK_HAVE_DATA || chainActive.Contains(pindex)) {
@@ -1113,6 +1127,20 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                     pfrom->fDisconnect = true;
                     send = false;
                 }
+                if (send && fWitnessPrune &&
+                    chainActive.Tip()->nHeight - mi->second->nHeight > consensusParams.nMaxReorgDepth) {
+                    // A witness-pruned node serves only blocks within the
+                    // finality horizon and answers notfound beyond it, for
+                    // every block message type — even MSG_BLOCK, and even when
+                    // this block has not been compacted yet. Serving base-only
+                    // data to a validating peer is the silent sync break the
+                    // contract exists to prevent, and the window must be
+                    // deterministic, so it is enforced from our own state
+                    // rather than the compaction schedule or the advertised
+                    // service bits (doc/PAT_WITNESS_PRUNING.md §4).
+                    send = false;
+                    vNotFound.push_back(inv);
+                }
                 // Pruned nodes may have deleted the block, so check whether
                 // it's available before trying to send.
                 if (send && (mi->second->nStatus & BLOCK_HAVE_DATA))
@@ -1462,7 +1490,10 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
             pfrom->cleanSubVer = cleanSubVer;
         }
         pfrom->nStartingHeight = nStartingHeight;
-        pfrom->fClient = !(nServices & NODE_NETWORK);
+        // A NODE_NETWORK_LIMITED peer is not a pure client: it serves blocks
+        // within the finality horizon of its tip (BIP159 shape,
+        // doc/PAT_WITNESS_PRUNING.md §4), just never a deep sync.
+        pfrom->fClient = !(nServices & (NODE_NETWORK | NODE_NETWORK_LIMITED));
         {
             LOCK(pfrom->cs_filter);
             pfrom->fRelayTxes = fRelay; // set to true after we get the first filter* message
@@ -1472,10 +1503,13 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         pfrom->SetSendVersion(nSendVersion);
         pfrom->nVersion = nVersion;
 
-        if((nServices & NODE_WITNESS))
         {
             LOCK(cs_main);
-            State(pfrom->GetId())->fHaveWitness = true;
+            CNodeState* state = State(pfrom->GetId());
+            if (nServices & NODE_WITNESS) {
+                state->fHaveWitness = true;
+            }
+            state->fLimitedNode = (!(nServices & NODE_NETWORK) && (nServices & NODE_NETWORK_LIMITED));
         }
 
         // Potentially mark this peer as a preferred download peer.
@@ -3434,7 +3468,10 @@ bool SendMessages(CNode* pto, CConnman& connman, const std::atomic<bool>& interr
         // Message: getdata (blocks)
         //
         std::vector<CInv> vGetData;
-        if (!pto->fClient && (fFetch || !IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
+        // Never sync deep history from a limited peer: during IBD it cannot
+        // serve what we need (only the window below its tip); once synced,
+        // anything we fetch is recent and within its window.
+        if (!pto->fClient && ((fFetch && !state.fLimitedNode) || !IsInitialBlockDownload()) && state.nBlocksInFlight < MAX_BLOCKS_IN_TRANSIT_PER_PEER) {
             std::vector<const CBlockIndex*> vToDownload;
             NodeId staller = -1;
             FindNextBlocksToDownload(pto->GetId(), MAX_BLOCKS_IN_TRANSIT_PER_PEER - state.nBlocksInFlight, vToDownload, staller, consensusParams);

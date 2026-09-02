@@ -1595,6 +1595,9 @@ void MapPort(bool)
 static std::string GetDNSHost(const CDNSSeedData& data, ServiceFlags* requiredServiceBits)
 {
     //use default host for non-filter-capable seeds or if we use the default service bits (NODE_NETWORK)
+    //note: witness-pruned (NODE_NETWORK_LIMITED) nodes never match this filter,
+    //deliberately — seeds must only hand out peers that can serve a full sync
+    //(doc/PAT_WITNESS_PRUNING.md §4)
     if (!data.supportsServiceBitsFiltering || *requiredServiceBits == NODE_NETWORK) {
         *requiredServiceBits = NODE_NETWORK;
         return data.host;
