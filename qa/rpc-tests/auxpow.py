@@ -76,6 +76,15 @@ class AuxPOWTest (BitcoinTestFramework):
         # rejected by the parent-side guard in auxpow.cpp. "5153" = 0x5351 LE.)
         assert scrypt_auxpow.mineScryptAux(self.nodes[0], "5153", True) is False
 
+        # Node 0's step-6 auxpow block must reach node 1 BEFORE node 1 mines,
+        # or node 1 extends its own height-19 tip and the 60-block run below
+        # orphans the auxpow block, silently deleting one reward. This race
+        # produced an intermittent failure at the balance assertion
+        # (500000 != 1000000): CI run 33565415466 failed and its re-run passed
+        # on the identical commit. Steps 7 and 8 create no blocks, so this one
+        # sync closes the only window.
+        self.sync_all()
+
         # 9. mine enough blocks to mature all node 0 rewards
         self.nodes[1].generate(self.MATURITY_HEIGHT)
         self.sync_all()

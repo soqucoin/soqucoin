@@ -209,6 +209,26 @@ extern bool fHavePruned;
 extern bool fPruneMode;
 /** Number of MiB of block files that we're trying to stay below. */
 extern uint64_t nPruneTarget;
+/** True when -witnessprune is enabled: PAT witness pruning, route R1
+ *  (doc/PAT_WITNESS_PRUNING.md). Local node policy, never consensus. */
+extern bool fWitnessPrune;
+/** One witness-pruning compaction pass (doc/PAT_WITNESS_PRUNING.md §3):
+ *  sweep orphans from interrupted passes, then compact every eligible block
+ *  file into a fresh file number with witnesses stripped. Crash-safe by
+ *  ordering: the index only ever points at data that exists on disk, and the
+ *  only destructive step runs after the index durably points away from the
+ *  original. Returns false with strError set on I/O failure.
+ *  nTestCrashPoint simulates a crash for the test plan's §7.3b: 1 = stop
+ *  after the stripped data is written (nothing committed), 2 = stop after the
+ *  index flush (originals not yet deleted). Production callers pass 0. */
+bool CompactWitnessFiles(std::string& strError, int nTestCrashPoint = 0);
+/** Whole-file eligibility per doc/PAT_WITNESS_PRUNING.md §1: every block in
+ *  the file on the active chain, fully validated, strictly deeper than the
+ *  finality horizon; never the append file; never a compaction product. */
+bool WitnessFileEligibleForCompaction(int nFile);
+/** Test-only: finalize the current append file and open a fresh one, so unit
+ *  tests can make a block file non-current without mining 128 MiB. */
+void RotateBlockFileForTests();
 /** Block files containing a block-height within MIN_BLOCKS_TO_KEEP of chainActive.Tip() will not be pruned. */
 static const unsigned int MIN_BLOCKS_TO_KEEP = 1440;
 
