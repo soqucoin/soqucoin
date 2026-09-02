@@ -1565,6 +1565,7 @@ class NodeConnCB(object):
         if conn.ver_send > BIP0031_VERSION:
             conn.send_message(msg_pong(message.nonce))
     def on_reject(self, conn, message): pass
+    def on_notfound(self, conn, message): pass
     def on_open(self, conn): pass
     def on_close(self, conn): pass
     def on_mempool(self, conn): pass
@@ -1632,7 +1633,8 @@ class NodeConn(asyncore.dispatcher):
         b"sendcmpct": msg_sendcmpct,
         b"cmpctblock": msg_cmpctblock,
         b"getblocktxn": msg_getblocktxn,
-        b"blocktxn": msg_blocktxn
+        b"blocktxn": msg_blocktxn,
+        b"notfound": msg_notfound
     }
     MAGIC_BYTES = {
         "mainnet": b"\xc0\xc0\xc0\xc0",   # mainnet

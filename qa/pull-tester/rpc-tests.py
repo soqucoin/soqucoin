@@ -116,6 +116,8 @@ testScripts = [
     'genesis-migration.py',
     'mining-gate.py',
     'pat-commitment.py',
+    'witness-prune-serving.py',
+    'witness-prune-ibd.py',
     'getauxblock.py',
     'wallet.py',
     'wallet-accounts.py',

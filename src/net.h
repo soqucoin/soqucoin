@@ -86,6 +86,11 @@ static const bool DEFAULT_FORCEDNSSEED = false;
 static const size_t DEFAULT_MAXRECEIVEBUFFER = 5 * 1000;
 static const size_t DEFAULT_MAXSENDBUFFER    = 1 * 1000;
 
+// NODE_NETWORK_LIMITED peers are deliberately never selected for outbound
+// connections (here and in the DNS-seed filter): a fresh node that fills its
+// outbound slots with limited peers cannot complete its initial sync
+// (doc/PAT_WITNESS_PRUNING.md §4). Limited peers still serve us inbound, and
+// the block-request logic knows their window.
 static const ServiceFlags REQUIRED_SERVICES = NODE_NETWORK;
 
 // NOTE: When adjusting this, update rpcnet:setban's help ("24h")
@@ -607,7 +612,7 @@ public:
     bool fFeeler; // If true this node is being used as a short lived feeler.
     bool fOneShot;
     bool fAddnode;
-    bool fClient;
+    bool fClient; // set to true when the peer offers neither NODE_NETWORK nor NODE_NETWORK_LIMITED
     const bool fInbound;
     std::atomic_bool fSuccessfullyConnected;
     std::atomic_bool fDisconnect;

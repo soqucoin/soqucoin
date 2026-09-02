@@ -368,7 +368,7 @@ std::string HelpMessage(HelpMessageMode mode)
                                                          "Warning: Reverting this setting requires re-downloading the entire blockchain. "
                                                          "(default: 0 = disable pruning blocks, 1 = allow manual pruning via RPC, >%u = automatically prune block files to stay under the specified target size in MiB)"),
                                                  MIN_DISK_SPACE_FOR_BLOCK_FILES / 1024 / 1024));
-    strUsage += HelpMessageOpt("-witnessprune", strprintf(_("Discard raw witness data (signatures) of blocks deeper than the finality horizon, keeping all base data and the PAT block attestation (doc/PAT_WITNESS_PRUNING.md). Incompatible with -prune. -reindex is refused once enabled; reverting requires re-downloading the chain. Stage 1: regtest or -connect=0 only. (default: %u)"), 0));
+    strUsage += HelpMessageOpt("-witnessprune", strprintf(_("Discard raw witness data (signatures) of blocks deeper than the finality horizon, keeping all base data and the PAT block attestation (doc/PAT_WITNESS_PRUNING.md). Incompatible with -prune. -reindex is refused once enabled; reverting requires re-downloading the chain. The node advertises NODE_NETWORK_LIMITED instead of NODE_NETWORK and serves no block deeper than the horizon. (default: %u)"), 0));
     strUsage += HelpMessageOpt("-reindex-chainstate", _("Rebuild chain state from the currently indexed blocks"));
     strUsage += HelpMessageOpt("-reindex", _("Rebuild chain state and block index from the blk*.dat files on disk"));
 #ifndef WIN32
@@ -1195,18 +1195,6 @@ bool AppInitParameterInteraction()
     }
 
     if (fWitnessPrune) {
-        // Stage 1 (doc/PAT_WITNESS_PRUNING.md §8): storage semantics only. The
-        // network contract (NODE_NETWORK_LIMITED, getdata window rules) is not
-        // implemented yet, so a connected node running this would under-serve
-        // what it advertises — the exact failure the specification forbids.
-        const bool fDisconnected = IsArgSet("-connect") &&
-            mapMultiArgs.count("-connect") &&
-            mapMultiArgs.at("-connect").size() == 1 &&
-            mapMultiArgs.at("-connect")[0] == "0";
-        if (!chainparams.MineBlocksOnDemand() && !fDisconnected) {
-            return InitError(_("-witnessprune is stage 1: regtest or -connect=0 only, "
-                               "until the network service contract lands (doc/PAT_WITNESS_PRUNING.md §8)."));
-        }
         // The finality horizon is what makes witness pruning safe at all
         // (spec §6). With the horizon disabled nothing is ever eligible and
         // the flag would be a silent no-op; refuse instead.
@@ -1911,9 +1899,12 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
     }
 
     if (fWitnessPrune) {
-        // Stage 1 runs disconnected (regtest / -connect=0, enforced above), so
-        // no service-bit change is needed yet; that is stage 2 with the rest
-        // of the network contract (doc/PAT_WITNESS_PRUNING.md §4, §8).
+        // Network contract (doc/PAT_WITNESS_PRUNING.md §4): advertise limited
+        // service honestly. Everything within the finality horizon is stored
+        // and served in full (NODE_WITNESS stays set below); nothing beyond it
+        // is served at all, so NODE_NETWORK would be a lie.
+        LogPrintf("Unsetting NODE_NETWORK, setting NODE_NETWORK_LIMITED on witness prune mode\n");
+        nLocalServices = ServiceFlags((nLocalServices & ~NODE_NETWORK) | NODE_NETWORK_LIMITED);
         // Compaction runs off the validation hot path on the scheduler, same
         // cadence class as the flush-driven prune above.
         scheduler.scheduleEvery([]() {
@@ -1922,7 +1913,7 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 LogPrintf("witnessprune: compaction pass failed: %s\n", strError);
             }
         }, 600);
-        LogPrintf("Witness pruning enabled (stage 1; doc/PAT_WITNESS_PRUNING.md)\n");
+        LogPrintf("Witness pruning enabled (doc/PAT_WITNESS_PRUNING.md)\n");
     }
 
     if (chainparams.GetConsensus(0).vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout != 0) {
