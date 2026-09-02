@@ -7,10 +7,13 @@
  * The proof consists of a Merkle tree commitment and cryptographic bindings that
  * prevent rogue-key attacks and ensure message integrity.
  *
- * Instead of verifying n individual Dilithium signatures (each ~2.5KB), verifiers
- * only need to validate a 100-byte proof plus witness data (a logarithmic Merkle
- * path and a linear set of 96-byte tuples; see WITNESS DATA below). End-to-end
- * this is a ~25x reduction versus carrying raw signatures.
+ * A PAT proof commits a batch of n signatures to 100 bytes. Re-verifying the
+ * PROOF takes the proof plus its witness data: a logarithmic Merkle path and a
+ * linear set of 96-byte tuples, each three 32-byte commitments of
+ * (sig, pk, msg) (see WITNESS DATA below). Because that witness contains only
+ * commitments, the artifact attests the batch; it cannot verify a signature.
+ * On the chain, witnesses carry the FULL signatures and every node verifies
+ * each one natively.
  *
  * PROOF FORMAT (100 bytes total)
  * ================================
@@ -68,9 +71,14 @@
  * - Verification time (Simple mode): O(1) - < 4µs constant time
  * - Verification time (Full mode): O(log n) - tree traversal + hash computation
  * - Creation time: O(n log n) - sorting + tree construction
- * - End-to-end reduction: ~25x for n=1024 (~98KB proof+witness vs ~2.5MB raw
- *   signatures). The 100-byte figure is the commitment alone, not the on-chain
- *   footprint; the earlier "~9,661x" comparison of the two was retracted.
+ * - Byte ledger (the public ratios measure different things):
+ *   network bandwidth is UNCHANGED by PAT (full signatures cross the wire and
+ *   are verified natively); retained storage after witness pruning past the
+ *   finality horizon is ~25x smaller (base data + attestation kept, raw
+ *   signatures discarded; the public figure of record); the Full-Mode proof
+ *   verification artifact for n=1024 is ~98KB (100 + 32*ceil(log2(n)) + 96*n
+ *   bytes, an internal quantity, not on-chain bytes). The 100-byte commitment alone
+ *   is not the on-chain footprint; the "~9,661x" comparison was retracted.
  *
  * MERKLE TREE CONSTRUCTION
  * ========================
