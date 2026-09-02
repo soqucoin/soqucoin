@@ -120,6 +120,30 @@ static CBlock CreateGenesisBlockStagenet(uint32_t nTime, uint32_t nNonce, uint32
 }
 
 /**
+ * Soqucoin Mainnet Genesis Block - genesis ceremony 2026-09-02 (doc/GENESIS_CEREMONY.md)
+ *
+ * Headline: The Block, 2026-08-26, "First quantum-resistant Bitcoin transaction
+ * successfully executed, StarkWare says" (attribution tail trimmed, verb
+ * compressed to the event's own fact: the transaction was mined in BTC block
+ * 964199, txid 305a24ffea912b9cf428f29ebf952321c96dab5bab284fc0d0801562f5abab07).
+ * Anchor: BTC block 965186, hash
+ * 00000000000000000000d3b0f4905a4d1dc5366526c311004e9468743df764d3 (first
+ * significant 8 hex = d3b0f490), fetched at ceremony start from two independent
+ * explorers. The anchor proves this genesis could not have been mined before
+ * that Bitcoin block existed.
+ *
+ * Output script is a bare OP_RETURN: provably unspendable with no embedded
+ * data, so nothing-up-my-sleeve. The genesis coinbase is excluded from the
+ * UTXO set regardless; this choice is about what decoders display.
+ */
+static CBlock CreateGenesisBlockMainnet(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
+{
+    const char* pszTimestamp = "The Block 26/Aug/2026 First quantum-resistant Bitcoin transaction mined BTC 965186 d3b0f490";
+    const CScript genesisOutputScript = CScript() << OP_RETURN;
+    return CreateGenesisBlock(pszTimestamp, genesisOutputScript, nTime, nNonce, nBits, nVersion, genesisReward);
+}
+
+/**
  * Main network
  */
 /**
@@ -436,16 +460,19 @@ public:
         nDefaultPort = 33388;
         nPruneAfterHeight = 100000;
 
-        genesis = CreateGenesisBlock(1386325540, 99943, 0x1e0ffff0, 1, 88 * COIN);
+        // Genesis ceremony 2026-09-02 (doc/GENESIS_CEREMONY.md): purpose-built
+        // genesis replacing the inherited Dogecoin template. nTime is the
+        // ceremony's UTC epoch; nonce mined in-tree (genesis_remine_tests,
+        // 3,319,596 attempts) and independently recomputed via pure-Python
+        // scrypt/sha256d (ceremony log of record).
+        // Scrypt PoW: 00000e6981993c98a9a7c1e534a8368f6e67f5f2330ab50646c10c477774be3f
+        genesis = CreateGenesisBlockMainnet(1788365451, 3319596, 0x1e0ffff0, 1, 88 * COIN);
 
-        // Phase 4: mainnet genesis re-mined 2026-06-16 (DL-GENESIS-REMINE.md)
-        // Original nonce 99943 is still valid under byte-less CTxOut serialization.
-        // Scrypt PoW: 0000026f3f7874ca0c251314eaed2d2fcf83d7da3acfaacf59417d485310b448
         consensus.hashGenesisBlock = genesis.GetHash();
         digishieldConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
         auxpowConsensus.hashGenesisBlock = consensus.hashGenesisBlock;
-        assert(consensus.hashGenesisBlock == uint256S("0x1a91e3dace36e2be3bf030a65679fe821aa1d6ef92e7c9902eb318182c355691"));
-        assert(genesis.hashMerkleRoot == uint256S("0x5b2a3f53f605d62c53e62932dac6925e3d74afa5a4b459745c36d42d0ed26a69"));
+        assert(consensus.hashGenesisBlock == uint256S("0x0d828600816cbd7c23789660b53f90cb6ec7ff85540698e13845eb2d2f0486a8"));
+        assert(genesis.hashMerkleRoot == uint256S("0x8c4364d66ab67d746ddf1c5e0a316da5af9bbf7dc27bdd02e06ea77aec88ed28"));
 
         // Genesis-migration allocation constants (DL-GENESIS-MIGRATION-IMPLEMENTATION §A1).
         // Deliberately NOT set here: hashMigrationOutputs stays null, nMigrationTotal 0,

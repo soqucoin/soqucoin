@@ -1,6 +1,15 @@
 # Mainnet Genesis Ceremony (FC4)
 
-The mainnet genesis block currently reuses the Dogecoin genesis template
+> **EXECUTED 2026-09-02.** The ceremony this document prescribes was performed in
+> one sitting: genesis `0d828600816cbd7c23789660b53f90cb6ec7ff85540698e13845eb2d2f0486a8`
+> (nTime 1788365451, nonce 3319596), headline
+> `The Block 26/Aug/2026 First quantum-resistant Bitcoin transaction mined BTC 965186 d3b0f490`,
+> output a bare OP_RETURN. The full-suite gate passed with zero failures and the
+> consensus digest re-pin was observed firing before being updated. The paragraph
+> below describes the pre-ceremony state this procedure replaced; it is kept as
+> the record of why the ceremony happened.
+
+The mainnet genesis block previously reused the Dogecoin genesis template
 (message "Nintondo", nTime 1386325540, nonce 99943, the original ECDSA P2PK
 output). Launch checklist item A1 and bead z9vk ratify replacing it before
 launch with a purpose-built genesis. This document is the complete procedure,

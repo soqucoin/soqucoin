@@ -7242,8 +7242,10 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, const CB
 
     // Enforce strict Dilithium coinbase output (OP_1 <32-byte hash>)
     // Reject any coinbase output that is not Dilithium bech32m v1 (or OP_RETURN for witness commitment)
-    // SOQ-REINDEX-001: Exempt genesis block (nHeight == 0) — it uses a legacy P2PK output
-    // created by CreateGenesisBlock(). During normal sync, genesis bypasses this check
+    // SOQ-REINDEX-001: Exempt genesis block (nHeight == 0). The exemption is load-bearing
+    // for testnet3 and stagenet, whose geneses carry the legacy P2PK output from
+    // CreateGenesisBlock(); mainnet's ceremony genesis (2026-09-02) is a bare OP_RETURN
+    // and would pass this check anyway. During normal sync, genesis bypasses this check
     // via InitBlockIndex(), but -reindex routes through AcceptBlock → ContextualCheckBlock.
     if (nHeight > 0 && chainParams.NetworkIDString() != CBaseChainParams::REGTEST) {
         for (const auto& txout : block.vtx[0]->vout) {

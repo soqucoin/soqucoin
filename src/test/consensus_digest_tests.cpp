@@ -673,8 +673,19 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // The rules themselves (producer, ConnectBlock enforcement) ship in the
     // same commit; their reject paths are driven in pat_commitment_rule_tests.
     // The sweep of record re-runs against the tag as always.
+    //
+    // Moved from c4029fd7... on 2026-09-02 at the mainnet genesis ceremony
+    // (doc/GENESIS_CEREMONY.md, ceremony log of record 2026-09-02) — the move
+    // the 2026-08-29 entry predicted ("the digest moves again at the genesis
+    // ceremony as designed"). A RULE change on mainnet only, made deliberately:
+    // the movers are the mainnet genesis fields (new pszTimestamp/output
+    // script => hashMerkleRoot, plus nTime 1788365451 and nNonce 3319596 =>
+    // hashGenesisBlock) and everything derived from the genesis hash
+    // (latticeBPSeed via ComputeSoquObscuraSeed). Testnet, stagenet and
+    // regtest genesis inputs are untouched. The F4 sweep of record re-runs
+    // against the FC4 tag on the fleet toolchain.
     const std::string expected =
-        "c4029fd7baefc9718ec0ca8a1ae9e4830d82c2bd1e27d240cf34365975936730";
+        "6f4e1b37fd154fd7e845bfaa67b401a64fb3f5bd9b7a2832451c8fde5be8cfe8";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +

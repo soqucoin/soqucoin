@@ -64,12 +64,31 @@ BOOST_AUTO_TEST_CASE(stagenet_genesis_pow_valid)
     BOOST_CHECK(CheckAuxPowProofOfWork(genesis, consensus));
 }
 
-// NOTE: Mainnet and testnet3 genesis nonces are not yet final.
-// These tests should be enabled once the serialization format is frozen
-// and genesis nonces are re-mined.
+// Mainnet genesis became final at the 2026-09-02 ceremony (doc/GENESIS_CEREMONY.md),
+// so its PoW test is enabled below. testnet3's nonce is still the inherited one and
+// its test stays disabled until that network is ever re-mined.
 //
-// BOOST_AUTO_TEST_CASE(mainnet_genesis_pow_valid)
 // BOOST_AUTO_TEST_CASE(testnet3_genesis_pow_valid)
+
+BOOST_AUTO_TEST_CASE(mainnet_genesis_pow_valid)
+{
+    SelectParams(CBaseChainParams::MAIN);
+    const CChainParams& params = Params();
+    const CBlock& genesis = params.GenesisBlock();
+    const Consensus::Params& consensus = params.GetConsensus(0);
+
+    // The ceremony pins, asserted here as well as in chainparams.cpp so a
+    // regression is a test failure, not only a startup abort.
+    BOOST_CHECK_EQUAL(genesis.GetHash().ToString(),
+                      "0d828600816cbd7c23789660b53f90cb6ec7ff85540698e13845eb2d2f0486a8");
+    BOOST_CHECK_EQUAL(genesis.hashMerkleRoot.ToString(),
+                      "8c4364d66ab67d746ddf1c5e0a316da5af9bbf7dc27bdd02e06ea77aec88ed28");
+    BOOST_CHECK_EQUAL(genesis.GetHash().ToString(),
+                      consensus.hashGenesisBlock.ToString());
+
+    // PoW is valid (uses scrypt via GetPoWHash)
+    BOOST_CHECK(CheckAuxPowProofOfWork(genesis, consensus));
+}
 
 // ============================================================================
 // Genesis Block Consistency Tests
