@@ -14,9 +14,16 @@ which the limited peer answers with notfound.
 """
 
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import *
+from test_framework.util import (
+    assert_equal,
+    connect_nodes_bi,
+    p2p_port,
+    start_node,
+    sync_blocks,
+)
 
 NODE_NETWORK = 1 << 0
+NODE_WITNESS = 1 << 3
 NODE_NETWORK_LIMITED = 1 << 10
 
 HORIZON = 10
@@ -61,6 +68,7 @@ class WitnessPruneIBDTest(BitcoinTestFramework):
         for p in limited_peers:
             services = int(p['services'], 16)
             assert(services & NODE_NETWORK_LIMITED)
+            assert(services & NODE_WITNESS)
             assert(not (services & NODE_NETWORK))
 
         # The IBD must complete; a wrong request path stalls here on blocks

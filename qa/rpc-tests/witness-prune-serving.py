@@ -21,8 +21,17 @@ decides.
 from collections import defaultdict
 
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import *
-from test_framework.mininode import *
+from test_framework.util import assert_equal, p2p_port, start_node
+from test_framework.mininode import (
+    CInv,
+    MSG_WITNESS_FLAG,
+    NetworkThread,
+    NodeConn,
+    SingleNodeConnCB,
+    msg_getdata,
+    msg_ping,
+    wait_until,
+)
 
 NODE_NETWORK = 1 << 0
 NODE_WITNESS = 1 << 3
@@ -102,6 +111,7 @@ class WitnessPruneServingTest(BitcoinTestFramework):
 
         # The version handshake must carry the same honest bits.
         assert(conn.nServices & NODE_NETWORK_LIMITED)
+        assert(conn.nServices & NODE_WITNESS)
         assert(not (conn.nServices & NODE_NETWORK))
 
         MSG_BLOCK_INV = 2

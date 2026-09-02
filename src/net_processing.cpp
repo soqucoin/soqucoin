@@ -567,7 +567,7 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
                 return;
             }
             if (state->fLimitedNode &&
-                state->pindexBestKnownBlock->nHeight - pindex->nHeight >= consensusParams.nMaxReorgDepth - 2) {
+                state->pindexBestKnownBlock->nHeight - pindex->nHeight > std::max<int>(consensusParams.nMaxReorgDepth - 2, 0)) {
                 // A limited peer serves only blocks within the finality horizon
                 // of its tip and answers notfound beyond it. Its live tip may be
                 // ahead of pindexBestKnownBlock, shrinking the servable window
