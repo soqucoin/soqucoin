@@ -1643,6 +1643,17 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                     break;
                 }
 
+                // A reindex that is RESUMING from the persisted reindexing flag
+                // is folded into fReindex by LoadBlockIndexDB, after the
+                // command-line refusal above ran; refuse the combination here
+                // too (found in review).
+                if (fReindex && fWitnessPrune) {
+                    return InitError(_("-witnessprune cannot be combined with -reindex (an interrupted "
+                                       "reindex is resuming): the import rewrites the block-file layout "
+                                       "that compaction reserves file numbers in. Let the reindex finish "
+                                       "without -witnessprune, then re-enable it (doc/PAT_WITNESS_PRUNING.md)."));
+                }
+
                 // If the loaded chain has a wrong genesis, bail out immediately
                 // (we're likely using a testnet datadir, or the other way around).
                 if (!mapBlockIndex.empty() && mapBlockIndex.count(chainparams.GetConsensus(0).hashGenesisBlock) == 0)

@@ -82,10 +82,16 @@ whole trailing files age out together.
 Compaction of file *n* writes the stripped data to a **new file number** *m*
 (allocated from the same `blk*.dat` series; nothing requires file numbers to be
 height-ordered, since every read goes through `nFile`/`nDataPos`). The number
-*m* is **reserved before any I/O** by advancing the append pointer past it
-under the file lock: the block-write path only ever allocates forward from the
-append pointer, so concurrent block-file rotation can never collide with the
-compaction target. The collision is impossible by construction rather than
+*m* is **one above the highest number any index entry or file info uses**, not
+simply the append pointer plus one: after a `-reindex` the append pointer can
+sit behind a populated file (the import writes at known positions and the last
+block it accepts may be a deferred child in an earlier file), and upstream
+keeps such files as ordinary indexed files beyond the pointer (found in review,
+2026-09-03). The current append file is finalized (fsync, truncate) before the
+pointer moves, as on an ordinary rotation. *m* is then **reserved before any
+I/O** by advancing the append pointer past it under the file lock: the
+block-write path only ever allocates forward from the append pointer, so
+concurrent block-file rotation can never collide with the compaction target. The collision is impossible by construction rather than
 detected after the fact; a detection check at commit time would run after the
 disk damage it detects (found in review). The original file is never modified
 in place, which is what removes the crash window entirely:
@@ -103,7 +109,12 @@ in place, which is what removes the crash window entirely:
    references; the orphan sweep removes it. As a second line, the block-write
    path removes any stray `blk`/`rev` pair at a number it rotates into whose
    file info is empty, so a leftover can never be written through even if the
-   sweep has not run.
+   sweep has not run. One residual state is accepted: a crash after the
+   reservation is synced but before file *m* is created leaves the number
+   reserved with no file behind it and no pruning marker set. Nothing is lost
+   and nothing is written through, but a later `-reindex` (permitted, since the
+   marker is unset) stops at the first missing file number and re-downloads the
+   rest of the chain, exactly as upstream behaves for any gap in the series.
 2. Update every affected `CBlockIndex` entry (`nFile` = *m*, new `nDataPos`,
    `BLOCK_WITNESS_PRUNED`) and the `CBlockFileInfo` records, and flush the
    block index durably. Because `nFile` addresses a block's undo data as well
@@ -144,7 +155,9 @@ forward-only reservation argument above: a pass could reserve, then delete, an
 original file the import has not reached yet. During initial block download
 the finality horizon is not enforced (§6), so a compacted block could still be
 disconnected. `-witnessprune` together with `-reindex` is refused at init for
-the same reason (§5). Found in review, 2026-09-03.
+the same reason (§5), both when `-reindex` is on the command line and when an
+interrupted reindex resumes from its persisted flag. Found in review,
+2026-09-03.
 
 `-reindex` refuses on any datadir whose index carries `BLOCK_WITNESS_PRUNED`
 (§2). `getblock` and transaction RPCs serve the stripped form; witness fields
@@ -237,12 +250,18 @@ a `BLOCK_WITNESS_PRUNED` block is a hard failure with a named error, because
 reaching that state means the finality rule itself was violated and the node
 must halt loudly rather than improvise.
 
-One state escapes the finality rule: during initial block download the horizon
-is not enforced, because a node that syncs a minority fork first may
-legitimately be reorganised past it. Compaction is therefore gated off while
-`IsInitialBlockDownload()` is true (§3). Without that gate a node could compact
-a fork block, be reorganised, and then trip the assertion on every restart with
-`-reindex` refused by the marker (found in review, 2026-09-03).
+One state escapes the finality rule: the horizon is enforced when a header is
+accepted, and not during initial block download, because a node that syncs a
+minority fork first must be free to select the most-work chain. Headers
+accepted in that window are never re-checked, so a more-work header chain that
+forks below the horizon can sit in the index after the download completes, and
+the node will reorganise onto it when the blocks arrive. Compaction is therefore
+gated off while `IsInitialBlockDownload()` is true, **and** a pass is skipped
+while the best known header has more work than the tip and forks below the
+horizon (§3). Without both, a node could compact a fork block, be reorganised,
+and then trip the assertion on every restart with `-reindex` refused by the
+marker (found in review, 2026-09-03). The header-acceptance-only enforcement is
+a property of the finality rule itself and is tracked separately.
 
 ## 7. Test plan
 
@@ -264,6 +283,10 @@ a fork block, be reorganised, and then trip the assertion on every restart with
 3c. **Durable reservation**: at the first crash point of 3b the block index
    database already holds the append pointer advanced past the reserved target
    and the target's empty file info.
+3e. **Target above every populated file**: with the append pointer moved behind
+   a populated file (the post-reindex layout), a pass compacts the eligible file
+   into a number above every populated one and the populated file's blocks stay
+   readable and unpruned.
 3d. **Fresh-rotation hygiene**: a stray `blk`/`rev` pair at the number the
    append pointer rotates into (the `rev` a hardlink to a source file's undo)
    is removed before anything is written; the source's link count returns to

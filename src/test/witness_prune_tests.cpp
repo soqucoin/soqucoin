@@ -46,6 +46,17 @@ struct ScopedRegtestHorizon {
     }
 };
 
+//! Set a process-wide import flag for a scope; restored on any exit path so a
+//! failing assertion cannot leak the flag into later suites in this binary.
+struct ScopedReindexFlag {
+    ScopedReindexFlag() { fReindex = true; }
+    ~ScopedReindexFlag() { fReindex = false; }
+};
+struct ScopedImportingFlag {
+    ScopedImportingFlag() { fImporting = true; }
+    ~ScopedImportingFlag() { fImporting = false; }
+};
+
 } // namespace
 
 struct WitnessPruneSetup : public DilithiumChainSetup {
@@ -359,14 +370,16 @@ BOOST_AUTO_TEST_CASE(compaction_is_gated_off_during_reindex_and_import)
     };
 
     std::string strError;
-    fReindex = true;
-    BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
-    fReindex = false;
+    {
+        ScopedReindexFlag reindexing;
+        BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
+    }
     untouched("during -reindex");
 
-    fImporting = true;
-    BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
-    fImporting = false;
+    {
+        ScopedImportingFlag importing;
+        BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
+    }
     untouched("during -loadblock import");
 
     // Same state, gates released: the file compacts. This proves the
@@ -375,6 +388,47 @@ BOOST_AUTO_TEST_CASE(compaction_is_gated_off_during_reindex_and_import)
     BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
     LOCK(cs_main);
     for (CBlockIndex* p : vFile0) BOOST_CHECK(p->nStatus & BLOCK_WITNESS_PRUNED);
+}
+
+// §3/§7.3e — the target number must be one nothing occupies. After a -reindex
+// the append pointer can sit BEHIND a populated file (the import writes at
+// known positions and the last block it accepts may be a deferred child in an
+// earlier file). With the target chosen as nLastBlockFile + 1 that populated
+// file is nulled and deleted: the tip blocks here. Fails if the target
+// selection goes back to nLastBlockFile + 1.
+BOOST_AUTO_TEST_CASE(compaction_never_reserves_a_populated_file_number)
+{
+    RotateBlockFileForTests();                 // file 0: the fixture chain
+    CreateAndProcessBlock({}, Spk(OP_1));      // file 1: one block
+    RotateBlockFileForTests();
+    ScopedRegtestHorizon horizon(3);
+    for (int i = 0; i < 4; ++i) CreateAndProcessBlock({}, Spk(OP_1)); // file 2: four blocks, the tip
+    const std::vector<CBlockIndex*> vFile0 = BlocksInFile(0);
+    const std::vector<CBlockIndex*> vFile2 = BlocksInFile(2);
+    BOOST_REQUIRE(!vFile0.empty());
+    BOOST_REQUIRE_EQUAL(vFile2.size(), 4u);
+
+    // The post-reindex layout: append pointer behind a populated file.
+    SetLastBlockFileForTests(1);
+
+    std::string strError;
+    BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
+
+    BOOST_CHECK_MESSAGE(fs::exists(GetBlockPosFilename(CDiskBlockPos(2, 0), "blk")),
+        "compaction deleted a populated block file: the target was chosen as append pointer + 1");
+    LOCK(cs_main);
+    for (CBlockIndex* p : vFile2) {
+        BOOST_CHECK_EQUAL(p->nFile, 2);
+        BOOST_CHECK(!(p->nStatus & BLOCK_WITNESS_PRUNED));
+        CBlock block;
+        BOOST_CHECK_MESSAGE(ReadBlockFromDisk(block, p, Params().GetConsensus(p->nHeight)),
+            "a tip block is unreadable after compaction of an unrelated file");
+    }
+    // File 0 did compact, into a number above every populated file.
+    for (CBlockIndex* p : vFile0) {
+        BOOST_CHECK(p->nStatus & BLOCK_WITNESS_PRUNED);
+        BOOST_CHECK(p->nFile > 2);
+    }
 }
 
 // §3/§7.3d — fresh-rotation hygiene. A number the append pointer rotates INTO
