@@ -5856,6 +5856,31 @@ void PruneAndFlush()
 // implementation; recorded in the specification §3.
 // =============================================================================
 
+//! A file number the append pointer is about to rotate INTO must carry no
+//! leftovers. The only way a blk/rev pair exists at a number whose file info
+//! is empty is an interrupted witness compaction (doc/PAT_WITNESS_PRUNING.md
+//! §3): a partial stripped target, and a rev file that is a HARDLINK to the
+//! source file's undo data. Appending undo through that link would corrupt
+//! the source. An empty file info means no index entry references the number
+//! (file infos and index entries are written in the same batch), so unlinking
+//! is safe; the source keeps its own link. Second line of defence behind the
+//! durable reservation in CompactOneWitnessFile.
+static void RemoveStrayFilesAtFreshNumber(int nFile)
+{
+    AssertLockHeld(cs_LastBlockFile);
+    if (nFile < 0 || nFile >= (int)vinfoBlockFile.size()) return;
+    const CBlockFileInfo& info = vinfoBlockFile[nFile];
+    if (info.nBlocks != 0 || info.nSize != 0 || info.nUndoSize != 0) return;
+    const CDiskBlockPos pos(nFile, 0);
+    for (const char* prefix : {"blk", "rev"}) {
+        const fs::path path = GetBlockPosFilename(pos, prefix);
+        if (fs::exists(path)) {
+            LogPrintf("Removing stray %s file %d (left by an interrupted compaction) before rotating into it\n", prefix, nFile);
+            fs::remove(path);
+        }
+    }
+}
+
 void RotateBlockFileForTests()
 {
     LOCK(cs_main);
@@ -5865,6 +5890,7 @@ void RotateBlockFileForTests()
     if ((int)vinfoBlockFile.size() <= nLastBlockFile) {
         vinfoBlockFile.resize(nLastBlockFile + 1);
     }
+    RemoveStrayFilesAtFreshNumber(nLastBlockFile); // same hygiene as FindBlockPos
     setDirtyFileInfo.insert(nLastBlockFile);
 }
 
@@ -5944,6 +5970,22 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
             nLastBlockFile = nTargetFile + 1; // appends continue in a fresh file
             setDirtyFileInfo.insert(nTargetFile);
             setDirtyFileInfo.insert(nLastBlockFile);
+            // Make the reservation DURABLE before any I/O (found in review).
+            // The index is otherwise flushed hourly, so a reservation known
+            // only in memory can be forgotten by a crash after the rev
+            // hardlink below but before the commit flush. A restart would
+            // then rotate appends into nTargetFile, and FindUndoPos would
+            // write undo through the hardlink into the SOURCE file's undo
+            // data. With the advanced append pointer and the two (empty)
+            // file infos on disk, a restart sees the number as taken and the
+            // orphan sweep reclaims the partial target instead.
+            std::vector<std::pair<int, const CBlockFileInfo*> > vReserve;
+            vReserve.push_back(std::make_pair(nTargetFile, &vinfoBlockFile[nTargetFile]));
+            vReserve.push_back(std::make_pair(nLastBlockFile, &vinfoBlockFile[nLastBlockFile]));
+            if (!pblocktree->WriteBatchSync(vReserve, nLastBlockFile, std::vector<const CBlockIndex*>())) {
+                strError = strprintf("witnessprune: cannot persist the reservation of block file %d", nTargetFile);
+                return false;
+            }
         }
         for (const std::pair<const uint256, CBlockIndex*>& item : mapBlockIndex) {
             if (item.second->nFile == nFile) vBlocks.push_back(item.second);
@@ -6069,6 +6111,18 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
 
 bool CompactWitnessFiles(std::string& strError, int nTestCrashPoint)
 {
+    // Never compact while the block-file layout is in flux or the chain is
+    // provisional (spec §3, §6; found in review). During -reindex / -loadblock
+    // the import writes blocks at KNOWN positions and moves the append pointer
+    // backwards, so the forward-only reservation argument below does not hold:
+    // a pass could reserve, then delete, an original file the import has not
+    // reached yet. During initial block download the finality horizon is not
+    // enforced (ContextualCheckBlockHeader skips it), so a minority-fork tip
+    // may legitimately be reorganised past the horizon; a block compacted here
+    // would then have to be disconnected, which is AbortNode on every restart.
+    // Skipping a pass costs nothing: the scheduler retries in ten minutes.
+    if (fReindex || fImporting || IsInitialBlockDownload()) return true;
+
     // Orphan sweep: a crash between the index flush and the deletion leaves
     // original files that no index entry references (spec §3, crash window 2).
     // Criterion: a retired file-info slot, not the append file, present on
@@ -6812,6 +6866,7 @@ bool FindBlockPos(CValidationState& state, CDiskBlockPos& pos, unsigned int nAdd
     if ((int)nFile != nLastBlockFile) {
         if (!fKnown) {
             LogPrintf("Leaving block file %i: %s\n", nLastBlockFile, vinfoBlockFile[nLastBlockFile].ToString());
+            RemoveStrayFilesAtFreshNumber(nFile);
         }
         FlushBlockFile(!fKnown);
         nLastBlockFile = nFile;
