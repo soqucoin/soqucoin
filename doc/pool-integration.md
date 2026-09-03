@@ -14,7 +14,7 @@ Soqucoin is a Scrypt-based AuxPoW blockchain derived from Dogecoin Core. Pool
 integration is straightforward if you already support Litecoin or Dogecoin.
 
 **Key differences from Dogecoin/Litecoin:**
-- **Bech32m addresses** (`soq1p...` on mainnet, `ssq1p...` on stagenet)
+- **Bech32m addresses** (`sq1p...` on mainnet, `ssq1p...` on stagenet)
 - **60-second block target** (same as Dogecoin)
 - **Dilithium signatures** in witness data (transparent to Stratum — coinbase/header format unchanged)
 - **AuxPoW chain ID**: matches Dogecoin's AuxPoW format
@@ -78,7 +78,8 @@ enablemining=1
 # initial block download once the wall clock is more than maxtipage seconds
 # past the genesis timestamp (1788365451, 2026-09-02T16:10:51Z; default 86400).
 # In that state getblocktemplate and createauxblock refuse to serve work, so
-# with the default no node can mine block 1 on any launch day after 2026-09-03.
+# with the default no node can mine block 1 once the clock is more than 86400 s
+# past that timestamp (from 2026-09-03T16:10:51Z onward).
 # Every node that serves work at launch must set maxtipage to at least
 # (launch time - 1788365451) plus margin, and keep it until block 1 has
 # propagated. 5184000 covers a launch up to 60 days after genesis. Remove it
@@ -218,7 +219,7 @@ soqucoin-cli submitauxblock <hash> <serialized_auxpow>
 ### Common Issues
 
 **Q: Address validation fails for miner-submitted addresses**
-A: Ensure you're accepting bech32m format (`soq1p...` or `ssq1p...`). If your
+A: Ensure you're accepting bech32m format (`sq1p...` or `ssq1p...`). If your
 pool software only validates Base58, you'll need to add bech32m support.
 
 **Q: Block template has large witness data**
