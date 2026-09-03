@@ -184,7 +184,8 @@ std::vector<uint8_t> PathToBytes(const DerivationPath& path)
 std::array<uint8_t, 32> DeriveKeyMaterial(
     const SecureBytes& masterSeed,
     const DerivationPath& path,
-    const std::string& domain)
+    const std::string& domain,
+    uint8_t retry)
 {
     if (masterSeed.size() < 32) {
         return {};
@@ -197,10 +198,15 @@ std::array<uint8_t, 32> DeriveKeyMaterial(
     saltHasher.Write(masterSeed.data(), masterSeed.size()).Finalize(salt.data());
     memory_cleanse(&saltHasher, sizeof(saltHasher));
 
-    // Info = domain || path_bytes
+    // Info = domain || path_bytes [|| retry], the retry byte only for retry > 0
+    // so that retry 0 stays byte-identical to the original scheme (pqderive.h,
+    // MAX_DERIVE_RETRIES).
     std::vector<uint8_t> info(domain.begin(), domain.end());
     auto pathBytes = PathToBytes(path);
     info.insert(info.end(), pathBytes.begin(), pathBytes.end());
+    if (retry > 0) {
+        info.push_back(retry);
+    }
 
     // HKDF
     auto prk = HKDFExtract(salt.data(), salt.size(), masterSeed.data(), masterSeed.size());
@@ -306,22 +312,33 @@ std::unique_ptr<PQKeyPair> PQKeyPair::DeriveFromSeed(
     const SecureBytes& seed,
     const DerivationPath& path)
 {
-    auto keyMaterial = DeriveKeyMaterial(seed, path, DOMAIN_WALLET);
-
     auto keypair = std::make_unique<PQKeyPair>();
 
     // Get internal access for initialization
     std::array<uint8_t, DILITHIUM_PUBKEY_SIZE> pubkey;
     SecureBytes seckey(DILITHIUM_SECKEY_SIZE);
 
-    int result = pqcrystals_dilithium2_ref_seed_keypair(
-        pubkey.data(),
-        seckey.data(),
-        keyMaterial.data());
-
-    memory_cleanse(keyMaterial.data(), keyMaterial.size());
-
-    if (result != 0) {
+    // Re-derive past the 0xFF invalid-key marker (pqderive.h, MAX_DERIVE_RETRIES).
+    // Without this, one path in 256 produced a key CPubKey::IsValid rejects:
+    // its address received and could never spend.
+    bool found = false;
+    for (uint8_t retry = 0; retry <= MAX_DERIVE_RETRIES; ++retry) {
+        auto keyMaterial = DeriveKeyMaterial(seed, path, DOMAIN_WALLET, retry);
+        int result = pqcrystals_dilithium2_ref_seed_keypair(
+            pubkey.data(),
+            seckey.data(),
+            keyMaterial.data());
+        memory_cleanse(keyMaterial.data(), keyMaterial.size());
+        if (result != 0) {
+            memory_cleanse(pubkey.data(), pubkey.size());
+            return nullptr;
+        }
+        if (pubkey[0] != 0xFF) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
         memory_cleanse(pubkey.data(), pubkey.size());
         return nullptr;
     }

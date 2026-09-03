@@ -36,17 +36,39 @@ extern const std::string DOMAIN_CHANNEL;    // "soqucoin-v1/channel"
 extern const std::string DOMAIN_WATCHTOWER; // "soqucoin-v1/watchtower"
 
 /**
+ * @brief Upper bound on invalid-marker retries in PQKeyPair::DeriveFromSeed.
+ *
+ * CPubKey treats an ML-DSA-44 public key whose first byte is 0xFF as its
+ * invalid-key sentinel (pubkey.h GetLen), so a deterministically derived key
+ * that happens to start with 0xFF (probability 1/256 per path, rho is uniform)
+ * can receive funds and never spend them. The random generator regenerates
+ * (key.cpp); the deterministic path re-derives with a retry counter:
+ *
+ *   retry 0: info = domain || PathToBytes(path)              (unchanged)
+ *   retry r: info = domain || PathToBytes(path) || byte(r)   (r = 1, 2, ...)
+ *
+ * and the first key whose public key does not start with 0xFF is THE key for
+ * that path. Retry 0 is byte-identical to the scheme before this rule, so every
+ * existing valid key and address is unchanged. The probability of exhausting
+ * this bound is 256^-9. Every wallet deriving Soqucoin keys from a seed
+ * (SoquShield, its SDK) implements the same rule.
+ */
+constexpr uint8_t MAX_DERIVE_RETRIES = 8;
+
+/**
  * @brief Derive raw 32-byte key material using HKDF-SHA256
  *
  * @param masterSeed 64-byte BIP-39 derived seed
  * @param path BIP-44 derivation path
  * @param domain Domain separator string
+ * @param retry Invalid-marker retry counter; 0 appends nothing (see MAX_DERIVE_RETRIES)
  * @return 32-byte derived key material
  */
 std::array<uint8_t, 32> DeriveKeyMaterial(
     const SecureBytes& masterSeed,
     const DerivationPath& path,
-    const std::string& domain);
+    const std::string& domain,
+    uint8_t retry = 0);
 
 /**
  * @brief Derive blinding factor for privacy transactions (GAP-010)
