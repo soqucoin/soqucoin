@@ -67,8 +67,23 @@ txindex=1
 # RPC credentials
 rpcuser=pool_rpc_user
 rpcpassword=<strong_random_password>
-rpcport=38332          # stagenet
-# rpcport=22555        # mainnet (future)
+rpcport=28332          # stagenet
+# rpcport=33389        # mainnet
+
+# Serve mining work over RPC. Default is 1 on every network except mainnet,
+# where the launch-period default is 0; pool and miner-facing nodes opt in.
+enablemining=1
+
+# LAUNCH-PERIOD REQUIREMENT (mainnet). A node whose tip is still genesis is in
+# initial block download once the wall clock is more than maxtipage seconds
+# past the genesis timestamp (1788365451, 2026-09-02T16:10:51Z; default 86400).
+# In that state getblocktemplate and createauxblock refuse to serve work, so
+# with the default no node can mine block 1 on any launch day after 2026-09-03.
+# Every node that serves work at launch must set maxtipage to at least
+# (launch time - 1788365451) plus margin, and keep it until block 1 has
+# propagated. 5184000 covers a launch up to 60 days after genesis. Remove it
+# once the chain has a fresh tip: the 24h default is the right steady state.
+maxtipage=5184000
 
 # Allow pool server to connect
 rpcallowip=127.0.0.1
@@ -90,9 +105,9 @@ zmqpubrawtx=tcp://127.0.0.1:28332
 
 | Network | Format | Prefix | Example |
 |---------|--------|--------|---------|
-| Mainnet | Bech32m (Taproot) | `soq1p` | `soq1pxyz...` |
-| Stagenet | Bech32m (Taproot) | `ssq1p` | `ssq1pxyz...` |
-| Testnet3 | Bech32m (Taproot) | `tsq1p` | `tsq1pxyz...` |
+| Mainnet | Bech32m (witness v1) | `sq1p` | `sq1pxyz...` |
+| Stagenet | Bech32m (witness v1) | `ssq1p` | `ssq1pxyz...` |
+| Testnet / Regtest | Bech32m (witness v1) | `sq1p` | shares the mainnet HRP; select the network by RPC port, not by address prefix |
 
 **Important**: Legacy Base58 addresses (`S...`, `3...`) are supported but deprecated.
 Bech32m is the canonical format. Use `validateaddress` RPC to verify miner addresses.
