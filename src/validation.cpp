@@ -5856,6 +5856,48 @@ void PruneAndFlush()
 // implementation; recorded in the specification §3.
 // =============================================================================
 
+//! A file number the append pointer is about to rotate INTO must carry no
+//! leftovers. A blk/rev pair at a number whose file info is empty is
+//! unreferenced data: the partial target of an interrupted witness compaction
+//! (doc/PAT_WITNESS_PRUNING.md §3), whose rev file may be a HARDLINK to a
+//! source file's undo data, or a tail left by a crash between a rotation and
+//! the next index flush. No index entry can reference such a number: entries
+//! and non-empty file infos are written in the same batch, and the only batch
+//! that writes infos alone (the reservation) writes empty ones. Appending undo
+//! through a hardlinked rev would corrupt the source, so unlink; the source
+//! keeps its own link. Second line of defence behind the durable reservation.
+//! Runs on the block-accept path, so failures are logged, never thrown.
+static void RemoveStrayFilesAtFreshNumber(int nFile)
+{
+    AssertLockHeld(cs_LastBlockFile);
+    if (nFile < 0 || nFile >= (int)vinfoBlockFile.size()) return;
+    const CBlockFileInfo& info = vinfoBlockFile[nFile];
+    if (info.nBlocks != 0 || info.nSize != 0 || info.nUndoSize != 0) return;
+    const CDiskBlockPos pos(nFile, 0);
+    for (const char* prefix : {"blk", "rev"}) {
+        const fs::path path = GetBlockPosFilename(pos, prefix);
+        boost::system::error_code ec;
+        if (!fs::exists(path, ec)) continue;
+        LogPrintf("Removing stray %s file %d (unreferenced leftover) before rotating into it\n", prefix, nFile);
+        fs::remove(path, ec);
+        if (ec) {
+            LogPrintf("ERROR: cannot remove stray %s file %d: %s\n", prefix, nFile, ec.message());
+        }
+    }
+}
+
+void SetLastBlockFileForTests(int nFile)
+{
+    LOCK(cs_main);
+    LOCK(cs_LastBlockFile);
+    FlushBlockFile(true);
+    if ((int)vinfoBlockFile.size() <= nFile) {
+        vinfoBlockFile.resize(nFile + 1);
+    }
+    nLastBlockFile = nFile;
+    setDirtyFileInfo.insert(nLastBlockFile);
+}
+
 void RotateBlockFileForTests()
 {
     LOCK(cs_main);
@@ -5865,6 +5907,7 @@ void RotateBlockFileForTests()
     if ((int)vinfoBlockFile.size() <= nLastBlockFile) {
         vinfoBlockFile.resize(nLastBlockFile + 1);
     }
+    RemoveStrayFilesAtFreshNumber(nLastBlockFile); // same hygiene as FindBlockPos
     setDirtyFileInfo.insert(nLastBlockFile);
 }
 
@@ -5933,23 +5976,69 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
     {
         LOCK(cs_main);
         if (!WitnessFileEligibleForCompaction(nFile)) return true; // raced; skip
+        // The target must be a number NOTHING occupies. nLastBlockFile + 1 is
+        // not enough: after a -reindex the append pointer can sit BEHIND a
+        // populated file (the import writes at known positions, and the last
+        // block it accepts may be a deferred child in an earlier file), and
+        // upstream keeps such files as ordinary indexed files beyond the
+        // pointer. Reserving one of them would null its info and delete it.
+        // Take the highest number any index entry or file info uses (found in
+        // review).
+        int nHighestUsed = -1;
+        for (const std::pair<const uint256, CBlockIndex*>& item : mapBlockIndex) {
+            if (item.second->nFile == nFile) vBlocks.push_back(item.second);
+            if (item.second->nStatus & BLOCK_HAVE_DATA) nHighestUsed = std::max(nHighestUsed, item.second->nFile);
+        }
+        std::sort(vBlocks.begin(), vBlocks.end(),
+                  [](const CBlockIndex* a, const CBlockIndex* b) { return a->nDataPos < b->nDataPos; });
         {
             LOCK(cs_LastBlockFile);
             nSourceUndoSize = vinfoBlockFile[nFile].nUndoSize;
-            nTargetFile = nLastBlockFile + 1;
+            nHighestUsed = std::max(nHighestUsed, nLastBlockFile);
+            for (size_t i = 0; i < vinfoBlockFile.size(); ++i) {
+                const CBlockFileInfo& info = vinfoBlockFile[i];
+                if (info.nBlocks != 0 || info.nSize != 0 || info.nUndoSize != 0) {
+                    nHighestUsed = std::max(nHighestUsed, (int)i);
+                }
+            }
+            nTargetFile = nHighestUsed + 1;
             if ((int)vinfoBlockFile.size() <= nTargetFile + 1) {
                 vinfoBlockFile.resize(nTargetFile + 2);
             }
+            // Leaving the current append file: finalize it (fsync + truncate
+            // of the pre-allocated tail) exactly as FindBlockPos does on a
+            // rotation, so the index can never be synced ahead of block data
+            // that is still in kernel buffers (found in review).
+            FlushBlockFile(true);
             vinfoBlockFile[nTargetFile].SetNull();
             nLastBlockFile = nTargetFile + 1; // appends continue in a fresh file
             setDirtyFileInfo.insert(nTargetFile);
             setDirtyFileInfo.insert(nLastBlockFile);
+            // Make the reservation DURABLE before any I/O (found in review).
+            // The index is otherwise flushed hourly, so a reservation known
+            // only in memory can be forgotten by a crash after the rev
+            // hardlink below but before the commit flush. A restart would
+            // then rotate appends into nTargetFile, and FindUndoPos would
+            // write undo through the hardlink into the SOURCE file's undo
+            // data. With the advanced append pointer and the two (empty)
+            // file infos on disk, a restart sees the number as taken and the
+            // orphan sweep reclaims the partial target instead.
+            std::vector<std::pair<int, const CBlockFileInfo*> > vReserve;
+            vReserve.push_back(std::make_pair(nTargetFile, &vinfoBlockFile[nTargetFile]));
+            vReserve.push_back(std::make_pair(nLastBlockFile, &vinfoBlockFile[nLastBlockFile]));
+            try {
+                pblocktree->WriteBatchSync(vReserve, nLastBlockFile, std::vector<const CBlockIndex*>());
+            } catch (const std::runtime_error& e) {
+                // CDBWrapper reports failure by THROWING (dbwrapper_error), not
+                // by returning false, and an exception escaping the scheduler
+                // thread terminates the process. Skip the pass instead; the
+                // in-memory reservation is harmless, and the next full flush
+                // goes through AbortNode if the database is really broken.
+                strError = strprintf("witnessprune: cannot persist the reservation of block file %d: %s",
+                                     nTargetFile, e.what());
+                return false;
+            }
         }
-        for (const std::pair<const uint256, CBlockIndex*>& item : mapBlockIndex) {
-            if (item.second->nFile == nFile) vBlocks.push_back(item.second);
-        }
-        std::sort(vBlocks.begin(), vBlocks.end(),
-                  [](const CBlockIndex* a, const CBlockIndex* b) { return a->nDataPos < b->nDataPos; });
     }
 
     // ---- I/O outside cs_main (spec §3 lock discipline). The source blocks
@@ -6069,6 +6158,20 @@ static bool CompactOneWitnessFile(int nFile, std::string& strError, int nTestCra
 
 bool CompactWitnessFiles(std::string& strError, int nTestCrashPoint)
 {
+    // Never compact while the block-file layout is in flux or the chain is
+    // provisional (spec §3, §6; found in review). During -reindex the import
+    // writes blocks at KNOWN positions and moves the append pointer backwards,
+    // so the forward-only reservation argument below does not hold: a pass
+    // could reserve, then delete, an original file the import has not reached
+    // yet. A -loadblock import goes through the ordinary forward path, but the
+    // chain is provisional while it runs, the same reason as initial block
+    // download: the finality horizon is not enforced then (ContextualCheck-
+    // BlockHeader skips it), so a minority-fork tip may legitimately be
+    // reorganised past the horizon, and a block compacted here would have to
+    // be disconnected, which is AbortNode on every restart. Skipping a pass
+    // costs nothing: the scheduler retries in ten minutes.
+    if (fReindex || fImporting || IsInitialBlockDownload()) return true;
+
     // Orphan sweep: a crash between the index flush and the deletion leaves
     // original files that no index entry references (spec §3, crash window 2).
     // Criterion: a retired file-info slot, not the append file, present on
@@ -6077,6 +6180,20 @@ bool CompactWitnessFiles(std::string& strError, int nTestCrashPoint)
     std::vector<int> vOrphans;
     {
         LOCK(cs_main);
+        // The finality horizon is enforced when a HEADER is accepted, and not
+        // while the node is in initial block download. A header chain with
+        // more work than the tip that forks below the horizon can therefore
+        // exist in the index (accepted during the initial sync), and the node
+        // will reorganise onto it when the blocks arrive. Compacting a file
+        // now could strip a block that reorganisation must disconnect, which
+        // is AbortNode on every restart. Wait for it to resolve (found in
+        // review; closes the residual the IsInitialBlockDownload gate leaves).
+        if (pindexBestHeader != NULL && chainActive.Tip() != NULL &&
+            pindexBestHeader->nChainWork > chainActive.Tip()->nChainWork) {
+            const int nHorizon = Params().GetConsensus(chainActive.Height()).nMaxReorgDepth;
+            const CBlockIndex* pfork = chainActive.FindFork(pindexBestHeader);
+            if (pfork == NULL || (nHorizon > 0 && chainActive.Height() - pfork->nHeight > nHorizon)) return true;
+        }
         int nFiles;
         int nAppend;
         {
@@ -6812,6 +6929,7 @@ bool FindBlockPos(CValidationState& state, CDiskBlockPos& pos, unsigned int nAdd
     if ((int)nFile != nLastBlockFile) {
         if (!fKnown) {
             LogPrintf("Leaving block file %i: %s\n", nLastBlockFile, vinfoBlockFile[nLastBlockFile].ToString());
+            RemoveStrayFilesAtFreshNumber(nFile);
         }
         FlushBlockFile(!fKnown);
         nLastBlockFile = nFile;

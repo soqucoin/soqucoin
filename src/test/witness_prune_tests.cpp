@@ -16,8 +16,10 @@
 #include "chainparams.h"
 #include "consensus/pat_attestation.h"
 #include "test/dilithium_chain_setup.h"
+#include "fs.h"
 #include "init.h"
 #include "txdb.h"
+#include "util.h"
 #include "validation.h"
 
 #include <boost/test/unit_test.hpp>
@@ -42,6 +44,17 @@ struct ScopedRegtestHorizon {
         UpdateRegtestMaxReorgDepth(0);
         SelectParams(CBaseChainParams::REGTEST);
     }
+};
+
+//! Set a process-wide import flag for a scope; restored on any exit path so a
+//! failing assertion cannot leak the flag into later suites in this binary.
+struct ScopedReindexFlag {
+    ScopedReindexFlag() { fReindex = true; }
+    ~ScopedReindexFlag() { fReindex = false; }
+};
+struct ScopedImportingFlag {
+    ScopedImportingFlag() { fImporting = true; }
+    ~ScopedImportingFlag() { fImporting = false; }
 };
 
 } // namespace
@@ -277,6 +290,9 @@ BOOST_AUTO_TEST_CASE(crash_windows_leave_readable_state_and_converge)
 
     // Crash point 1: stripped data written, nothing committed. The index must
     // still point wholly at file 0; the partial target is inert.
+    FlushStateToDisk(); // so the DB's append pointer is current before the pass
+    int nLastBefore = -1;
+    BOOST_REQUIRE(pblocktree->ReadLastBlockFile(nLastBefore));
     std::string strError;
     BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError, /*nTestCrashPoint=*/1), strError);
     for (CBlockIndex* p : vFile0) {
@@ -285,6 +301,23 @@ BOOST_AUTO_TEST_CASE(crash_windows_leave_readable_state_and_converge)
     }
     BOOST_CHECK(fs::exists(GetBlockPosFilename(CDiskBlockPos(0, 0), "blk")));
     allReadable("after crash point 1");
+
+    // §7.3c — the reservation is DURABLE at this crash point (found in
+    // review): the DB already holds the append pointer advanced past the
+    // reserved target, and the target's empty file info. A restart therefore
+    // cannot rotate appends into the partial target and its hardlinked rev
+    // file. Fails if the reservation write before I/O is removed: the DB
+    // would still hold the pre-pass pointer until the hourly index flush.
+    {
+        int nLastInDb = -1;
+        BOOST_REQUIRE(pblocktree->ReadLastBlockFile(nLastInDb));
+        BOOST_CHECK_MESSAGE(nLastInDb == nLastBefore + 2,
+            strprintf("DB append pointer is %d, expected %d (target %d reserved, appends continue in %d)",
+                      nLastInDb, nLastBefore + 2, nLastBefore + 1, nLastBefore + 2));
+        CBlockFileInfo reserved;
+        BOOST_CHECK_MESSAGE(pblocktree->ReadBlockFileInfo(nLastBefore + 1, reserved) && reserved.nBlocks == 0,
+            "the reserved target's empty file info was not persisted with the reservation");
+    }
 
     // Crash point 2: index durably moved, originals not yet deleted. Blocks
     // must read from the target; the originals are orphans.
@@ -306,6 +339,164 @@ BOOST_AUTO_TEST_CASE(crash_windows_leave_readable_state_and_converge)
     BOOST_CHECK(!fs::exists(GetBlockPosFilename(CDiskBlockPos(0, 0), "rev")));
     for (CBlockIndex* p : vFile0) BOOST_CHECK_EQUAL(p->nFile, nNewFile);
     allReadable("after the converging pass");
+}
+
+// §3/§7.9 — the gates. Compaction must not run while the file layout is being
+// rewritten (-reindex / -loadblock). The import writes blocks at KNOWN
+// positions and moves the append pointer backwards, so the forward-only
+// reservation argument does not hold: a pass could reserve, then delete, an
+// original file the import has not reached. Fails if the early return in
+// CompactWitnessFiles is removed. The initial-block-download limb shares the
+// predicate but cannot be driven here: IsInitialBlockDownload latches false
+// for the life of the process once the fixture chain is current.
+BOOST_AUTO_TEST_CASE(compaction_is_gated_off_during_reindex_and_import)
+{
+    RotateBlockFileForTests();
+    ScopedRegtestHorizon horizon(3);
+    for (int i = 0; i < 4; ++i) CreateAndProcessBlock({}, Spk(OP_1));
+    const std::vector<CBlockIndex*> vFile0 = BlocksInFile(0);
+    BOOST_REQUIRE(!vFile0.empty());
+    {
+        LOCK(cs_main);
+        BOOST_REQUIRE(WitnessFileEligibleForCompaction(0));
+    }
+    auto untouched = [&](const char* when) {
+        LOCK(cs_main);
+        for (CBlockIndex* p : vFile0) {
+            BOOST_CHECK_MESSAGE(p->nFile == 0 && !(p->nStatus & BLOCK_WITNESS_PRUNED),
+                std::string("compaction ran ") + when + ": the gate is gone");
+        }
+        BOOST_CHECK(fs::exists(GetBlockPosFilename(CDiskBlockPos(0, 0), "blk")));
+    };
+
+    std::string strError;
+    {
+        ScopedReindexFlag reindexing;
+        BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
+    }
+    untouched("during -reindex");
+
+    {
+        ScopedImportingFlag importing;
+        BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
+    }
+    untouched("during -loadblock import");
+
+    // Same state, gates released: the file compacts. This proves the
+    // eligibility above was real, so the two skips were the gate at work and
+    // not a pass that had nothing to do.
+    BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
+    LOCK(cs_main);
+    for (CBlockIndex* p : vFile0) BOOST_CHECK(p->nStatus & BLOCK_WITNESS_PRUNED);
+}
+
+// §3/§7.3e — the target number must be one nothing occupies. After a -reindex
+// the append pointer can sit BEHIND a populated file (the import writes at
+// known positions and the last block it accepts may be a deferred child in an
+// earlier file). With the target chosen as nLastBlockFile + 1 that populated
+// file is nulled and deleted: the tip blocks here. Fails if the target
+// selection goes back to nLastBlockFile + 1.
+BOOST_AUTO_TEST_CASE(compaction_never_reserves_a_populated_file_number)
+{
+    RotateBlockFileForTests();                 // file 0: the fixture chain
+    CreateAndProcessBlock({}, Spk(OP_1));      // file 1: one block
+    RotateBlockFileForTests();
+    ScopedRegtestHorizon horizon(3);
+    for (int i = 0; i < 4; ++i) CreateAndProcessBlock({}, Spk(OP_1)); // file 2: four blocks, the tip
+    const std::vector<CBlockIndex*> vFile0 = BlocksInFile(0);
+    const std::vector<CBlockIndex*> vFile2 = BlocksInFile(2);
+    BOOST_REQUIRE(!vFile0.empty());
+    BOOST_REQUIRE_EQUAL(vFile2.size(), 4u);
+
+    // The post-reindex layout: append pointer behind a populated file.
+    SetLastBlockFileForTests(1);
+
+    std::string strError;
+    BOOST_REQUIRE_MESSAGE(CompactWitnessFiles(strError), strError);
+
+    BOOST_CHECK_MESSAGE(fs::exists(GetBlockPosFilename(CDiskBlockPos(2, 0), "blk")),
+        "compaction deleted a populated block file: the target was chosen as append pointer + 1");
+    LOCK(cs_main);
+    for (CBlockIndex* p : vFile2) {
+        BOOST_CHECK_EQUAL(p->nFile, 2);
+        BOOST_CHECK(!(p->nStatus & BLOCK_WITNESS_PRUNED));
+        CBlock block;
+        BOOST_CHECK_MESSAGE(ReadBlockFromDisk(block, p, Params().GetConsensus(p->nHeight)),
+            "a tip block is unreadable after compaction of an unrelated file");
+    }
+    // File 0 did compact, into a number above every populated file.
+    for (CBlockIndex* p : vFile0) {
+        BOOST_CHECK(p->nStatus & BLOCK_WITNESS_PRUNED);
+        BOOST_CHECK(p->nFile > 2);
+    }
+}
+
+// §3/§7.3d — fresh-rotation hygiene. A number the append pointer rotates INTO
+// must carry no leftovers. The dangerous leftover is a rev file that is a
+// HARDLINK to a source file's undo data, left by a compaction interrupted
+// after the link; appending undo through it would overwrite the source's undo
+// in place. Fails if RemoveStrayFilesAtFreshNumber is dropped from the
+// rotation path: the link count stays at two and the source rev file's bytes
+// change when the next block's undo is written.
+BOOST_AUTO_TEST_CASE(fresh_rotation_clears_stray_target_files)
+{
+    int nAppend;
+    {
+        LOCK(cs_main);
+        nAppend = chainActive.Tip()->nFile; // nothing has rotated yet: the tip is in the append file
+    }
+    const int nNext = nAppend + 1;
+    const fs::path revSrc = GetBlockPosFilename(CDiskBlockPos(nAppend, 0), "rev");
+    const fs::path revStray = GetBlockPosFilename(CDiskBlockPos(nNext, 0), "rev");
+    const fs::path blkStray = GetBlockPosFilename(CDiskBlockPos(nNext, 0), "blk");
+    BOOST_REQUIRE(fs::exists(revSrc));
+    BOOST_REQUIRE(!fs::exists(revStray));
+    BOOST_REQUIRE(!fs::exists(blkStray));
+
+    auto fileBytes = [](const fs::path& path) {
+        std::vector<unsigned char> v;
+        FILE* f = fsbridge::fopen(path, "rb");
+        BOOST_REQUIRE(f != nullptr);
+        unsigned char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0) v.insert(v.end(), buf, buf + n);
+        fclose(f);
+        return v;
+    };
+    const std::vector<unsigned char> srcBefore = fileBytes(revSrc);
+
+    // Plant the leftovers of an interrupted pass.
+    fs::create_hard_link(revSrc, revStray);
+    {
+        FILE* f = fsbridge::fopen(blkStray, "wb");
+        BOOST_REQUIRE(f != nullptr);
+        fputs("partial stripped target", f);
+        fclose(f);
+    }
+    BOOST_REQUIRE_EQUAL(fs::hard_link_count(revSrc), 2u);
+
+    RotateBlockFileForTests(); // rotates INTO nNext through the same hygiene as FindBlockPos
+    BOOST_CHECK_MESSAGE(!fs::exists(blkStray), "stray blk file survived the rotation");
+    BOOST_CHECK_MESSAGE(fs::hard_link_count(revSrc) == 1,
+        "stray rev hardlink survived the rotation: the next undo write would go through it into the source file");
+
+    // Leaving a file finalizes it: the pre-allocated tail of the source rev
+    // file is truncated away. That is the only change rotation may make, so
+    // the post-rotation bytes must be a prefix of the pre-rotation bytes, and
+    // they are the oracle for the write that follows.
+    const std::vector<unsigned char> srcAfterRotate = fileBytes(revSrc);
+    BOOST_REQUIRE(srcAfterRotate.size() <= srcBefore.size());
+    BOOST_REQUIRE(std::equal(srcAfterRotate.begin(), srcAfterRotate.end(), srcBefore.begin()));
+
+    CreateAndProcessBlock({}, Spk(OP_1)); // block and undo land in nNext
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(chainActive.Tip()->nFile, nNext);
+    }
+    BOOST_CHECK(fs::exists(revStray)); // a fresh rev file for nNext, not a link
+    BOOST_CHECK_EQUAL(fs::hard_link_count(revSrc), 1u);
+    BOOST_CHECK_MESSAGE(fileBytes(revSrc) == srcAfterRotate,
+        "the source file's undo data changed when the next block's undo was written");
 }
 
 // §6 — the finality assertion. A disconnect request for a witness-pruned

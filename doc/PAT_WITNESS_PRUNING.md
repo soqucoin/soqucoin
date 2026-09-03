@@ -62,9 +62,13 @@ Lost, per pruned block, accepted deliberately:
 - The ability to re-verify signatures, the SegWit witness commitment, or the
   PAT attestation of that block. The node trusts its own prior validation,
   exactly as whole-file pruning already does upstream. Consequently
-  **`-reindex` on a witness-pruned datadir must refuse to start** with an
-  error naming the redownload path; a reindex that silently skipped script
-  validation would manufacture a node that believes without having checked.
+  **`-reindex` and `-reindex-chainstate` on a witness-pruned datadir must
+  refuse to start** with an error naming the redownload path; a reindex that
+  silently skipped script validation would manufacture a node that believes
+  without having checked. `-reindex-chainstate` is the same hazard by another
+  route: it keeps the block files and replays `ConnectBlock` over them, which
+  fails on the first stripped spend outside an assumevalid window and silently
+  succeeds inside one (found in review, 2026-09-03).
 - The ability to serve that block to peers (see §4).
 
 ## 3. Mechanics — R1 compaction
@@ -78,22 +82,39 @@ whole trailing files age out together.
 Compaction of file *n* writes the stripped data to a **new file number** *m*
 (allocated from the same `blk*.dat` series; nothing requires file numbers to be
 height-ordered, since every read goes through `nFile`/`nDataPos`). The number
-*m* is **reserved before any I/O** by advancing the append pointer past it
-under the file lock: the block-write path only ever allocates forward from the
-append pointer, so concurrent block-file rotation can never collide with the
-compaction target. The collision is impossible by construction rather than
+*m* is **one above the highest number any index entry or file info uses**, not
+simply the append pointer plus one: after a `-reindex` the append pointer can
+sit behind a populated file (the import writes at known positions and the last
+block it accepts may be a deferred child in an earlier file), and upstream
+keeps such files as ordinary indexed files beyond the pointer (found in review,
+2026-09-03). The current append file is finalized (fsync, truncate) before the
+pointer moves, as on an ordinary rotation. *m* is then **reserved before any
+I/O** by advancing the append pointer past it under the file lock: the
+block-write path only ever allocates forward from the append pointer, so
+concurrent block-file rotation can never collide with the compaction target. The collision is impossible by construction rather than
 detected after the fact; a detection check at commit time would run after the
 disk damage it detects (found in review). The original file is never modified
 in place, which is what removes the crash window entirely:
 
-1. Reserve *m* (above), then read every block in file *n* and re-serialize
-   each with `SERIALIZE_TRANSACTION_NO_WITNESS` into file *m*, with fresh
-   per-block offsets. Flush and fsync file *m*. The reservation is in-memory
-   until the next index flush; a crash here can lose it, leaving a partial
-   file *m* that a later restart may allocate over — harmless, because block
-   files are position-addressed (stray tail bytes are unreachable) and the
-   orphan sweep removes any partial target whose file info is empty and which
-   no index entry references.
+1. Reserve *m* (above) and write the reservation **durably before any I/O**:
+   the advanced append pointer and the two empty file infos, synced to the
+   block index database. The index is otherwise flushed hourly, and a
+   reservation known only in memory could be forgotten by a crash after step
+   2's hardlink; a restart would then rotate appends into *m* and write undo
+   through the link into file *n*'s undo data (found in review, 2026-09-03).
+   Then read every block in file *n* and re-serialize each with
+   `SERIALIZE_TRANSACTION_NO_WITNESS` into file *m*, with fresh per-block
+   offsets. Flush and fsync file *m*. A crash after the reservation leaves a
+   partial file *m* whose file info is empty and which no index entry
+   references; the orphan sweep removes it. As a second line, the block-write
+   path removes any stray `blk`/`rev` pair at a number it rotates into whose
+   file info is empty, so a leftover can never be written through even if the
+   sweep has not run. One residual state is accepted: a crash after the
+   reservation is synced but before file *m* is created leaves the number
+   reserved with no file behind it and no pruning marker set. Nothing is lost
+   and nothing is written through, but a later `-reindex` (permitted, since the
+   marker is unset) stops at the first missing file number and re-downloads the
+   rest of the chain, exactly as upstream behaves for any gap in the series.
 2. Update every affected `CBlockIndex` entry (`nFile` = *m*, new `nDataPos`,
    `BLOCK_WITNESS_PRUNED`) and the `CBlockFileInfo` records, and flush the
    block index durably. Because `nFile` addresses a block's undo data as well
@@ -126,6 +147,17 @@ Compaction runs opportunistically at the same trigger points as
 `FindFilesToPrune` (post-flush, off the validation hot path). It must never
 hold `cs_main` across file I/O for a whole file; take positions under the
 lock, rewrite outside it, retake to commit the index update.
+
+Compaction **never runs while `-reindex` or `-loadblock` is importing, or
+while the node is in initial block download**. The import path writes blocks
+at known positions and moves the append pointer backwards, which breaks the
+forward-only reservation argument above: a pass could reserve, then delete, an
+original file the import has not reached yet. During initial block download
+the finality horizon is not enforced (§6), so a compacted block could still be
+disconnected. `-witnessprune` together with `-reindex` is refused at init for
+the same reason (§5), both when `-reindex` is on the command line and when an
+interrupted reindex resumes from its persisted flag. Found in review,
+2026-09-03.
 
 `-reindex` refuses on any datadir whose index carries `BLOCK_WITNESS_PRUNED`
 (§2). `getblock` and transaction RPCs serve the stripped form; witness fields
@@ -198,6 +230,10 @@ choose the trade, which is why the default is off.
 - Mutually exclusive with `-prune`: whole-file pruning already deletes the
   base data this feature exists to retain, so combining them is a
   contradiction; init errors out rather than picking a winner.
+- Mutually exclusive with `-reindex`: the import rewrites the block-file
+  layout that compaction reserves file numbers in (§3). Run the reindex first,
+  then enable. On a datadir that is already witness-pruned a reindex is
+  refused regardless (§2).
 - Mutually exclusive with `-txindex=0`? No: the transaction index is optional
   as always. The stripped block data remains readable either way.
 - No consensus parameter exists for this feature, deliberately. There is
@@ -213,6 +249,19 @@ implemented here. The implementation still asserts it: a request to disconnect
 a `BLOCK_WITNESS_PRUNED` block is a hard failure with a named error, because
 reaching that state means the finality rule itself was violated and the node
 must halt loudly rather than improvise.
+
+One state escapes the finality rule: the horizon is enforced when a header is
+accepted, and not during initial block download, because a node that syncs a
+minority fork first must be free to select the most-work chain. Headers
+accepted in that window are never re-checked, so a more-work header chain that
+forks below the horizon can sit in the index after the download completes, and
+the node will reorganise onto it when the blocks arrive. Compaction is therefore
+gated off while `IsInitialBlockDownload()` is true, **and** a pass is skipped
+while the best known header has more work than the tip and forks below the
+horizon (§3). Without both, a node could compact a fork block, be reorganised,
+and then trip the assertion on every restart with `-reindex` refused by the
+marker (found in review, 2026-09-03). The header-acceptance-only enforcement is
+a property of the finality rule itself and is tracked separately.
 
 ## 7. Test plan
 
@@ -231,8 +280,20 @@ must halt loudly rather than improvise.
    before the original's deletion; in both states every indexed block reads
    back correctly on restart, and the next pass converges (re-compacts or
    garbage-collects the orphan).
-4. **Reindex refusal**: `-reindex` on a pruned datadir fails with the named
-   error.
+3c. **Durable reservation**: at the first crash point of 3b the block index
+   database already holds the append pointer advanced past the reserved target
+   and the target's empty file info.
+3e. **Target above every populated file**: with the append pointer moved behind
+   a populated file (the post-reindex layout), a pass compacts the eligible file
+   into a number above every populated one and the populated file's blocks stay
+   readable and unpruned.
+3d. **Fresh-rotation hygiene**: a stray `blk`/`rev` pair at the number the
+   append pointer rotates into (the `rev` a hardlink to a source file's undo)
+   is removed before anything is written; the source's link count returns to
+   one and its bytes are unchanged after the next block connects.
+4. **Reindex refusal**: `-reindex` or `-reindex-chainstate` on a pruned datadir
+   fails with the named error; `-witnessprune` with `-reindex` is refused on
+   any datadir.
 5. **Serving rules, functional**: within-window `getdata` served with witness;
    beyond-window answered `notfound` for both message types; service bits
    advertise `NODE_NETWORK_LIMITED` and not `NODE_NETWORK`.
@@ -243,6 +304,8 @@ must halt loudly rather than improvise.
    that lands it. Local policy must be provably local.
 8. **Disconnect assertion**: driving a disconnect of a pruned block (regtest,
    reorg-depth setter) halts with the named error rather than proceeding.
+9. **Gates**: with the reindex or import flag set, a pass over an eligible
+   file changes nothing; the same pass with the gates released compacts it.
 
 ## 8. Staging
 

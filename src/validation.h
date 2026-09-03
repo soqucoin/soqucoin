@@ -229,6 +229,9 @@ bool WitnessFileEligibleForCompaction(int nFile);
 /** Test-only: finalize the current append file and open a fresh one, so unit
  *  tests can make a block file non-current without mining 128 MiB. */
 void RotateBlockFileForTests();
+//! Test hook: move the append pointer to nFile (simulates the post-reindex
+//! layout in which the pointer sits behind a populated file).
+void SetLastBlockFileForTests(int nFile);
 /** Block files containing a block-height within MIN_BLOCKS_TO_KEEP of chainActive.Tip() will not be pruned. */
 static const unsigned int MIN_BLOCKS_TO_KEEP = 1440;
 

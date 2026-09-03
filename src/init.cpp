@@ -1589,13 +1589,18 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 delete pcoinscatcher;
                 delete pblocktree;
 
-                if (fReindex) {
+                if (fReindex || fReindexChainState) {
                     // Witness-pruned data cannot re-verify scripts, so a
                     // reindex would either fail partway or manufacture a node
                     // that believes without having checked; refuse up front
-                    // (doc/PAT_WITNESS_PRUNING.md §2). The flag must be read
-                    // with a NON-WIPING open: the reindex open below wipes the
-                    // block tree, destroying the very marker that refuses it.
+                    // (doc/PAT_WITNESS_PRUNING.md §2). -reindex-chainstate is
+                    // the same hazard by another route: it keeps the block
+                    // files and replays ConnectBlock over them, which fails on
+                    // the first stripped spend outside an assumevalid window
+                    // and silently succeeds inside one (found in review). The
+                    // flag must be read with a NON-WIPING open: the reindex
+                    // open below wipes the block tree, destroying the very
+                    // marker that refuses it.
                     bool fWitnessPruned = false;
                     {
                         CBlockTreeDB peek(1 << 20, false, false);
@@ -1603,9 +1608,22 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                     }
                     if (fWitnessPruned) {
                         return InitError(_("This datadir has witness-pruned block files and "
-                                           "cannot be reindexed: stripped blocks cannot re-verify "
-                                           "signatures. Re-download the chain into a fresh datadir "
-                                           "(doc/PAT_WITNESS_PRUNING.md)."));
+                                           "cannot be reindexed (-reindex or -reindex-chainstate): "
+                                           "stripped blocks cannot re-verify signatures. Re-download "
+                                           "the chain into a fresh datadir (doc/PAT_WITNESS_PRUNING.md)."));
+                    }
+                    if (fReindex && fWitnessPrune) {
+                        // The import rewrites the block-file layout at known
+                        // positions and moves the append pointer backwards,
+                        // which breaks the forward-only reservation argument
+                        // compaction relies on (doc/PAT_WITNESS_PRUNING.md §3,
+                        // §5). Compaction is also gated off while fReindex is
+                        // set; refusing the combination up front makes the
+                        // rule visible instead of silent.
+                        return InitError(_("-witnessprune cannot be combined with -reindex: the import "
+                                           "rewrites the block-file layout that compaction reserves "
+                                           "file numbers in. Run the reindex without -witnessprune, "
+                                           "then re-enable it (doc/PAT_WITNESS_PRUNING.md)."));
                     }
                 }
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
@@ -1623,6 +1641,17 @@ bool AppInitMain(boost::thread_group& threadGroup, CScheduler& scheduler)
                 if (!LoadBlockIndex(chainparams)) {
                     strLoadError = _("Error loading block database");
                     break;
+                }
+
+                // A reindex that is RESUMING from the persisted reindexing flag
+                // is folded into fReindex by LoadBlockIndexDB, after the
+                // command-line refusal above ran; refuse the combination here
+                // too (found in review).
+                if (fReindex && fWitnessPrune) {
+                    return InitError(_("-witnessprune cannot be combined with -reindex (an interrupted "
+                                       "reindex is resuming): the import rewrites the block-file layout "
+                                       "that compaction reserves file numbers in. Let the reindex finish "
+                                       "without -witnessprune, then re-enable it (doc/PAT_WITNESS_PRUNING.md)."));
                 }
 
                 // If the loaded chain has a wrong genesis, bail out immediately
