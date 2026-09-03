@@ -160,7 +160,10 @@ int main(int argc, char* argv[])
             auto km1 = DeriveKeyMaterial(seed, path, DOMAIN_WALLET, 1);
             std::array<uint8_t, DILITHIUM_PUBKEY_SIZE> pk1;
             SecureBytes sk1(DILITHIUM_SECKEY_SIZE);
-            pqcrystals_dilithium2_ref_seed_keypair(pk1.data(), sk1.data(), km1.data());
+            if (pqcrystals_dilithium2_ref_seed_keypair(pk1.data(), sk1.data(), km1.data()) != 0) {
+                std::cerr << "   seed keypair failed at retry 1: FAIL ✗" << std::endl;
+                return 1;
+            }
             if (pk1[0] == 0xFF) {
                 std::cout << "   (retry 1 also carries the marker at index " << index << "; rule continues)" << std::endl;
             } else if (memcmp(kp->GetPublicKey().data(), pk1.data(), DILITHIUM_PUBKEY_SIZE) != 0) {

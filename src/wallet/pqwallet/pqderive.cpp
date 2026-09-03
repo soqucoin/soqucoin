@@ -337,6 +337,9 @@ std::unique_ptr<PQKeyPair> PQKeyPair::DeriveFromSeed(
             found = true;
             break;
         }
+        // A rejected marker key must not outlive this iteration.
+        memory_cleanse(pubkey.data(), pubkey.size());
+        memory_cleanse(seckey.data(), seckey.size());
     }
     if (!found) {
         memory_cleanse(pubkey.data(), pubkey.size());
