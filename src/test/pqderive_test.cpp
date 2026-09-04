@@ -10,6 +10,8 @@
 #include <iostream>
 #include <sstream>
 
+extern "C" int pqcrystals_dilithium2_ref_seed_keypair(uint8_t* pk, uint8_t* sk, const uint8_t* seed);
+
 using namespace soqucoin::pqwallet;
 
 // Hex encoding helper
@@ -127,6 +129,66 @@ int main(int argc, char* argv[])
 
     std::cout << "=== HD Key Derivation Tests ===" << std::endl;
     std::cout << std::endl;
+
+    // Test 0: the 0xFF invalid-key marker is never returned, and the retry
+    // rule is exactly the documented one (pqderive.h, MAX_DERIVE_RETRIES).
+    // Search paths under a fixed seed until retry-0 derivation hits the marker
+    // (expected once per 256 paths), then check DeriveFromSeed skipped it and
+    // returned the retry-1 key.
+    std::cout << "0. Testing the 0xFF invalid-key marker retry..." << std::endl;
+    {
+        SecureBytes seed(64);
+        for (size_t i = 0; i < 64; ++i) seed.data()[i] = static_cast<uint8_t>(0xA5 ^ i);
+        bool exercised = false;
+        for (uint32_t index = 0; index < 4096 && !exercised; ++index) {
+            DerivationPath path;
+            path.index = index;
+            auto km0 = DeriveKeyMaterial(seed, path, DOMAIN_WALLET, 0);
+            std::array<uint8_t, DILITHIUM_PUBKEY_SIZE> pk0;
+            SecureBytes sk0(DILITHIUM_SECKEY_SIZE);
+            if (pqcrystals_dilithium2_ref_seed_keypair(pk0.data(), sk0.data(), km0.data()) != 0) {
+                std::cerr << "   seed keypair failed: FAIL ✗" << std::endl;
+                return 1;
+            }
+            if (pk0[0] != 0xFF) continue;
+            exercised = true;
+            auto kp = PQKeyPair::DeriveFromSeed(seed, path);
+            if (!kp || kp->GetPublicKey()[0] == 0xFF) {
+                std::cerr << "   DeriveFromSeed returned an invalid-marker key at index " << index << ": FAIL ✗" << std::endl;
+                return 1;
+            }
+            auto km1 = DeriveKeyMaterial(seed, path, DOMAIN_WALLET, 1);
+            std::array<uint8_t, DILITHIUM_PUBKEY_SIZE> pk1;
+            SecureBytes sk1(DILITHIUM_SECKEY_SIZE);
+            if (pqcrystals_dilithium2_ref_seed_keypair(pk1.data(), sk1.data(), km1.data()) != 0) {
+                std::cerr << "   seed keypair failed at retry 1: FAIL ✗" << std::endl;
+                return 1;
+            }
+            if (pk1[0] == 0xFF) {
+                std::cout << "   (retry 1 also carries the marker at index " << index << "; rule continues)" << std::endl;
+            } else if (memcmp(kp->GetPublicKey().data(), pk1.data(), DILITHIUM_PUBKEY_SIZE) != 0) {
+                std::cerr << "   DeriveFromSeed did not return the retry-1 key at index " << index << ": FAIL ✗" << std::endl;
+                return 1;
+            }
+            std::cout << "   Marker path found at index " << index << ", re-derived past it: PASS ✓" << std::endl;
+            // Cross-implementation vector (SoquShield and its SDK assert the same):
+            std::cout << "   vector: seed[i]=0xA5^i, path m/44'/21329'/0'/0/" << index
+                      << ", retry-0 pk[0:8]=" << ToHex(pk0.data(), 8)
+                      << ", returned pk[0:8]=" << ToHex(kp->GetPublicKey().data(), 8) << std::endl;
+        }
+        if (!exercised) {
+            std::cerr << "   No marker path in 4096 indexes (probability ~1e-7): FAIL ✗" << std::endl;
+            return 1;
+        }
+        // Retry 0 is byte-identical to the pre-rule derivation for a clean path.
+        DerivationPath p0;
+        auto a = DeriveKeyMaterial(seed, p0, DOMAIN_WALLET);
+        auto b = DeriveKeyMaterial(seed, p0, DOMAIN_WALLET, 0);
+        if (a != b) {
+            std::cerr << "   retry 0 changed the derivation: FAIL ✗" << std::endl;
+            return 1;
+        }
+    }
 
     // Test 1: HD Derivation Determinism
     std::cout << "1. Testing HD derivation determinism..." << std::endl;
