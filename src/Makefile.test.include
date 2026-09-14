@@ -175,6 +175,7 @@ BITCOIN_TESTS =\
   test/covenant_tests.cpp \
   test/lightning_script_tests.cpp \
   test/dilithium_keyhash_tests.cpp \
+  test/sdk_sighash_vector_tests.cpp \
   test/dilithium_keyhash_committed_tests.cpp \
   test/usdsoq_v7_holding_tests.cpp \
   test/authority_skip_gate_tests.cpp \
