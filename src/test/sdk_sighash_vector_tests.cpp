@@ -134,9 +134,12 @@ BOOST_AUTO_TEST_CASE(node_signs_the_sdk_vector)
                          MutableTransactionSignatureChecker(&tx, i, SDK_VECTOR_AMOUNT[i]), &err),
             "input " << i << ": " << ScriptErrorString(err));
 
-        // The digest commits to the amount: one shor more and the same witness fails.
+        // The digest commits to the amount: one shor more and the same witness
+        // fails at the signature check itself, not earlier.
+        err = SCRIPT_ERR_OK;
         BOOST_CHECK(!VerifyScript(tx.vin[i].scriptSig, scriptPubKey, &tx.vin[i].scriptWitness, STANDARD_SCRIPT_VERIFY_FLAGS,
                                   MutableTransactionSignatureChecker(&tx, i, SDK_VECTOR_AMOUNT[i] + 1), &err));
+        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_SIG_NULLFAIL);
     }
 
     BOOST_TEST_MESSAGE("sdk vector signed transaction: " << EncodeHexTx(tx));
