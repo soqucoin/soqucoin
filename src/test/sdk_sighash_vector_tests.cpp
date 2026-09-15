@@ -121,9 +121,9 @@ BOOST_AUTO_TEST_CASE(node_signs_the_sdk_vector)
 
         const std::vector<std::vector<unsigned char> >& stack = tx.vin[i].scriptWitness.stack;
         BOOST_REQUIRE_EQUAL(stack.size(), 2u);
-        BOOST_CHECK_EQUAL(stack[0].size(), 2421u);
+        BOOST_REQUIRE_EQUAL(stack[0].size(), 2421u);
         BOOST_CHECK_EQUAL(stack[0].back(), (unsigned char)SIGHASH_ALL);
-        BOOST_CHECK_EQUAL(stack[1].size(), 1313u);
+        BOOST_REQUIRE_EQUAL(stack[1].size(), 1313u);
         BOOST_CHECK_EQUAL(stack[1][0], 0x00);
         BOOST_CHECK(std::equal(pubkey.begin(), pubkey.end(), stack[1].begin() + 1));
         BOOST_CHECK(tx.vin[i].scriptSig.empty());
