@@ -11,7 +11,6 @@ the Register workflow and the Test workflow arrange them.
 """
 import importlib.util
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -57,8 +56,10 @@ def literals(checker_text):
 
 
 def main():
-    checker_text = open(CHECKER, encoding="utf-8").read()
-    corpus_text = open(CORPUS, encoding="utf-8").read()
+    with open(CHECKER, encoding="utf-8") as fh:
+        checker_text = fh.read()
+    with open(CORPUS, encoding="utf-8") as fh:
+        corpus_text = fh.read()
 
     pats = literals(checker_text)
     if pats is None:

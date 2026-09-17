@@ -92,14 +92,41 @@ def lint_path(path):
     return [("narrative in a path", got)] if got else []
 
 
+# The next page of a paginated response, as the API names it in the Link header.
+NEXT = re.compile(r'<([^>]+)>;\s*rel="next"')
+
+
+def next_page(link_header):
+    m = NEXT.search(link_header or "")
+    return m.group(1) if m else None
+
+
 def api(path):
-    req = urllib.request.Request(
-        f"https://api.github.com/{path}",
-        headers={"Accept": "application/vnd.github+json",
-                 "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-                 "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+    """Every item of a list endpoint, following the Link header to the last page.
+
+    Both endpoints this checker reads are paginated and default to 30 items. Reading one page
+    and stopping does not report a short pull request incorrectly; it reports a long one as
+    clean while its later commits and files were never read.
+    """
+    url = f"https://api.github.com/{path}?per_page=100"
+    items = []
+    while url:
+        req = urllib.request.Request(
+            url,
+            headers={"Accept": "application/vnd.github+json",
+                     "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                     "X-GitHub-Api-Version": "2022-11-28"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            page = json.load(r)
+            link = r.headers.get("Link", "")
+        # `items += page` on an object would extend the list with its keys and read as a
+        # short answer rather than as an error.
+        if not isinstance(page, list):
+            raise TypeError(f"{path} answered with a {type(page).__name__} where this reads "
+                            f"a list of items")
+        items += page
+        url = next_page(link)
+    return items
 
 
 def is_bot(user):

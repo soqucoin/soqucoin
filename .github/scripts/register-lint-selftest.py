@@ -22,12 +22,12 @@ sys.dont_write_bytecode = True
 _spec = importlib.util.spec_from_file_location(
     "lint", os.path.join(os.path.dirname(os.path.abspath(__file__)), "register-lint.py"))
 mod = importlib.util.module_from_spec(_spec)
-# BaseException, not Exception: a checker carrying `sys.exit(0)` at module scope raises
-# SystemExit here, and letting that propagate would end this corpus with the exit status of
-# a clean run and no output at all.
+# SystemExit is caught alongside Exception because a checker carrying `sys.exit(0)` at module
+# scope raises it here, and letting that propagate would end this corpus with the exit status
+# of a clean run and no output at all. Naming the two leaves KeyboardInterrupt to the shell.
 try:
     _spec.loader.exec_module(mod)
-except BaseException as _exc:
+except (SystemExit, Exception) as _exc:
     print(f"FAIL | the checker does not import | {type(_exc).__name__}: {_exc}")
     sys.exit(1)
 for _name in ("lint", "lint_path", "main"):
@@ -125,6 +125,83 @@ for name, path, must_fail in PATHS:
     print(("PASS" if ok else "FAIL"), "|", name, "|", "finding" if failed else "clean",
           "" if ok else f"| {mod.lint_path(path)}")
 
+# A pull request's commits and its files each arrive a page at a time, and the API sends 30
+# items unless asked for more. A checker that reads the first page and stops prints "no
+# findings" over text it never read, and the count it prints alongside hides that. This is a
+# defect the check shipped with: a pull request of 33 files was reported clean by a checker
+# that had read 30 of its paths.
+LINKS = [
+    ("a next link among the others",
+     '<https://api.github.com/x?page=3>; rel="prev", <https://api.github.com/x?page=5>; rel="next"',
+     "https://api.github.com/x?page=5"),
+    ("the last page offers no next link",
+     '<https://api.github.com/x?page=1>; rel="first", <https://api.github.com/x?page=4>; rel="prev"',
+     None),
+    ("a response whose link header is empty", "", None),
+    ("a response with no link header", None, None),
+]
+
+for name, header, want in LINKS:
+    got = mod.next_page(header)
+    ok = got == want
+    bad += 0 if ok else 1
+    print(("PASS" if ok else "FAIL"), "|", name, "| next page", got,
+          "" if ok else f"| expected {want}")
+
+
+class _Page:
+    """One response, with the two things api() takes from it: a body and the headers."""
+
+    def __init__(self, items, link=""):
+        self._body = json.dumps(items).encode()
+        self.headers = {"Link": link}
+
+    def read(self, *_):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class _FakeRequest:
+    """urllib.request, holding the two names api() calls and the urls it asked for."""
+
+    def __init__(self, pages):
+        self.pages = pages
+        self.urls = []
+
+    def Request(self, url, headers=None):
+        self.urls.append(url)
+        return url
+
+    def urlopen(self, req, timeout=None):
+        return self.pages.pop(0)
+
+
+_fake = _FakeRequest([_Page([{"sha": "a" * 40}], '<https://api.github.com/page2>; rel="next"'),
+                      _Page([{"sha": "b" * 40}])])
+_real_urllib, mod.urllib = mod.urllib, type("_FakeUrllib", (), {"request": _fake})
+os.environ["GITHUB_TOKEN"] = "fixture"
+try:
+    _items = mod.api("repos/owner/repo/pulls/1/commits")
+finally:
+    mod.urllib = _real_urllib
+
+API = [
+    ("both pages of a list endpoint are read", len(_items), 2),
+    ("the second request is the url the first response gave",
+     _fake.urls[-1], "https://api.github.com/page2"),
+    ("the first request asks for a full page", "per_page=100" in _fake.urls[0], True),
+]
+
+for name, got, want in API:
+    ok = got == want
+    bad += 0 if ok else 1
+    print(("PASS" if ok else "FAIL"), "|", name, "|", got, "" if ok else f"| expected {want}")
+
 # lint() deciding correctly is not the same as the check failing. main() is what turns a
 # finding into an exit status, and what decides whose text counts as ours. A checker whose
 # lint() is intact and whose main() returns 0 on findings prints every error and passes.
@@ -153,6 +230,11 @@ DIRTY = "x\n\nCo-Authored-By: a <a@b.c>"
 # The pull request branch of main() reads four kinds of text, and a checker that drops any
 # one of them keeps every fixture above behaving. One event per kind, each with the finding
 # in a different place.
+#
+# Each runs under both event names that reach this branch. The required job fires on
+# pull_request_target and the cross-run job on pull_request, so a checker that returns early
+# on one of the two names would leave every case here behaving and one job checking nothing.
+PULL_EVENTS = ["pull_request", "pull_request_target"]
 PULLS = [
     ("a pull request title with a finding", DIRTY, CLEAN, CLEAN, "withdraw/engine.go", 1),
     ("a pull request body with a finding", CLEAN, DIRTY, CLEAN, "withdraw/engine.go", 1),
@@ -169,7 +251,9 @@ def _verdict(name, want):
     global bad
     try:
         got = mod.main()
-    except BaseException as exc:  # a checker that exits or raises is not a passing checker
+    # A checker that exits or raises is not a passing checker. SystemExit is named because a
+    # checker can call sys.exit() instead of returning, and an interrupt is left to the shell.
+    except (SystemExit, Exception) as exc:
         got = f"raised {type(exc).__name__}"
     ok = got == want
     bad += 0 if ok else 1
@@ -191,18 +275,19 @@ for event_name, key in COMMENT_EVENTS:
         _event({key: {"body": body, "user": {"login": login, "type": kind}}}, event_name)
         _verdict(f"{name}, on {event_name}", want)
 
-for name, title, body, message, path, want in PULLS:
-    _event({"pull_request": {"number": 1, "title": title, "body": body}}, "pull_request")
-    # Stand in for the two API reads. A checker that reaches the network instead of calling
-    # api() finds no token and raises, which _verdict reports as a failure.
-    mod.api = lambda p, _m=message, _p=path: (
-        [{"sha": "0" * 40, "commit": {"message": _m}}] if p.endswith("/commits")
-        else [{"filename": _p}])
-    _verdict(name, want)
+for event_name in PULL_EVENTS:
+    for name, title, body, message, path, want in PULLS:
+        _event({"pull_request": {"number": 1, "title": title, "body": body}}, event_name)
+        # Stand in for the two API reads. A checker that reaches the network instead of
+        # calling api() finds no token and raises, which _verdict reports as a failure.
+        mod.api = lambda p, _m=message, _p=path: (
+            [{"sha": "0" * 40, "commit": {"message": _m}}] if p.endswith("/commits")
+            else [{"filename": _p}])
+        _verdict(f"{name}, on {event_name}", want)
 
 shutil.rmtree(env_tmp, ignore_errors=True)
 
-total = (len(TEXTS) + len(PATHS) + len(COMMENTS) * len(COMMENT_EVENTS)
-         + len(PULLS))
+total = (len(TEXTS) + len(PATHS) + len(LINKS) + len(API)
+         + len(COMMENTS) * len(COMMENT_EVENTS) + len(PULLS) * len(PULL_EVENTS))
 print(f"\n{total - bad}/{total} fixtures behave")
 sys.exit(1 if bad else 0)
