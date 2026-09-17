@@ -62,6 +62,16 @@ jobs:
           persist-credentials: false
       - name: The base corpus against this pull request's checker
         run: |
+          # Code from the pull request runs in this step, so it runs with no credential in
+          # reach. A run step is handed no GITHUB_TOKEN unless the workflow puts one in its
+          # environment, and this step puts none there; the check below is against a later
+          # edit that adds one, and it fails closed rather than running head code beside a
+          # token. The runner does inject a token of its own for the cache and artifact
+          # services, and that one is dropped from the child process further down.
+          if [ -n "${GITHUB_TOKEN:-}" ] || [ -n "${GH_TOKEN:-}" ]; then
+            echo "::error title=Register cross-run::this step has a token in its environment and it runs code the pull request ships, so it fails closed. A token belongs to the required job in register.yml, which runs no head code."
+            exit 1
+          fi
           if [ ! -f .github/scripts/register-lint-selftest.py ]; then
             echo "::error title=Register cross-run::the base of this pull request carries no register corpus, so there is nothing to run the checker against, and this fails closed. Expected only for the change that installs the checker."
             exit 1
@@ -93,7 +103,11 @@ jobs:
           mkdir "$work"
           cp "$checker" "$work/"
           cp .github/scripts/register-lint-selftest.py "$work/"
-          if ! python3 "$work/register-lint-selftest.py" > "$work/out" 2>&1; then
+          # The runner's own tokens for the cache, artifact and id-token services are in the
+          # environment of every step. They are not the repository token and cannot read the
+          # repository, and the process about to run is the pull request's, so they go.
+          if ! env -u ACTIONS_RUNTIME_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+              python3 "$work/register-lint-selftest.py" > "$work/out" 2>&1; then
             cat "$work/out"
             echo "::error title=Register cross-run::the base corpus does not behave against the checker this pull request ships."
             exit 1

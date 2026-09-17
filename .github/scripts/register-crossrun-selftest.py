@@ -99,8 +99,14 @@ def _runner_temp(root):
     return d
 
 
-def run(cwd, runner_temp):
+def run(cwd, runner_temp, step_env=None):
     env = dict(os.environ, RUNNER_TEMP=runner_temp)
+    # A token in the environment is a case rather than an accident: drop whatever the shell
+    # running this corpus happens to carry, so each case decides what the step is handed.
+    for name in ("GITHUB_TOKEN", "GH_TOKEN", "ACTIONS_RUNTIME_TOKEN",
+                 "ACTIONS_ID_TOKEN_REQUEST_TOKEN"):
+        env.pop(name, None)
+    env.update(step_env or {})
     r = subprocess.run(["bash", "-e", "-c", SCRIPT], cwd=cwd, env=env,
                        capture_output=True, text=True)
     return r.returncode, r.stdout + r.stderr
@@ -194,6 +200,18 @@ CASES = [
     # this step says so rather than failing as a missing file.
     ("the trusted ref carries no corpus",
      {"trusted_checker": False, "corpus_absent": True}, True, "carries no register corpus"),
+    # This step runs code the pull request ships. A run step is handed no repository token
+    # unless the workflow puts one in its environment, and this one does not; these two hold
+    # that property rather than stating it, one for a later edit that adds a token and one for
+    # the runner's own service token, which every step does carry.
+    ("a token in the step's environment stops it before any head code runs",
+     {"step_env": {"GITHUB_TOKEN": "fixture"}}, True, "token in its environment"),
+    ("the checker the pull request ships sees no token of the runner's",
+     {"step_env": {"ACTIONS_RUNTIME_TOKEN": "fixture-value"},
+      "edit": lambda t: "import os as _os\n"
+                        'print("runtime-token=" + _os.environ.get("ACTIONS_RUNTIME_TOKEN",'
+                        ' "absent"))\n' + t},
+     False, "runtime-token=absent"),
 ]
 
 # The required step runs the trusted checker over the pull request's own text. Its cases are
@@ -236,6 +254,7 @@ def main():
         try:
             kwargs = dict(kwargs)
             corpus_absent = kwargs.pop("corpus_absent", False)
+            step_env = kwargs.pop("step_env", None)
             try:
                 cwd, runner_temp = build(root, **kwargs)
             except AssertionError as exc:
@@ -245,7 +264,7 @@ def main():
             if corpus_absent:
                 os.remove(os.path.join(cwd, ".github", "scripts",
                                        "register-lint-selftest.py"))
-            rc, out = run(cwd, runner_temp)
+            rc, out = run(cwd, runner_temp, step_env)
             bad += report(name, rc != 0, want_refuse, needle, out, rc)
         finally:
             shutil.rmtree(root, ignore_errors=True)
