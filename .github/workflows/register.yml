@@ -1,0 +1,73 @@
+name: Register
+
+# The writing rules for this repository's own text: pull request title and body, our
+# comments, commit messages, and changed file names. They held by convention until now, and a
+# convention holds until the moment someone is in a hurry. This check runs on the platform, so
+# it also covers a body edited in the web interface and a comment posted from a phone.
+#
+# `edited` is in the list on purpose: editing a body publishes new text, and that is the step
+# a local check placed before a command never sees.
+#
+# This is the job that is made required, and every trigger below loads the workflow definition
+# and the scripts from the repository's default branch rather than from the pull request.
+# pull_request_target does so by the platform's rule; the three comment events already did. A
+# pull request therefore cannot edit the file that decides whether this check runs, what it
+# runs, or what counts as a pass, which is what a required check has to be able to say.
+#
+# The cross-run job, which executes the checker a pull request ships, is in
+# register-crossrun.yml and stays advisory. It has to be a separate file: a job skipped by an
+# `if` reports success, so a `pull_request` run of this file would publish a passing check
+# under this job's name and satisfy the requirement without checking anything.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+  issue_comment:
+    types: [created, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+  pull_request_review:
+    types: [submitted, edited]
+
+# pull_request_target hands the job a token scoped to this repository, so the block is the
+# thing that keeps it harmless. Without one the job carries the repository default, which is
+# read-write on anything created before February 2023. Reading is all this check does: the
+# event payload and two list endpoints.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  register:
+    # An issue_comment event fires for issues as well as pull requests; only the pull request
+    # case has text this check is about.
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # No `ref`. On each trigger of this workflow GITHUB_REF is the default branch, so the
+      # default checkout is the trusted copy of the checker and there is no fallback here to
+      # be wrong about. The pull request's own text arrives in the event payload and from the
+      # API, which is all this job reads of it: it checks out none of its code and runs none.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The corpus runs first. A checker whose own fixtures fail would otherwise pass every
+      # pull request and read as a green tick.
+      #
+      # A default branch with no checker fails the job rather than skipping it. Skipping would
+      # be the same fail-open shape this whole check exists to remove. On the change that
+      # installs the checker this workflow does not run at all, because the default branch
+      # does not yet carry it, so the case left here is a checker deleted from the default
+      # branch while the workflow stays.
+      - name: Lint the text of this pull request
+        run: |
+          test -f .github/scripts/register-lint.py || {
+            echo "::error title=Register check::the default branch carries no register checker, so there is no trusted copy to run, and this fails closed."
+            exit 1
+          }
+          python3 .github/scripts/register-lint-selftest.py
+          python3 .github/scripts/register-lint.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,34 @@
+name: Register corpora
+
+# The fixture corpora for the Register check, run against this repository's own head. The
+# required job in register.yml runs the checker from the repository default branch, which is
+# what stops a pull request from supplying the checker that judges it; the two corpora below
+# run from the head, so a pull request that adds a pattern adds its fixture in the same
+# change.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  corpora:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Register patterns are pinned
+        run: python3 .github/scripts/register-pin-selftest.py
+
+      # The two steps of the Register check, read out of their workflow files and run against
+      # workspaces built to defeat them: the required step in register.yml, and the cross-run
+      # step in register-crossrun.yml against a set of head checkers.
+      - name: Register cross-run cases
+        run: python3 .github/scripts/register-crossrun-selftest.py
