@@ -426,6 +426,14 @@ public:
 
         // By default assume that the signatures in ancestors of this block are valid.
         consensus.defaultAssumeValid = uint256S("0x00");
+
+        // Block-1 launch time gate (bead w3y1): the block at height 1 must carry
+        // nTime >= 2026-10-13T15:00:00Z, the launch hour. Set
+        // before the tier copies below so auxpowConsensus, the tier that
+        // validates height 1, carries it (bead ldbr). Checked once, in
+        // ContextualCheckBlockHeader. A later launch needs no change here; an
+        // earlier one needs a new constant and a new release.
+        consensus.nMinBlock1Time = 1791903600;
         consensus.dilithiumOnlyHeight = 0;
         consensus.dilithiumOnlyHeight = 0;
         // VESTIGIAL: never read by consensus (BIP9 VersionBitsState is the only gate for
@@ -639,6 +647,7 @@ public:
         consensus.fDigishieldDifficultyCalculation = false;
         consensus.nCoinbaseMaturity = 30;
         consensus.nMaxReorgDepth = 288; // Finality horizon (Analysis [A]); see CMainParams. Propagates into digishieldConsensus.
+        consensus.nMinBlock1Time = 0;   // No block-1 launch time gate; mainnet only (see CMainParams).
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.fPowAllowDigishieldMinDifficultyBlocks = false;
         consensus.nSubsidyHalvingInterval = 250000; // 47B schedule — mirror mainnet (bead c61)
@@ -1054,6 +1063,7 @@ public:
         consensus.fSimplifiedRewards = true;
         consensus.nCoinbaseMaturity = 60; // For easier testability in RPC tests
         consensus.nMaxReorgDepth = 0;      // Disabled on regtest; functional tests opt in via -maxreorgdepth (see UpdateMaxReorgDepth)
+        consensus.nMinBlock1Time = 0;      // No block-1 launch time gate; tests arm it via -minblock1time (see UpdateMinBlock1Time)
 
         digishieldConsensus = consensus;
         digishieldConsensus.nHeightEffective = 10;
@@ -1162,6 +1172,16 @@ public:
         auxpowConsensus.nMaxReorgDepth = nMaxReorgDepth;
     }
 
+    void UpdateMinBlock1Time(int64_t nMinBlock1Time)
+    {
+        // All three structs, as UpdateMaxReorgDepth above (bead tofg): height 1
+        // resolves to `consensus` on regtest, but a test reads the gate wherever
+        // GetConsensus lands.
+        consensus.nMinBlock1Time = nMinBlock1Time;
+        digishieldConsensus.nMinBlock1Time = nMinBlock1Time;
+        auxpowConsensus.nMinBlock1Time = nMinBlock1Time;
+    }
+
     void UpdateMigrationParams(const uint256& hashOutputs, CAmount nTotal, int nHeight,
                                const std::vector<CTxOut>& vOutputs)
     {
@@ -1229,6 +1249,7 @@ public:
         consensus.fSimplifiedRewards = true;
         consensus.nCoinbaseMaturity = 30;
         consensus.nMaxReorgDepth = 288; // Finality horizon (Analysis [A]); mainnet rehearsal — match CMainParams.
+        consensus.nMinBlock1Time = 0;   // No block-1 launch time gate: it is mainnet's launch hour, and stagenet is past height 1.
 
         // Dilithium only from genesis
         consensus.dilithiumOnlyHeight = 0;
@@ -1641,6 +1662,11 @@ void UpdateRegtestActivationHeight(Consensus::DeploymentPos d, int nActivationHe
 void UpdateRegtestMaxReorgDepth(int nMaxReorgDepth)
 {
     regTestParams.UpdateMaxReorgDepth(nMaxReorgDepth);
+}
+
+void UpdateRegtestMinBlock1Time(int64_t nMinBlock1Time)
+{
+    regTestParams.UpdateMinBlock1Time(nMinBlock1Time);
 }
 
 void UpdateRegtestMigrationParams(const uint256& hashOutputs, CAmount nTotal, int nHeight,

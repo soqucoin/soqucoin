@@ -451,6 +451,7 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-migrationoutputs=<hex>", "Arm the genesis-migration allocation rule with this hex-serialized CTxOut vector (regtest-only; requires -migrationheight)");
         strUsage += HelpMessageOpt("-migrationheight=<n>", "Height at which the genesis-migration allocation rule applies (regtest-only; requires -migrationoutputs)");
         strUsage += HelpMessageOpt("-migrationtotal=<n>", "Override the armed nMigrationTotal in sats (regtest-only; default: the sum of -migrationoutputs, override exists to test the mismatch reject)");
+        strUsage += HelpMessageOpt("-minblock1time=<n>", "Minimum nTime of the block at height 1, a unix time (regtest-only; 0 = no gate; mainnet carries 1791903600)");
     }
     std::string debugCategories = "addrman, alert, bench, cmpctblock, coindb, db, http, libevent, lock, mempool, mempoolrej, net, proxy, prune, rand, reindex, rpc, selectcoins, tor, zmq"; // Don't translate these and qt below
     if (mode == HMM_BITCOIN_QT)
@@ -1250,6 +1251,21 @@ bool AppInitParameterInteraction()
         LogPrintf("Arming regtest genesis-migration rule: height=%d total=%d outputs=%u hash=%s\n",
                   (int)nMigrationHeight, nMigrationTotal, (unsigned)vOutputs.size(), hashOutputs.ToString());
     }
+    if (IsArgSet("-minblock1time")) {
+        // The block-1 launch time gate for testing (bead w3y1). Regtest only: on
+        // real networks the gate is consensus.
+        if (!chainparams.MineBlocksOnDemand()) {
+            return InitError("-minblock1time may only be set on regtest.");
+        }
+        // Bounded to a block header's 32-bit nTime: a gate above it could never
+        // be met by any block, and the startup line below formats the value.
+        int64_t nMinBlock1Time;
+        if (!ParseInt64(GetArg("-minblock1time", ""), &nMinBlock1Time) || nMinBlock1Time < 0 ||
+            nMinBlock1Time > (int64_t)std::numeric_limits<uint32_t>::max()) {
+            return InitError("Invalid -minblock1time (expected a unix time from 0 to 4294967295, the range of a block header's nTime)");
+        }
+        UpdateRegtestMinBlock1Time(nMinBlock1Time);
+    }
     // On every network, say at startup which genesis-migration constants this
     // binary enforces. A node whose constants differ from the network's rejects
     // the armed block, so this line is what an operator checks before the node
@@ -1263,6 +1279,15 @@ bool AppInitParameterInteraction()
                       (unsigned)chainparams.MigrationOutputs().size(), tier.hashMigrationOutputs.ToString());
         } else {
             LogPrintf("Genesis-migration allocation rule inert (height 0, null hash)\n");
+        }
+        // The block-1 launch time gate this binary enforces, read from the tier
+        // that validates height 1 (bead w3y1): the line to check at startup.
+        const int64_t nMinBlock1Time = chainparams.GetConsensus(1).nMinBlock1Time;
+        if (nMinBlock1Time > 0) {
+            LogPrintf("Block 1 time gate: nTime >= %d (%s)\n", nMinBlock1Time,
+                      DateTimeStrFormat("%Y-%m-%dT%H:%M:%SZ", nMinBlock1Time));
+        } else {
+            LogPrintf("Block 1 time gate: none\n");
         }
     }
     return true;

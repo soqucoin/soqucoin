@@ -23,11 +23,13 @@
 #include "chainparams.h"
 #include "coins.h"
 #include "consensus/consensus.h"
+#include "consensus/merkle.h"
 #include "consensus/params.h"
 #include "consensus/validation.h"
 #include "key.h"
 #include "keystore.h"
 #include "miner.h"
+#include "pow.h"
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "pubkey.h"
@@ -294,6 +296,95 @@ BOOST_AUTO_TEST_CASE(timestamp_boundary_exactly_2hrs)
     int64_t under_limit = current_time + two_hours - 1;
     bool under_limit_valid = (under_limit <= current_time + 2 * 60 * 60);
     BOOST_CHECK(under_limit_valid);
+}
+
+/**
+ * Block-1 launch time gate (bead w3y1): the block at height 1 must carry
+ * nTime >= Consensus::Params::nMinBlock1Time (mainnet 2026-10-13T15:00:00Z;
+ * regtest arms it here as -minblock1time does). Driven through the production
+ * miner and through ContextualCheckBlockHeader on regtest, with the reject
+ * string, and shown to leave height 2 alone.
+ */
+namespace {
+struct RegtestBlock1Gate {
+    explicit RegtestBlock1Gate(int64_t t) { UpdateRegtestMinBlock1Time(t); }
+    ~RegtestBlock1Gate() { UpdateRegtestMinBlock1Time(0); SetMockTime(0); }
+};
+}
+
+BOOST_AUTO_TEST_CASE(block1_time_gate)
+{
+    const int64_t kGate = 1791903600;
+    RegtestBlock1Gate gate(kGate);
+    const CChainParams& cp = Params();
+    const CScript spk = CScript() << OP_1 << std::vector<unsigned char>(32, 0xA1);
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), 0);
+
+    // Before the gate the miner cannot build block 1: TestBlockValidity refuses the template.
+    SetMockTime(kGate - 60);
+    BOOST_CHECK_EXCEPTION(BlockAssembler(cp).CreateNewBlock(spk, true), std::runtime_error,
+        [](const std::runtime_error& e) { return std::string(e.what()).find("block1-before-launch") != std::string::npos; });
+
+    // At the gate it can, and the template is timed at or after it.
+    SetMockTime(kGate);
+    std::unique_ptr<CBlockTemplate> tmpl = BlockAssembler(cp).CreateNewBlock(spk, true);
+    BOOST_REQUIRE(tmpl != nullptr);
+    BOOST_CHECK(tmpl->block.GetBlockTime() >= kGate);
+
+    // The check itself, one second either side, with its reject string and
+    // its DoS score.
+    CBlockHeader hdr = tmpl->block.GetBlockHeader();
+    hdr.nTime = kGate - 1;
+    CValidationState early;
+    int nDoS = 0;
+    BOOST_CHECK(!ContextualCheckBlockHeader(hdr, early, chainActive.Tip(), kGate));
+    BOOST_CHECK_EQUAL(early.GetRejectReason(), "block1-before-launch");
+    BOOST_CHECK(early.IsInvalid(nDoS));
+    BOOST_CHECK_EQUAL(nDoS, 100);
+    hdr.nTime = kGate;
+    CValidationState onTime;
+    BOOST_CHECK(ContextualCheckBlockHeader(hdr, onTime, chainActive.Tip(), kGate));
+
+    // The gate is checked before the two generic timestamp rules, so the
+    // result never depends on the node's clock: a block 1 timed before the
+    // gate draws block1-before-launch (DoS 100) when it is also more than two
+    // hours ahead of the node's clock, where time-too-new (DoS 0) would
+    // otherwise answer, and when it is timed at the median time past of
+    // genesis, where time-too-old (DoS 0) would.
+    hdr.nTime = kGate - 1;
+    CValidationState farAhead;
+    nDoS = 0;
+    BOOST_CHECK(!ContextualCheckBlockHeader(hdr, farAhead, chainActive.Tip(), kGate - 3 * 60 * 60));
+    BOOST_CHECK_EQUAL(farAhead.GetRejectReason(), "block1-before-launch");
+    BOOST_CHECK(farAhead.IsInvalid(nDoS));
+    BOOST_CHECK_EQUAL(nDoS, 100);
+    hdr.nTime = (uint32_t)chainActive.Tip()->GetMedianTimePast();
+    BOOST_REQUIRE(hdr.nTime < kGate);
+    CValidationState tooOld;
+    nDoS = 0;
+    BOOST_CHECK(!ContextualCheckBlockHeader(hdr, tooOld, chainActive.Tip(), kGate));
+    BOOST_CHECK_EQUAL(tooOld.GetRejectReason(), "block1-before-launch");
+    BOOST_CHECK(tooOld.IsInvalid(nDoS));
+    BOOST_CHECK_EQUAL(nDoS, 100);
+
+    // Height 2 carries no gate: connect block 1, raise the regtest gate above
+    // block 2's time, and block 2's header still passes.
+    CBlock block = tmpl->block;
+    block.hashMerkleRoot = BlockMerkleRoot(block);
+    while (!CheckProofOfWork(block.GetPoWHash(), block.nBits, cp.GetConsensus(1))) {
+        ++block.nNonce;
+    }
+    std::shared_ptr<const CBlock> shared = std::make_shared<const CBlock>(block);
+    BOOST_REQUIRE(ProcessNewBlock(cp, shared, true, nullptr));
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), 1);
+    UpdateRegtestMinBlock1Time(kGate + 10000);
+    SetMockTime(kGate + 1);
+    std::unique_ptr<CBlockTemplate> tmpl2 = BlockAssembler(cp).CreateNewBlock(spk, true);
+    BOOST_REQUIRE(tmpl2 != nullptr);
+    CBlockHeader hdr2 = tmpl2->block.GetBlockHeader();
+    BOOST_CHECK(hdr2.GetBlockTime() < kGate + 10000);
+    CValidationState height2;
+    BOOST_CHECK(ContextualCheckBlockHeader(hdr2, height2, chainActive.Tip(), kGate + 1));
 }
 
 // ============================================
