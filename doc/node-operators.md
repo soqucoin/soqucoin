@@ -18,8 +18,9 @@ rpcpassword=<choose>
 
 A fresh node finds peers through the stagenet seed (`stagenet.soqu.org`), downloads headers, then
 blocks, and reports `initialblockdownload` false once it reaches the tip. On a fast connection the
-first sync takes a few minutes. Addresses on stagenet start with `ssq1`. Both the 2.5.0 release and
-the mainnet release (2.5.1) run stagenet.
+first sync takes a few minutes. Stagenet addresses start with `ssq` (`ssq1`, `ssqp1` or `ssqsh1` by
+type; the mainnet forms start with `sq`). Both the 2.5.0 release and the mainnet release (2.5.1) run
+stagenet.
 
 ```bash
 soqucoin-cli getblockchaininfo   # chain "stagenet", blocks rising, initialblockdownload false at the tip
@@ -42,19 +43,21 @@ rpcuser=<choose>
 rpcpassword=<choose>
 ```
 
-**The first day.** Public peering opens about a day after block 1, once the chain is 576 blocks
-deep (two finality horizons), so that no competing chain can replace its start. Until the opening
-the project's nodes accept no outside connections: your mainnet node shows 0 connections and stays
-at height 0. This is expected. Leave it running or start it after the opening. At the opening we
-publish the hash of block 1 and the hash at the opening height; check yours against them:
+**The first day.** Public peering opens at least a day after block 1 and not before the chain is
+576 blocks deep, two finality horizons: a node past its initial sync refuses any reorganisation 288
+blocks deep or deeper, so from then on the project's nodes hold the start as final. Until the opening the
+project's nodes accept no outside connections: your mainnet node shows 0 connections and stays at
+height 0. This is expected. Leave it running or start it after the opening. A node syncing from
+scratch has no history of its own to hold, so at the opening we publish the hash of block 1 and
+the hash at the opening height; check yours against both:
 
 ```bash
 soqucoin-cli getblockhash 1
-soqucoin-cli getblockcount
+soqucoin-cli getblockhash <opening height>   # the height is published beside its hash
 ```
 
-A node whose block 1 hash differs from the published one is on the wrong chain: stop it, remove the
-data directory, and start again on the current release.
+A node whose hashes differ from the published ones is on the wrong chain: stop it, remove the data
+directory, and start again on the current release.
 
 **Releases in the first weeks.** A release after launch may add checkpoints so that a node syncing
 from scratch follows the launched chain. Stay on the current release; the release notes say when an
