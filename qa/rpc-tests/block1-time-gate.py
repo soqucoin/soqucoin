@@ -39,7 +39,7 @@ class Block1TimeGateTest(BitcoinTestFramework):
     def setup_network(self, split=False):
         self.is_network_split = False
         # Node 0 carries the gate. Node 1 has none: a peer on a binary without
-        # the rule, or a rival chain built on the published genesis.
+        # the rule.
         self.nodes = start_nodes(self.num_nodes, self.options.tmpdir,
                                  [["-debug", "-minblock1time=%d" % GATE],
                                   ["-debug"]])
@@ -60,13 +60,12 @@ class Block1TimeGateTest(BitcoinTestFramework):
         assert "Block 1 time gate: none" in self.debug_log(1)
 
         # 1. Before the gate the gated node's own miner cannot build block 1, and
-        #    a template request is refused with the gate's reject string (what
-        #    the launch runbook reads on the hub before the launch hour, the hub
-        #    having mining enabled and the tip-age override that the mainnet
-        #    template RPC needs). At the gate the template is built, and its
-        #    mintime is exactly the gate: a BIP23 client may roll the time down
-        #    to mintime, which at height 1 would otherwise be the genesis median
-        #    time past plus one.
+        #    a template request is refused with the gate's reject string (what a
+        #    mining node answers before the launch hour; on mainnet the template
+        #    RPC also needs mining enabled and a tip-age override at genesis). At
+        #    the gate the template is built, and its mintime is exactly the gate:
+        #    a BIP23 client may roll the time down to mintime, which at height 1
+        #    would otherwise be the genesis median time past plus one.
         assert_raises_jsonrpc(-1, "block1-before-launch", gated.generate, 1)
         assert_equal(gated.getblockcount(), 0)
         assert_raises_jsonrpc(-1, "block1-before-launch", gated.getblocktemplate)

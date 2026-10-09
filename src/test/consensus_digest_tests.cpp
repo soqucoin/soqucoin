@@ -748,9 +748,8 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // this cannot recur silently.
     //
     // Moved from e7ea83dc... on 2026-10-09 when AbsorbConsensus gained
-    // nMinBlock1Time, the block-1 launch time gate (bead w3y1; the owner's
-    // exception of 2026-10-09 to rulings R1 and R4 for this rule only). A
-    // COVERAGE change plus one RULE change on mainnet, made deliberately: the
+    // nMinBlock1Time, the block-1 launch time gate (bead w3y1). A COVERAGE
+    // change plus one RULE change on mainnet, made deliberately: the
     // block at height 1 must carry nTime >= 1791903600 (2026-10-13T15:00:00Z).
     // What moves: AbsorbConsensus absorbs one new I64 for every sampled height
     // on all four networks (the coverage change; testnet, stagenet and regtest

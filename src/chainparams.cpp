@@ -428,7 +428,7 @@ public:
         consensus.defaultAssumeValid = uint256S("0x00");
 
         // Block-1 launch time gate (bead w3y1): the block at height 1 must carry
-        // nTime >= 2026-10-13T15:00:00Z, the launch hour ruled 2026-10-07. Set
+        // nTime >= 2026-10-13T15:00:00Z, the launch hour. Set
         // before the tier copies below so auxpowConsensus, the tier that
         // validates height 1, carries it (bead ldbr). Checked once, in
         // ContextualCheckBlockHeader. A later launch needs no change here; an

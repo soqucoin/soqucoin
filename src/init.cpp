@@ -1281,7 +1281,7 @@ bool AppInitParameterInteraction()
             LogPrintf("Genesis-migration allocation rule inert (height 0, null hash)\n");
         }
         // The block-1 launch time gate this binary enforces, read from the tier
-        // that validates height 1 (bead w3y1): the line the fleet window checks.
+        // that validates height 1 (bead w3y1): the line to check at startup.
         const int64_t nMinBlock1Time = chainparams.GetConsensus(1).nMinBlock1Time;
         if (nMinBlock1Time > 0) {
             LogPrintf("Block 1 time gate: nTime >= %d (%s)\n", nMinBlock1Time,
