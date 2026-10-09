@@ -114,6 +114,7 @@ testScripts = [
     'pat_basic.py',
     'maxreorgdepth.py',
     'genesis-migration.py',
+    'block1-time-gate.py',
     'mining-gate.py',
     'pat-commitment.py',
     'witness-prune-serving.py',

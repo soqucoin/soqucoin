@@ -159,6 +159,13 @@ void UpdateRegtestActivationHeight(Consensus::DeploymentPos d, int nActivationHe
 void UpdateRegtestMaxReorgDepth(int nMaxReorgDepth);
 
 /**
+ * Sets the block-1 launch time gate on every regtest tier (0 = no gate).
+ * Regtest-only, for -minblock1time and the unit tests; on real networks the
+ * gate is consensus (Consensus::Params::nMinBlock1Time).
+ */
+void UpdateRegtestMinBlock1Time(int64_t nMinBlock1Time);
+
+/**
  * Arms the genesis-migration allocation rule on regtest
  * (DL-GENESIS-MIGRATION-IMPLEMENTATION §A1). Sets the three consensus constants
  * exactly as given — hash, total and height are taken independently so tests can

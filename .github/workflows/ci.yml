@@ -97,7 +97,8 @@ jobs:
           python3 qa/pull-tester/rpc-tests.py \
             auxpow.py latticefold_basic.py pat_basic.py unspendable-outputs.py \
             witness-prune-serving.py witness-prune-ibd.py \
-            wallet-encryption.py pq-address-rpcs.py pq-wallet-key-handling.py
+            wallet-encryption.py pq-address-rpcs.py pq-wallet-key-handling.py \
+            block1-time-gate.py
 
   # ============================================
   # Linux ARM64 (cross-compile)

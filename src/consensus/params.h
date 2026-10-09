@@ -231,6 +231,17 @@ struct Params {
     CAmount nMigrationTotal = 0;    // exact sum of the committed outputs, in sats
     int nMigrationHeight = 0;       // 0 = inert; the one height the rule applies at
 
+    /** Block-1 launch time gate (bead w3y1). The block at height 1 must carry
+     *  nTime >= nMinBlock1Time; 0 = no gate. Mainnet: 1791903600
+     *  (2026-10-13T15:00:00Z), the launch hour, so the chain cannot start before
+     *  it. A function of the block's own nTime and this constant, never of a
+     *  node's clock. Checked once, in ContextualCheckBlockHeader before the
+     *  timestamp rules; every later height is unaffected. A node's own miner
+     *  stamps its adjusted time, so it builds no block 1 before the hour.
+     *  Stagenet, testnet and regtest: 0 (regtest arms it with the test-only
+     *  -minblock1time). */
+    int64_t nMinBlock1Time = 0;
+
     /** PAT block attestation — the mandatory-commitment height (doc/PAT_BLOCK_ATTESTATION.md §7).
      *  The attestation itself is optional-but-verified from genesis: a miner MAY
      *  emit the coinbase commitment, any node that sees one MUST verify it, and a
