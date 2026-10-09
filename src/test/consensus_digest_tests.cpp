@@ -752,7 +752,7 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // exception of 2026-10-09 to rulings R1 and R4 for this rule only). A
     // COVERAGE change plus one RULE change on mainnet, made deliberately: the
     // block at height 1 must carry nTime >= 1791903600 (2026-10-13T15:00:00Z).
-    // What moves: AbsorbConsensus absorbs one new I64 for every sampled tier
+    // What moves: AbsorbConsensus absorbs one new I64 for every sampled height
     // on all four networks (the coverage change; testnet, stagenet and regtest
     // absorb 0 there), and on mainnet that word is 1791903600 at every sampled
     // h (the rule change). The arming commit re-pins again, as the 2026-08-29

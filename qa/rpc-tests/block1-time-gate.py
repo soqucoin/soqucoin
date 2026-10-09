@@ -18,6 +18,7 @@
 #
 
 import os
+import subprocess
 import time
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (assert_equal, assert_raises_jsonrpc,
@@ -60,16 +61,18 @@ class Block1TimeGateTest(BitcoinTestFramework):
 
         # 1. Before the gate the gated node's own miner cannot build block 1, and
         #    a template request is refused with the gate's reject string (what
-        #    the launch runbook reads on the hub before the launch hour). At the
-        #    gate the template is built, and its mintime is the gate: a BIP23
-        #    client may roll the time down to mintime, which at height 1 would
-        #    otherwise be the genesis median time past plus one.
+        #    the launch runbook reads on the hub before the launch hour, the hub
+        #    having mining enabled and the tip-age override that the mainnet
+        #    template RPC needs). At the gate the template is built, and its
+        #    mintime is exactly the gate: a BIP23 client may roll the time down
+        #    to mintime, which at height 1 would otherwise be the genesis median
+        #    time past plus one.
         assert_raises_jsonrpc(-1, "block1-before-launch", gated.generate, 1)
         assert_equal(gated.getblockcount(), 0)
         assert_raises_jsonrpc(-1, "block1-before-launch", gated.getblocktemplate)
         gated.setmocktime(GATE)
         template = gated.getblocktemplate()
-        assert template['mintime'] >= GATE, template['mintime']
+        assert_equal(template['mintime'], GATE)
         assert template['curtime'] >= GATE, template['curtime']
         gated.setmocktime(GATE - 60)
 
@@ -108,32 +111,39 @@ class Block1TimeGateTest(BitcoinTestFramework):
         #    one more refuses to start. That refusal is printed on the daemon's
         #    stderr before its log opens, so the daemon's stderr is captured to a
         #    file for the check (the test runner fails any test whose own stderr
-        #    is not empty). Whatever happens, no process outlives this step: the
-        #    framework's teardown stops nodes 0 and 1 only and then asserts the
-        #    process map is empty.
+        #    is not empty). Whatever happens in this step, no process of the
+        #    third node outlives it: the outer clause pops its entry from the
+        #    process map (the framework's teardown stops nodes 0 and 1 only and
+        #    then asserts the map is empty) and ends a process still alive.
         initialize_datadir(self.options.tmpdir, 2)
-        node2 = start_node(2, self.options.tmpdir, ["-minblock1time=4294967295"])
-        stop_node(node2, 2)
-        assert "Block 1 time gate: nTime >= 4294967295 (2106-02-07T06:28:15Z)" in self.debug_log(2)
-        node2 = None
         stderr_path = os.path.join(self.options.tmpdir, "node2-stderr.txt")
-        saved_stderr = os.dup(2)
+        started_above_range = False
         try:
-            with open(stderr_path, "w") as captured:
-                os.dup2(captured.fileno(), 2)
-                try:
-                    node2 = start_node(2, self.options.tmpdir, ["-minblock1time=4294967296"])
-                except Exception as e:
-                    assert "exited with status 1 during initialization" in str(e), str(e)
+            node2 = start_node(2, self.options.tmpdir, ["-minblock1time=4294967295"])
+            stop_node(node2, 2)
+            assert "Block 1 time gate: nTime >= 4294967295 (2106-02-07T06:28:15Z)" in self.debug_log(2)
+            saved_stderr = os.dup(2)
+            try:
+                with open(stderr_path, "w") as captured:
+                    os.dup2(captured.fileno(), 2)
+                    try:
+                        start_node(2, self.options.tmpdir, ["-minblock1time=4294967296"])
+                        started_above_range = True
+                    except Exception as e:
+                        assert "exited with status 1 during initialization" in str(e), str(e)
+            finally:
+                os.dup2(saved_stderr, 2)
+                os.close(saved_stderr)
         finally:
-            os.dup2(saved_stderr, 2)
-            os.close(saved_stderr)
             proc = soqucoind_processes.pop(2, None)
             if proc is not None and proc.poll() is None:
                 proc.terminate()
-                proc.wait(timeout=60)
-        if node2 is not None:
-            raise AssertionError("a node started with -minblock1time above the nTime range")
+                try:
+                    proc.wait(timeout=60)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+        assert not started_above_range, "a node started with -minblock1time above the nTime range"
         with open(stderr_path, encoding="utf-8") as f:
             assert "Invalid -minblock1time" in f.read()
 

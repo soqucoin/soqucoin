@@ -758,9 +758,8 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     // nTime is the gate, and a BIP23 client may roll the template's time down
     // to mintime, so mintime reports the gate when it is the later bound.
     int64_t nMinTime = (int64_t)pindexPrev->GetMedianTimePast() + 1;
-    const int64_t nMinBlock1Time = Params().GetConsensus(pindexPrev->nHeight + 1).nMinBlock1Time;
-    if (pindexPrev->nHeight + 1 == 1 && nMinBlock1Time > nMinTime)
-        nMinTime = nMinBlock1Time;
+    if (pindexPrev->nHeight + 1 == 1 && consensusParams.nMinBlock1Time > nMinTime)
+        nMinTime = consensusParams.nMinBlock1Time;
     result.pushKV("mintime", nMinTime);
     result.pushKV("mutable", aMutable);
     result.pushKV("noncerange", "00000000ffffffff");
