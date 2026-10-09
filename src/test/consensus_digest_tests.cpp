@@ -122,6 +122,10 @@ void AbsorbConsensus(DigestBuilder& d, const Consensus::Params& c)
     d.I64(c.nMigrationTotal);
     d.I64(c.nMigrationHeight);
 
+    // Block-1 launch time gate (bead w3y1): mainnet 1791903600, 0 elsewhere.
+    // Moving it is a consensus change and must move the digest.
+    d.I64(c.nMinBlock1Time);
+
     // PAT mandatory-commitment height (doc/PAT_BLOCK_ATTESTATION.md sec. 7).
     // 0 = never mandatory on every network today; scheduling it is a consensus
     // change and must move the digest.
@@ -742,8 +746,17 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // assignments that follow the genesis block, and genesis_chainparams_tests
     // now asserts every sampled tier against the base tier on every network so
     // this cannot recur silently.
+    // Moved from e7ea83dc... on 2026-10-09 when AbsorbConsensus gained
+    // nMinBlock1Time, the block-1 launch time gate (bead w3y1; the owner's
+    // exception of 2026-10-09 to rulings R1 and R4 for this rule only). A
+    // COVERAGE change plus one RULE change on mainnet, made deliberately: the
+    // block at height 1 must carry nTime >= 1791903600 (2026-10-13T15:00:00Z).
+    // The absorbed inputs that move, and only these: mainnet
+    // GetConsensus(h).nMinBlock1Time for every sampled h, 0 -> 1791903600.
+    // Testnet, stagenet and regtest carry 0 and are untouched. The arming
+    // commit re-pins again, as the 2026-08-29 entry predicted.
     const std::string expected =
-        "e7ea83dca405f0ca831014af9ddc1022e3f194d8024c0ec2c3ef0dbb6bd7350a";
+        "04c245de4b073695087d76a3f68e8ed3f384630172b5e80fc085193e478db893";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +

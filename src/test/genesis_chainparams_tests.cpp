@@ -13,6 +13,7 @@
 #include "soqucoin.h"
 #include "primitives/block.h"
 #include "uint256.h"
+#include "utiltime.h"
 
 #include "test/test_bitcoin.h"
 
@@ -811,6 +812,30 @@ BOOST_AUTO_TEST_CASE(maturity_below_finality_horizon_stagenet_pregate_known_exce
         "done on purpose, delete this case; if it happened by accident, it "
         "retroactively invalidated replayed stagenet history.");
     SelectParams(CBaseChainParams::MAIN);
+}
+
+// Block-1 launch time gate (bead w3y1): mainnet carries 2026-10-13T15:00:00Z on
+// every tier GetConsensus can return, because ContextualCheckBlockHeader reads
+// it through GetConsensus(1) (bead ldbr); the three other networks carry none.
+BOOST_AUTO_TEST_CASE(block1_time_gate_per_network)
+{
+    static const int kHeights[] = {0, 1, 2, 9, 10, 11, 19, 20, 21, 100, 1000, 99999, 100000, 100001, 1000000};
+    const int64_t kMainnetGate = 1791903600;
+
+    SelectParams(CBaseChainParams::MAIN);
+    BOOST_CHECK_EQUAL(Params().GetConsensus(1).nMinBlock1Time, kMainnetGate);
+    BOOST_CHECK_EQUAL(DateTimeStrFormat("%Y-%m-%dT%H:%M:%SZ", kMainnetGate), "2026-10-13T15:00:00Z");
+    BOOST_CHECK(kMainnetGate > (int64_t)Params().GenesisBlock().nTime);
+    for (int h : kHeights) {
+        BOOST_CHECK_EQUAL(Params().GetConsensus(h).nMinBlock1Time, kMainnetGate);
+    }
+    for (const std::string& net : {CBaseChainParams::TESTNET, CBaseChainParams::STAGENET, CBaseChainParams::REGTEST}) {
+        SelectParams(net);
+        for (int h : kHeights) {
+            BOOST_CHECK_EQUAL(Params().GetConsensus(h).nMinBlock1Time, 0);
+        }
+    }
+    SelectParams(CBaseChainParams::REGTEST); // what BasicTestingSetup selected
 }
 
 BOOST_AUTO_TEST_SUITE_END()
