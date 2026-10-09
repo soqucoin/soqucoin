@@ -754,7 +754,14 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     result.pushKV("coinbasetxn", coinbaseTxn);
     result.pushKV("longpollid", chainActive.Tip()->GetBlockHash().GetHex() + i64tostr(nTransactionsUpdatedLast));
     result.pushKV("target", hashTarget.GetHex());
-    result.pushKV("mintime", (int64_t)pindexPrev->GetMedianTimePast() + 1);
+    // Block-1 launch time gate (bead w3y1): at height 1 the earliest valid
+    // nTime is the gate, and a BIP23 client may roll the template's time down
+    // to mintime, so mintime reports the gate when it is the later bound.
+    int64_t nMinTime = (int64_t)pindexPrev->GetMedianTimePast() + 1;
+    const int64_t nMinBlock1Time = Params().GetConsensus(pindexPrev->nHeight + 1).nMinBlock1Time;
+    if (pindexPrev->nHeight + 1 == 1 && nMinBlock1Time > nMinTime)
+        nMinTime = nMinBlock1Time;
+    result.pushKV("mintime", nMinTime);
     result.pushKV("mutable", aMutable);
     result.pushKV("noncerange", "00000000ffffffff");
     int64_t nSigOpLimit = MAX_BLOCK_SIGOPS_COST;

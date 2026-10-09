@@ -238,7 +238,12 @@ struct Params {
      *  the published lists, so without this nothing bound the chain's start to
      *  the launch hour. A function of the block's own nTime and this constant,
      *  never of a node's clock. Checked once, in ContextualCheckBlockHeader
-     *  beside the timestamp rules; every later height is unaffected. Stagenet,
+     *  before the timestamp rules; every later height is unaffected. The bound
+     *  is on the header's nTime: a node accepts a header up to two hours past
+     *  its adjusted time, so a block 1 stamped at the gate is acceptable from
+     *  about two hours before the launch hour by wall clock. No honest node
+     *  builds one earlier (its miner stamps its own adjusted time), and the
+     *  closed P2P phase of the launch runbook covers that window. Stagenet,
      *  testnet and regtest: 0 (regtest arms it with the test-only -minblock1time). */
     int64_t nMinBlock1Time = 0;
 

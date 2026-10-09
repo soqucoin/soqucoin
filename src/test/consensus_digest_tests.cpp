@@ -746,15 +746,17 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // assignments that follow the genesis block, and genesis_chainparams_tests
     // now asserts every sampled tier against the base tier on every network so
     // this cannot recur silently.
+    //
     // Moved from e7ea83dc... on 2026-10-09 when AbsorbConsensus gained
     // nMinBlock1Time, the block-1 launch time gate (bead w3y1; the owner's
     // exception of 2026-10-09 to rulings R1 and R4 for this rule only). A
     // COVERAGE change plus one RULE change on mainnet, made deliberately: the
     // block at height 1 must carry nTime >= 1791903600 (2026-10-13T15:00:00Z).
-    // The absorbed inputs that move, and only these: mainnet
-    // GetConsensus(h).nMinBlock1Time for every sampled h, 0 -> 1791903600.
-    // Testnet, stagenet and regtest carry 0 and are untouched. The arming
-    // commit re-pins again, as the 2026-08-29 entry predicted.
+    // What moves: AbsorbConsensus absorbs one new I64 for every sampled tier
+    // on all four networks (the coverage change; testnet, stagenet and regtest
+    // absorb 0 there), and on mainnet that word is 1791903600 at every sampled
+    // h (the rule change). The arming commit re-pins again, as the 2026-08-29
+    // entry predicted.
     const std::string expected =
         "04c245de4b073695087d76a3f68e8ed3f384630172b5e80fc085193e478db893";
 
