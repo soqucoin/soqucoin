@@ -1257,9 +1257,12 @@ bool AppInitParameterInteraction()
         if (!chainparams.MineBlocksOnDemand()) {
             return InitError("-minblock1time may only be set on regtest.");
         }
+        // Bounded to a block header's 32-bit nTime: a gate above it could never
+        // be met by any block, and the startup line below formats the value.
         int64_t nMinBlock1Time;
-        if (!ParseInt64(GetArg("-minblock1time", ""), &nMinBlock1Time) || nMinBlock1Time < 0) {
-            return InitError("Invalid -minblock1time (expected a non-negative unix time)");
+        if (!ParseInt64(GetArg("-minblock1time", ""), &nMinBlock1Time) || nMinBlock1Time < 0 ||
+            nMinBlock1Time > (int64_t)std::numeric_limits<uint32_t>::max()) {
+            return InitError("Invalid -minblock1time (expected a unix time from 0 to 4294967295, the range of a block header's nTime)");
         }
         UpdateRegtestMinBlock1Time(nMinBlock1Time);
     }

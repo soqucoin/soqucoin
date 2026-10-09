@@ -7305,6 +7305,17 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         }
     }
 
+    // Block-1 launch time gate (Consensus::Params::nMinBlock1Time; mainnet
+    // 2026-10-13T15:00:00Z, bead w3y1). A function of the block's own nTime and
+    // a constant, not of this node's clock, so a block that fails it is invalid
+    // everywhere and for ever: DoS 100, as for bad-diffbits. Checked before the
+    // two timestamp rules below: time-too-new reads this node's clock and both
+    // carry DoS 0, so a block 1 timed before the gate must meet this rule first
+    // to draw the same reject and the same penalty on every node.
+    if (nHeight == 1 && consensusParams.nMinBlock1Time > 0 && block.GetBlockTime() < consensusParams.nMinBlock1Time)
+        return state.DoS(100, false, REJECT_INVALID, "block1-before-launch", false,
+            strprintf("block 1 timed %d is before the launch time %d", block.GetBlockTime(), consensusParams.nMinBlock1Time));
+
     // Check timestamp against prev
     if (block.GetBlockTime() <= pindexPrev->GetMedianTimePast())
         return state.Invalid(false, REJECT_INVALID, "time-too-old", "block's timestamp is too early");
@@ -7312,14 +7323,6 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     // Check timestamp
     if (block.GetBlockTime() > nAdjustedTime + 2 * 60 * 60)
         return state.Invalid(false, REJECT_INVALID, "time-too-new", "block timestamp too far in the future");
-
-    // Block-1 launch time gate (Consensus::Params::nMinBlock1Time; mainnet
-    // 2026-10-13T15:00:00Z, bead w3y1). A function of the block's own nTime and
-    // a constant, not of this node's clock, so a block that fails it is invalid
-    // everywhere and for ever: DoS 100, as for bad-diffbits.
-    if (nHeight == 1 && consensusParams.nMinBlock1Time > 0 && block.GetBlockTime() < consensusParams.nMinBlock1Time)
-        return state.DoS(100, false, REJECT_INVALID, "block1-before-launch", false,
-            strprintf("block 1 timed %d is before the launch time %d", block.GetBlockTime(), consensusParams.nMinBlock1Time));
 
     // Reject outdated version blocks when 95% (75% on testnet) of the network has upgraded:
     // check for version 2, 3 and 4 upgrades

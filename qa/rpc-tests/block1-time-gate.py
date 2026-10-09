@@ -12,13 +12,17 @@
 # a block 1 timed before the gate arriving from a peer that has no gate (refused
 # with DoS 100, so the peer is dropped; a loopback peer is never banned, only
 # disconnected), the gated node mining its own block 1 once its clock reaches
-# the gate, and height 2 carrying no gate.
+# the gate, height 2 carrying no gate, and the option's bound at the 32-bit
+# nTime maximum.
 #
 
 import os
 import time
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import *
+from test_framework.util import (assert_equal, assert_raises_jsonrpc,
+                                 connect_nodes_bi, initialize_datadir,
+                                 soqucoind_processes, start_node, start_nodes,
+                                 stop_node)
 
 # The mainnet constant; any value above the regtest genesis time would do.
 GATE = 1791903600
@@ -30,7 +34,7 @@ class Block1TimeGateTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 2
 
-    def setup_network(self):
+    def setup_network(self, split=False):
         self.is_network_split = False
         # Node 0 carries the gate. Node 1 has none: a peer on a binary without
         # the rule, or a rival chain built on the published genesis.
@@ -82,6 +86,24 @@ class Block1TimeGateTest(BitcoinTestFramework):
         gated.setmocktime(GATE + 1)
         gated.generate(1)
         assert_equal(gated.getblockcount(), 2)
+
+        # 5. The regtest option is bounded to a block header's 32-bit nTime: the
+        #    largest value starts a node and is formatted on its startup line;
+        #    one more refuses to start. That refusal happens before the log
+        #    opens, so the exit status is the proof.
+        initialize_datadir(self.options.tmpdir, 2)
+        node2 = start_node(2, self.options.tmpdir, ["-minblock1time=4294967295"])
+        stop_node(node2, 2)
+        assert "Block 1 time gate: nTime >= 4294967295 (2106-02-07T06:28:15Z)" in self.debug_log(2)
+        node2 = None
+        try:
+            node2 = start_node(2, self.options.tmpdir, ["-minblock1time=4294967296"])
+        except Exception as e:
+            assert "exited with status 1 during initialization" in str(e), str(e)
+            del soqucoind_processes[2]
+        if node2 is not None:
+            stop_node(node2, 2)
+            raise AssertionError("a node started with -minblock1time above the nTime range")
 
 
 if __name__ == '__main__':

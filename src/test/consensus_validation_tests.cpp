@@ -331,15 +331,41 @@ BOOST_AUTO_TEST_CASE(block1_time_gate)
     BOOST_REQUIRE(tmpl != nullptr);
     BOOST_CHECK(tmpl->block.GetBlockTime() >= kGate);
 
-    // The check itself, one second either side, with its reject string.
+    // The check itself, one second either side, with its reject string and
+    // its DoS score.
     CBlockHeader hdr = tmpl->block.GetBlockHeader();
     hdr.nTime = kGate - 1;
     CValidationState early;
+    int nDoS = 0;
     BOOST_CHECK(!ContextualCheckBlockHeader(hdr, early, chainActive.Tip(), kGate));
     BOOST_CHECK_EQUAL(early.GetRejectReason(), "block1-before-launch");
+    BOOST_CHECK(early.IsInvalid(nDoS));
+    BOOST_CHECK_EQUAL(nDoS, 100);
     hdr.nTime = kGate;
     CValidationState onTime;
     BOOST_CHECK(ContextualCheckBlockHeader(hdr, onTime, chainActive.Tip(), kGate));
+
+    // The gate is checked before the two generic timestamp rules, so the
+    // result never depends on the node's clock: a block 1 timed before the
+    // gate draws block1-before-launch (DoS 100) when it is also more than two
+    // hours ahead of the node's clock, where time-too-new (DoS 0) would
+    // otherwise answer, and when it is timed at the median time past of
+    // genesis, where time-too-old (DoS 0) would.
+    hdr.nTime = kGate - 1;
+    CValidationState farAhead;
+    nDoS = 0;
+    BOOST_CHECK(!ContextualCheckBlockHeader(hdr, farAhead, chainActive.Tip(), kGate - 3 * 60 * 60));
+    BOOST_CHECK_EQUAL(farAhead.GetRejectReason(), "block1-before-launch");
+    BOOST_CHECK(farAhead.IsInvalid(nDoS));
+    BOOST_CHECK_EQUAL(nDoS, 100);
+    hdr.nTime = (uint32_t)chainActive.Tip()->GetMedianTimePast();
+    BOOST_REQUIRE(hdr.nTime < kGate);
+    CValidationState tooOld;
+    nDoS = 0;
+    BOOST_CHECK(!ContextualCheckBlockHeader(hdr, tooOld, chainActive.Tip(), kGate));
+    BOOST_CHECK_EQUAL(tooOld.GetRejectReason(), "block1-before-launch");
+    BOOST_CHECK(tooOld.IsInvalid(nDoS));
+    BOOST_CHECK_EQUAL(nDoS, 100);
 
     // Height 2 carries no gate: connect block 1, raise the regtest gate above
     // block 2's time, and block 2's header still passes.
