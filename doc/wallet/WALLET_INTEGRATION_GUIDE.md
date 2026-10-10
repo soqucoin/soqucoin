@@ -114,11 +114,11 @@ ar -t src/libsoqucoin_wallet.a | grep pqwallet
 
 | Command | Description |
 |---------|-------------|
-| `pqvalidateaddress` | Validate an address as `validateaddress` does; `pubkey_hash` is the witness program |
+| `pqvalidateaddress` | Valid only for a bech32m witness version 1 address with a 32-byte program for this node's network (`rpc_pqwallet.cpp`); `pubkey_hash` is the witness program |
 | `pqestimatefeerate` | Estimate verification cost |
 | `pqwalletinfo` | Get wallet library info |
 
-`pqgetnewaddress` is removed in 2.5.1; it kept no key. A node wallet address comes from `getnewaddress`, and `validateaddress` checks an address against the node's network and address rules.
+`pqgetnewaddress` is removed in 2.5.1; it kept no key. A node wallet address comes from `getnewaddress`. `validateaddress` is wider than `pqvalidateaddress`: it also reports a legacy Base58 address with this network's version byte as `"isvalid": true`, without `isdilithium` or `witness_version` (`src/rpc/misc.cpp`), although the chain cannot spend an output to one. Treat the two RPCs as different contracts: with `validateaddress`, require `isvalid`, `isdilithium` and `witness_version` 1 together.
 
 ### Examples
 
@@ -272,7 +272,7 @@ From 2.5.1 `encryptwallet` encrypts the wallet's ML-DSA-44 keys: AES-256-CBC, wi
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-01-06 | Initial release |
-| 1.1 | 2026-10-10 | Exchange path through the SDK; address format is witness version 1; `pqgetnewaddress` removed in 2.5.1 and `getnewaddress` in its place; `pqvalidateaddress` agrees with `validateaddress`; wallet encryption and the key export round trip from 2.5.1; backup with `backupwallet` |
+| 1.1 | 2026-10-10 | Exchange path through the SDK; address format is witness version 1; `pqgetnewaddress` removed in 2.5.1 and `getnewaddress` in its place; `pqvalidateaddress` accepts only the witness version 1 form and `validateaddress` also reports legacy Base58 as valid; wallet encryption and the key export round trip from 2.5.1; backup with `backupwallet` |
 
 ---
 

@@ -156,13 +156,13 @@ Derive one deposit address per customer in your own key store with the SDK, as d
 
 ### 3.2 Address Validation
 
-Validate every address before you use it, with the SDK's `address.Decode` or the node's `validateaddress`. Both accept only a witness version 1 address for the node's network.
+Validate every address before you use it. The SDK's `address.Decode` accepts only a bech32m witness version 1 address with a 32-byte program for the network's prefix (`address/bech32m.go`). The node's `validateaddress` is wider: it first tries the legacy Base58 forms and reports a network-valid one as `"isvalid": true` without `isdilithium` or `witness_version` (`src/rpc/misc.cpp`), although nothing on this chain can spend an output to such an address and the relay refuses one (section 5). So when you use the node, accept an address only when all three fields are present and true; or use `pqvalidateaddress`, which accepts only the witness version 1 form (`src/wallet/pqwallet/rpc_pqwallet.cpp`).
 
 ```bash
 soqucoin-cli validateaddress "sq1p..."
 ```
 
-For a valid address the response includes `"isvalid": true`, `"isdilithium": true` and `"witness_version": 1`. For anything else `isvalid` is `false` and is the only field.
+Accept the address only when the response carries `"isvalid": true`, `"isdilithium": true` and `"witness_version": 1` together. A legacy Base58 address with this network's version byte answers `"isvalid": true` and nothing else of the three; treat that as invalid. A malformed address answers `"isvalid": false`, which is then the only field.
 
 ### 3.3 Monitoring Deposits
 
@@ -296,7 +296,7 @@ soqucoin-cli getblockchaininfo | jq '.chainid'
 
 | Command | Description |
 |---------|-------------|
-| `pqvalidateaddress <addr>` | As `validateaddress`; `pubkey_hash` is the witness program |
+| `pqvalidateaddress <addr>` | Valid only for a bech32m witness version 1 address with a 32-byte program for this node's network; narrower than `validateaddress`, which also reports legacy Base58 as valid (section 3.2). `pubkey_hash` is the witness program |
 | `pqwalletinfo` | Wallet configuration |
 | `pqestimatefeerate [ins] [outs]` | Fee estimation |
 

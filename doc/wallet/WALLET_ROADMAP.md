@@ -25,7 +25,9 @@ Soqucoin's post-quantum wallet is built on Dilithium (ML-DSA-44) signatures with
 
 ## Planned Features
 
-### Near-Term (Q1-Q2 2026)
+None of the features below ships in 2.5.1 (`doc/release-notes/release-notes-2.5.1.md` lists what does), and none has a scheduled release. Version 1.0 placed them in quarters of 2026; those periods have passed without the features shipping, so the quarter labels are withdrawn and the lists below keep only the intended order.
+
+### Next
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
@@ -34,7 +36,7 @@ Soqucoin's post-quantum wallet is built on Dilithium (ML-DSA-44) signatures with
 | Coin Selection | 🟠 Medium | BnB + FIFO algorithms |
 | PSBT Support | 🟠 Medium | Hardware wallet interoperability |
 
-### Medium-Term (Q3-Q4 2026)
+### After that
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
@@ -43,7 +45,7 @@ Soqucoin's post-quantum wallet is built on Dilithium (ML-DSA-44) signatures with
 | Privacy Features | 🟠 Medium | Stealth addresses (Stage 3) |
 | Multisig | 🟡 Future | FROST-based PQ multisig |
 
-### Long-Term (2027+)
+### Research
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
