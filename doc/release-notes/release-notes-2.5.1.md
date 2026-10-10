@@ -116,6 +116,19 @@ and expanded through the seeded key generation. `signrawtransaction` and
 the witness they built was discarded on the way out and every such input failed
 verification.
 
+### The key derivation library refuses a seed shorter than 32 bytes
+
+`DeriveKeyMaterial`, `DeriveBlindingFactor` and `DeriveChannelKey` throw
+`std::invalid_argument` for a seed shorter than 32 bytes, and
+`PQKeyPair::DeriveFromSeed` returns `nullptr` for one; before, each returned an
+all-zero key. The wallet refuses such a seed before it derives anything, so the
+node never reached that path, and a node run with `disablewallet=1` is
+unaffected. Derivation for a seed of 32 bytes or more is unchanged byte for
+byte. The blinding-factor vectors in `doc/wallet/WALLET_TEST_VECTORS.md` are
+regenerated from `pqderive-test --json-vectors`: the published values dated
+from before the March 2026 change to the output-index encoding and did not
+match the library's output.
+
 Policy
 ------
 
