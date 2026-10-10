@@ -8,6 +8,7 @@
 
 #include <cstring>
 #include <sstream>
+#include <stdexcept>
 
 // Dilithium seed keypair function
 extern "C" int pqcrystals_dilithium2_ref_seed_keypair(uint8_t* pk, uint8_t* sk, const uint8_t* seed);
@@ -181,15 +182,23 @@ std::vector<uint8_t> PathToBytes(const DerivationPath& path)
 // Key derivation functions
 //=============================================================================
 
+/** Every derivation starts here: a seed shorter than MIN_SEED_BYTES derives
+ *  nothing. The throw happens before any secret is read or written. */
+static void RequireSeed(const SecureBytes& masterSeed)
+{
+    if (masterSeed.size() < MIN_SEED_BYTES) {
+        throw std::invalid_argument("pqderive: the seed is shorter than the minimum of " +
+                                    std::to_string(MIN_SEED_BYTES) + " bytes; no key is derived");
+    }
+}
+
 std::array<uint8_t, 32> DeriveKeyMaterial(
     const SecureBytes& masterSeed,
     const DerivationPath& path,
     const std::string& domain,
     uint8_t retry)
 {
-    if (masterSeed.size() < 32) {
-        return {};
-    }
+    RequireSeed(masterSeed);
 
     // Salt = SHA-256(master_seed)
     // SECURITY NOTE (Halborn FIND-018): Named SHA-256 object for cleanse
@@ -229,9 +238,7 @@ std::array<uint8_t, 32> DeriveBlindingFactor(
     // and n + 2^32 produced identical blinding factors, breaking transaction
     // graph privacy. Now encodes full 64-bit index as 8 big-endian bytes
     // directly into the HKDF info string, bypassing DerivationPath entirely.
-    if (masterSeed.size() < 32) {
-        return {};
-    }
+    RequireSeed(masterSeed);
 
     // Salt = SHA-256(master_seed)
     // SECURITY NOTE (Halborn FIND-018): Named SHA-256 object for cleanse
@@ -271,9 +278,7 @@ std::array<uint8_t, 32> DeriveChannelKey(
     const std::string& keyType,
     uint32_t index)
 {
-    if (masterSeed.size() < 32) {
-        return {};
-    }
+    RequireSeed(masterSeed);
 
     // Construct domain: "soqucoin-v1/channel/{id}/{type}/{n}"
     std::string domain = DOMAIN_CHANNEL + "/" + channelId + "/" + keyType;
@@ -312,6 +317,12 @@ std::unique_ptr<PQKeyPair> PQKeyPair::DeriveFromSeed(
     const SecureBytes& seed,
     const DerivationPath& path)
 {
+    // The documented failure value for a seed the derivation functions refuse;
+    // checked here so the wallet's path never reaches their throw.
+    if (seed.size() < MIN_SEED_BYTES) {
+        return nullptr;
+    }
+
     auto keypair = std::make_unique<PQKeyPair>();
 
     // Get internal access for initialization

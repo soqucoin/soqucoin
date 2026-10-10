@@ -215,6 +215,7 @@ BITCOIN_TESTS += \
   wallet/test/accounting_tests.cpp \
   wallet/test/wallet_tests.cpp \
   wallet/test/crypto_tests.cpp \
+  wallet/test/pqderive_seed_tests.cpp \
   wallet/test/pqwallet_rpc_tests.cpp
 endif
 
