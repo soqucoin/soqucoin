@@ -18,8 +18,8 @@ rpcpassword=<choose>
 
 A fresh node finds peers through the stagenet seed (`stagenet.soqu.org`), downloads headers, then
 blocks, and reports `initialblockdownload` false once it reaches the tip. On a fast connection the
-first sync takes a few minutes. Stagenet addresses start with `ssq` (`ssq1`, `ssqp1` or `ssqsh1` by
-type; the mainnet forms start with `sq`). Both the 2.5.0 release and the mainnet release (2.5.1) run
+first sync takes a few minutes. Stagenet addresses start with `ssq1p` and mainnet addresses with `sq1p`:
+one address type, bech32m witness version 1. Both the 2.5.0 release and the mainnet release (2.5.1) run
 stagenet.
 
 ```bash
