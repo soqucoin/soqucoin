@@ -756,8 +756,21 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // absorb 0 there), and on mainnet that word is 1791903600 at every sampled
     // h (the rule change). The arming commit re-pins again, as the 2026-08-29
     // entry predicted.
+    //
+    // Moved from 04c245de... on 2026-10-10 when the genesis migration was armed on mainnet:
+    // the single ArmMigration call in CMainParams (the 2.5.1 release). A RULE
+    // change on mainnet only, made deliberately. The absorbed inputs that move,
+    // and only these: mainnet GetConsensus(h).hashMigrationOutputs,
+    // nMigrationTotal and nMigrationHeight for every sampled h (0 and 1 alike,
+    // since ArmMigrationTiers writes every tier), from null, 0 and 0 to
+    // 4db916bf087e83351afa508ac1993718c602a84aca7cd2dba50d8df50c4789d6,
+    // 32862741293540900 and 1. Nothing else in the diff of record touches a
+    // Consensus::Params field, and migration_arming_tests asserts that stagenet,
+    // testnet and regtest are still inert on every sampled tier with no vector
+    // compiled in, so their absorbed words are unchanged. The version bump is not
+    // a consensus input.
     const std::string expected =
-        "04c245de4b073695087d76a3f68e8ed3f384630172b5e80fc085193e478db893";
+        "bdc9cff6dc20879ef59d099766a9cfb06c35bbec5b8c2ad397c907a836dc7520";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +

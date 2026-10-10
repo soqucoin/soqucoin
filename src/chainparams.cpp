@@ -541,22 +541,95 @@ public:
         assert(consensus.hashGenesisBlock == uint256S("0x0d828600816cbd7c23789660b53f90cb6ec7ff85540698e13845eb2d2f0486a8"));
         assert(genesis.hashMerkleRoot == uint256S("0x8c4364d66ab67d746ddf1c5e0a316da5af9bbf7dc27bdd02e06ea77aec88ed28"));
 
-        // Genesis-migration allocation constants (DL-GENESIS-MIGRATION-IMPLEMENTATION §A1).
-        // Deliberately NOT set here: hashMigrationOutputs stays null, nMigrationTotal 0,
-        // nMigrationHeight 0, so the rule is inert. If a migration window is ever run,
-        // the ceremony arms the rule, at height 1 in the launch release, with ONE call:
-        //
-        //     ArmMigration(uint256S("<hash_migration_outputs>"), <n_migration_total>, <H>,
-        //                  { CTxOut(...), ... });   // the published outputs.hex, in order
-        //
+        // Genesis-migration allocation constants (DL-GENESIS-MIGRATION-IMPLEMENTATION §A1),
+        // armed at height 1. The coinbase of block 1 must carry these 70 outputs as
+        // vout[1..70], in this order, after the miner's output and before any trailing
+        // block-commitment output (ConnectBlock, the migration block): their serialization
+        // must hash to hashMigrationOutputs and their values sum to nMigrationTotal, or the
+        // block is invalid on every node. The vector is the published final set of the
+        // pSOQ to SOQ migration window (soqucoin.org/migration/list/final/: outputs.hex,
+        // sha256 6c0f6480a6d3797e9e5e3745b6922332a053f1d2268a9d418b8551f273610ce6, and
+        // commitment.txt, which carries the hash and the total), decoded output by output.
+        // ArmMigration asserts the hash and the sum against the vector at construction, so
+        // a binary built from a mistranscribed vector does not start.
         // Never assign consensus.hashMigrationOutputs here directly: the tier copies ran
         // above, so a value written to `consensus` alone never reaches auxpowConsensus,
         // the tier that validates every height >= 1 (bead ldbr; the helper walks the
         // tier tree from pConsensusRoot, so on mainnet it writes `consensus` and
-        // auxpowConsensus, and ArmMigration asserts the vector against the constants).
-        // Struct defaults propagate into digishieldConsensus and auxpowConsensus via
-        // the copies above, which is why the inert state needs no call.
-        // Procedure: doc/GENESIS_CEREMONY.md.
+        // auxpowConsensus). Procedure: doc/GENESIS_CEREMONY.md.
+        ArmMigration(uint256S("4db916bf087e83351afa508ac1993718c602a84aca7cd2dba50d8df50c4789d6"), 32862741293540900, 1,
+                     {
+                      CTxOut(66221356920500, CScript() << OP_1 << ParseHex("573939c60b32ffd776709e2449194935fee7f98395a9cfcb2bb3decbd9d24f72")),
+                      CTxOut(518229504042700, CScript() << OP_1 << ParseHex("538c2ae6c12d37f0232fe9863d23dbb00afd75f71a319bf68672e0d8249b7f31")),
+                      CTxOut(1750000000000000, CScript() << OP_1 << ParseHex("88480e8e4fa0f03e6cc5ae64aaa51b6d279fd25be77ec980f572f82d97d0b6a1")),
+                      CTxOut(209958818928100, CScript() << OP_1 << ParseHex("8c137250f6acb3996f803ccc476d1f2bfb21ded76bddfbdda82946b4b4873f23")),
+                      CTxOut(599713536721700, CScript() << OP_1 << ParseHex("a8be682d21fb1379233b6256c3dbb7b8175e24f19767a57e6724f57d8353dcf5")),
+                      CTxOut(160174315856400, CScript() << OP_1 << ParseHex("a4444c886c33b8b434efcd3455d38738fd47886d6c58f621082c6eef78ff8996")),
+                      CTxOut(36673210048300, CScript() << OP_1 << ParseHex("a2305571f31fd8991cb4dfa69ce6f079cc065f3189912a156c3eb8c96523151e")),
+                      CTxOut(300000000000000, CScript() << OP_1 << ParseHex("a207cfe24d81be24fc9149e742cccb096370e13a9fcd29b77a8d777ee49c4c9f")),
+                      CTxOut(2706100000000, CScript() << OP_1 << ParseHex("a0c67f09781940ae5d44040a61b32f0ba01d774e730c45389c00dcba96095198")),
+                      CTxOut(10200000000, CScript() << OP_1 << ParseHex("a1283dbedef4a10047b07ee756b7a0703e88874219e266c9cb7f8f4929014772")),
+                      CTxOut(1540245302801700, CScript() << OP_1 << ParseHex("d2b973ca9c183d636da8daeb77942f14076491ee12d80a358865d7cbbec2a165")),
+                      CTxOut(888800000000, CScript() << OP_1 << ParseHex("d63ece0066ab05beabd2ef367356db97a8c949894b0cad46f726449e5078fe28")),
+                      CTxOut(300000100000000, CScript() << OP_1 << ParseHex("d2fe52fe0a1f42e7d1ca0a78b57b096540cb5671bd2cebea17857201fd42eede")),
+                      CTxOut(1900000000000000, CScript() << OP_1 << ParseHex("f0f1c09fd7ec4a3923d3be31807b5d12c004d12d0058eeaf6479a65ca11ba205")),
+                      CTxOut(368514835596500, CScript() << OP_1 << ParseHex("f3b4559bb5b2d89b45f9e7c1c408f730fc1d4777d9efcabba81f4e48c0e2fbf4")),
+                      CTxOut(79127216841600, CScript() << OP_1 << ParseHex("f3b918c76575ec2b9ad8fceb487d0eb1fa04c4d26b5f9edd9d2d3c2bacc59bfb")),
+                      CTxOut(93090048384600, CScript() << OP_1 << ParseHex("f1185b05d463812798ff453928f1b83232838c746a03580fc5c67ec47147cf01")),
+                      CTxOut(12827605725000, CScript() << OP_1 << ParseHex("2c6fedbbdf576f27c33bde39f2df0554fc78dd18eff287f19145fe437d0764b8")),
+                      CTxOut(50137587436800, CScript() << OP_1 << ParseHex("292f03b3fc9e4738b2da22271487cff019d1b00018e367ce6692530779f64ba1")),
+                      CTxOut(25058880885600, CScript() << OP_1 << ParseHex("efb7e13af4651cd5526d2761241f90269d2bf3f5989313fe199fd5ccfac1f1ca")),
+                      CTxOut(90000100000000, CScript() << OP_1 << ParseHex("e9d1153ba1b14be1615fea2269368c86d83b883c70391e18c00dac1b5973bf11")),
+                      CTxOut(3311700404738100, CScript() << OP_1 << ParseHex("eb6aec5c3fbb2fd6c69a693bf640c5455582fd876c0c384a10fbbb7dc69385e3")),
+                      CTxOut(102509425508600, CScript() << OP_1 << ParseHex("eaf8013ec6ac7bc7101570c9bf52892e8ebd20162fc9416b80ea94af67e192bb")),
+                      CTxOut(354245800000000, CScript() << OP_1 << ParseHex("c3e7f036f84a8536f95a42ab3fbe08d432a0bd876e24df5c0214e7374820a7e5")),
+                      CTxOut(55789594960500, CScript() << OP_1 << ParseHex("c76cf8c2209c4ca015d73cf3b02a06a3b9357a9e7b28001c7c8814227e0350d2")),
+                      CTxOut(203205865227800, CScript() << OP_1 << ParseHex("c3584c85cf059a5fe428451c120f79c567a33b709ed0fd0fd062c866ccaab0a0")),
+                      CTxOut(100000100000000, CScript() << OP_1 << ParseHex("c5c4bc0b7cd18a0db73cb38ed653837327e6bcfbd6d9113b41a827388fa8ed5b")),
+                      CTxOut(288388800000000, CScript() << OP_1 << ParseHex("6b470eead4163d191e14b6c22749568ddddbfba69bb843ecd4af995e3894d8d8")),
+                      CTxOut(400000000000000, CScript() << OP_1 << ParseHex("cfbed412f466f713c21277aa39ff07d1dcfe3eae99d224662d4f821e3293f6a3")),
+                      CTxOut(834584962599000, CScript() << OP_1 << ParseHex("4cf73c825bf88062fc03d023b5805a52202cf45ed2237a171d4bfa014584a437")),
+                      CTxOut(1500000000000000, CScript() << OP_1 << ParseHex("4856545bf2790c4ed33e9124c74a6ea8585c44a9d065787bb660fc9985495e6a")),
+                      CTxOut(193779249719700, CScript() << OP_1 << ParseHex("457a162d9f38b32cf9eee8f0158e9637273e9525ef82b0ec5a615dac5951514d")),
+                      CTxOut(100000000, CScript() << OP_1 << ParseHex("4486815812b838966c8b256d5cba25921659d249ad37108bda20d4408992b699")),
+                      CTxOut(111790261375000, CScript() << OP_1 << ParseHex("40c0ed8b9631022327944301c179ed65c838b1816653704c454fee908c2df158")),
+                      CTxOut(23885840668700, CScript() << OP_1 << ParseHex("bb54e1f9b7a7c8740131fcaa1f215a7b7303511fb6dfdcdb725c357219ddd320")),
+                      CTxOut(22035500000000, CScript() << OP_1 << ParseHex("b89bf94cf8341606c0e33c31bac46087de7047e92f9e33228c57bc4677e1b6a8")),
+                      CTxOut(8011937527800, CScript() << OP_1 << ParseHex("920857894d67076786948e9303a87229b0c250932f6bedaf918c270e3b74c6bf")),
+                      CTxOut(1054353971504500, CScript() << OP_1 << ParseHex("943ed2f1013578aad3b204f760e9bea72b3a78d793bc3d3323fe6ec0f35e83fa")),
+                      CTxOut(15032369063700, CScript() << OP_1 << ParseHex("b512922f59630daae2baacbbb818d5c86bb94d66fd4ef83df6c83513dbff13b1")),
+                      CTxOut(300033554541200, CScript() << OP_1 << ParseHex("b0634e0d6615cad16fc01727227311c647081beef19c702b3d017aafba82bcff")),
+                      CTxOut(100000000, CScript() << OP_1 << ParseHex("f938d258b347561f647eed9c2b67f2a9afc57a49f0a223c1dcb9e4be166ed5c5")),
+                      CTxOut(387372135875200, CScript() << OP_1 << ParseHex("d8ab15803c21766b3ee495ad475ef91d73bfce860b80fb3d6297d47e72301bd8")),
+                      CTxOut(810000100000000, CScript() << OP_1 << ParseHex("9d728524fa2d91bea0c07ce6418d2838725407fffc5e6a7a3d3db2a653604702")),
+                      CTxOut(89335651373500, CScript() << OP_1 << ParseHex("9d3c2741c678474372849391c65401b6e01b04bd0c9b4da7d0e39fbac60ccb1e")),
+                      CTxOut(913693577172000, CScript() << OP_1 << ParseHex("0952d136f8e34c591c11d520c024ce755a0bcbef427de5f5aa5c9f3d9f7b7eb8")),
+                      CTxOut(1000100000000, CScript() << OP_1 << ParseHex("0e6412d54036b4e55426fcd630311ce508236df86dcd1893011f1635d3518d8d")),
+                      CTxOut(271559870233700, CScript() << OP_1 << ParseHex("0acda2eca36cbfca8be00718795fb391ae2e4c9ddb00bba52cc4c3b1abc6738d")),
+                      CTxOut(357564303672000, CScript() << OP_1 << ParseHex("069768e85b3af6ed956e6e663e7ddb101006da03a84a29722801b79f5f2869c8")),
+                      CTxOut(100000000000, CScript() << OP_1 << ParseHex("0079f36598d1fc9812160da88bc08fa65a7f1a8c8db5dc7ad53ddab8da944321")),
+                      CTxOut(82504009097000, CScript() << OP_1 << ParseHex("07019f5fadbcc6836efbd5868b27dcd2d0892ded6e2308a3c5cf7490d462e7d6")),
+                      CTxOut(4536400000000, CScript() << OP_1 << ParseHex("1d1bb6bc836fe00ffaf2ec9e5816d1bad82991fcb030178409a3e839036c2dbf")),
+                      CTxOut(1427542700482900, CScript() << OP_1 << ParseHex("87fbea7717b7d2e19c52da09975dde7738191f4589d86ff2f5c1f5dee56f0b9d")),
+                      CTxOut(111268706748200, CScript() << OP_1 << ParseHex("807bc223a1692e35354026b6ddedad05aa58a15bd9e97f1c6a11d89a8c68c431")),
+                      CTxOut(500000021255700, CScript() << OP_1 << ParseHex("80160110147ed7b4d5aac8d0e1753565951c6fadce97b2b9f244a94b6162c2a2")),
+                      CTxOut(1700089908132200, CScript() << OP_1 << ParseHex("809948390aec6e457ee739c1a8896bbe4e81786dca29edaef3a01048e9349be7")),
+                      CTxOut(10600200000000, CScript() << OP_1 << ParseHex("5e42c43649252e28a72272d20619301c64d439ba6bf0e4e7c6dee8dd6956d7f5")),
+                      CTxOut(5007728598200, CScript() << OP_1 << ParseHex("5f2d23b8ecbb050b51bb634216a4f2fa0addce0e24ea4643b8f0d0c382f47402")),
+                      CTxOut(52142100000000, CScript() << OP_1 << ParseHex("e257427c20e11c82c611d8912af2a5a628945c00a4a43c8a5e725c23386b73ce")),
+                      CTxOut(38031000727300, CScript() << OP_1 << ParseHex("e2e6275f5685fd96bfde53d673ba9c2914bcb03533b896be6ae1e59b1065d775")),
+                      CTxOut(112211222121100, CScript() << OP_1 << ParseHex("e39283450909cb26c71dc3cc177ca9c0250eb428a94d180642e576c79708c1ca")),
+                      CTxOut(134497540128400, CScript() << OP_1 << ParseHex("657dd11704cae336ec629b08b2defe33b3fb77ca29e899ad6409534fd51165dd")),
+                      CTxOut(14285497847700, CScript() << OP_1 << ParseHex("66e24135aab53fc3f9fec0f476660aa42ed15a3902a07f25227461e0f248a799")),
+                      CTxOut(2500003100000000, CScript() << OP_1 << ParseHex("760f06e525f9d724b2cdbe813c83e1a44cdea9c4e8354004c27583fee1458723")),
+                      CTxOut(4203859004936900, CScript() << OP_1 << ParseHex("72e1bffdb7e2a21a39655819ab837413f476eb7db3933fff9cc4d82609ed24e5")),
+                      CTxOut(80237792387900, CScript() << OP_1 << ParseHex("3463b90d7e9fc3355153e4b5770deb048834329b61af83bd19ae15bb4f80d7d5")),
+                      CTxOut(221025435894300, CScript() << OP_1 << ParseHex("370641425376119cfb502f5383f61aa0001717f9bff7e4e1f5ff73ead9ecb119")),
+                      CTxOut(100890665206000, CScript() << OP_1 << ParseHex("33bc16a58f8ce5c32379a760e17622df58eb9eeee3ce2fad6911c388a9fc1e0c")),
+                      CTxOut(407540293302200, CScript() << OP_1 << ParseHex("22b0254d02cb798a1cb0e0b25669c69aef9a952decee15e1e9d5c8f209569657")),
+                      CTxOut(1148269628701800, CScript() << OP_1 << ParseHex("223213c65b540bfcff2643c4789e8273e88111dbe85a3a88bbcf7ea8bd940ba9")),
+                      CTxOut(194647242022600, CScript() << OP_1 << ParseHex("115635d4c7be3239d8b0a2fc9b57eca815c4daa8b34615bcb3e3a36c1e750854"))
+                     });
 
         // SOQ-H3: Lattice-BP++ consensus seed — derived from genesis hash
         consensus.latticeBPSeed = ComputeSoquObscuraSeed(

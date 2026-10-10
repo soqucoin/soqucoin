@@ -114,19 +114,36 @@ rather than leaving it for a diff to reveal.
 
 ## 5. Emission and launch
 
-There is no premine, ICO, founder allocation, or treasury output anywhere
-in the subsidy code: `GetSoqucoinBlockSubsidy` (src/soqucoin.cpp, the
-schedule block near lines 147-158) pays 100,000 SOQ per block from height
-1, halving every 250,000 blocks through 4 halvings (head supply about
-46.875B: 25B + 12.5B + 6.25B + 3.125B), then a perpetual 2,500 SOQ tail.
+The subsidy code has no premine, ICO, founder allocation, or treasury
+output: `GetSoqucoinBlockSubsidy` (src/soqucoin.cpp, the schedule block
+near lines 147-158) pays 100,000 SOQ per block from height 1, halving
+every 250,000 blocks through 4 halvings (head supply about 46.875B: 25B +
+12.5B + 6.25B + 3.125B), then a perpetual 2,500 SOQ tail.
+
+Block 1 of mainnet carries one allocation outside the subsidy: the genesis
+migration, the result of the one-time pSOQ to SOQ migration window of 29
+September to 5 October 2026. Its 70 outputs, their total of
+32,862,741,293,540,900 sats (328,627,412.935409 SOQ) and the hash of the
+vector are compiled into `CMainParams` through the `ArmMigration` call
+beside the genesis pins (src/chainparams.cpp), and `ConnectBlock`
+(src/validation.cpp, the migration block) rejects a block 1 whose coinbase
+does not carry exactly those outputs. The outputs pay the destinations the
+eligible burns named, less the exclusions the published mapping lists
+(`contrib/genesis-migration/SPEC.md`; the published lists it reads are beside
+it, and the sanctions extract is published with the set), and the published
+set the call was transcribed from is at soqucoin.org/migration. The rule is inert on
+stagenet, testnet and regtest, and no other height carries an allocation
+(`src/test/migration_arming_tests.cpp` checks every network's height tiers;
+`migration_rule_tests.cpp` is the tamper matrix). Beyond block 1, every SOQ
+is mined.
 
 The uncomfortable arithmetic, stated here first: at the 60-second block
 cadence the first halving epoch lasts roughly 174 days and emits roughly 53
 percent of the head supply. Merge mining is enabled from height 0
-(chainparams.cpp:149-150), and the hardcoded DNS seeds resolve to
-project-operated infrastructure (chainparams.cpp:453-457). Early emission
+(chainparams.cpp:453), and the hardcoded DNS seeds resolve to
+project-operated infrastructure (chainparams.cpp:644-646). Early emission
 is steep and early mining concentration is a real possibility that the
-absence of a premine does not remove. Mitigation is operational, not
+subsidy's design does not remove. Mitigation is operational, not
 consensus: public launch announcement, open stratum access, and published
 difficulty data. Judge that plan on its execution.
 
