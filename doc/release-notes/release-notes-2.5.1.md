@@ -116,16 +116,15 @@ and expanded through the seeded key generation. `signrawtransaction` and
 the witness they built was discarded on the way out and every such input failed
 verification.
 
-### The key derivation library refuses a short BIP-39 seed
+### The key derivation library refuses a short master seed
 
 `DeriveKeyMaterial`, `DeriveBlindingFactor` and `DeriveChannelKey` throw
-`std::invalid_argument` for a BIP-39 derived seed shorter than `MIN_SEED_BYTES`
-(32 bytes), and `PQKeyPair::DeriveFromSeed` returns `nullptr` for one. Before,
-the three functions returned an all-zero array for such a seed and
-`DeriveFromSeed` expanded it into a key pair. The wallet refuses such a seed
-before it derives anything, so the node never reached that path, and a node
-run with `disablewallet=1` is unaffected. Derivation for a seed of 32 bytes or
-more is unchanged byte for byte.
+`std::invalid_argument` for a master seed shorter than `MIN_SEED_BYTES`
+(32 bytes; the BIP-39 seed of a mnemonic is 64), and `PQKeyPair::DeriveFromSeed`
+returns `nullptr` for one. Before, the three functions returned an all-zero
+array for such a seed and `DeriveFromSeed` expanded it into a key pair. No node
+code path calls these functions, with or without a wallet; the bound is for
+programs that use the library directly.
 
 Policy
 ------
@@ -165,10 +164,12 @@ Documentation and tests
   are in `contrib/genesis-migration/` (specification version 5).
 - A node-signed sighash vector for the SDK's fixtures; the repository's register
   check runs in CI; the macOS ARM64 CI job runs on macos-15.
-- `doc/wallet/WALLET_TEST_VECTORS.md` (version 1.2): the blinding-factor
+- `doc/wallet/WALLET_TEST_VECTORS.md` (version 1.2): the three blinding-factor
   vectors are regenerated from `pqderive-test --json-vectors`; the values
-  published before dated from before the March 2026 change to the output-index
-  encoding. The suite `pqderive_seed_tests` pins the seed bound and the vectors.
+  published since January 2026 came from the path-based index encoding replaced
+  in March 2026 and fail against the library. The domain-separation vector is
+  unchanged. The suite `pqderive_seed_tests` pins the seed bound and the three
+  regenerated blinding factors.
 
 Known limitations
 -----------------
