@@ -709,7 +709,7 @@ The cumulative column counts the subsidy. Block 1 adds the genesis migration bel
 | **Premine** | **NONE** | No coins exist before block 1 |
 | **Founder allocation** | **NONE** | No reserved tokens |
 | **Treasury** | **NONE** | No protocol treasury |
-| **Genesis migration** | 328,627,412.935409 SOQ at block 1 | One-time, to the destinations named by the pSOQ burns of the 29 September to 5 October 2026 window (`contrib/genesis-migration/SPEC.md`); 70 outputs compiled into `CMainParams` (`ArmMigration`, `src/chainparams.cpp`) and enforced by `ConnectBlock`; outside the subsidy |
+| **Genesis migration** | 328,627,412.935409 SOQ at block 1 | One-time, to the destinations the eligible pSOQ burns of the 29 September to 5 October 2026 window named, less the exclusions the specification lists (`contrib/genesis-migration/SPEC.md`); 70 outputs compiled into `CMainParams` (`ArmMigration`, `src/chainparams.cpp`) and enforced by `ConnectBlock`; outside the subsidy |
 | **Distribution** | Mining, plus the block 1 genesis migration | Every SOQ beyond the block 1 genesis migration is mined |
 
 > Beyond the genesis migration carried by block 1, all SOQ is distributed through proof-of-work mining. There is no premine, founder allocation, or treasury.

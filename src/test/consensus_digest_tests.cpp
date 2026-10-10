@@ -757,7 +757,7 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // h (the rule change). The arming commit re-pins again, as the 2026-08-29
     // entry predicted.
     //
-    // Moved from 04c245de... when the genesis migration was armed on mainnet:
+    // Moved from 04c245de... on 2026-10-10 when the genesis migration was armed on mainnet:
     // the single ArmMigration call in CMainParams (the 2.5.1 release). A RULE
     // change on mainnet only, made deliberately. The absorbed inputs that move,
     // and only these: mainnet GetConsensus(h).hashMigrationOutputs,

@@ -14,9 +14,9 @@ Upgrading
 ---------
 
 Stop the running daemon, replace the binary, start it. No reindex is required.
-Nodes run with `disablewallet=1`; there is no wallet data to back up. A mainnet
-node starts on a fresh data directory; stagenet, testnet and regtest data
-directories carry over.
+A node run with `disablewallet=1` has no wallet data to back up; a node with a
+wallet keeps its wallet file. A mainnet node starts on a fresh data directory;
+stagenet, testnet and regtest data directories carry over.
 
 Consensus, mainnet only
 -----------------------
@@ -76,7 +76,8 @@ times on mainnet inputs: from `e7ea83dc…` to `04c245de…` for the time gate, 
 from `04c245de…` to `bdc9cff6…` for the arming (the three migration
 fields at every sampled mainnet height, from null, 0 and 0 to the constants
 above). The pin's history paragraph records both moves. Testnet, stagenet and
-regtest inputs do not move.
+regtest rules do not move: the time-gate move absorbs a new word that is 0 on
+them, and the arming move touches mainnet's fields only.
 
 Wallet and RPC
 --------------
@@ -158,11 +159,13 @@ Known limitations
 -----------------
 
 - The Linux release artifact is built on Ubuntu 22.04 and does not load on
-  24.04 hosts (shared library versions). Fleet and exchange nodes build from the
-  tag until a portable artifact ships.
+  24.04 hosts (shared library versions). Node operators on other systems build
+  from the tag until a portable artifact ships.
 - Verification-cost budgeting for post-quantum signatures is defined but not
-  enforced; peer limits and ban thresholds are the launch mitigation. A fix is
-  planned for the first post-launch release.
+  enforced. The block weight limit and the sigop budget bound the verification
+  work a block can demand (about 1,025 ML-DSA-44 inputs a block); peer limits
+  and ban thresholds cover the rest. A fix is planned for the first post-launch
+  release.
 - The manual pages under `doc/man/` still describe an earlier release.
 
 Credits
