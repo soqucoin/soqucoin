@@ -89,9 +89,17 @@ The build defines `DILITHIUM_RANDOMIZED_SIGNING` (`config.h:5`). Each signature 
 `src/crypto/dilithium/randombytes.c` (`getrandom(2)` on Linux, `CryptGenRandom` on Windows, `/dev/urandom` on
 every other platform, `randombytes.c:20-79`; it aborts rather than continue without entropy) and
 `src/pat/randombytes.cpp:4-6`, which forwards to `GetStrongRandBytes` (section 5). Both are static-library
-members exporting the same symbol, so which one a binary runs is decided by link order (`pat/randombytes.cpp` is
-in `libsoqucoin_server`, `Makefile.am:229`, listed before `libsoqucoin_crypto` in `soqucoind_LDADD`,
-`Makefile.am:474-482`); either path aborts on failure. Then, per FIPS 204:
+members exporting the same symbol: `pat/randombytes.o` in `libsoqucoin_server` (`Makefile.am:229`), the first
+archive of `soqucoind_LDADD`, and the vendored object in `libsoqucoin_crypto`, the last (`Makefile.am:474-482`).
+The only reference to the symbol is `sign.o`, in that last archive; no member of `libsoqucoin_server` references
+it. Which definition a binary carries is therefore the linker's archive rule. GNU ld extracts a member only for a
+reference undefined when it scans the archive, and scans each archive once, so it passes over
+`pat/randombytes.o` and satisfies `sign.o` from the vendored member beside it: the Linux and Windows release
+binaries sign with the vendored source (`release.yml`; read in the v2.5.0 `linux-x64`, `linux-arm64` and
+`windows-x64` artifacts, where `randombytes` is the `getrandom` system-call loop or the `CryptGenRandom` loop).
+Apple's linker keeps every scanned archive's members available to later references, so the macOS binaries take
+`pat/randombytes.o` and sign through `GetStrongRandBytes` (read in the v2.5.0 `macos-arm64` artifact and a
+macOS build, where `randombytes` is a tail call into it). Either path aborts on failure. Then, per FIPS 204:
 
 ```
 pre  = 0x00 ‖ len(ctx) ‖ ctx                       sign.c:373-378
@@ -118,9 +126,10 @@ which consensus never calls (its callers are `core_write.cpp:98` and tests).
 
 The message is the BIP 143 signature hash (`interpreter.cpp:1311-1321`; witness version 1 spends use
 `SIGVERSION_WITNESS_V0`), and the `scriptCode` the preimage commits to is the spent output's own `scriptPubKey`,
-`OP_1 <32-byte program>`: the signer passes it (`sign.cpp:213`), the verifier passes it (`interpreter.cpp:2016,
-2041`), and `SignatureHash` serialises it as given (`interpreter.cpp:1492, 2124`). BIP 143 defines no witness
-version 1 form; this is the one choice it leaves to the program type.
+`OP_1 <32-byte program>` (or `OP_0 <32-byte program>`, the consensus-only form of section 3.1): the signer passes
+it (`sign.cpp:213`), the verifier passes it (`interpreter.cpp:2016, 2041`), and `SignatureHash` serialises it as
+given (`interpreter.cpp:1492, 2124`). BIP 143 defines no witness version 1 form; this is the one choice it leaves
+to the program type.
 
 ---
 
@@ -149,11 +158,20 @@ named in section 3.5 (`rpcdump.cpp:611-616`).
 
 ### 3.1 Output script and program
 
-The one spendable output type for a single key is a witness version 1 program, `OP_1 <32 bytes>`
-(`standard.cpp:101-104`, `TX_WITNESS_V1_SCRIPTHASH`; the destination type `WitnessV1ScriptHash`,
-`standard.h:30,84`). The 32-byte program is the single SHA-256 of the 1,312-byte public key
-(`rpcwallet.cpp:141-145` for `getnewaddress`; `utiladdress.cpp:95-104`, `EncodeDilithiumAddress`). The address
-path uses no RIPEMD-160 and no BLAKE2b; the double SHA-256 appears only as the wallet-encryption IV of section 4.
+The standard single-key output is a witness version 1 program, `OP_1 <32 bytes>` (`standard.cpp:101-104`,
+`TX_WITNESS_V1_SCRIPTHASH`; the destination type `WitnessV1ScriptHash`, `standard.h:30,84`). The 32-byte
+program is the single SHA-256 of the 1,312-byte public key (`rpcwallet.cpp:141-145` for `getnewaddress`;
+`utiladdress.cpp:95-104`, `EncodeDilithiumAddress`). The address path uses no RIPEMD-160 and no BLAKE2b; the
+double SHA-256 appears only as the wallet-encryption IV of section 4.
+
+Consensus also spends `OP_0 <32 bytes>` with the same witness: `VerifyScript` treats a 34-byte `scriptPubKey`
+beginning `OP_0` or `OP_1` alike (`interpreter.cpp:1567-1569`) and runs one verification path for both
+(`interpreter.cpp:1986-2044`, whose comment names the path as shared by version 0 and version 1). The version 0
+form is consensus-only: policy lists version 1 alone among the single-key forms, so a node relays no transaction
+that creates it (`policy.cpp:35-63`); no address encodes or decodes it (`utiladdress.cpp:44-78`, and
+`CTxDestination` has no version 0 type, `standard.h:84`); the node's wallet produces version 1 only
+(`rpcwallet.cpp:141-145`). A block may still contain one, so an implementer that verifies blocks accepts it; an
+implementer that produces outputs uses version 1 only.
 
 ### 3.2 Encoding
 
@@ -174,7 +192,8 @@ and 6.
 
 ### 3.4 Spending
 
-The witness stack of a version 1 spend is exactly two items, the signature of section 1.5 and the public key
+The witness stack of a version 1 spend, and of the version 0 spend of section 3.1, is exactly two items, the
+signature of section 1.5 and the public key
 (`interpreter.cpp:1986-1991`). The node's signer pushes the public key as 1,313 bytes, a `0x00` prefix followed
 by the 1,312-byte key (`sign.cpp:221-224`), so the prefixed form is the standard witness item; the verifier
 strips the prefix for the program check (`interpreter.cpp:2000-2003`) and again in `CheckSig`
@@ -230,7 +249,7 @@ otherwise `/dev/urandom`, `random.cpp:180`; any failure calls `RandFailure`, `ra
 32 bytes from the CPU's RDRAND when present (`random.cpp:76-113`). `Random_SanityCheck` runs at start-up and a
 failure stops the node (`random.cpp:361`; `init.cpp:712`). It feeds key seeds (`key.cpp:41`), the wallet master
 key and salt (section 4), the library's salts and IVs (`pqcrypto.cpp`, `WalletCrypto::Encrypt`) and, through
-`src/pat/randombytes.cpp`, hedged signing when that definition is the one linked (section 1.4).
+`src/pat/randombytes.cpp`, hedged signing in the macOS binaries (section 1.4).
 
 ---
 
@@ -386,7 +405,7 @@ wrong. No node code path calls any of this (section 0); the RPC that once expose
 |---|---|---|
 | Signature unforgeability | ML-DSA-44, FIPS 204, hedged signing | section 1 |
 | Key generation | every node key is generated from a 32-byte seed that is consumed at generation and never stored | sections 1.3, 2 |
-| Address binding | SHA-256 of the public key, bech32m with the chain's prefix, version 1; the preimage commits to the spent `scriptPubKey` | sections 1.5, 3 |
+| Address binding | SHA-256 of the public key, bech32m with the chain's prefix, version 1 (consensus alone also spends the version 0 form); the preimage commits to the spent `scriptPubKey` | sections 1.5, 3 |
 | Wallet at rest (node) | AES-256-CBC under a 32-byte master key; passphrase through iterated SHA-512 with a calibrated round count | section 4 |
 | Wallet at rest (library) | AES-256-CBC with HMAC-SHA256 tag; Argon2id, scrypt or PBKDF2 with the KDF id persisted | section 7 |
 | Seed derivation | one HKDF-SHA256 per key with domain-separated `info`; the `0xFF` retry rule | section 6 |
