@@ -36,6 +36,17 @@ extern const std::string DOMAIN_CHANNEL;    // "soqucoin-v1/channel"
 extern const std::string DOMAIN_WATCHTOWER; // "soqucoin-v1/watchtower"
 
 /**
+ * @brief The shortest seed the derivation functions accept, in bytes.
+ *
+ * DeriveKeyMaterial, DeriveBlindingFactor and DeriveChannelKey throw
+ * std::invalid_argument for a shorter seed and derive nothing.
+ * PQKeyPair::DeriveFromSeed returns nullptr for one, and PQWallet::FromSeed
+ * refuses one, so the wallet never reaches the throw. A BIP-39 mnemonic gives
+ * 64 bytes.
+ */
+constexpr size_t MIN_SEED_BYTES = 32;
+
+/**
  * @brief Upper bound on invalid-marker retries in PQKeyPair::DeriveFromSeed.
  *
  * CPubKey treats an ML-DSA-44 public key whose first byte is 0xFF as its
@@ -58,11 +69,12 @@ constexpr uint8_t MAX_DERIVE_RETRIES = 8;
 /**
  * @brief Derive raw 32-byte key material using HKDF-SHA256
  *
- * @param masterSeed 64-byte BIP-39 derived seed
+ * @param masterSeed BIP-39 derived seed, at least MIN_SEED_BYTES bytes
  * @param path BIP-44 derivation path
  * @param domain Domain separator string
  * @param retry Invalid-marker retry counter; 0 appends nothing (see MAX_DERIVE_RETRIES)
  * @return 32-byte derived key material
+ * @throws std::invalid_argument if the seed is shorter than MIN_SEED_BYTES
  */
 std::array<uint8_t, 32> DeriveKeyMaterial(
     const SecureBytes& masterSeed,
@@ -76,9 +88,10 @@ std::array<uint8_t, 32> DeriveKeyMaterial(
  * Uses DOMAIN_BLINDING to ensure signing keys and blinding factors
  * are derived independently.
  *
- * @param masterSeed 64-byte BIP-39 derived seed
+ * @param masterSeed BIP-39 derived seed, at least MIN_SEED_BYTES bytes
  * @param outputIndex Index of the privacy output
  * @return 32-byte blinding factor
+ * @throws std::invalid_argument if the seed is shorter than MIN_SEED_BYTES
  */
 std::array<uint8_t, 32> DeriveBlindingFactor(
     const SecureBytes& masterSeed,
@@ -87,11 +100,12 @@ std::array<uint8_t, 32> DeriveBlindingFactor(
 /**
  * @brief Derive L2 channel key material (Stage 5 SOQ Lightning)
  *
- * @param masterSeed 64-byte BIP-39 derived seed
+ * @param masterSeed BIP-39 derived seed, at least MIN_SEED_BYTES bytes
  * @param channelId Unique channel identifier
  * @param keyType One of: "funding", "revoke", "htlc"
  * @param index Key index (for revocation/HTLC keys)
  * @return 32-byte key material
+ * @throws std::invalid_argument if the seed is shorter than MIN_SEED_BYTES
  */
 std::array<uint8_t, 32> DeriveChannelKey(
     const SecureBytes& masterSeed,

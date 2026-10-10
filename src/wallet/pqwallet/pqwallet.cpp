@@ -506,7 +506,7 @@ PQWallet::~PQWallet() = default;
 
 std::unique_ptr<PQWallet> PQWallet::FromSeed(const std::vector<uint8_t>& seed, Network network)
 {
-    if (seed.size() < 32) {
+    if (seed.size() < MIN_SEED_BYTES) {
         return nullptr;
     }
 
