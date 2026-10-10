@@ -111,13 +111,15 @@ BOOST_AUTO_TEST_CASE(seed_at_the_bound_derives)
     }
 }
 
-// The known answers of test/pqderive-test --json-vectors for the 64-byte seed:
-// the bound changes nothing for a seed it accepts.
+// The known answers of test/pqderive-test --json-vectors for the 64-byte seed, as published in
+// doc/wallet/WALLET_TEST_VECTORS.md: the bound changes nothing for a seed it accepts.
 BOOST_AUTO_TEST_CASE(known_answers_unchanged)
 {
     const SecureBytes seed = Seed(64);
     BOOST_CHECK_EQUAL(Hex(DeriveKeyMaterial(seed, Path0(), DOMAIN_WALLET)), "bb30b7462d21c41a40999091791974e5f1275d4d39f2958fccb8c88cc0d6fa87");
     BOOST_CHECK_EQUAL(Hex(DeriveBlindingFactor(seed, 0)), "863885c6376a027824964be05f9cdbfbf2f10654ffe60ebe1158651b31d75c76");
+    BOOST_CHECK_EQUAL(Hex(DeriveBlindingFactor(seed, 1)), "3f0bbbbe55c14cce8bd64e4c426b7d9697949f9819459f3e9b83c359f3022896");
+    BOOST_CHECK_EQUAL(Hex(DeriveBlindingFactor(seed, 2)), "0ec1b8e699f74796f3e98369a3fe3ae24ea4ccae1e2f13f6bf29d0a4c91c517a");
     BOOST_CHECK_EQUAL(Hex(DeriveChannelKey(seed, "test-channel-001", "funding", 0)), "9fb62d9cb04870ede03b2d740e118d3551bab40f0e1b1bef565711e220ea6fc5");
 }
 

@@ -1,6 +1,6 @@
 # Soqucoin Wallet Test Vectors
 
-> **Version**: 1.0 | **Updated**: 2026-01-06
+> **Version**: 1.2 | **Updated**: 2026-10-10
 > **Status**: Specification
 > **Audience**: Wallet Developers, SDK Implementers, Auditors
 
@@ -57,14 +57,20 @@ All vectors use the standard BIP-39 test mnemonic:
 
 ### Blinding Factor Derivation (GAP-010)
 
+`DeriveBlindingFactor` (`src/wallet/pqwallet/pqderive.cpp`) uses salt = SHA-256(seed) and info = the domain string
+followed by the output index as eight big-endian bytes, so the whole 64-bit index separates the factors. The values
+below are the output of `pqderive-test --json-vectors` for the current implementation. The blinding-factor values in
+versions 1.0 and 1.1 of this document were produced by the path-based encoding in use before March 2026 and do not
+verify against it. The domain-separation vector at the end of this section uses the path encoding and is unchanged.
+
 ```json
 {
   "test_name": "derive_blinding_factors",
   "domain": "soqucoin-blinding-v1",
   "vectors": [
-    {"output_index": 0, "blinding_factor_hex": "3462779c11d90aa782b38d04c76b74a07b9910b8d33e2c665f44a1b54eaf85a3"},
-    {"output_index": 1, "blinding_factor_hex": "b57bf3ce7d88e47064dc387387d96576c54a911ad17dc4a1302eaf80b6cc09a1"},
-    {"output_index": 2, "blinding_factor_hex": "a43aaa2963624321a80971234ab2e18be3daf510b363860bf473bf67046b4190"}
+    {"output_index": 0, "blinding_factor_hex": "863885c6376a027824964be05f9cdbfbf2f10654ffe60ebe1158651b31d75c76"},
+    {"output_index": 1, "blinding_factor_hex": "3f0bbbbe55c14cce8bd64e4c426b7d9697949f9819459f3e9b83c359f3022896"},
+    {"output_index": 2, "blinding_factor_hex": "0ec1b8e699f74796f3e98369a3fe3ae24ea4ccae1e2f13f6bf29d0a4c91c517a"}
   ]
 }
 ```
@@ -530,4 +536,4 @@ See also: [BLAKE2b_TEST_VECTORS.md](../BLAKE2b_TEST_VECTORS.md) for auditor-faci
 
 ---
 
-*Wallet Test Vectors v1.1 | February 2026*
+*Wallet Test Vectors v1.2 | October 2026*
