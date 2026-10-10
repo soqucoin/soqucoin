@@ -1,6 +1,6 @@
 # Soqucoin Exchange Integration Guide
 
-> **Version**: 1.0 | **Updated**: January 6, 2026
+> **Version**: 1.1 | **Updated**: October 10, 2026
 > **Audience**: Exchange operators, custodians, and trading platform developers
 > **Support**: dev@soqu.org
 
@@ -8,9 +8,13 @@
 
 ## Overview
 
-This guide provides comprehensive instructions for integrating Soqucoin (SOQ) into cryptocurrency exchanges. 
+This guide covers building, configuring and operating a Soqucoin (SOQ) node for an exchange integration.
 
 Soqucoin is **based on Dogecoin Core**. It uses Dogecoin's well-tested foundation while replacing the cryptographic engine with post-quantum primitives and adding high-performance feature engineering upgrades. Soqucoin begins with its own Genesis Block (Block 0) with **no shared transaction history** and **no airdrop to Dogecoin holders**. It is an entirely new and independent blockchain featuring Dilithium (ML-DSA-44) signatures and AuxPoW merged mining compatibility with Litecoin/Dogecoin.
+
+### Integration Path
+
+Exchanges integrate through the [Soqucoin SDK](https://github.com/soqucoin-labs/soqucoin-sdk). Deposit keys, address derivation and withdrawal signing run in your own infrastructure, and the node runs with its wallet disabled as a chain reader and broadcaster. The SDK's [Exchange Integration guide](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md) covers deposits, withdrawals and key custody; the sections below link to its steps.
 
 ### Key Properties
 
@@ -19,7 +23,7 @@ Soqucoin is **based on Dogecoin Core**. It uses Dogecoin's well-tested foundatio
 | **Consensus** | Proof-of-Work (Scrypt) |
 | **Block Time** | 60 seconds |
 | **Signature** | Dilithium ML-DSA-44 (NIST FIPS 204) |
-| **Address Format** | Bech32m (`sq1...` mainnet, `tsq1...` testnet) |
+| **Address Format** | Bech32m, witness version 1 (`sq1p...` on mainnet and testnet, `ssq1p...` on stagenet) |
 | **Merged Mining** | Yes (Litecoin/Dogecoin compatible) |
 | **Chain ID** | 0x5351 (21329) |
 | **Ticker** | SOQ |
@@ -105,9 +109,8 @@ par=4
 rpcworkqueue=128
 rpcthreads=8
 
-# Security
-disablewallet=0
-walletnotify=/path/to/your/notify_script.sh %s
+# Wallet and notifications (keys and signing run in your own infrastructure)
+disablewallet=1
 blocknotify=/path/to/your/block_script.sh %s
 ```
 
@@ -149,69 +152,21 @@ soqucoin-cli getblockchaininfo | grep -E "(blocks|headers|verificationprogress)"
 
 ### 3.1 Address Generation
 
-Generate unique deposit addresses for each customer:
-
-```bash
-# Standard address generation (legacy)
-soqucoin-cli getnewaddress "" "bech32"
-
-# PQ wallet address generation
-soqucoin-cli pqgetnewaddress
-```
-
-**Response**:
-```json
-{
-  "address": "sq1qqmf3532trg036kjvamk9d2n4m9uafy...",
-  "pubkey_hash": "b47468acb...",
-  "network": "mainnet",
-  "type": "P2PQ"
-}
-```
+Derive one deposit address per customer in your own key store with the SDK, as described in [Step 1: Generate Deposit Addresses](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#step-1-generate-deposit-addresses). A Soqucoin address is bech32m with witness version 1, and its 32-byte witness program is the SHA-256 of an ML-DSA-44 public key.
 
 ### 3.2 Address Validation
 
-Always validate addresses before accepting deposits:
+Validate every address before you use it. The SDK's `address.Decode` accepts only a bech32m witness version 1 address with a 32-byte program for the network's prefix (`address/bech32m.go`). The node's `validateaddress` is wider: it first tries the legacy Base58 forms and reports a network-valid one as `"isvalid": true` without `isdilithium` or `witness_version` (`src/rpc/misc.cpp`), although nothing on this chain can spend an output to such an address and the relay refuses one (section 5). So when you use the node, accept an address only when all three fields are present and true; or use `pqvalidateaddress`, which accepts only the witness version 1 form (`src/wallet/pqwallet/rpc_pqwallet.cpp`).
 
 ```bash
-soqucoin-cli pqvalidateaddress "sq1qqmf3532trg036kjvamk9d2n4m9uafy..."
+soqucoin-cli validateaddress "sq1p..."
 ```
 
-**Response**:
-```json
-{
-  "isvalid": true,
-  "network": "mainnet",
-  "type": "P2PQ",
-  "witness_version": 1
-}
-```
+Accept the address only when the response carries `"isvalid": true`, `"isdilithium": true` and `"witness_version": 1` together. A legacy Base58 address with this network's version byte answers `"isvalid": true` and nothing else of the three; treat that as invalid. A malformed address answers `"isvalid": false`, which is then the only field.
 
 ### 3.3 Monitoring Deposits
 
-#### Option A: walletnotify (Recommended)
-
-Configure `walletnotify` in `soqucoin.conf`:
-
-```ini
-walletnotify=/path/to/deposit_notify.sh %s
-```
-
-Example script (`deposit_notify.sh`):
-```bash
-#!/bin/bash
-TXID="$1"
-# Process deposit via your internal API
-curl -X POST "https://your-internal-api/deposits" \
-  -H "Content-Type: application/json" \
-  -d "{\"txid\": \"$TXID\"}"
-```
-
-#### Option B: listtransactions Polling
-
-```bash
-soqucoin-cli listtransactions "*" 100 0 true | jq '.[] | select(.category == "receive")'
-```
+With the node's wallet disabled, deposits are found through an address index. [Step 2: Monitor Deposits](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#step-2-monitor-deposits) in the SDK guide describes the ElectrumX indexer that discovers deposits and the node check that confirms each one before it is credited.
 
 ### 3.4 Confirmation Requirements
 
@@ -253,24 +208,18 @@ soqucoin-cli pqestimatefeerate 1 2
 
 ### 4.2 Sending Transactions
 
+Build and sign each withdrawal with the SDK in your signing infrastructure, as described in [Step 3: Process Withdrawals](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#step-3-process-withdrawals), then broadcast the signed transaction through the node:
+
 ```bash
-# Simple send
-soqucoin-cli sendtoaddress "sq1qrecipient..." 100.0
-
-# With explicit fee rate
-soqucoin-cli sendtoaddress "sq1qrecipient..." 100.0 "" "" false true null 6
-
-# Raw transaction (advanced)
-soqucoin-cli createrawtransaction '[{"txid":"...","vout":0}]' '{"sq1qrecipient...":100.0}'
+soqucoin-cli sendrawtransaction "<signed transaction hex>"
 ```
+
+On mainnet and stagenet, from 2.5.1, a transaction enters the node's mempool only if every output is `OP_RETURN` data, a witness version 1 program or a program of a witness version whose deployment is active; `sendrawtransaction` refuses any other output layout with the reason `scriptpubkey`, so a transaction built by a generic library for another address type is refused rather than confirmed as an output nothing can spend.
 
 ### 4.3 Transaction Confirmation
 
 ```bash
-# Check transaction status
-soqucoin-cli gettransaction "txid..."
-
-# Get raw transaction details
+# Get transaction details (txindex=1 in the configuration above)
 soqucoin-cli getrawtransaction "txid..." 1
 ```
 
@@ -319,22 +268,20 @@ soqucoin-cli getblockchaininfo | jq '.chainid'
 
 ## 6. RPC Reference (Exchange-Relevant)
 
-### 6.1 Balance & UTXO
+### 6.1 Transactions
 
 | Command | Description |
 |---------|-------------|
-| `getbalance` | Total wallet balance |
-| `listunspent` | List UTXOs |
-| `listaddressgroupings` | Group addresses by wallet |
+| `sendrawtransaction <hex>` | Broadcast a signed transaction |
+| `getrawtransaction <txid> 1` | Transaction details (needs `txindex=1`) |
+| `decoderawtransaction <hex>` | Decode a transaction before broadcast |
+| `gettxout <txid> <n>` | An unspent output from the UTXO set |
 
-### 6.2 Transactions
+### 6.2 Addresses
 
 | Command | Description |
 |---------|-------------|
-| `sendtoaddress <addr> <amt>` | Simple send |
-| `sendmany <acct> <json>` | Batch withdrawals |
-| `gettransaction <txid>` | Transaction details |
-| `listtransactions` | Recent transactions |
+| `validateaddress <addr>` | Check an address against the node's network and address rules |
 
 ### 6.3 Blockchain
 
@@ -349,10 +296,11 @@ soqucoin-cli getblockchaininfo | jq '.chainid'
 
 | Command | Description |
 |---------|-------------|
+| `pqvalidateaddress <addr>` | Valid only for a bech32m witness version 1 address with a 32-byte program for this node's network; narrower than `validateaddress`, which also reports legacy Base58 as valid (section 3.2). `pubkey_hash` is the witness program |
 | `pqwalletinfo` | Wallet configuration |
-| `pqgetnewaddress` | Generate PQ address |
-| `pqvalidateaddress <addr>` | Validate address |
 | `pqestimatefeerate [ins] [outs]` | Fee estimation |
+
+`pqgetnewaddress` is removed in 2.5.1; it kept no key.
 
 ---
 
@@ -372,10 +320,10 @@ soqucoin-cli getblockchaininfo | jq '.chainid'
 - [ ] Use SSL/TLS for RPC (nginx proxy)
 - [ ] Implement RPC rate limiting
 
-### 7.3 Wallet Security
+### 7.3 Key Security
 
-- [ ] Enable wallet encryption: `soqucoin-cli encryptwallet "passphrase"`
-- [ ] Regular wallet backups: `soqucoin-cli backupwallet "/path/to/backup"`
+- [ ] Keep keys in your own key store; the SDK's keystore file is encrypted with AES-256-GCM
+- [ ] Back up the master secret your deposit addresses derive from, offline
 - [ ] Cold storage for bulk assets
 - [ ] Hardware security modules (HSM) for production
 
@@ -397,7 +345,7 @@ soqucoin-cli getblockchaininfo | jq '.chainid'
 | Node not syncing | Check network connectivity, verify peers with `getpeerinfo` |
 | RPC connection refused | Verify `rpcbind`, `rpcallowip`, and firewall rules |
 | Transaction stuck | Check fee was adequate, verify UTXO not already spent |
-| Address validation fails | Ensure correct network (mainnet vs testnet prefix) |
+| Address validation fails | Check the prefix for the node's network (`sq` on mainnet and testnet, `ssq` on stagenet) and witness version 1 (`sq1p...`) |
 
 ### 8.2 Log Analysis
 
@@ -415,9 +363,6 @@ grep -i "connection\|peer\|banned" ~/.soqucoin/debug.log
 ### 8.3 Node Recovery
 
 ```bash
-# Rescan blockchain (after wallet restore)
-soqucoind -rescan
-
 # Reindex entire chain (if corruption suspected)
 soqucoind -reindex
 
@@ -449,8 +394,8 @@ soqucoind -testnet -daemon
 # Testnet RPC
 soqucoin-cli -testnet getblockchaininfo
 
-# Testnet address prefix
-tsq1...
+# Testnet addresses use the mainnet prefix
+sq1p...
 ```
 
 > **Note**: Contact dev@soqu.org for testnet node access during development.
@@ -474,17 +419,7 @@ tsq1...
 }
 ```
 
-### pqgetnewaddress
-```json
-{
-  "address": "sq1qqmf3532trg036kjvamk9d2n4m9uafyxyz...",
-  "pubkey_hash": "b47468acb...",
-  "network": "mainnet",
-  "type": "P2PQ"
-}
-```
-
 ---
 
 *Prepared for exchange partners*
-*Soqucoin Development Team — January 2026*
+*Soqucoin Development Team, October 2026*
