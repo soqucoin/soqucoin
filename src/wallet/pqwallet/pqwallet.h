@@ -64,8 +64,8 @@ class PQWallet
 {
 public:
     /**
-     * @brief Create new wallet from 64-byte seed
-     * @param seed BIP-39 derived seed
+     * @brief Create new wallet from a BIP-39 seed
+     * @param seed BIP-39 derived seed of at least MIN_SEED_BYTES bytes (pqderive.h); a shorter seed gives nullptr
      * @param network Target network (default: Testnet)
      * @return Wallet instance or nullptr on error
      */

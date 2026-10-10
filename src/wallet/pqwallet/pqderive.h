@@ -21,6 +21,7 @@
 
 #include "pqkeys.h"
 #include <array>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -44,7 +45,7 @@ extern const std::string DOMAIN_WATCHTOWER; // "soqucoin-v1/watchtower"
  * refuses one, so the wallet never reaches the throw. A BIP-39 mnemonic gives
  * 64 bytes.
  */
-constexpr size_t MIN_SEED_BYTES = 32;
+constexpr std::size_t MIN_SEED_BYTES = 32;
 
 /**
  * @brief Upper bound on invalid-marker retries in PQKeyPair::DeriveFromSeed.

@@ -106,9 +106,9 @@ public:
 
     /**
      * @brief Derive keypair from seed and path
-     * @param seed BIP-39 seed, at least 32 bytes (MIN_SEED_BYTES in pqderive.h; a mnemonic gives 64)
+     * @param seed BIP-39 seed of at least MIN_SEED_BYTES bytes (pqderive.h; a mnemonic gives 64)
      * @param path Derivation path
-     * @return Keypair, or nullptr on error or for a seed shorter than 32 bytes
+     * @return Keypair, or nullptr on error or for a seed shorter than MIN_SEED_BYTES
      */
     static std::unique_ptr<PQKeyPair> DeriveFromSeed(const SecureBytes& seed,
         const DerivationPath& path);

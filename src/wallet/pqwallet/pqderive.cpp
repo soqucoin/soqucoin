@@ -187,7 +187,8 @@ std::vector<uint8_t> PathToBytes(const DerivationPath& path)
 static void RequireSeed(const SecureBytes& masterSeed)
 {
     if (masterSeed.size() < MIN_SEED_BYTES) {
-        throw std::invalid_argument("pqderive: the seed is shorter than 32 bytes; no key is derived");
+        throw std::invalid_argument("pqderive: the seed is shorter than the minimum of " +
+                                    std::to_string(MIN_SEED_BYTES) + " bytes; no key is derived");
     }
 }
 
