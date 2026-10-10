@@ -422,4 +422,4 @@ sq1p...
 ---
 
 *Prepared for exchange partners*
-*Soqucoin Development Team — January 2026*
+*Soqucoin Development Team, October 2026*
