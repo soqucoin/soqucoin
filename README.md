@@ -184,7 +184,7 @@ make install  # optional
 # Stagenet (current active network)
 ./src/soqucoind -stagenet -daemon -server -rpcuser=soqucoin -rpcpassword=YOUR_PASSWORD
 
-# Mainnet (from block 1)
+# Mainnet (from block 1, 13 October 2026 15:00 UTC; the first day is described in doc/node-operators.md)
 ./src/soqucoind -daemon -server -rpcuser=soqucoin -rpcpassword=YOUR_PASSWORD
 
 # Regtest (local development)
@@ -213,6 +213,7 @@ SOQUPOOL is the only supported way to mine SOQ at mainnet launch. Support for ot
 |----------|-------------|
 | [INSTALL.md](INSTALL.md) | Build instructions for all platforms |
 | [doc/stagenet-mining-guide.md](doc/stagenet-mining-guide.md) | Stagenet mining & node setup |
+| [doc/node-operators.md](doc/node-operators.md) | Running a node on stagenet now and on mainnet from launch: what to expect on the first day |
 | [contrib/solo-miner/README.md](contrib/solo-miner/README.md) | Solo mining stratum proxy for stagenet and development; not supported on mainnet at launch |
 | [doc/specifications/pat-specification.md](doc/specifications/pat-specification.md) | PAT wire format specification |
 | [Whitepaper](https://soqu.org/whitepaper/soqucoin_whitepaper.pdf) | Technical specification |
