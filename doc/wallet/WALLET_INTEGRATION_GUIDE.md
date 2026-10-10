@@ -1,6 +1,6 @@
 # Soqucoin Wallet Integration Guide
 
-> **Version**: 1.0 | **Updated**: January 6, 2026
+> **Version**: 1.1 | **Updated**: October 10, 2026
 > **Audience**: External Developers, Exchanges, Auditors
 > **Status**: Pre-Mainnet
 
@@ -9,6 +9,8 @@
 ## Overview
 
 This guide covers building and testing the Soqucoin post-quantum wallet library for integration into external systems. The wallet implements Dilithium (ML-DSA-44) signatures and is designed for regulatory compliance with opt-in privacy features.
+
+Exchanges and custodians integrate through the SDK's [Exchange Integration guide](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md), which derives keys and signs in your own infrastructure with the node's wallet disabled. From 2.5.1 the node wallet's `encryptwallet`, `dumpprivkey`, `importprivkey`, `dumpwallet` and `importwallet` handle ML-DSA-44 keys; earlier releases did not, and the [2.5.1 release notes](../release-notes/release-notes-2.5.1.md) describe each. Section 7 covers encrypting and backing up a node wallet.
 
 ---
 
@@ -85,7 +87,7 @@ ar -t src/libsoqucoin_wallet.a | grep pqwallet
 ```
 
 **Testnet3 Parameters:**
-- Address prefix: `tsq1...`
+- Address prefix: `sq1p...` (the mainnet prefix)
 - Genesis: December 2025
 - All features active at genesis
 
@@ -100,7 +102,7 @@ ar -t src/libsoqucoin_wallet.a | grep pqwallet
 ```
 
 **Stagenet Parameters:**
-- Address prefix: `ssq1...`
+- Address prefix: `ssq1p...`
 - Genesis: January 5, 2026
 - Staged activation matching mainnet schedule
 
@@ -112,39 +114,34 @@ ar -t src/libsoqucoin_wallet.a | grep pqwallet
 
 | Command | Description |
 |---------|-------------|
-| `pqgetnewaddress` | Generate new Dilithium address |
-| `pqvalidateaddress` | Validate PQ address format |
+| `pqvalidateaddress` | Validate an address as `validateaddress` does; `pubkey_hash` is the witness program |
 | `pqestimatefeerate` | Estimate verification cost |
 | `pqwalletinfo` | Get wallet library info |
+
+`pqgetnewaddress` is removed in 2.5.1; it kept no key. A node wallet address comes from `getnewaddress`, and `validateaddress` checks an address against the node's network and address rules.
 
 ### Examples
 
 ```bash
-# Generate new address
-./src/soqucoin-cli -testnet pqgetnewaddress
-# Returns:
-# {
-#   "address": "tsq1...",
-#   "pubkey_hash": "abc123...",
-#   "network": "testnet",
-#   "type": "P2PQ"
-# }
+# New address in the node wallet
+./src/soqucoin-cli -testnet getnewaddress
+# Returns: "sq1p..."
 
-# Validate address
-./src/soqucoin-cli -testnet pqvalidateaddress "tsq1..."
-# Returns:
+# Validate an address
+./src/soqucoin-cli -testnet validateaddress "sq1p..."
+# Returns, for a valid address, among other fields:
 # {
 #   "isvalid": true,
-#   "network": "testnet",
-#   "type": "P2PQ",
-#   "pubkey_hash": "..."
+#   "isdilithium": true,
+#   "witness_version": 1,
+#   ...
 # }
 
 # Estimate fee for 5-input, 10-output transaction
 ./src/soqucoin-cli -testnet pqestimatefeerate 5 10
 # Returns:
 # {
-#   "verify_cost": 35,
+#   "verify_cost": 45,
 #   "breakdown": {
 #     "signature_cost": 5,
 #     "script_cost": 30,
@@ -162,7 +159,8 @@ ar -t src/libsoqucoin_wallet.a | grep pqwallet
 #   "pubkey_size": 1312,
 #   "signature_size": 2420,
 #   "address_format": "Bech32m",
-#   "encryption": "AES-256-CBC+HMAC",
+#   "encryption": "AES-256-CBC",
+#   "kdf": "SHA-512 EVP_BytesToKey",
 #   ...
 # }
 ```
@@ -221,9 +219,11 @@ ALL TESTS PASSED
 
 | Network | HRP | Example |
 |---------|-----|---------|
-| Mainnet | `sq1` | `sq1q...` (52-62 chars) |
-| Testnet | `tsq1` | `tsq1q...` (53-63 chars) |
-| Stagenet | `ssq1` | `ssq1q...` (54-64 chars) |
+| Mainnet | `sq` | `sq1p...` (62 chars) |
+| Testnet | `sq` | `sq1p...` (62 chars) |
+| Stagenet | `ssq` | `ssq1p...` (63 chars) |
+
+Every address is witness version 1, and its 32-byte witness program is the SHA-256 of the ML-DSA-44 public key. The node accepts only witness version 1 addresses as payment destinations.
 
 ### Address Types
 
@@ -239,16 +239,13 @@ ALL TESTS PASSED
 
 ### Wallet File Encryption
 
-- **Algorithm**: AES-256-CBC + HMAC-SHA256
-- **Key Derivation**: PBKDF2-SHA256 (100,000 iterations)
-- **Salt**: 16 bytes random per encryption
-- **IV**: 12 bytes random per encryption
+From 2.5.1 `encryptwallet` encrypts the wallet's ML-DSA-44 keys: AES-256-CBC, with the key and IV derived from the passphrase and a salt by the SHA-512 form of `EVP_BytesToKey`, the iteration count calibrated per wallet each time a passphrase is set (`pqwalletinfo` reports `encryption` and `kdf`). A wallet encrypted by 2.5.0 could not be unlocked by 2.5.0; its keys are intact and it unlocks with 2.5.1. Protect the wallet file with file permissions and full-disk encryption as well.
 
 ### Best Practices
 
-1. **Always encrypt wallet files** with strong passphrase
-2. **Backup seed phrase** offline (metal plate recommended)
-3. **Test recovery** on testnet before mainnet
+1. **Encrypt the wallet** with `encryptwallet` and a strong passphrase; `walletpassphrase` unlocks it to spend
+2. **Back up the wallet file** with `backupwallet`, which writes the copy to the `backups` folder in the data directory, then copy it off the machine; `dumpwallet` and `importwallet` round-trip every key as text
+3. **Test recovery** from the backup on another node before relying on it
 4. **Verify addresses** before large transactions
 
 ---
@@ -259,7 +256,6 @@ ALL TESTS PASSED
 
 | Issue | Solution |
 |-------|----------|
-| `pqgetnewaddress` not found | Rebuild with latest code; check RPC registration |
 | Library not loaded | Run `make clean && make`; check library paths |
 | Address validation fails | Ensure correct network flag (`-testnet`, `-stagenet`) |
 | Build fails on pqwallet | Run `autoreconf -i && ./configure` |
@@ -276,8 +272,9 @@ ALL TESTS PASSED
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-01-06 | Initial release |
+| 1.1 | 2026-10-10 | Exchange path through the SDK; address format is witness version 1; `pqgetnewaddress` removed in 2.5.1 and `getnewaddress` in its place; `pqvalidateaddress` agrees with `validateaddress`; wallet encryption and the key export round trip from 2.5.1; backup with `backupwallet` |
 
 ---
 
-*Soqucoin Wallet Integration Guide v1.0*
+*Soqucoin Wallet Integration Guide v1.1*
 *Prepared for Halborn Security Audit and External Integration*

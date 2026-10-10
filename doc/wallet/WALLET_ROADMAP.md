@@ -1,6 +1,6 @@
 # Soqucoin Wallet Development Roadmap
 
-> **Version**: 1.0 | **Updated**: January 23, 2026
+> **Version**: 1.1 | **Updated**: October 10, 2026
 > **Audience**: Developers, Integrators, Auditors
 
 ---
@@ -16,10 +16,10 @@ Soqucoin's post-quantum wallet is built on Dilithium (ML-DSA-44) signatures with
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Dilithium key generation | ✅ | NIST FIPS 204 compliant |
-| Bech32m addresses | ✅ | `sq1...` (mainnet), `tsq1...` (testnet) |
-| Wallet encryption | ✅ | AES-256-CBC + HMAC |
+| Bech32m addresses | ✅ | witness version 1: `sq1p...` (mainnet and testnet), `ssq1p...` (stagenet) |
+| Wallet encryption | ✅ | `encryptwallet`, AES-256-CBC, from 2.5.1 |
 | PAT aggregation | ✅ | Batch signature verification |
-| Basic RPC commands | ✅ | `pqgetnewaddress`, `pqvalidateaddress`, etc. |
+| Basic RPC commands | ✅ | `getnewaddress`, `validateaddress`, `pqestimatefeerate`, etc. |
 
 ---
 
@@ -68,10 +68,10 @@ Soqucoin's post-quantum wallet is built on Dilithium (ML-DSA-44) signatures with
 The wallet undergoes security review as part of the Halborn audit engagement. Key security features include:
 
 - **SecureBytes class**: Memory-locked, zeroed-on-free key storage
-- **Encrypted wallet files**: AES-256-CBC + HMAC-SHA256 with Argon2id key derivation
+- **Encrypted wallet files**: AES-256-CBC, the key and IV derived from the passphrase by the SHA-512 form of `EVP_BytesToKey` (from 2.5.1)
 - **Dilithium signing**: Constant-time reference implementation
 
-For security concerns, contact: security@soqucoin.com
+For security concerns, see `SECURITY.md` (dev@soqu.org).
 
 ---
 
@@ -81,4 +81,4 @@ Wallet development contributions are welcome. See `CONTRIBUTING.md` for guidelin
 
 ---
 
-*Soqucoin Wallet Roadmap v1.0 | January 2026*
+*Soqucoin Wallet Roadmap v1.1 | October 2026*
