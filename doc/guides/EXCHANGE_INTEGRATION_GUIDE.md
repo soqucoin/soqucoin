@@ -214,7 +214,7 @@ Build and sign each withdrawal with the SDK in your signing infrastructure, as d
 soqucoin-cli sendrawtransaction "<signed transaction hex>"
 ```
 
-From 2.5.1 a transaction enters the node's mempool only if every output is `OP_RETURN` data, a witness version 1 program or a program of a witness version whose deployment is active; `sendrawtransaction` refuses any other output layout with the reason `scriptpubkey`, so a transaction built by a generic library for another address type is refused rather than confirmed as an output nothing can spend.
+On mainnet and stagenet, from 2.5.1, a transaction enters the node's mempool only if every output is `OP_RETURN` data, a witness version 1 program or a program of a witness version whose deployment is active; `sendrawtransaction` refuses any other output layout with the reason `scriptpubkey`, so a transaction built by a generic library for another address type is refused rather than confirmed as an output nothing can spend.
 
 ### 4.3 Transaction Confirmation
 
