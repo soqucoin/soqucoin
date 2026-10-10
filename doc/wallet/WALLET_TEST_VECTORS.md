@@ -1,6 +1,6 @@
 # Soqucoin Wallet Test Vectors
 
-> **Version**: 1.2 | **Updated**: 2026-10-10
+> **Version**: 1.3 | **Updated**: 2026-10-10
 > **Status**: Specification
 > **Audience**: Wallet Developers, SDK Implementers, Auditors
 
@@ -9,6 +9,13 @@
 ## Overview
 
 This document provides deterministic test vectors for wallet implementations. All implementations MUST pass these tests to ensure interoperability.
+
+**State of each section.** Sections 1, 2 and 6 are generated from the code at `main` and verified: section 1 by
+`pqderive-test --json-vectors` and the unit suite `pqderive_seed_tests`, sections 2 and 6 from the encoding rule in
+`src/utiladdress.cpp` and the prefixes in `src/chainparams.cpp` (the rule is stated in
+`WALLET_CRYPTOGRAPHIC_SPEC.md` section 3). Sections 3, 4, 5, 5a, 5b and 5c still carry placeholder values and
+addresses in a superseded layout; they are not generated yet, and an implementation is not expected to pass them
+until they are.
 
 ---
 
@@ -108,32 +115,57 @@ Same path with different domains **must** produce different keys:
 
 ## 2. Address Encoding Test Vectors
 
+> **Generated from**: `src/utiladdress.cpp` (`EncodeDestination`, `DecodeDestination`) and `src/chainparams.cpp`
+> (`bech32HRP`) at `main`, 2026-10-10.
+> **Rule**: bech32m (BIP 350); the human-readable part is the chain's prefix (`sq` on mainnet, testnet and regtest,
+> `ssq` on stagenet); the data part is the witness version as one 5-bit value, `1` (the character `p`), followed by
+> the 8-to-5 conversion of the 32-byte program; the program is the single SHA-256 of the 1,312-byte ML-DSA-44
+> public key. A decoder accepts an address only when the encoding is bech32m, the prefix is the node's, the first
+> data value is 1 and the program converts to exactly 32 bytes.
+
 ### Valid Addresses
 
 ```json
 [
   {
-    "test_name": "mainnet_p2pq_valid",
-    "pubkey_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "test_name": "mainnet_witness_v1_zero_program",
     "network": "mainnet",
-    "type": "P2PQ",
-    "expected_address": "sq1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj9xr3f",
+    "hrp": "sq",
+    "program_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+    "expected_address": "sq1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqz3m5dc",
     "valid": true
   },
   {
-    "test_name": "testnet_p2pq_valid",
-    "pubkey_hash_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    "network": "testnet",
-    "type": "P2PQ",
-    "expected_address": "tsq1qlllllllllllllllllllllllllllllllllllllllllllllllllllllllllllcs8vkf",
+    "test_name": "mainnet_witness_v1_all_ff_program",
+    "network": "mainnet",
+    "hrp": "sq",
+    "program_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "expected_address": "sq1plllllllllllllllllllllllllllllllllllllllllllllllllllsq0c9y0",
     "valid": true
   },
   {
-    "test_name": "stagenet_p2pq_valid",
-    "pubkey_hash_hex": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+    "test_name": "mainnet_witness_v1_program_from_1312_zero_bytes",
+    "network": "mainnet",
+    "hrp": "sq",
+    "pubkey": "00 * 1312",
+    "program_hex": "2c7663e809c9827df482ce260d079467d02f9f181a6d1fcc5a942b2a7e1bd3e6",
+    "expected_address": "sq1p93mx86qfexp8mayzecnq6pu5vlgzl8ccrfk3lnz6js4j5lsm60nq6wvuuj",
+    "valid": true
+  },
+  {
+    "test_name": "testnet_and_regtest_share_the_mainnet_hrp",
+    "network": "testnet, regtest",
+    "hrp": "sq",
+    "program_hex": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+    "expected_address": "sq1p5xev848976sm9s75uhm2rvkr6njldgdjc02wta4pktpafe0k5xeqdqmpx3",
+    "valid": true
+  },
+  {
+    "test_name": "stagenet_witness_v1",
     "network": "stagenet",
-    "type": "P2PQ",
-    "expected_address": "ssq1q5xkc0d9e0d5xkc0d9e0d5xkc0d9e0d5xkc0d9e0d5xkc0d9e0d5xkyvz2kg",
+    "hrp": "ssq",
+    "program_hex": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+    "expected_address": "ssq1p5xev848976sm9s75uhm2rvkr6njldgdjc02wta4pktpafe0k5xequ2e0nm",
     "valid": true
   }
 ]
@@ -145,23 +177,45 @@ Same path with different domains **must** produce different keys:
 [
   {
     "test_name": "invalid_checksum",
-    "address": "sq1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj9xr3e",
-    "expected_error": "ADDR_INVALID_CHECKSUM"
+    "address": "sq1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqz3m5dp",
+    "why": "bech32m checksum fails; bech32::Decode returns no encoding",
+    "valid": false
   },
   {
-    "test_name": "invalid_length_short",
-    "address": "sq1qshort",
-    "expected_error": "ADDR_INVALID_LENGTH"
+    "test_name": "bech32_not_bech32m",
+    "address": "sq1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqhdtcg6",
+    "why": "encoding is bech32; DecodeDestination requires BECH32M",
+    "valid": false
   },
   {
-    "test_name": "invalid_prefix",
-    "address": "btc1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqjlj5xe",
-    "expected_error": "ADDR_INVALID_PREFIX"
+    "test_name": "witness_version_0",
+    "address": "sq1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqa6t3sx",
+    "why": "first data value is 0; DecodeDestination requires 1",
+    "valid": false
   },
   {
-    "test_name": "mixed_case_bech32",
-    "address": "SQ1QQQqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj9xr3f",
-    "expected_error": "ADDR_INVALID_ENCODING"
+    "test_name": "program_20_bytes",
+    "address": "sq1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsesy66",
+    "why": "program converts to 20 bytes; DecodeDestination requires 32",
+    "valid": false
+  },
+  {
+    "test_name": "wrong_hrp_for_mainnet",
+    "address": "ssq1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnme6cj",
+    "why": "HRP ssq is stagenet; a mainnet node compares against sq",
+    "valid": false
+  },
+  {
+    "test_name": "hrp_no_chain_uses",
+    "address": "tsq1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqrgfnuh",
+    "why": "no chain has HRP tsq (chainparams.cpp: sq for mainnet, testnet and regtest; ssq for stagenet)",
+    "valid": false
+  },
+  {
+    "test_name": "mixed_case",
+    "address": "sq1PQQQQqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqz3m5dc",
+    "why": "bech32::Decode refuses mixed case",
+    "valid": false
   }
 ]
 ```
@@ -491,17 +545,15 @@ Same path with different domains **must** produce different keys:
 
 ## 6. Network Prefix Test Vectors
 
+> **Source**: `src/chainparams.cpp` (`bech32HRP`) at `main`, 2026-10-10. There is one address type, the witness
+> version 1 program of section 2; a prefix such as `sqp` or `sqsh` belongs to no chain.
+
 ```json
 [
-  {"address_prefix": "sq1", "network": "mainnet", "type": "P2PQ"},
-  {"address_prefix": "sqp1", "network": "mainnet", "type": "P2PQ_PAT"},
-  {"address_prefix": "sqsh1", "network": "mainnet", "type": "P2SH_PQ"},
-  {"address_prefix": "tsq1", "network": "testnet", "type": "P2PQ"},
-  {"address_prefix": "tsqp1", "network": "testnet", "type": "P2PQ_PAT"},
-  {"address_prefix": "tsqsh1", "network": "testnet", "type": "P2SH_PQ"},
-  {"address_prefix": "ssq1", "network": "stagenet", "type": "P2PQ"},
-  {"address_prefix": "ssqp1", "network": "stagenet", "type": "P2PQ_PAT"},
-  {"address_prefix": "ssqsh1", "network": "stagenet", "type": "P2SH_PQ"}
+  {"hrp": "sq",  "network": "mainnet",  "address_begins_with": "sq1p",  "length": 62},
+  {"hrp": "sq",  "network": "testnet",  "address_begins_with": "sq1p",  "length": 62},
+  {"hrp": "sq",  "network": "regtest",  "address_begins_with": "sq1p",  "length": 62},
+  {"hrp": "ssq", "network": "stagenet", "address_begins_with": "ssq1p", "length": 63}
 ]
 ```
 
@@ -536,4 +588,4 @@ See also: [BLAKE2b_TEST_VECTORS.md](../BLAKE2b_TEST_VECTORS.md) for auditor-faci
 
 ---
 
-*Wallet Test Vectors v1.2 | October 2026*
+*Wallet Test Vectors v1.3 | October 2026*
