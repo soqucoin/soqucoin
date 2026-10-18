@@ -370,10 +370,9 @@ BOOST_AUTO_TEST_CASE(TransactionsRequestDeserializationMaxTest) {
 }
 
 BOOST_AUTO_TEST_CASE(TransactionsRequestDeserializationOverflowTest) {
-    // Any set of index deltas that starts with N values that sum to (0x10000 - N)
-    // reaches the edge case the running offset did not previously check for. Such
-    // a request cannot be produced by serializing a real BlockTransactionsRequest,
-    // so it is assembled from raw deltas here.
+    // Index deltas whose running sum crosses the 16-bit limit must be rejected.
+    // Such a request cannot be produced by serializing a real
+    // BlockTransactionsRequest, so it is assembled from raw deltas here.
     BlockTransactionsRequest req0;
     req0.blockhash = InsecureRand256();
     req0.indexes.resize(3);
@@ -390,9 +389,9 @@ BOOST_AUTO_TEST_CASE(TransactionsRequestDeserializationOverflowTest) {
     BlockTransactionsRequest req1;
     try {
         stream >> req1;
-        // before the bound: deserialize succeeds and this check fails as the offset wraps
+        // The deserializer must throw above. If it does not, the decoded
+        // sequence is not strictly increasing and neither check passes.
         BOOST_CHECK(req1.indexes[1] < req1.indexes[2]);
-        // not reachable before or after the bound
         BOOST_CHECK(0);
     } catch(std::ios_base::failure &) {
         // deserialize should fail
@@ -460,8 +459,7 @@ public:
 };
 
 BOOST_AUTO_TEST_CASE(CompactBlockInitDataEntryBoundTest) {
-    // InitData must reject an oversized compact block (more than 65,535 total
-    // entries) rather than resizing and scanning past the 16-bit index space.
+    // InitData must reject a compact block with more than 65,535 total entries.
     CTxMemPool pool(CFeeRate(0));
     CBlock block(BuildBlockTestCase());
 

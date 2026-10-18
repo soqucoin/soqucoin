@@ -89,9 +89,8 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
     std::unordered_map<uint64_t, uint16_t> shorttxids(cmpctblock.shorttxids.size());
     uint16_t index_offset = 0;
     for (size_t i = 0; i < cmpctblock.shorttxids.size(); i++) {
-        // Defensive: the entry bound above keeps i + index_offset within
-        // txn_available, but guard the search index so a short-circuit here
-        // can never read past the vector.
+        // The entry bound above keeps i + index_offset within txn_available;
+        // the explicit check keeps the search index in range on its own.
         while (i + index_offset < txn_available.size() && txn_available[i + index_offset])
             index_offset++;
         if (i + index_offset >= txn_available.size())
