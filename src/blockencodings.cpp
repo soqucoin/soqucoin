@@ -52,6 +52,10 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
         return READ_STATUS_INVALID;
     if (cmpctblock.shorttxids.size() + cmpctblock.prefilledtxn.size() > MAX_BLOCK_BASE_SIZE / MIN_TRANSACTION_BASE_SIZE)
         return READ_STATUS_INVALID;
+    // The reconstruction indices are 16-bit; reject a message that carries more
+    // entries than that space, independent of the block-size bound above.
+    if (cmpctblock.BlockTxCount() > std::numeric_limits<uint16_t>::max())
+        return READ_STATUS_INVALID;
 
     if (!header.IsNull() || !txn_available.empty()) {
         return READ_STATUS_FAILED;
@@ -85,8 +89,13 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
     std::unordered_map<uint64_t, uint16_t> shorttxids(cmpctblock.shorttxids.size());
     uint16_t index_offset = 0;
     for (size_t i = 0; i < cmpctblock.shorttxids.size(); i++) {
-        while (txn_available[i + index_offset])
+        // Defensive: the entry bound above keeps i + index_offset within
+        // txn_available, but guard the search index so a short-circuit here
+        // can never read past the vector.
+        while (i + index_offset < txn_available.size() && txn_available[i + index_offset])
             index_offset++;
+        if (i + index_offset >= txn_available.size())
+            return READ_STATUS_INVALID;
         shorttxids[cmpctblock.shorttxids[i]] = i + index_offset;
         // To determine the chance that the number of entries in a bucket exceeds N,
         // we use the fact that the number of elements in a single bucket is

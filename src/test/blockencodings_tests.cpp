@@ -11,6 +11,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <limits>
+
 std::vector<std::pair<uint256, CTransactionRef> > extra_txn;
 
 struct RegtestingSetup : public TestingSetup {
@@ -350,6 +352,124 @@ BOOST_AUTO_TEST_CASE(TransactionsRequestSerializationTest)
     BOOST_CHECK_EQUAL(req1.indexes[1], req2.indexes[1]);
     BOOST_CHECK_EQUAL(req1.indexes[2], req2.indexes[2]);
     BOOST_CHECK_EQUAL(req1.indexes[3], req2.indexes[3]);
+}
+
+BOOST_AUTO_TEST_CASE(TransactionsRequestDeserializationMaxTest) {
+    // Check that the highest legal index is decoded correctly
+    BlockTransactionsRequest req0;
+    req0.blockhash = InsecureRand256();
+    req0.indexes.resize(1);
+    req0.indexes[0] = 0xffff;
+    CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+    stream << req0;
+
+    BlockTransactionsRequest req1;
+    stream >> req1;
+    BOOST_CHECK_EQUAL(req0.indexes.size(), req1.indexes.size());
+    BOOST_CHECK_EQUAL(req0.indexes[0], req1.indexes[0]);
+}
+
+BOOST_AUTO_TEST_CASE(TransactionsRequestDeserializationOverflowTest) {
+    // Any set of index deltas that starts with N values that sum to (0x10000 - N)
+    // reaches the edge case the running offset did not previously check for. Such
+    // a request cannot be produced by serializing a real BlockTransactionsRequest,
+    // so it is assembled from raw deltas here.
+    BlockTransactionsRequest req0;
+    req0.blockhash = InsecureRand256();
+    req0.indexes.resize(3);
+    req0.indexes[0] = 0x7000;
+    req0.indexes[1] = 0x10000 - 0x7000 - 2;
+    req0.indexes[2] = 0;
+    CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+    stream << req0.blockhash;
+    WriteCompactSize(stream, req0.indexes.size());
+    WriteCompactSize(stream, req0.indexes[0]);
+    WriteCompactSize(stream, req0.indexes[1]);
+    WriteCompactSize(stream, req0.indexes[2]);
+
+    BlockTransactionsRequest req1;
+    try {
+        stream >> req1;
+        // before the bound: deserialize succeeds and this check fails as the offset wraps
+        BOOST_CHECK(req1.indexes[1] < req1.indexes[2]);
+        // not reachable before or after the bound
+        BOOST_CHECK(0);
+    } catch(std::ios_base::failure &) {
+        // deserialize should fail
+    }
+}
+
+BOOST_AUTO_TEST_CASE(CompactBlockDeserializationEntryBoundTest) {
+    // A CBlockHeaderAndShortTxIDs whose total entry count (short ids + prefilled)
+    // exceeds the 16-bit index space must be rejected at deserialization. The wire
+    // form is assembled by hand because a well-formed object cannot be serialized
+    // at this size once the bound is in place.
+    CBlock block(BuildBlockTestCase());
+
+    CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+    stream << block.GetBlockHeader();
+    stream << (uint64_t)0; // nonce
+
+    const uint64_t n_short = (uint64_t)std::numeric_limits<uint16_t>::max(); // 65535
+    WriteCompactSize(stream, n_short);
+    for (uint64_t i = 0; i < n_short; i++) {
+        uint32_t lsb = 0; uint16_t msb = 0; // 6-byte short id; value is irrelevant to the bound
+        stream << lsb << msb;
+    }
+
+    // One prefilled transaction: total entries = 65535 + 1 = 65536 > 65535.
+    std::vector<PrefilledTransaction> prefilled(1);
+    prefilled[0].index = 0;
+    prefilled[0].tx = block.vtx[0];
+    stream << prefilled;
+
+    CBlockHeaderAndShortTxIDs dummy;
+    BOOST_CHECK_THROW(stream >> dummy, std::ios_base::failure);
+}
+
+BOOST_AUTO_TEST_CASE(CompactBlockDeserializationAtBoundTest) {
+    // A message at exactly the 16-bit limit (65,535 total entries) must still
+    // deserialize, so the bound does not reject a legal maximum-size message.
+    CBlock block(BuildBlockTestCase());
+
+    CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+    stream << block.GetBlockHeader();
+    stream << (uint64_t)0; // nonce
+
+    const uint64_t n_short = (uint64_t)std::numeric_limits<uint16_t>::max(); // 65535
+    WriteCompactSize(stream, n_short);
+    for (uint64_t i = 0; i < n_short; i++) {
+        uint32_t lsb = 0; uint16_t msb = 0;
+        stream << lsb << msb;
+    }
+    WriteCompactSize(stream, (uint64_t)0); // no prefilled: total = 65535
+
+    CBlockHeaderAndShortTxIDs dummy;
+    BOOST_CHECK_NO_THROW(stream >> dummy);
+}
+
+// Exposes the protected short-id and prefilled vectors so a message too large to
+// deserialize can still be handed to InitData to exercise its entry bound.
+class CBlockHeaderAndShortTxIDsForTest : public CBlockHeaderAndShortTxIDs {
+public:
+    void SetOversized(const CBlockHeader& h, size_t n_short) {
+        header = h;
+        shorttxids.assign(n_short, 0);
+        prefilledtxn.clear();
+    }
+};
+
+BOOST_AUTO_TEST_CASE(CompactBlockInitDataEntryBoundTest) {
+    // InitData must reject an oversized compact block (more than 65,535 total
+    // entries) rather than resizing and scanning past the 16-bit index space.
+    CTxMemPool pool(CFeeRate(0));
+    CBlock block(BuildBlockTestCase());
+
+    CBlockHeaderAndShortTxIDsForTest cmpct;
+    cmpct.SetOversized(block.GetBlockHeader(), (size_t)std::numeric_limits<uint16_t>::max() + 1); // 65536
+
+    PartiallyDownloadedBlock partialBlock(&pool);
+    BOOST_CHECK(partialBlock.InitData(cmpct, extra_txn) == READ_STATUS_INVALID);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
