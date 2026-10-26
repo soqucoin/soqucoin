@@ -7257,9 +7257,10 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
  * already requires it of a block with an auxpow; this requires it of a direct
  * proof-of-work block too, the upstream form. The refusal scores the peer 0, as
  * bad-fork-beyond-finality does: a node without the rule relays the block in
- * good faith. What it announces on top of the block is scored on its own: by
- * the unconnecting-headers rule, or by bad-prevblk once the block is indexed
- * as failed. Height 0 is never at or above a height above 0: genesis is exempt.
+ * good faith. What it announces on top of the block is scored on its own (a
+ * header that does not connect by the unconnecting-headers rule; a header
+ * whose parent is the block, once it is indexed as failed, by bad-prevblk).
+ * Height 0 is never at or above a height above 0: genesis is exempt.
  *
  * Two call sites, one predicate: ContextualCheckBlockHeader judges every
  * header as it arrives, so a block that fails is never fetched; and
@@ -7300,11 +7301,6 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
             __func__, nHeight, consensusParams.nAuxpowStartHeight),
             REJECT_INVALID, "early-auxpow-block");
 
-    // Chain id rule, the header site (see CheckChainIdRule): after the two
-    // version-shape rules above, before any work on the block.
-    if (!CheckChainIdRule(block, state, nHeight, consensusParams))
-        return false;
-
     // Check proof of work
     if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
         return state.DoS(100, false, REJECT_INVALID, "bad-diffbits", false, "incorrect proof of work");
@@ -7318,6 +7314,14 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         if (pcheckpoint && nHeight < pcheckpoint->nHeight)
             return state.DoS(100, error("%s: forked chain older than last checkpoint (height %d)", __func__, nHeight), REJECT_CHECKPOINT, "bad-fork-prior-to-checkpoint");
     }
+
+    // Chain id rule, the header site (see CheckChainIdRule): after the
+    // difficulty and checkpoint rules, so that its score-0 refusal is reached
+    // only by a header whose work is at the required target (CheckBlockHeader
+    // checks the work against the header's own nBits), as the score-0 rules
+    // below are.
+    if (!CheckChainIdRule(block, state, nHeight, consensusParams))
+        return false;
 
     // Finality horizon (anti-deep-reorg). A small merge-mined chain cannot
     // out-hash a rental 51% attack (Analysis [A], 2026-06-22) — renting a

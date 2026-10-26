@@ -520,6 +520,23 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
     BOOST_CHECK(!judge(kLegacy));
     BOOST_CHECK_EQUAL(reason, "late-legacy-block");
 
+    // A header without the id that also claims a target other than the
+    // required one draws bad-diffbits (DoS 100) first: the score-0 refusal is
+    // reached only by a header whose work is at the required target.
+    {
+        std::unique_ptr<CBlockTemplate> tmplBits = BlockAssembler(cp).CreateNewBlock(spk, true);
+        BOOST_REQUIRE(tmplBits != nullptr);
+        CBlockHeader hdrBits = tmplBits->block.GetBlockHeader();
+        hdrBits.nVersion = kDirectNoId;
+        hdrBits.nBits -= 1;
+        CValidationState bitsState;
+        nDoS = -1;
+        BOOST_CHECK(!ContextualCheckBlockHeader(hdrBits, bitsState, chainActive.Tip(), GetAdjustedTime()));
+        BOOST_CHECK_EQUAL(bitsState.GetRejectReason(), "bad-diffbits");
+        BOOST_CHECK(bitsState.IsInvalid(nDoS));
+        BOOST_CHECK_EQUAL(nDoS, 100);
+    }
+
     // The miner's own template at the height passes TestBlockValidity and
     // connects, and the rule holds above the height.
     MineRegtestBlock(cp, spk);
