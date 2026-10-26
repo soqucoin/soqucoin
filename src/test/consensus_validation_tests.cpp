@@ -565,6 +565,24 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
     BOOST_CHECK(!ProcessNewBlock(cp, sharedCached, true, nullptr));
     BOOST_CHECK_EQUAL(chainActive.Height(), kArm);
     BOOST_CHECK(pindexCached->nStatus & BLOCK_FAILED_VALID);
+
+    // What a peer announces on top of a block indexed as failed is judged by
+    // AcceptBlockHeader's own rule, bad-prevblk at DoS 100, as for any block
+    // marked invalid: the score of this rule stops at the block itself.
+    std::unique_ptr<CBlockTemplate> tmplNext = BlockAssembler(cp).CreateNewBlock(spk, true);
+    BOOST_REQUIRE(tmplNext != nullptr);
+    CBlockHeader next = tmplNext->block.GetBlockHeader();
+    next.hashPrevBlock = cached.GetHash();
+    while (!CheckProofOfWork(next.GetPoWHash(), next.nBits, cp.GetConsensus(kArm + 2))) {
+        ++next.nNonce;
+    }
+    CValidationState nextState;
+    const CBlockIndex* pindexNext = nullptr;
+    BOOST_CHECK(!ProcessNewBlockHeaders({next}, nextState, cp, &pindexNext));
+    BOOST_CHECK_EQUAL(nextState.GetRejectReason(), "bad-prevblk");
+    nDoS = -1;
+    BOOST_CHECK(nextState.IsInvalid(nDoS));
+    BOOST_CHECK_EQUAL(nDoS, 100);
 }
 
 // ============================================

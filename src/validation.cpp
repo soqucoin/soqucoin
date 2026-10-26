@@ -7255,11 +7255,11 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
  * nAuxpowChainId in the high bits of its version, merge-mined or not:
  * Dogecoin's form of the strict chain id check. CheckAuxPowProofOfWork
  * already requires it of a block with an auxpow; this requires it of a direct
- * proof-of-work block too, which is the upstream form. The refusal scores the
- * peer 0, as bad-fork-beyond-finality does: a node without the rule relays
- * the block in good faith and stays connected to follow the heavier chain.
- * Height 0 is never at or above a height greater than 0, so genesis is exempt
- * on every network.
+ * proof-of-work block too, the upstream form. The refusal scores the peer 0, as
+ * bad-fork-beyond-finality does: a node without the rule relays the block in
+ * good faith. What it announces on top of the block is scored on its own: by
+ * the unconnecting-headers rule, or by bad-prevblk once the block is indexed
+ * as failed. Height 0 is never at or above a height above 0: genesis is exempt.
  *
  * Two call sites, one predicate: ContextualCheckBlockHeader judges every
  * header as it arrives, so a block that fails is never fetched; and

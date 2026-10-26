@@ -24,6 +24,7 @@
 #
 
 import os
+import re
 import struct
 import subprocess
 import time
@@ -174,14 +175,16 @@ class ChainIdRequiredHeightTest(BitcoinTestFramework):
         assert_equal(self.debug_log(0).count(refusal), 1)
 
         # 4. The peer, with no rule, accepts the same parent and extends its
-        #    chain with it. The armed node refuses the announced header with
-        #    DoS 0: the refusal is logged once more per connection (the peer
-        #    announces on both), both connections stay at a ban score of 0,
-        #    and the armed node stays on the child.
+        #    chain with it. It announces the parent on both connections, by
+        #    headers or by compact block, and the armed node refuses the
+        #    header each time with DoS 0: the refusal is logged once more per
+        #    connection and no more, both connections stay at a ban score of
+        #    0, and the armed node stays on the child.
         assert_equal(plain.submitblock(parent.serialize().hex()), None)
         assert_equal(plain.getblockcount(), HEIGHT)
         assert_equal(plain.getbestblockhash(), parent.hash)
         log = self.wait_for_log(0, lambda log: log.count(refusal) >= 3)
+        assert_equal(log.count(refusal), 3)
         assert "invalid header received" in log or "sent us invalid header via cmpctblock" in log
         assert "BAN THRESHOLD EXCEEDED" not in log
         assert_equal([peer['banscore'] for peer in armed.getpeerinfo()], [0, 0])
@@ -208,30 +211,46 @@ class ChainIdRequiredHeightTest(BitcoinTestFramework):
         assert parent.hash not in [tip['hash'] for tip in armed.getchaintips()]
         assert_equal([peer['banscore'] for peer in armed.getpeerinfo()], [0, 0])
 
-        # 6. A peer that keeps building on the refused block. On fresh
-        #    connections (a node announces by compact block to a peer that
-        #    asked for that, which the armed node does of a peer that has
-        #    delivered it valid blocks, and a compact block that does not
-        #    connect draws a headers request and no score), the peer puts the
-        #    parent back at its tip and mines on it one block at a time. Each
-        #    announcement names a previous block the armed node never indexed,
-        #    so none connects: the armed node asks for headers, is given the
-        #    parent first and refuses it again at DoS 0, and counts the
-        #    announcement under the unconnecting-headers rule, which scores 20
-        #    every tenth and so reaches the ban threshold at the fiftieth. The
-        #    armed node then disconnects the peer (local, so never banned) and
-        #    has not moved.
+        # 6. A peer that keeps building on the refused block. The connections
+        #    are made afresh first: the armed node may have asked the old ones
+        #    to announce by compact block (it asks that of a peer that has
+        #    delivered it valid blocks), and a compact block that does not
+        #    connect draws a headers request and no score, so only headers
+        #    announcements count below. The peer puts the parent back at its
+        #    tip and mines on it one block at a time. Each announcement names
+        #    a previous block the armed node never indexed, so none connects:
+        #    the armed node asks for headers, is given the parent first and
+        #    refuses it again at DoS 0, and counts the announcement under the
+        #    unconnecting-headers rule, which scores 20 every tenth and so
+        #    reaches the ban threshold at the fiftieth. The armed node then
+        #    disconnects the peer (local, so never banned) and has not moved.
         self.reconnect()
+        # The armed node asks each new connection for headers at once. Wait
+        # until both replies are in, so that no reply below is answered from
+        # the peer's chain as it stands after the next step.
+        ids = [peer['id'] for peer in armed.getpeerinfo()]
+        assert_equal(len(ids), 2)
+        self.wait_for_log(0, lambda log: all(re.search(r"received: headers \(\d+ bytes\) peer=%d(?!\d)" % i, log) for i in ids))
         refusals = self.debug_log(0).count(refusal)
         plain.invalidateblock(armed_at_height)
         assert_equal(plain.getbestblockhash(), parent.hash)
-        # The peer announces its new tip, the parent, which connects and is
-        # refused once more on each connection. Wait for that, so that the
-        # first block built on it below is announced on its own.
+        # The peer announces its new tip, the parent, on both connections; it
+        # connects and is refused once more on each. Wait for both, so that
+        # the first block built on it below is announced on its own.
         self.wait_for_log(0, lambda log: log.count(refusal) >= refusals + 2)
+        refusals += 2
         for k in range(1, ANNOUNCEMENTS_TO_DISCONNECT + 1):
             plain.generate(1)
+            # Each connection logs the announcement as unconnecting, asks the
+            # peer for headers, and refuses the parent at the head of the
+            # reply. Wait for both replies before the next block: a block
+            # mined before the peer has answered would be folded into that
+            # reply and never announced on its own. At the fiftieth the peer
+            # is dropped, and the reply may or may not be read before that.
             self.wait_for_log(0, lambda log: log.count("nUnconnectingHeaders=%d)" % k) >= 2)
+            if k < ANNOUNCEMENTS_TO_DISCONNECT:
+                self.wait_for_log(0, lambda log: log.count(refusal) >= refusals + 2)
+                refusals += 2
             if k < ANNOUNCEMENTS_TO_DISCONNECT and k % UNCONNECTING_HEADERS_PER_SCORE == 0:
                 score = k // UNCONNECTING_HEADERS_PER_SCORE * UNCONNECTING_HEADERS_SCORE
                 assert_equal([peer['banscore'] for peer in armed.getpeerinfo()], [score, score])
