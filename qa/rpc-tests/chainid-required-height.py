@@ -13,21 +13,26 @@
 # regtest path through init and its startup line; a direct block without the
 # id, built with the scrypt helper as the parent of a merge-mined block,
 # accepted below the height and refused at it; the same block arriving from a
-# peer that has no rule (refused with DoS 100, so the peer is dropped; a
-# loopback peer is never banned, only disconnected); the armed node's own
-# blocks at the height; the peer restarted with the rule, keeping the block it
-# connected without it until a replay of its block files; and the option's
-# bounds.
+# peer that has no rule (refused with DoS 0, so the peer is kept and the armed
+# node stays on its tip); that peer reorganizing onto the armed node's chain
+# once it is the heavier one; a peer that keeps building on the refused block,
+# whose announcements no longer connect, disconnected by the unconnecting-
+# headers rule (a loopback peer is never banned, only disconnected); the armed
+# node's own blocks at the height; the peer restarted with the rule, keeping
+# the chain it connected without it until a replay of its block files; and
+# the option's bounds.
 #
 
 import os
+import re
 import struct
 import subprocess
 import time
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import (assert_equal, connect_nodes_bi,
-                                 initialize_datadir, soqucoind_processes,
-                                 start_node, start_nodes, stop_node)
+from test_framework.util import (assert_equal, assert_raises_jsonrpc,
+                                 connect_nodes_bi, initialize_datadir,
+                                 soqucoind_processes, start_node, start_nodes,
+                                 stop_node, sync_blocks)
 from test_framework.mininode import CBlockHeader, ser_string, ser_uint256
 from test_framework.blocktools import create_block, create_coinbase, serialize_script_num
 
@@ -40,6 +45,14 @@ CHAIN_ID = 0x5351
 STAMPED_VERSION = (CHAIN_ID << 16) | (1 << 15) | 4
 # The merge-mining tag that precedes the child's hash in the parent's coinbase.
 MERGED_MINING_HEADER = b"\xfa\xbe" + b"mm"
+# The unconnecting-headers rule (net_processing.cpp, MAX_UNCONNECTING_HEADERS):
+# every tenth headers announcement that does not connect scores the peer 20,
+# and 100 (DEFAULT_BANSCORE_THRESHOLD) is the ban threshold, reached at the
+# fiftieth.
+UNCONNECTING_HEADERS_PER_SCORE = 10
+UNCONNECTING_HEADERS_SCORE = 20
+BAN_THRESHOLD = 100
+ANNOUNCEMENTS_TO_DISCONNECT = BAN_THRESHOLD // UNCONNECTING_HEADERS_SCORE * UNCONNECTING_HEADERS_PER_SCORE
 
 
 class ChainIdRequiredHeightTest(BitcoinTestFramework):
@@ -61,6 +74,31 @@ class ChainIdRequiredHeightTest(BitcoinTestFramework):
     def debug_log(self, i):
         with open(os.path.join(self.options.tmpdir, "node%d" % i, "regtest", "debug.log"), encoding="utf-8") as f:
             return f.read()
+
+    def wait_for_log(self, i, predicate, timeout=60):
+        """Polls node i's debug log until predicate(log) holds, for at most
+        timeout seconds."""
+        deadline = time.time() + timeout
+        while True:
+            log = self.debug_log(i)
+            if predicate(log):
+                return log
+            assert time.time() < deadline, "node%d: the expected log lines did not appear within %d seconds" % (i, timeout)
+            time.sleep(0.5)
+
+    def reconnect(self):
+        """Drops every connection between the two nodes and connects them
+        again, so that each side's per-peer state starts fresh."""
+        armed, plain = self.nodes
+        for peer in armed.getpeerinfo():
+            armed.disconnectnode(peer['addr'])
+        for _ in range(120):
+            if armed.getpeerinfo() == [] and plain.getpeerinfo() == []:
+                break
+            time.sleep(0.5)
+        assert_equal(armed.getpeerinfo(), [])
+        assert_equal(plain.getpeerinfo(), [])
+        connect_nodes_bi(self.nodes, 0, 1)
 
     def build_pair(self, node, t):
         """A merge-mined block on node's tip and its parent block, built as
@@ -133,59 +171,138 @@ class ChainIdRequiredHeightTest(BitcoinTestFramework):
         assert_equal(armed.submitblock(parent.serialize().hex()), "bad-chain-id")
         assert_equal(armed.getblockcount(), HEIGHT - 1)
         assert_equal(armed.getbestblockhash(), child_hash)
-        assert ("AcceptBlockHeader: Consensus::ContextualCheckBlockHeader: %s, bad-chain-id" % parent.hash) in self.debug_log(0)
+        refusal = "AcceptBlockHeader: Consensus::ContextualCheckBlockHeader: %s, bad-chain-id" % parent.hash
+        assert_equal(self.debug_log(0).count(refusal), 1)
 
         # 4. The peer, with no rule, accepts the same parent and extends its
-        #    chain with it. The armed node refuses the announced header, drops
-        #    the peer, and does not follow.
+        #    chain with it. It announces the parent on both connections, by
+        #    headers or by compact block, and the armed node refuses the
+        #    header each time with DoS 0: the refusal is logged once more per
+        #    connection and no more, both connections stay at a ban score of
+        #    0, and the armed node stays on the child.
         assert_equal(plain.submitblock(parent.serialize().hex()), None)
         assert_equal(plain.getblockcount(), HEIGHT)
         assert_equal(plain.getbestblockhash(), parent.hash)
+        log = self.wait_for_log(0, lambda log: log.count(refusal) >= 3)
+        assert_equal(log.count(refusal), 3)
+        assert "invalid header received" in log or "sent us invalid header via cmpctblock" in log
+        assert "BAN THRESHOLD EXCEEDED" not in log
+        assert_equal([peer['banscore'] for peer in armed.getpeerinfo()], [0, 0])
+        assert_equal(armed.getblockcount(), HEIGHT - 1)
+        assert_equal(armed.getbestblockhash(), child_hash)
+
+        # 5. The armed node's own blocks at and above the height carry the id
+        #    and connect, and its chain is now the heavier one. The peer, still
+        #    connected and without the rule, reorganizes onto it; the parent
+        #    stays in the peer's index as a valid fork of one block and is in
+        #    no index of the armed node's.
+        armed.generate(2)
+        assert_equal(armed.getblockcount(), HEIGHT + 1)
+        for h in (HEIGHT, HEIGHT + 1):
+            assert_equal(armed.getblock(armed.getblockhash(h))['version'], STAMPED_VERSION)
+        armed_at_height = armed.getblockhash(HEIGHT)
+        armed_tip = armed.getbestblockhash()
+        sync_blocks(self.nodes)
+        assert_equal(plain.getbestblockhash(), armed_tip)
+        assert_equal(plain.getblockcount(), HEIGHT + 1)
+        tips = {tip['hash']: tip for tip in plain.getchaintips()}
+        assert_equal(tips[parent.hash]['status'], 'valid-fork')
+        assert_equal(tips[parent.hash]['branchlen'], 1)
+        assert parent.hash not in [tip['hash'] for tip in armed.getchaintips()]
+        assert_equal([peer['banscore'] for peer in armed.getpeerinfo()], [0, 0])
+
+        # 6. A peer that keeps building on the refused block. The connections
+        #    are made afresh first: the armed node may have asked the old ones
+        #    to announce by compact block (it asks that of a peer that has
+        #    delivered it valid blocks), and a compact block that does not
+        #    connect draws a headers request and no score, so only headers
+        #    announcements count below. The peer puts the parent back at its
+        #    tip and mines on it one block at a time. Each announcement names
+        #    a previous block the armed node never indexed, so none connects:
+        #    the armed node asks for headers, is given the parent first and
+        #    refuses it again at DoS 0, and counts the announcement under the
+        #    unconnecting-headers rule, which scores 20 every tenth and so
+        #    reaches the ban threshold at the fiftieth. The armed node then
+        #    disconnects the peer (local, so never banned) and has not moved.
+        self.reconnect()
+        # The armed node asks each new connection for headers at once. Wait
+        # until both replies are in, so that no reply below is answered from
+        # the peer's chain as it stands after the next step.
+        ids = [peer['id'] for peer in armed.getpeerinfo()]
+        assert_equal(len(ids), 2)
+        self.wait_for_log(0, lambda log: all(re.search(r"received: headers \(\d+ bytes\) peer=%d(?!\d)" % i, log) for i in ids))
+        refusals = self.debug_log(0).count(refusal)
+        plain.invalidateblock(armed_at_height)
+        assert_equal(plain.getbestblockhash(), parent.hash)
+        # The peer announces its new tip, the parent, on both connections; it
+        # connects and is refused once more on each. Wait for both, so that
+        # the first block built on it below is announced on its own.
+        self.wait_for_log(0, lambda log: log.count(refusal) >= refusals + 2)
+        refusals += 2
+        for k in range(1, ANNOUNCEMENTS_TO_DISCONNECT + 1):
+            plain.generate(1)
+            # Each connection logs the announcement as unconnecting, asks the
+            # peer for headers, and refuses the parent at the head of the
+            # reply. Wait for both replies before the next block: a block
+            # mined before the peer has answered would be folded into that
+            # reply and never announced on its own. At the fiftieth the peer
+            # is dropped, and the reply may or may not be read before that.
+            self.wait_for_log(0, lambda log: log.count("nUnconnectingHeaders=%d)" % k) >= 2)
+            if k < ANNOUNCEMENTS_TO_DISCONNECT:
+                self.wait_for_log(0, lambda log: log.count(refusal) >= refusals + 2)
+                refusals += 2
+            if k < ANNOUNCEMENTS_TO_DISCONNECT and k % UNCONNECTING_HEADERS_PER_SCORE == 0:
+                score = k // UNCONNECTING_HEADERS_PER_SCORE * UNCONNECTING_HEADERS_SCORE
+                assert_equal([peer['banscore'] for peer in armed.getpeerinfo()], [score, score])
         for _ in range(120):
             if armed.getpeerinfo() == []:
                 break
             time.sleep(0.5)
         assert_equal(armed.getpeerinfo(), [])
-        assert "BAN THRESHOLD EXCEEDED" in self.debug_log(0)
-        assert_equal(armed.getblockcount(), HEIGHT - 1)
-        assert_equal(armed.getbestblockhash(), child_hash)
+        log = self.debug_log(0)
+        assert "BAN THRESHOLD EXCEEDED" in log
+        assert "not banning local peer" in log
+        assert_equal(armed.listbanned(), [])
+        assert_equal(armed.getbestblockhash(), armed_tip)
+        assert_equal(plain.getblockcount(), HEIGHT + ANNOUNCEMENTS_TO_DISCONNECT)
+        plain_tip = plain.getbestblockhash()
 
-        # 5. The armed node's own blocks at and above the height carry the id
-        #    and connect.
-        armed.generate(2)
-        assert_equal(armed.getblockcount(), HEIGHT + 1)
-        for h in (HEIGHT, HEIGHT + 1):
-            assert_equal(armed.getblock(armed.getblockhash(h))['version'], STAMPED_VERSION)
-
-        # 6. The peer connected the parent before it carried the rule. A node
-        #    trusts its index as it stands on restart, for this rule as for
-        #    every height-activated one, so restarted with the rule the peer
-        #    stays on the parent; restarted with the rule and -reindex, the
-        #    parent's header is refused as the block files replay and the
-        #    peer ends on the child.
+        # 7. The peer connected the parent, and the blocks on it, before it
+        #    carried the rule. A node trusts its index as it stands on restart,
+        #    for this rule as for every height-activated one, so restarted with
+        #    the rule the peer stays on that chain; restarted with the rule and
+        #    -reindex, the parent's header is refused as the block files
+        #    replay, every block built on it is left without a parent, and the
+        #    peer ends on the armed node's chain, whose blocks follow the
+        #    parent in its files.
         stop_node(plain, 1)
         plain = self.nodes[1] = start_node(1, self.options.tmpdir,
                                            ["-debug", "-blockversion=4", "-chainidrequiredheight=%d" % HEIGHT])
         assert "Chain id rule: 0x5351 required from height %d" % HEIGHT in self.debug_log(1)
-        assert_equal(plain.getblockcount(), HEIGHT)
-        assert_equal(plain.getbestblockhash(), parent.hash)
+        assert_equal(plain.getblockcount(), HEIGHT + ANNOUNCEMENTS_TO_DISCONNECT)
+        assert_equal(plain.getbestblockhash(), plain_tip)
+        assert_equal(plain.getblock(parent.hash)['height'], HEIGHT)
         stop_node(plain, 1)
         plain = self.nodes[1] = start_node(1, self.options.tmpdir,
                                            ["-debug", "-blockversion=4", "-chainidrequiredheight=%d" % HEIGHT, "-reindex"])
         # RPC answers once genesis is processed while the import thread still
         # replays the file and only then activates the chain, so wait, bounded,
-        # on the tip itself: the parent is the last block in the file and is
-        # never indexed, so the child, once it is the tip, is the final tip.
-        # The parent's refusal is logged during the replay, before that.
+        # on the tip itself: the parent is refused before the armed node's
+        # blocks are read, since they follow it in the file, and nothing read
+        # after them connects, so the armed node's tip, once it is the tip, is
+        # the final tip. The parent's refusal is logged during the replay,
+        # before that.
         for _ in range(240):
-            if plain.getbestblockhash() == child_hash:
+            if plain.getbestblockhash() == armed_tip:
                 break
             time.sleep(0.5)
-        assert_equal(plain.getbestblockhash(), child_hash)
-        assert_equal(plain.getblockcount(), HEIGHT - 1)
-        assert ("AcceptBlockHeader: Consensus::ContextualCheckBlockHeader: %s, bad-chain-id" % parent.hash) in self.debug_log(1)
+        assert_equal(plain.getbestblockhash(), armed_tip)
+        assert_equal(plain.getblockcount(), HEIGHT + 1)
+        assert refusal in self.debug_log(1)
+        assert_raises_jsonrpc(-5, "Block not found", plain.getblock, parent.hash)
+        assert_raises_jsonrpc(-5, "Block not found", plain.getblock, plain_tip)
 
-        # 7. The regtest option is bounded to a block height: the largest value
+        # 8. The regtest option is bounded to a block height: the largest value
         #    starts a node and is formatted on its startup line; a negative one
         #    refuses to start. That refusal is printed on the daemon's stderr
         #    before its log opens, so the daemon's stderr is captured to a file

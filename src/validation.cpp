@@ -7255,11 +7255,12 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
  * nAuxpowChainId in the high bits of its version, merge-mined or not:
  * Dogecoin's form of the strict chain id check. CheckAuxPowProofOfWork
  * already requires it of a block with an auxpow; this requires it of a direct
- * proof-of-work block too, which is the upstream form. A function of the
- * header and the parameters alone, so DoS 100 as for the other header rules
- * of its kind.
- * Height 0 is never at or above a height greater than 0, so genesis is exempt
- * on every network.
+ * proof-of-work block too, the upstream form. The refusal scores the peer 0, as
+ * bad-fork-beyond-finality does: a node without the rule relays the block in
+ * good faith. What it announces on top of the block is scored on its own (a
+ * header that does not connect by the unconnecting-headers rule; a header
+ * whose parent is the block, once it is indexed as failed, by bad-prevblk).
+ * Height 0 is never at or above a height above 0: genesis is exempt.
  *
  * Two call sites, one predicate: ContextualCheckBlockHeader judges every
  * header as it arrives, so a block that fails is never fetched; and
@@ -7273,7 +7274,7 @@ static bool CheckChainIdRule(const CBlockHeader& block, CValidationState& state,
 {
     if (consensusParams.nChainIdRequiredHeight > 0 && nHeight >= consensusParams.nChainIdRequiredHeight &&
         !block.IsLegacy() && block.GetChainId() != consensusParams.nAuxpowChainId)
-        return state.DoS(100, error("%s : block at height %d carries chain id 0x%x, 0x%x is required from height %d (nVersion 0x%08x)",
+        return state.DoS(0, error("%s : block at height %d carries chain id 0x%x, 0x%x is required from height %d (nVersion 0x%08x)",
             __func__, nHeight, block.GetChainId(), consensusParams.nAuxpowChainId,
             consensusParams.nChainIdRequiredHeight, block.nVersion),
             REJECT_INVALID, "bad-chain-id");
@@ -7299,11 +7300,6 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         return state.DoS(100, error("%s : auxpow block at height %d rejected, AuxPoW activates at height %d",
             __func__, nHeight, consensusParams.nAuxpowStartHeight),
             REJECT_INVALID, "early-auxpow-block");
-
-    // Chain id rule, the header site (see CheckChainIdRule): after the two
-    // version-shape rules above, before any work on the block.
-    if (!CheckChainIdRule(block, state, nHeight, consensusParams))
-        return false;
 
     // Check proof of work
     if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
@@ -7351,6 +7347,15 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     if (nHeight == 1 && consensusParams.nMinBlock1Time > 0 && block.GetBlockTime() < consensusParams.nMinBlock1Time)
         return state.DoS(100, false, REJECT_INVALID, "block1-before-launch", false,
             strprintf("block 1 timed %d is before the launch time %d", block.GetBlockTime(), consensusParams.nMinBlock1Time));
+
+    // Chain id rule, the header site (see CheckChainIdRule). Its refusal
+    // scores 0, so it runs after every rule above that scores 100: after the
+    // difficulty rule, so that it is reached only by a header that claims the
+    // required target and whose work CheckBlockHeader checked against it, and
+    // after the checkpoint and block-1 rules, so that a header failing one of
+    // those and this draws their score, as the score-0 timestamp rules below.
+    if (!CheckChainIdRule(block, state, nHeight, consensusParams))
+        return false;
 
     // Check timestamp against prev
     if (block.GetBlockTime() <= pindexPrev->GetMedianTimePast())

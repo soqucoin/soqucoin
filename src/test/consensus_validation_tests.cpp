@@ -453,7 +453,7 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
         CValidationState state;
         const bool ok = ContextualCheckBlockHeader(hdr, state, chainActive.Tip(), GetAdjustedTime());
         reason = state.GetRejectReason();
-        nDoS = 0;
+        nDoS = -1;  // a sentinel: a score of 0 below is the state's, read by IsInvalid
         if (!ok) {
             BOOST_CHECK(state.IsInvalid(nDoS));
         }
@@ -471,7 +471,7 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
         BOOST_CHECK(judge(kDirect));
         BOOST_CHECK(!judge(kDirectNoId));
         BOOST_CHECK_EQUAL(reason, "bad-chain-id");
-        BOOST_CHECK_EQUAL(nDoS, 100);
+        BOOST_CHECK_EQUAL(nDoS, 0);
     }
     BOOST_REQUIRE_EQUAL(cp.GetConsensus(1).nChainIdRequiredHeight, 0);
 
@@ -504,10 +504,10 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
     MineRegtestBlock(cp, spk);
 
     // At the height the stamped shapes pass, merge-mined or not; every other
-    // chain id draws bad-chain-id with DoS 100 through this function (on the
-    // network path a merge-mined shape that carries no auxpow fails
-    // CheckBlockHeader's proof-of-work check first); and a legacy header
-    // still draws the neighbour's reject, not this rule's.
+    // chain id draws bad-chain-id with DoS 0 through this function, so the
+    // relaying peer is kept (on the network path a merge-mined shape that
+    // carries no auxpow fails CheckBlockHeader's proof-of-work check first);
+    // and a legacy header still draws the neighbour's reject, not this rule's.
     BOOST_REQUIRE_EQUAL(chainActive.Height() + 1, kArm);
     for (int32_t v : {kDirect, kAuxpow}) {
         BOOST_CHECK_MESSAGE(judge(v), strprintf("version 0x%08x refused at the height: %s", v, reason));
@@ -515,10 +515,28 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
     for (int32_t v : {kDirectNoId, kDirectOtherId, kSignBit, kAuxpowNoId}) {
         BOOST_CHECK_MESSAGE(!judge(v), strprintf("version 0x%08x accepted at the height", v));
         BOOST_CHECK_EQUAL(reason, "bad-chain-id");
-        BOOST_CHECK_EQUAL(nDoS, 100);
+        BOOST_CHECK_EQUAL(nDoS, 0);
     }
     BOOST_CHECK(!judge(kLegacy));
     BOOST_CHECK_EQUAL(reason, "late-legacy-block");
+
+    // A header without the id that also claims a target other than the
+    // required one draws bad-diffbits (DoS 100) first: the score-0 refusal is
+    // reached only by a header that claims the required target (on the
+    // network path CheckBlockHeader has checked its work against it).
+    {
+        std::unique_ptr<CBlockTemplate> tmplBits = BlockAssembler(cp).CreateNewBlock(spk, true);
+        BOOST_REQUIRE(tmplBits != nullptr);
+        CBlockHeader hdrBits = tmplBits->block.GetBlockHeader();
+        hdrBits.nVersion = kDirectNoId;
+        hdrBits.nBits -= 1;
+        CValidationState bitsState;
+        nDoS = -1;
+        BOOST_CHECK(!ContextualCheckBlockHeader(hdrBits, bitsState, chainActive.Tip(), GetAdjustedTime()));
+        BOOST_CHECK_EQUAL(bitsState.GetRejectReason(), "bad-diffbits");
+        BOOST_CHECK(bitsState.IsInvalid(nDoS));
+        BOOST_CHECK_EQUAL(nDoS, 100);
+    }
 
     // The miner's own template at the height passes TestBlockValidity and
     // connects, and the rule holds above the height.
@@ -527,7 +545,7 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
     BOOST_CHECK(judge(kDirect));
     BOOST_CHECK(!judge(kDirectNoId));
     BOOST_CHECK_EQUAL(reason, "bad-chain-id");
-    BOOST_CHECK_EQUAL(nDoS, 100);
+    BOOST_CHECK_EQUAL(nDoS, 0);
 
     // Disarmed (0 = no rule) the same shape passes again at the same height.
     UpdateRegtestChainIdRequiredHeight(0);
@@ -537,7 +555,7 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
     // not re-check a header already in the index, so the block site of the
     // rule (ContextualCheckBlock) must refuse the block when its data arrives
     // after the rule arms: with no rule the header of a block without the id
-    // is indexed; armed, the block itself draws bad-chain-id with DoS 100,
+    // is indexed; armed, the block itself draws bad-chain-id with DoS 0,
     // ProcessNewBlock refuses it, the index entry is marked failed and the
     // chain does not move.
     std::unique_ptr<CBlockTemplate> tmplCached = BlockAssembler(cp).CreateNewBlock(spk, true);
@@ -556,15 +574,33 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
     BOOST_CHECK(!(pindexCached->nStatus & BLOCK_FAILED_MASK));
     UpdateRegtestChainIdRequiredHeight(kArm);
     CValidationState blockState;
-    nDoS = 0;
+    nDoS = -1;
     BOOST_CHECK(!ContextualCheckBlock(cached, blockState, chainActive.Tip()));
     BOOST_CHECK_EQUAL(blockState.GetRejectReason(), "bad-chain-id");
     BOOST_CHECK(blockState.IsInvalid(nDoS));
-    BOOST_CHECK_EQUAL(nDoS, 100);
+    BOOST_CHECK_EQUAL(nDoS, 0);
     std::shared_ptr<const CBlock> sharedCached = std::make_shared<const CBlock>(cached);
     BOOST_CHECK(!ProcessNewBlock(cp, sharedCached, true, nullptr));
     BOOST_CHECK_EQUAL(chainActive.Height(), kArm);
     BOOST_CHECK(pindexCached->nStatus & BLOCK_FAILED_VALID);
+
+    // What a peer announces on top of a block indexed as failed is judged by
+    // AcceptBlockHeader's own rule, bad-prevblk at DoS 100, as for any block
+    // marked invalid: the score of this rule stops at the block itself.
+    std::unique_ptr<CBlockTemplate> tmplNext = BlockAssembler(cp).CreateNewBlock(spk, true);
+    BOOST_REQUIRE(tmplNext != nullptr);
+    CBlockHeader next = tmplNext->block.GetBlockHeader();
+    next.hashPrevBlock = cached.GetHash();
+    while (!CheckProofOfWork(next.GetPoWHash(), next.nBits, cp.GetConsensus(kArm + 2))) {
+        ++next.nNonce;
+    }
+    CValidationState nextState;
+    const CBlockIndex* pindexNext = nullptr;
+    BOOST_CHECK(!ProcessNewBlockHeaders({next}, nextState, cp, &pindexNext));
+    BOOST_CHECK_EQUAL(nextState.GetRejectReason(), "bad-prevblk");
+    nDoS = -1;
+    BOOST_CHECK(nextState.IsInvalid(nDoS));
+    BOOST_CHECK_EQUAL(nDoS, 100);
 }
 
 // ============================================
