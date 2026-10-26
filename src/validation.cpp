@@ -7255,9 +7255,9 @@ std::vector<unsigned char> GenerateCoinbaseCommitment(CBlock& block, const CBloc
  * nAuxpowChainId in the high bits of its version, merge-mined or not:
  * Dogecoin's form of the strict chain id check. CheckAuxPowProofOfWork
  * already requires it of a block with an auxpow; this requires it of a direct
- * proof-of-work block too, which is the upstream form. A function of the
- * header and the parameters alone, so DoS 100 as for the other header rules
- * of its kind.
+ * proof-of-work block too, which is the upstream form. The refusal scores the
+ * peer 0, as bad-fork-beyond-finality does: a node without the rule relays
+ * the block in good faith and stays connected to follow the heavier chain.
  * Height 0 is never at or above a height greater than 0, so genesis is exempt
  * on every network.
  *
@@ -7273,7 +7273,7 @@ static bool CheckChainIdRule(const CBlockHeader& block, CValidationState& state,
 {
     if (consensusParams.nChainIdRequiredHeight > 0 && nHeight >= consensusParams.nChainIdRequiredHeight &&
         !block.IsLegacy() && block.GetChainId() != consensusParams.nAuxpowChainId)
-        return state.DoS(100, error("%s : block at height %d carries chain id 0x%x, 0x%x is required from height %d (nVersion 0x%08x)",
+        return state.DoS(0, error("%s : block at height %d carries chain id 0x%x, 0x%x is required from height %d (nVersion 0x%08x)",
             __func__, nHeight, block.GetChainId(), consensusParams.nAuxpowChainId,
             consensusParams.nChainIdRequiredHeight, block.nVersion),
             REJECT_INVALID, "bad-chain-id");
