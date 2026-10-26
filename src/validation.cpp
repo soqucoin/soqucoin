@@ -7315,14 +7315,6 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
             return state.DoS(100, error("%s: forked chain older than last checkpoint (height %d)", __func__, nHeight), REJECT_CHECKPOINT, "bad-fork-prior-to-checkpoint");
     }
 
-    // Chain id rule, the header site (see CheckChainIdRule): after the
-    // difficulty and checkpoint rules, so that its score-0 refusal is reached
-    // only by a header whose work is at the required target (CheckBlockHeader
-    // checks the work against the header's own nBits), as the score-0 rules
-    // below are.
-    if (!CheckChainIdRule(block, state, nHeight, consensusParams))
-        return false;
-
     // Finality horizon (anti-deep-reorg). A small merge-mined chain cannot
     // out-hash a rental 51% attack (Analysis [A], 2026-06-22) — renting a
     // majority of SOQ's scrypt hashrate is ~free because the same hashrate
@@ -7355,6 +7347,15 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     if (nHeight == 1 && consensusParams.nMinBlock1Time > 0 && block.GetBlockTime() < consensusParams.nMinBlock1Time)
         return state.DoS(100, false, REJECT_INVALID, "block1-before-launch", false,
             strprintf("block 1 timed %d is before the launch time %d", block.GetBlockTime(), consensusParams.nMinBlock1Time));
+
+    // Chain id rule, the header site (see CheckChainIdRule). Its refusal
+    // scores 0, so it runs after every rule above that scores 100: after the
+    // difficulty rule, so that it is reached only by a header that claims the
+    // required target and whose work CheckBlockHeader checked against it, and
+    // after the checkpoint and block-1 rules, so that a header failing one of
+    // those and this draws their score, as the score-0 timestamp rules below.
+    if (!CheckChainIdRule(block, state, nHeight, consensusParams))
+        return false;
 
     // Check timestamp against prev
     if (block.GetBlockTime() <= pindexPrev->GetMedianTimePast())

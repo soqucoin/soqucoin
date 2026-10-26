@@ -522,7 +522,8 @@ BOOST_AUTO_TEST_CASE(chainid_required_height)
 
     // A header without the id that also claims a target other than the
     // required one draws bad-diffbits (DoS 100) first: the score-0 refusal is
-    // reached only by a header whose work is at the required target.
+    // reached only by a header that claims the required target (on the
+    // network path CheckBlockHeader has checked its work against it).
     {
         std::unique_ptr<CBlockTemplate> tmplBits = BlockAssembler(cp).CreateNewBlock(spk, true);
         BOOST_REQUIRE(tmplBits != nullptr);
