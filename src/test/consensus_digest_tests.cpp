@@ -782,8 +782,16 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // no rule changed on any network. The release that schedules the rule on
     // mainnet sets that word to the scheduled height on every mainnet tier and
     // re-pins again, as the block-1 gate's arming did.
+    //
+    // Moved from f36f70cb... on 2026-10-27 when release 2.6.0 scheduled the
+    // chain id rule: nChainIdRequiredHeight from 0 to 67000 on every mainnet
+    // tier (the value is set before the tier copies) and on testnet, which
+    // mirrors mainnet. A RULE change on mainnet and testnet, made deliberately;
+    // stagenet and regtest keep 0 and no other Consensus::Params field moves
+    // (the release diff touches the two chainparams.cpp lines and nothing else
+    // AbsorbConsensus reads).
     const std::string expected =
-        "f36f70cbc1bedebc1cbf099284526e4c02f57ff96281044d45a239713a4eb09d";
+        "1b6c7b79659312c45ebc6e55a28d28ce046635e8a8b92de5a92ef2275ba5a16f";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +

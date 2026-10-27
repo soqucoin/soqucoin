@@ -457,9 +457,11 @@ public:
         // Chain id rule (Consensus::Params::nChainIdRequiredHeight): from this
         // height every non-legacy block must carry chain id 0x5351, merge-mined
         // or not. 0 = not scheduled. Set here, before the tier copies below, so
-        // every tier GetConsensus returns carries the same value; the release
-        // that schedules it sets the height here and nowhere else.
-        consensus.nChainIdRequiredHeight = 0;
+        // every tier GetConsensus returns carries the same value. Scheduled by
+        // release 2.6.0 at height 67,000, about 23 November 2026 at the block
+        // rate of the week the release was tagged; testnet mirrors the value,
+        // as chain_id_rule_height_per_network requires.
+        consensus.nChainIdRequiredHeight = 67000;
         consensus.nHeightEffective = 0;
 
         // CONSENSUS FIX (DL-MAINNET-DIFFICULTY-TRANSITION):
@@ -905,7 +907,7 @@ public:
         consensus.nHeightEffective = 0;
         consensus.fAllowLegacyBlocks = true; // Allow both legacy Scrypt AND AuxPoW blocks
         consensus.nAuxpowStartHeight = 0;    // AuxPoW from genesis — mirror mainnet (bead lnq)
-        consensus.nChainIdRequiredHeight = 0; // Chain id rule: mirrors mainnet, as fStrictChainId does
+        consensus.nChainIdRequiredHeight = 67000; // Chain id rule: mirrors mainnet (release 2.6.0), as fStrictChainId does
 
         // DigiShield + AuxPoW from block 1 — mirrors mainnet's merged tier.
         // (bead soqucoin-build-lnq: the previous 145000/157500/158100 tier
