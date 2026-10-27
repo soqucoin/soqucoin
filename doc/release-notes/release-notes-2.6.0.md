@@ -73,10 +73,11 @@ binary enforces (`Chain id rule: 0x5351 required from height 67000`), and
 
 A node that connected a block without the chain id before it upgraded
 reorganizes off it on its own once the network's chain is heavier, and the
-block stays in its index as a valid fork. Removing it from the index, or
-leaving a refused branch that stays heavier, takes a full reindex of the block
-files (`-reindex`) or `invalidateblock` on that block's hash; rebuilding the
-chainstate alone does neither.
+block stays in its index as a valid fork. `-reindex` replays the block files
+and leaves the block unindexed; `invalidateblock` on its hash keeps it in the
+index marked invalid and moves the node off the branch; either answers a
+refused branch that stays heavier, and rebuilding the chainstate alone does
+neither.
 
 ### The release mark in the block version
 
