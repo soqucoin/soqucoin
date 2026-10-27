@@ -6,8 +6,8 @@
 #
 # Chain id rule (Consensus::Params::nChainIdRequiredHeight, bead 0o4b0): from
 # the height every block that is not a legacy block must carry chain id 0x5351
-# in the high bits of its version, merge-mined or not; 0 = no rule, which every
-# network carries until a release schedules it. The unit test
+# in the high bits of its version, merge-mined or not; 0 = no rule; release
+# 2.6.0 schedules mainnet and testnet at 67,000. The unit test
 # (consensus_validation_tests, chainid_required_height) drives the check and
 # the miner in process; this covers what it cannot: the -chainidrequiredheight
 # regtest path through init and its startup line; a direct block without the

@@ -110,7 +110,7 @@ Then check that it carries the activation height:
 ./soqucoin-cli getblockchaininfo | grep chainid_required_height
 ```
 
-It should print `"chainid_required_height": 67000`. A node built from the development branch before the 2.6.0 tag prints nothing here and reports version 2.5.3, even when its blocks carry the 2.6.0 release mark: rebuild it from the `v2.6.0` tag, or install the release build.
+It should show `"chainid_required_height": 67000` on the line it prints. A node built from the development branch before the 2.6.0 tag prints nothing here and reports version 2.5.3, even when its blocks carry the 2.6.0 release mark: rebuild it from the `v2.6.0` tag, or install the release build.
 
 The node keeps its data and its log (`debug.log`) here:
 

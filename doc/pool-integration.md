@@ -233,7 +233,8 @@ node sets it. From release 2.6.0 the template also sets bit 15 of the version,
 the release mark, so a merge-mined block reads `0x53518104`: read the version
 from the template rather than pinning the literal, and do not roll the version
 field (bits 13 to 28). Rolling overwrites the mark and the low bits of the chain
-ID, and from mainnet block 67,000 a block without the chain ID is refused.
+ID; a merge-mined block without the chain ID is refused today, and from mainnet
+block 67,000 every block without it is.
 
 ---
 

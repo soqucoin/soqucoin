@@ -13,17 +13,19 @@ Block 67,000 is expected about 23 November 2026 at the block rate of the week
 this release was tagged; a higher block rate brings the date forward. Every
 node operator upgrades before that height. A node that still runs 2.5.x at the
 height follows a block the upgraded network refuses, if such a block appears,
-and recovers only as described under "The chain id rule" below, so the upgrade
-is not optional for a node that holds or moves value.
+for as long as that branch is the heavier one (see "The chain id rule" below),
+so the upgrade is not optional for a node that holds or moves value.
 
 The height can move once. If by 13 November too few of the blocks on the chain
 come from 2.6.0 nodes, a point release moves the height later. It is published
 no later than 16 November, and every operator installs it the day it appears,
 because a 2.6.0 node that skips it enforces the rule from block 67,000 alone.
 
-Consensus rules below block 67,000, the peer-to-peer protocol version, the RPC
-interface, the wallet and every on-disk format are unchanged, so the upgrade is
-a binary replacement: no reindex, no migration.
+Below block 67,000 a 2.6.0 node accepts the same chain as a 2.5.3 node (the
+pinned history below refuses only forks under block 2,029). The peer-to-peer
+protocol version, the wallet and every on-disk format are unchanged, and the
+RPC interface gains one field and loses none, so the upgrade is a binary
+replacement: no reindex, no migration.
 
 Upgrading
 ---------
@@ -40,8 +42,8 @@ To confirm after the restart:
     soqucoin-cli getnetworkinfo | grep subversion
     soqucoin-cli getblockchaininfo | grep chainid_required_height
 
-print `"subversion": "/Soqucoin Core:2.6.0/"` and
-`"chainid_required_height": 67000`.
+show `"subversion": "/Soqucoin Core:2.6.0/"` and
+`"chainid_required_height": 67000` on the lines they print.
 
 A node built from the `main` branch before this tag reports version 2.5.3 and
 shows no `chainid_required_height` in `getblockchaininfo`: it does not carry
@@ -59,9 +61,9 @@ Notable changes
 
 `Consensus::Params::nChainIdRequiredHeight` is 67,000 on mainnet, and on
 testnet, which mirrors mainnet. From that height a block whose version does not
-carry chain id 0x5351 is refused with `bad-chain-id`. Legacy blocks (base
-version 1) keep their exemption, which no block after genesis can use on
-mainnet. Below the height nothing changes. The refusal gives the relaying peer
+carry chain id 0x5351 is refused with `bad-chain-id`. Legacy blocks (a version
+field of 1 or 2, the form before merge mining) keep their exemption, which no
+block after genesis can use on mainnet. Below the height nothing changes. The refusal gives the relaying peer
 a misbehaviour score of 0, so a node that does not yet carry the rule stays
 connected and follows the heavier chain; a peer that keeps announcing headers
 on top of a refused block is disconnected by the existing unconnecting-headers
@@ -69,22 +71,25 @@ rule after about fifty announcements. The startup log names the height the
 binary enforces (`Chain id rule: 0x5351 required from height 67000`), and
 `getblockchaininfo` reports it as `chainid_required_height`.
 
-A node that connected a block without the chain id before it upgraded sheds
-that block only by a full reindex of its block files (`-reindex`) or by
-`invalidateblock` on that block's hash; rebuilding the chainstate alone does
-not.
+A node that connected a block without the chain id before it upgraded
+reorganizes off it on its own once the network's chain is heavier, and the
+block stays in its index as a valid fork. Removing it from the index, or
+leaving a refused branch that stays heavier, takes a full reindex of the block
+files (`-reindex`) or `invalidateblock` on that block's hash; rebuilding the
+chainstate alone does neither.
 
 ### The release mark in the block version
 
 Templates built by this release set bit 15 of the block version: a directly
 mined block reads `0x53518004` and a merge-mined block `0x53518104`
-(`versionHex` in `getblock`). No header check reads the bit; the share of
+(`versionHex` in `getblock`, without the prefix). No header check reads the bit; the share of
 blocks carrying it is how the network's readiness for the height is read from
 the chain. Pool software that pins the version literal must take it from the
 template instead. Rolling the version field (BIP 320 style, bits 13 to 28)
-overwrites the mark and the low bits of the chain id: a block built that way is
-valid below the height and refused at it, so version rolling is not supported
-on this chain, and the readiness count is a lower bound.
+overwrites the mark and the low bits of the chain id: a merge-mined block built
+that way is refused at every height already, and a directly mined one is
+refused from block 67,000, so version rolling is not supported on this chain,
+and the readiness count is a lower bound.
 
 ### The default block template
 
