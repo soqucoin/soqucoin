@@ -73,24 +73,35 @@ binary enforces (`Chain id rule: 0x5351 required from height 67000`), and
 
 A node that connected a block without the chain id before it upgraded
 reorganizes off it on its own once the network's chain is heavier, and the
-block stays in its index as a valid fork. `-reindex` replays the block files
-and leaves the block unindexed; `invalidateblock` on its hash keeps it in the
-index marked invalid and moves the node off the branch; either answers a
-refused branch that stays heavier, and rebuilding the chainstate alone does
-neither.
+block stays in its index as a valid fork, as long as the node's own chain is
+fewer than 288 blocks past the fork. The finality horizon refuses, outside
+initial block download, any header that builds on a fork 288 or more blocks
+below the node's tip (`bad-fork-beyond-finality`, in every release since
+2.5.0), so a node that followed the branch that far keeps it as its chain
+however heavy the network's chain becomes, and recovers only by hand.
+`invalidateblock` on the hash of the block without the chain id keeps it in
+the index marked invalid and moves the node off the branch; the network's
+headers then fork at the node's new tip and are accepted. `-reindex` replays
+the block files under the rule and leaves the block unindexed. Either
+answers a refused branch that stays heavier or one the horizon has closed,
+and rebuilding the chainstate alone does neither.
 
 ### The release mark in the block version
 
 Templates built by this release set bit 15 of the block version: a directly
 mined block reads `0x53518004` and a merge-mined block `0x53518104`
-(`versionHex` in `getblock`, without the prefix). No header check reads the bit; the share of
-blocks carrying it is how the network's readiness for the height is read from
-the chain. Pool software that pins the version literal must take it from the
-template instead. Rolling the version field (BIP 320 style, bits 13 to 28)
-overwrites the mark and the low bits of the chain id: a merge-mined block built
-that way is refused at every height already, and a directly mined one is
-refused from block 67,000, so version rolling is not supported on this chain,
-and the readiness count is a lower bound.
+(`versionHex` in `getblock`, without the prefix). No header check reads the bit.
+A marked block shows that its template came from code carrying the mark, and
+that includes builds of the development branch made between the mark's merge
+and this tag, which carry no activation height. The share of marked blocks
+therefore measures the adoption of marked templates. The mark alone does not
+confirm readiness for the height: `chainid_required_height` on the node
+behind a miner's templates confirms it. Pool software that pins
+the version literal must take it from the template instead. Rolling the
+version field (BIP 320 style, bits 13 to 28) overwrites the mark and the low
+bits of the chain id: a merge-mined block built that way is refused at every
+height already, and a directly mined one is refused from block 67,000, so
+version rolling is not supported on this chain.
 
 ### The default block template
 
