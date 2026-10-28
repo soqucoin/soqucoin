@@ -1,6 +1,6 @@
 # Running a Soqucoin node
 
-Mainnet has run since **13 October 2026**. This page walks you through running your own node, from the download to checking that you're on the real chain. If you've never run a node before, start at the top and go in order.
+Mainnet has run since **13 October 2026**. Running your own node takes four steps, from the download to the check that you're on the real chain. If you've never run a node before, start at the top and go in order.
 
 You don't need a node to mine on SOQUPOOL or to hold SOQ in SoquShield. You run one to check the chain yourself instead of relying on anyone else's copy. We'd like a lot of you to do exactly that.
 
@@ -194,7 +194,7 @@ The Linux and Windows builds come with the wallet. The macOS builds are made wit
 ## When something goes wrong
 
 **`error while loading shared libraries: libunivalue.so.0`** (or another `.so` file)
-That is the 2.5.1 Linux build, which needed libraries it did not ship. Download 2.6.0 (step 1), which needs none.
+The 2.5.1 Linux build needed libraries it did not ship. Download 2.6.0 (step 1), which needs none.
 
 **`error: Could not locate RPC credentials. No authentication cookie could be found...`**
 The node isn't running, or it's still starting. Wait a few seconds and try again. If it keeps happening, look at the end of `debug.log` in the data folder. Run `soqucoin-cli` as the same user that started the node.
@@ -219,7 +219,7 @@ Keep `debug.log` and tell us in the Telegram channel which release file you down
 
 ## Updates in the first weeks
 
-Release 2.6.0 pins the chain's history: a minimum chain work a node must reach before it leaves initial block download, an assumed-valid block, and checkpoints at blocks 1, 1,502 and 2,029 below which a node that holds them accepts no fork. Stay on the current release. The release notes say when you need an update to stay in sync: for 2.6.0 that is before block 67,000. If that height moves by a point release, the release page and our channels say so at least a week before the old height, and every node installs the point release the day it appears.
+Release 2.6.0 pins the chain's history: a minimum chain work a node must reach before it leaves initial block download, an assumed-valid block, and checkpoints at blocks 1, 1,502 and 2,029 below which a node that holds them accepts no fork. Stay on the current release. Each release's notes name the height by which you need it to stay in sync; for 2.6.0 that height is block 67,000. If a point release moves the height, the release page and our channels carry the new height at least a week before the old one, and every node installs the point release the day it appears.
 
 ## Practicing on stagenet
 
