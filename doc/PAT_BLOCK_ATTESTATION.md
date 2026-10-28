@@ -259,6 +259,18 @@ malformed or decoy commitment causes the miner's own block to fail validation
 and confers no advantage on anyone else. This reasoning step is recorded so it
 does not have to be rediscovered.
 
+**Pool software.** The producer is `GenerateCoinbaseCommitment` (`validation.cpp`),
+which places the commitment in the coinbase the node assembles. `getblocktemplate`
+exposes that coinbase as `coinbasetxn` (with a placeholder payout script) and
+no separate field for the commitment, so software that builds its own coinbase
+carries the commitment only by copying that output, and only while the block's
+attested batch is the template's (mining the template's transactions unchanged
+guarantees it): a changed batch fails the mismatch check, a transaction with no
+attested spend leaves the batch unchanged, and a copied output on a block with
+an empty batch fails the empty-batch check. Software that copies nothing produces unattested blocks, valid until the
+mandatory height. The operator-facing statement is in `pool-integration.md`
+("Block attestation (PAT)").
+
 ---
 
 ## 7. Validation and activation

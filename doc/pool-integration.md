@@ -178,7 +178,7 @@ format matches Bitcoin/Dogecoin:
 
 ```
 coinbase1: version + height + extranonce placeholder + pool tag
-coinbase2: payout outputs + witness commitment
+coinbase2: payout outputs + witness commitment + the PAT commitment output when the template has attested spends (see Block attestation below)
 ```
 
 ### Pool Tag (Coinbase Signature)
@@ -235,6 +235,54 @@ from the template rather than pinning the literal, and do not roll the version
 field (bits 13 to 28). Rolling overwrites the mark and the low bits of the chain
 ID; a merge-mined block without the chain ID is refused today, and from mainnet
 block 67,000 every block without it is.
+
+---
+
+### Block attestation (PAT)
+
+A Soqucoin block carries a PAT block attestation when it contains attested
+spends: inputs that spend an ordinary `sq1p` output (witness versions 0, 1, 7
+and 8, the single-key ML-DSA-44 spend forms;
+[`PAT_BLOCK_ATTESTATION.md`](PAT_BLOCK_ATTESTATION.md) section 2). The
+attestation is a 36-byte `OP_RETURN` output in the coinbase,
+`6a22 5041 <32-byte hash>`, committing to the signatures of those spends. Every
+node verifies a commitment it finds. A block with no attested spends carries
+none, by rule; a coinbase-only block is the common case. Today a block with
+attested spends and no commitment is also valid; a release will announce the
+height from which such a block is rejected.
+
+The node computes the commitment for the template's transactions and places it
+in the coinbase it assembles. Whether your blocks carry it depends on how your
+pool builds the Soqucoin block:
+
+| How you build the block | What to do |
+|---|---|
+| `createauxblock` (recommended; SOQUPOOL runs this way) | nothing: the node builds the whole block, commitment included |
+| `getblocktemplate`, starting from the node's coinbase in `coinbasetxn.data` | replace the payout output's script (the template pays a placeholder, `OP_1` followed by 32 zero bytes); keep every other output, the coinbase witness nonce and the template's transactions as given; recompute the coinbase txid and the merkle root |
+| `getblocktemplate`, building your own coinbase | copy the commitment output from `coinbasetxn.data` into your coinbase: value 0, the 36-byte script beginning `6a225041`; keep the template's transactions as given: the commitment binds the block's attested spends, so adding or dropping a transaction that spends `sq1p` outputs changes it and the block is rejected (`bad-blk-pat-commitment`), while a transaction with no attested spend leaves it unchanged; when `coinbasetxn.data` has no such output the template has no attested spends, and your coinbase must carry none (`bad-blk-pat-commitment-empty`) |
+
+No separate template field carries the script. A pool engine that builds its
+own coinbase and copies nothing from `coinbasetxn` produces blocks without the
+attestation: valid today, and rejected from the announced height when they
+contain attested spends. Either add the copied output, or switch the engine to
+`createauxblock` for SOQ: the node then builds the block and pays the address
+you give it, your engine embeds the returned hash in the parent coinbase and
+submits through `submitauxblock`, and nothing changes in your shares, your
+parent-chain mining or your payouts.
+
+**Check your blocks.** Take a block of yours whose transactions spend `sq1p`
+outputs (any ordinary payment) and read its coinbase, which is `tx[0]` of the
+block:
+
+```bash
+soqucoin-cli getblock <blockhash>
+soqucoin-cli getrawtransaction <coinbase txid> 1
+```
+
+A `vout` whose `scriptPubKey.hex` starts with `6a225041` is the commitment. A
+block with attested spends and no such output means your coinbase path drops
+it. A coinbase-only block carries none, and that is correct. The explorer shows
+the same output on the block's coinbase transaction.
 
 ---
 
@@ -305,6 +353,7 @@ differs, the node is on another chain and that guide says what to do.
 5. ✅ Can build, sign and broadcast a payout with the SDK (`sendrawtransaction`)
 6. ✅ Block notifications work (ZMQ or polling)
 7. ✅ AuxPoW blocks submit successfully (if supporting merged mining)
+8. ✅ A block of yours with attested spends carries the PAT commitment (see Block attestation (PAT))
 
 ### Common Issues
 
