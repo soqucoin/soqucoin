@@ -178,7 +178,7 @@ format matches Bitcoin/Dogecoin:
 
 ```
 coinbase1: version + height + extranonce placeholder + pool tag
-coinbase2: payout outputs + witness commitment
+coinbase2: payout outputs + witness commitment (and the PAT commitment when the node built the coinbase; see Block attestation below)
 ```
 
 ### Pool Tag (Coinbase Signature)
@@ -230,6 +230,46 @@ template, in the smallest unit (100,000,000 per SOQ): 10,000,000,000,000 for
 the 100,000 SOQ subsidy alone, more when the template carries fees, so use the
 returned value. The block's version field already carries the chain ID; the
 node sets it.
+
+---
+
+### Block attestation (PAT)
+
+Every Soqucoin block that contains a transaction carries a PAT block attestation:
+a 36-byte `OP_RETURN` output in the coinbase, `6a22 5041 <32-byte hash>`, that
+commits to the ML-DSA-44 signatures the block spends
+([`PAT_BLOCK_ATTESTATION.md`](PAT_BLOCK_ATTESTATION.md)). Every node verifies
+the commitment on every block that carries one. A block without one is valid
+today; a release will announce the height from which a block with transactions
+must carry it, and from that height such a block without it is rejected. A
+coinbase-only block carries none, by design.
+
+The node adds the commitment only to a block it assembles itself, so the way
+your pool obtains the Soqucoin block decides whether your blocks carry it:
+
+| How you obtain the block | Attestation |
+|---|---|
+| `createauxblock` (recommended; SOQUPOOL runs this way) | the node builds the whole block, commitment included |
+| `getblocktemplate`, keeping the node's own coinbase from `coinbasetxn.data` | included; keep the template's transactions as given, because the commitment binds that set and a changed set makes the block invalid (`bad-blk-pat-commitment`) |
+| `getblocktemplate`, building your own coinbase from `coinbasevalue` and `default_witness_commitment` | **none**: no template field carries the commitment, so a coinbase you build cannot include it |
+
+A pool engine that builds its own coinbase for every Bitcoin-family coin falls
+into the last row. Switch it to `createauxblock` for SOQ: the node builds the
+block and pays the address you give it, your engine embeds the returned hash in
+the parent coinbase and submits through `submitauxblock`, and nothing changes in
+your shares, your parent-chain mining or your payouts.
+
+**Check your blocks.** Take any block of yours with at least one transaction
+and read its coinbase, which is `tx[0]` of the block:
+
+```bash
+soqucoin-cli getblock <blockhash>
+soqucoin-cli getrawtransaction <coinbase txid> 1
+```
+
+A `vout` whose `scriptPubKey.hex` starts with `6a225041` is the commitment. A
+block with transactions and no such output means your coinbase path drops it.
+The explorer shows the same output on the block's coinbase transaction.
 
 ---
 
@@ -300,6 +340,7 @@ differs, the node is on another chain and that guide says what to do.
 5. ✅ Can build, sign and broadcast a payout with the SDK (`sendrawtransaction`)
 6. ✅ Block notifications work (ZMQ or polling)
 7. ✅ AuxPoW blocks submit successfully (if supporting merged mining)
+8. ✅ A block of yours with transactions carries the PAT commitment (see Block attestation (PAT))
 
 ### Common Issues
 
