@@ -7,8 +7,7 @@
 > **Last updated**: October 2026
 
 > **Status**: SOQ is mined at SOQUPOOL and at other pools that merge-mine it.
-> This guide is the integration reference for a pool that adds SOQ; questions
-> go to dev@soqu.org.
+> Questions about a pool integration go to dev@soqu.org.
 
 ---
 
@@ -79,7 +78,7 @@ ML-DSA-44 keys and signatures and the indexer the SDK reads unspent outputs
 from. The node's built-in wallet (present in the Linux and Windows builds) is
 not part of a pool integration: run the pool node with `disablewallet=1`, as
 every node we operate does. A wallet rescan holds the node's chain lock for as
-long as it runs, and every RPC, the mining RPCs included, waits on it.
+long as it runs. Every RPC, the mining RPCs included, waits on it.
 
 The pool's own keys are a keypair made with the SDK's `keys` package and
 saved in its encrypted keystore, backed up before its address is used; that
@@ -226,11 +225,11 @@ soqucoin-cli submitauxblock <hash> <serialized_auxpow>
 ```
 
 `coinbasevalue` is the subsidy plus the fees of the transactions in the
-template, in the smallest unit (100,000,000 per SOQ): 10,000,000,000,000 for
-the 100,000 SOQ subsidy alone, more when the template carries fees, so use the
-returned value. The block's version field already carries the chain ID; the
+template, in the smallest unit (100,000,000 per SOQ). It is 10,000,000,000,000
+for the 100,000 SOQ subsidy alone and more when the template carries fees, so
+use the returned value. The block's version field already carries the chain ID; the
 node sets it. From release 2.6.0 the template also sets bit 15 of the version,
-the release mark, so a merge-mined block reads `0x53518104`: read the version
+the release mark, so a merge-mined block reads `0x53518104`. Read the version
 from the template rather than pinning the literal, and do not roll the version
 field (bits 13 to 28). Rolling overwrites the mark and the low bits of the chain
 ID; a merge-mined block without the chain ID is refused today, and from mainnet
@@ -340,9 +339,10 @@ the node itself. The block explorer at
 AuxPoW parent, and its API answers `/api/blocks/tip/height`,
 `/api/block/<height or hash>`, `/api/tx/<txid>` and `/api/mining/hashrate`.
 To check that a node is on the live chain, compare `getblockhash 1` and
-`getblockhash 1502` with the two hashes in [node-operators.md](node-operators.md)
-(block 1, and block 1,502, where the network opened to outside nodes); if either
-differs, the node is on another chain and that guide says what to do.
+`getblockhash 1502` with the hashes of block 1 and block 1,502 in
+[node-operators.md](node-operators.md). Block 1,502 is the height where the
+network opened to outside nodes. If either hash differs, the node is on another
+chain, and the recovery steps are in that guide.
 
 ### Verification Checklist
 
