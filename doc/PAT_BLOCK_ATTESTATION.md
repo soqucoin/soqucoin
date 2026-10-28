@@ -260,13 +260,15 @@ and confers no advantage on anyone else. This reasoning step is recorded so it
 does not have to be rediscovered.
 
 **Pool software.** The producer is `GenerateCoinbaseCommitment` (`validation.cpp`),
-so the commitment is present only in a coinbase the node assembled: a block
-from `createauxblock`, or a `getblocktemplate` consumer that keeps `coinbasetxn`
-and the template's transaction set. `getblocktemplate` exposes no separate
-field for the commitment, so software that builds its own coinbase from
-`coinbasevalue` and `default_witness_commitment` produces blocks without it,
-valid until the mandatory height and unattested. The operator-facing statement
-is in `pool-integration.md` ("Block attestation (PAT)").
+which places the commitment in the coinbase the node assembles. `getblocktemplate`
+exposes that coinbase as `coinbasetxn` (with a placeholder payout script) and
+no separate field for the commitment, so software that builds its own coinbase
+carries the commitment only by copying that output, and only while it mines the
+template's transaction set unchanged: a changed set fails the mismatch check,
+and a copied output on a template with no attested spends fails the empty-batch
+check. Software that copies nothing produces unattested blocks, valid until the
+mandatory height. The operator-facing statement is in `pool-integration.md`
+("Block attestation (PAT)").
 
 ---
 
