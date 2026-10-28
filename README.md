@@ -48,6 +48,7 @@ Soqucoin is a Scrypt-based proof-of-work cryptocurrency that removes ECDSA from 
 | Mainnet block 1 | ✅ Complete | Oct 13, 2026, 15:38 UTC |
 | Network opened to outside nodes | ✅ Complete | Oct 14, 2026 |
 | Release v2.5.3 (stricter validation of peer messages) | ✅ Complete | Oct 20, 2026 |
+| Release v2.6.0 (the chain id rule scheduled from block 67,000) | ✅ Complete | Oct 2026 |
 
 ---
 
@@ -266,7 +267,7 @@ Note: Lattice-BP++ (SOQ-P002) is superseded by SoquObscura (SOQ-P010). LatticeFo
 | Branch | Purpose |
 |--------|---------|
 | `main` | Active development (default, protected) |
-| `v2.x` tags | Releases (latest v2.5.3); the `release/v1.x` branches are historical |
+| `v2.x` tags | Releases (latest v2.6.0); the `release/v1.x` branches are historical |
 | `feature/*` | Feature branches (PR into main) |
 
 ---

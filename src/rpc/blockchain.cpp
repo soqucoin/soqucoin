@@ -1185,7 +1185,8 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
             "     \"height\": xx,             (numeric) the one height the rule applies at (0 = inert)\n"
             "     \"hash_migration_outputs\": \"xxxx\",  (string) the committed output vector hash (all zero = inert)\n"
             "     \"total_sats\": xx          (numeric) the committed total in sats\n"
-            "  }\n"
+            "  },\n"
+            "  \"chainid_required_height\": xx  (numeric) the height from which this node requires the chain id 0x5351 in every block's version (0 = no such rule)\n"
             "}\n"
             "\nExamples:\n" +
             HelpExampleCli("getblockchaininfo", "") + HelpExampleRpc("getblockchaininfo", ""));
@@ -1253,6 +1254,16 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
         migration.pushKV("hash_migration_outputs", armedTier.hashMigrationOutputs.GetHex());
         migration.pushKV("total_sats", armedTier.nMigrationTotal);
         obj.pushKV("genesis_migration", migration);
+    }
+    // The chain id rule (Consensus::Params::nChainIdRequiredHeight): the height
+    // from which this node requires the chain id in every block's version, 0
+    // when it enforces none. Read through the tier at that height, the struct
+    // the header check consults there, so an operator reads what a binary pins
+    // by RPC, as the startup line prints it.
+    {
+        const int32_t nChainIdHeight = consensusParams.nChainIdRequiredHeight;
+        obj.pushKV("chainid_required_height",
+                   (int64_t)Params().GetConsensus(nChainIdHeight > 0 ? nChainIdHeight : 0).nChainIdRequiredHeight);
     }
     obj.pushKV("warnings", GetWarnings("statusbar"));
     return obj;

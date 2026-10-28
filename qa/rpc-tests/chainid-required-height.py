@@ -6,8 +6,8 @@
 #
 # Chain id rule (Consensus::Params::nChainIdRequiredHeight, bead 0o4b0): from
 # the height every block that is not a legacy block must carry chain id 0x5351
-# in the high bits of its version, merge-mined or not; 0 = no rule, which every
-# network carries until a release schedules it. The unit test
+# in the high bits of its version, merge-mined or not; 0 = no rule; release
+# 2.6.0 schedules mainnet and testnet at 67,000. The unit test
 # (consensus_validation_tests, chainid_required_height) drives the check and
 # the miner in process; this covers what it cannot: the -chainidrequiredheight
 # regtest path through init and its startup line; a direct block without the
@@ -135,6 +135,8 @@ class ChainIdRequiredHeightTest(BitcoinTestFramework):
         # 0. The startup line names the rule this binary enforces.
         assert "Chain id rule: 0x5351 required from height %d" % HEIGHT in self.debug_log(0)
         assert "Chain id rule: none" in self.debug_log(1)
+        assert_equal(armed.getblockchaininfo()['chainid_required_height'], HEIGHT)
+        assert_equal(plain.getblockchaininfo()['chainid_required_height'], 0)
 
         # 1. Below the height the armed node accepts the peer's blocks without
         #    the id: what every node does today.
@@ -279,6 +281,7 @@ class ChainIdRequiredHeightTest(BitcoinTestFramework):
         plain = self.nodes[1] = start_node(1, self.options.tmpdir,
                                            ["-debug", "-blockversion=4", "-chainidrequiredheight=%d" % HEIGHT])
         assert "Chain id rule: 0x5351 required from height %d" % HEIGHT in self.debug_log(1)
+        assert_equal(plain.getblockchaininfo()['chainid_required_height'], HEIGHT)
         assert_equal(plain.getblockcount(), HEIGHT + ANNOUNCEMENTS_TO_DISCONNECT)
         assert_equal(plain.getbestblockhash(), plain_tip)
         assert_equal(plain.getblock(parent.hash)['height'], HEIGHT)

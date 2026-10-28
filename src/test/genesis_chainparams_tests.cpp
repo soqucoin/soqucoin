@@ -928,7 +928,7 @@ BOOST_AUTO_TEST_CASE(block1_time_gate_per_network)
 BOOST_AUTO_TEST_CASE(chain_id_rule_height_per_network)
 {
     static const int kHeights[] = {0, 1, 2, 9, 10, 11, 19, 20, 21, 100, 1000, 99999, 100000, 100001, 1000000};
-    const int32_t kMainnetHeight = 0;
+    const int32_t kMainnetHeight = 67000;  // release 2.6.0; testnet mirrors it
 
     for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET}) {
         SelectParams(net);

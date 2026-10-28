@@ -229,7 +229,12 @@ soqucoin-cli submitauxblock <hash> <serialized_auxpow>
 template, in the smallest unit (100,000,000 per SOQ): 10,000,000,000,000 for
 the 100,000 SOQ subsidy alone, more when the template carries fees, so use the
 returned value. The block's version field already carries the chain ID; the
-node sets it.
+node sets it. From release 2.6.0 the template also sets bit 15 of the version,
+the release mark, so a merge-mined block reads `0x53518104`: read the version
+from the template rather than pinning the literal, and do not roll the version
+field (bits 13 to 28). Rolling overwrites the mark and the low bits of the chain
+ID; a merge-mined block without the chain ID is refused today, and from mainnet
+block 67,000 every block without it is.
 
 ---
 
