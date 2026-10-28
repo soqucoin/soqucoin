@@ -254,7 +254,7 @@ pool builds the Soqucoin block:
 |---|---|
 | `createauxblock` (recommended; SOQUPOOL runs this way) | nothing: the node builds the whole block, commitment included |
 | `getblocktemplate`, starting from the node's coinbase in `coinbasetxn.data` | replace the payout output's script (the template pays a placeholder, `OP_1` followed by 32 zero bytes); keep every other output, the coinbase witness nonce and the template's transactions as given; recompute the coinbase txid and the merkle root |
-| `getblocktemplate`, building your own coinbase | copy the commitment output from `coinbasetxn.data` into your coinbase: value 0, the 36-byte script beginning `6a225041`; keep the template's transactions as given, because the commitment binds that set, and a block with an added or dropped transaction is rejected (`bad-blk-pat-commitment`); when `coinbasetxn.data` has no such output the template has no attested spends, and your coinbase must carry none (`bad-blk-pat-commitment-empty`) |
+| `getblocktemplate`, building your own coinbase | copy the commitment output from `coinbasetxn.data` into your coinbase: value 0, the 36-byte script beginning `6a225041`; keep the template's transactions as given: the commitment binds the block's attested spends, so adding or dropping a transaction that spends `sq1p` outputs changes it and the block is rejected (`bad-blk-pat-commitment`), while a transaction with no attested spend leaves it unchanged; when `coinbasetxn.data` has no such output the template has no attested spends, and your coinbase must carry none (`bad-blk-pat-commitment-empty`) |
 
 No separate template field carries the script. A pool engine that builds its
 own coinbase and copies nothing from `coinbasetxn` produces blocks without the

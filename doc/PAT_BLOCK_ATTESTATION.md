@@ -263,10 +263,11 @@ does not have to be rediscovered.
 which places the commitment in the coinbase the node assembles. `getblocktemplate`
 exposes that coinbase as `coinbasetxn` (with a placeholder payout script) and
 no separate field for the commitment, so software that builds its own coinbase
-carries the commitment only by copying that output, and only while it mines the
-template's transaction set unchanged: a changed set fails the mismatch check,
-and a copied output on a template with no attested spends fails the empty-batch
-check. Software that copies nothing produces unattested blocks, valid until the
+carries the commitment only by copying that output, and only while the block's
+attested batch is the template's (mining the template's transactions unchanged
+guarantees it): a changed batch fails the mismatch check, a transaction with no
+attested spend leaves the batch unchanged, and a copied output on a block with
+an empty batch fails the empty-batch check. Software that copies nothing produces unattested blocks, valid until the
 mandatory height. The operator-facing statement is in `pool-integration.md`
 ("Block attestation (PAT)").
 
