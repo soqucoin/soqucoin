@@ -1233,16 +1233,21 @@ void CConnman::ThreadSocketHandler()
                 if (pnode->hSocket == INVALID_SOCKET)
                     continue;
 
-                FD_SET(pnode->hSocket, &fdsetError);
-                hSocketMax = std::max(hSocketMax, pnode->hSocket);
-                have_fds = true;
-
                 if (select_send) {
                     FD_SET(pnode->hSocket, &fdsetSend);
+                    hSocketMax = std::max(hSocketMax, pnode->hSocket);
+                    have_fds = true;
                     continue;
                 }
                 if (select_recv) {
                     FD_SET(pnode->hSocket, &fdsetRecv);
+                    // Watch for exceptional conditions only on a socket we are
+                    // selecting for receive. A socket we are not reading from is
+                    // left out of the exception set, so out-of-band data on it
+                    // does not make us receive from it.
+                    FD_SET(pnode->hSocket, &fdsetError);
+                    hSocketMax = std::max(hSocketMax, pnode->hSocket);
+                    have_fds = true;
                 }
             }
         }
