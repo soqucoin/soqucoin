@@ -104,6 +104,7 @@ BITCOIN_TESTS =\
   test/checkqueue_tests.cpp \
   test/coins_tests.cpp \
   test/compress_tests.cpp \
+  test/connectblock_txdata_lifetime_tests.cpp \
   test/crypto_tests.cpp \
   test/blake2b_tests.cpp \
   test/cuckoocache_tests.cpp \
