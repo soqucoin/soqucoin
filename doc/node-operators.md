@@ -26,7 +26,7 @@ Our official channels are X [@soqucoin](https://x.com/soqucoin), Telegram [t.me/
 
 The chain started on 13 October 2026 and is still small, so it won't use much for a long time. Our own stagenet nodes run in about 120 MB of memory. A machine with 2 GB of RAM and 20 GB of free disk has plenty of room, and that includes a small cloud server.
 
-The current release is **2.6.1**. It schedules one consensus rule: from mainnet block **67,000**, expected about 23 November 2026, every block must carry the chain id `0x5351` in its version. Every block since block 1 already carries it, so nothing changes for a miner on a current node's templates. Every node operator must move to 2.6.0 or later before block 67,000: a node still on 2.5.x at that height would follow a block the network refuses if one appeared. Mainnet needs 2.5.1 or newer to start at all: block 1 carries the genesis migration, and only those releases know the rule for it, so an older release rejects block 1 and stops there.
+The current release is **2.6.1**. It schedules one consensus rule: from mainnet block **67,000**, expected about 26 November 2026, every block must carry the chain id `0x5351` in its version. Every block since block 1 already carries it, so nothing changes for a miner on a current node's templates. Every node operator must move to 2.6.0 or later before block 67,000: a node still on 2.5.x at that height would follow a block the network refuses if one appeared. Mainnet needs 2.5.1 or newer to start at all: block 1 carries the genesis migration, and only those releases know the rule for it, so an older release rejects block 1 and stops there.
 
 ## Step 1: Download and check it
 
