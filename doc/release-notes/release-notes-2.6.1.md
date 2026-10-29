@@ -19,19 +19,22 @@ Upgrading
 ---------
 
 Stop the running daemon, replace `soqucoind` and `soqucoin-cli`, start it. The
-data directory carries over on every network. The upgrade neither reads nor
-writes a wallet file, whether the node loads one or runs with `disablewallet=1`;
-the usual practice of keeping a current backup of any wallet file applies as
-before. A node that last ran 2.5.0 or older on mainnet still needs a fresh
-mainnet data directory, as `doc/node-operators.md` describes.
+data directory carries over on every network. The wallet format is unchanged
+and no migration runs: a node with `disablewallet=1` touches no wallet file,
+and a node that loads a wallet records the new client version in it the first
+time it opens a wallet last written by an older release, as every release does.
+Keep a current backup of any wallet file, as before. A node that last ran 2.5.0
+or older on mainnet still needs a fresh mainnet data directory, as
+`doc/node-operators.md` describes.
 
 To confirm after the restart:
 
     soqucoin-cli getnetworkinfo | grep subversion
     soqucoin-cli getblockchaininfo | grep chainid_required_height
 
-show `"subversion": "/Soqucoin Core:2.6.1/"` and
-`"chainid_required_height": 67000` on the lines they print.
+show `"subversion": "/Soqucoin Core:2.6.1/"` on every network. On mainnet and
+testnet `chainid_required_height` is `67000`; on stagenet and regtest the chain
+id rule is not scheduled and the field reads `0`.
 
 Notable changes
 ---------------
