@@ -1,14 +1,16 @@
 Soqucoin Core 2.6.1
 ===================
 
-Soqucoin Core 2.6.1 is a maintenance release for every network. It carries one
-change to the node: the socket loop no longer receives from a peer socket it is
-not selecting for receive when that socket signals out-of-band data.
+Soqucoin Core 2.6.1 is a maintenance release for every network. It carries two
+changes to the node: the socket loop no longer receives from a peer socket it is
+not selecting for receive when that socket signals out-of-band data, and block
+validation keeps the data its queued script checks read until those checks
+finish.
 
 It makes no consensus change. The chain id rule that 2.6.0 scheduled on mainnet
 and testnet is unchanged: from block 67,000 every block must carry the chain id
-0x5351 in its version. A node on 2.6.0 upgrading to 2.6.1 receives the socket
-change alone. A node on 2.5.x upgrading to 2.6.1 receives the chain id rule as
+0x5351 in its version. A node on 2.6.0 upgrading to 2.6.1 receives these two
+changes alone. A node on 2.5.x upgrading to 2.6.1 receives the chain id rule as
 well, and upgrades before block 67,000 as 2.6.0 required.
 
 Every node operator should upgrade. The peer-to-peer protocol version, the RPC
@@ -51,6 +53,18 @@ no longer read when such a condition is raised. Reading from a socket the node
 had stopped receiving from let a peer drive the node past the receive pause,
 which could grow the node's memory use. Sockets the node is reading from are
 unaffected. A regtest functional test covers the case.
+
+### Script check data during block validation
+
+Block validation (`ConnectBlock`) hands each transaction's script checks to
+worker threads, and each check reads data computed in advance for its
+transaction. When a later check in the block fails, validation returns before it
+waits for the queued checks, and those checks finish as the function exits. The
+data is now declared before the queue control, so it stays in place until the
+queued checks finish. Before, it was released first, and a check that finished
+after that read memory the node had already released. This is the same change as
+Bitcoin Core PR 35209. It changes no validation rule. A unit test covers the
+case.
 
 ### The chain id rule from block 67,000
 
