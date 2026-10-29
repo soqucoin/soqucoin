@@ -188,6 +188,7 @@ testScripts = [
     'rpcnamedargs.py',
     'listsinceblock.py',
     'p2p-leaktests.py',
+    'p2p-socket-exception.py',
     'replace-by-fee.py',
     'rescan.py',
     'wallet_create_tx.py',
