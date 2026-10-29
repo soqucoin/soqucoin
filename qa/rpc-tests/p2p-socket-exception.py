@@ -37,6 +37,7 @@ from test_framework.mininode import (
     CInv,
     msg_getdata,
     mininode_lock,
+    wait_until,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -53,6 +54,25 @@ MSG_BLOCK = 2
 # accepts. If the node reads it, header parsing fails and the node disconnects
 # the peer. These bytes are never a valid message.
 UNREADABLE_BYTES = b'\x00' * 16 + b'\xff\xff\xff\xff' + b'\x00' * 4
+
+# Large blocks to mine and request at once, and the send backlog, in bytes, the
+# node must hold to the peer before the probe. The request is for several full
+# blocks (megabytes) and the peer does not read, so the node's send buffer to it
+# stays well above this and the socket stays send-only.
+NUM_LARGE_BLOCKS = 8
+PENDING_SEND_MIN = 200000
+
+
+def pending_send(peer_info):
+    """Bytes the node has queued to send to a peer but not yet written.
+
+    bytessent_per_msg counts bytes as they are queued (PushMessage); bytessent
+    counts bytes as they are written to the socket (SocketSendData). Their
+    difference is the current send backlog, which is positive exactly when the
+    node is selecting the socket for send.
+    """
+    queued = sum(peer_info["bytessent_per_msg"].values())
+    return queued - peer_info["bytessent"]
 
 
 class ControlledReadConn(NodeConn):
@@ -80,6 +100,22 @@ class ControlledReadConn(NodeConn):
             return self.allow_read
 
 
+class TestNode(SingleNodeConnCB):
+    def __init__(self):
+        super().__init__()
+        self.disconnected = False
+
+    def on_close(self, conn):
+        self.disconnected = True
+
+    def wait_for_verack(self, timeout=30):
+        def done():
+            return self.verack_received or self.disconnected
+        wait_until(done, timeout=timeout)
+        assert not self.disconnected, "peer disconnected before verack"
+        assert self.verack_received, "timed out waiting for verack"
+
+
 class SocketExceptionTest(BitcoinTestFramework):
     def __init__(self):
         super().__init__()
@@ -87,17 +123,25 @@ class SocketExceptionTest(BitcoinTestFramework):
         self.num_nodes = 1
 
     def setup_network(self):
-        self.nodes = [start_node(0, self.options.tmpdir, ["-debug=net"])]
+        # -blockmintxfee=0 lets mine_large_block fill each block; -maxsendbuffer
+        # raised so the node holds the whole multi-block response as a backlog
+        # rather than capping it below the kernel send buffer.
+        self.nodes = [start_node(0, self.options.tmpdir,
+                                 ["-debug=net", "-blockmintxfee=0",
+                                  "-maxsendbuffer=5000"])]
 
     def run_test(self):
         node = self.nodes[0]
 
-        # Mature coinbases (regtest maturity is 60), then a large block to serve.
+        # Mature coinbases (regtest maturity is 60), then several large blocks
+        # to serve at once.
         node.generate(110)
-        mine_large_block(node, [])
-        big_block = int(node.getbestblockhash(), 16)
+        block_hashes = []
+        for _ in range(NUM_LARGE_BLOCKS):
+            mine_large_block(node, [])
+            block_hashes.append(int(node.getbestblockhash(), 16))
 
-        cb = SingleNodeConnCB()
+        cb = TestNode()
         conn = ControlledReadConn('127.0.0.1', p2p_port(0), node, cb)
         cb.add_connection(conn)
         NetworkThread().start()
@@ -105,35 +149,25 @@ class SocketExceptionTest(BitcoinTestFramework):
         assert_equal(len(node.getpeerinfo()), 1)
 
         try:
-            # Turn the read side off, then ask for the block, paced, until the
-            # node's send buffer to this peer stops draining. A full, stuck send
-            # buffer means the socket is send-only: the node is not selecting it
-            # for receive.
+            # Turn the read side off, then ask for every large block in one
+            # request. The node queues them, cannot send them to a peer that is
+            # not reading, and keeps a large send backlog: the socket is
+            # send-only and the node is not selecting it for receive.
             with mininode_lock:
                 conn.allow_read = False
             getdata = msg_getdata()
-            getdata.inv.append(CInv(MSG_BLOCK, big_block))
+            for block_hash in block_hashes:
+                getdata.inv.append(CInv(MSG_BLOCK, block_hash))
+            cb.send_message(getdata)
 
-            prev_sent = -1
-            stable = 0
-            for _ in range(30):
-                cb.send_message(getdata)
-                time.sleep(0.4)
-                info = node.getpeerinfo()
-                assert_equal(len(info), 1)
-                sent = info[0]["bytessent"]
-                if sent > 0 and sent == prev_sent:
-                    stable += 1
-                    if stable >= 3:
-                        break
-                else:
-                    stable = 0
-                prev_sent = sent
-            else:
-                raise AssertionError("send buffer to the peer never filled")
-
+            # Let the node queue the blocks and fill its send buffer, then
+            # confirm it holds a large backlog to this peer: the socket is
+            # send-only and the node is not selecting it for receive.
+            time.sleep(4)
             info = node.getpeerinfo()
             assert_equal(len(info), 1)
+            assert pending_send(info[0]) > PENDING_SEND_MIN, \
+                "node did not build a send backlog to the peer"
             bytesrecv_before = info[0]["bytesrecv"]
 
             # Send in-band bytes, then TCP urgent data. The in-band bytes are
@@ -148,6 +182,9 @@ class SocketExceptionTest(BitcoinTestFramework):
             info = node.getpeerinfo()
             assert_equal(len(info), 1)
             assert_equal(info[0]["bytesrecv"], bytesrecv_before)
+            # Still send-only: confirms the socket was not selected for receive
+            # throughout the probe.
+            assert pending_send(info[0]) > 0, "send backlog drained unexpectedly"
             print("OK: node did not receive from the send-only socket on an "
                   "exceptional event; peer stayed connected")
         finally:
