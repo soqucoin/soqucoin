@@ -267,7 +267,7 @@ Note: Lattice-BP++ (SOQ-P002) is superseded by SoquObscura (SOQ-P010). LatticeFo
 | Branch | Purpose |
 |--------|---------|
 | `main` | Active development (default, protected) |
-| `v2.x` tags | Releases (latest v2.6.0); the `release/v1.x` branches are historical |
+| `v2.x` tags | Releases (latest v2.6.1); the `release/v1.x` branches are historical |
 | `feature/*` | Feature branches (PR into main) |
 
 ---

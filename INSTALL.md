@@ -8,7 +8,7 @@ and how to build from source.
 
 ## Release downloads
 
-The current release, 2.6.0, on the [release page](https://github.com/soqucoin/soqucoin/releases)
+The current release, 2.6.1, on the [release page](https://github.com/soqucoin/soqucoin/releases)
 ships five archives and a `SHA256SUMS` file. Each archive holds two programs at
 the top level: `soqucoind`, the node, and `soqucoin-cli`, the command line tool
 you use to talk to it (`.exe` on Windows). There's no graphical wallet app and
@@ -64,13 +64,13 @@ shasum -a 256 --ignore-missing -c SHA256SUMS
 Both print `OK` next to each archive that matches. On Windows, in PowerShell:
 
 ```powershell
-Get-FileHash .\soqucoin-v2.6.0-windows-x64.zip
+Get-FileHash .\soqucoin-v2.6.1-windows-x64.zip
 Select-String windows SHA256SUMS
 ```
 
 The two hashes have to match. PowerShell prints its hash in capitals, which
 doesn't matter. Use the version number of the release you downloaded in place
-of `v2.6.0`.
+of `v2.6.1`.
 
 `SHA256SUMS` isn't signed. A match tells you the archive arrived intact and is
 the same file that's on the release page. The archives and `SHA256SUMS` are
@@ -116,13 +116,13 @@ sudo apt install git build-essential libtool autotools-dev automake pkg-config b
   libssl-dev libevent-dev libboost-all-dev libminiupnpc-dev libzmq3-dev libsqlite3-dev libdb++-dev
 git clone https://github.com/soqucoin/soqucoin.git
 cd soqucoin
-git checkout v2.6.0
+git checkout v2.6.1
 ./autogen.sh
 ./configure --without-gui --disable-tests --disable-bench
 make -j"$(nproc)"
 ```
 
-Use the tag of the current release in place of `v2.6.0`. The build takes a few
+Use the tag of the current release in place of `v2.6.1`. The build takes a few
 minutes on a modern machine. On a machine with less than 4 GB of memory, use
 `make -j1` so it doesn't run out. The programs end up in `src/`.
 
