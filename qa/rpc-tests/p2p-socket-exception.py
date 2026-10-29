@@ -93,6 +93,8 @@ class ControlledReadConn(NodeConn):
         try:
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2048)
         except OSError:
+            # A platform that will not shrink the buffer is fine; the test runs
+            # with the default size.
             pass
 
     def readable(self):
@@ -122,7 +124,7 @@ class SocketExceptionTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 1
 
-    def setup_network(self):
+    def setup_network(self, split=False):
         # -blockmintxfee=0 lets mine_large_block fill each block; -maxsendbuffer
         # raised so the node holds the whole multi-block response as a backlog
         # rather than capping it below the kernel send buffer.
