@@ -61,7 +61,9 @@ carry chain id 0x5351 is refused with `bad-chain-id`. Legacy blocks (a version
 field of 1 or 2, the form before merge mining) keep their exemption, which no
 block after genesis can use on mainnet. Below the height nothing changes. The
 refusal gives the relaying peer a misbehaviour score of 0, so a node that does
-not yet carry the rule stays connected and follows the heavier chain. The
+not yet carry the rule stays connected and follows the heavier chain; a peer
+that keeps announcing headers on top of a refused block is disconnected by the
+existing unconnecting-headers rule after about fifty announcements. The
 startup log names the height the binary enforces
 (`Chain id rule: 0x5351 required from height 67000`), and `getblockchaininfo`
 reports it as `chainid_required_height`. Every node operator upgrades before
