@@ -135,8 +135,9 @@ BOOST_AUTO_TEST_CASE(every_byte_outside_the_set_is_refused_before_execution)
         }
     }
     BOOST_CHECK_EQUAL(handled, (int)(sizeof(SET) / sizeof(SET[0])));
-    // 256 bytes, less 79 pushes (0x00 to 0x4e, 0x51 to 0x60), less the set, less the seven asset bytes.
-    BOOST_CHECK_EQUAL(refused, 256 - 79 - (int)(sizeof(SET) / sizeof(SET[0])) - 7);
+    // 256 bytes, less 95 pushes (79 from 0x00 to 0x4e, 16 from 0x51 to 0x60),
+    // less the set, less the seven asset bytes.
+    BOOST_CHECK_EQUAL(refused, 256 - 95 - (int)(sizeof(SET) / sizeof(SET[0])) - 7);
 }
 
 // Pushes of every encoding pass the scan, and the bytes of a refused opcode
