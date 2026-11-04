@@ -205,16 +205,18 @@ BOOST_AUTO_TEST_CASE(the_shipped_eltoo_template_settlement_leg)
     const std::vector<valtype> settle(1, valtype());         // the ELSE branch
     const std::vector<valtype> update(1, valtype(1, 0x01));  // the IF branch
 
+    // With no key item on the stack, the keyhash check's stack read is where
+    // the leg stops once the delay has passed.
     ScriptError v = VerdictFor(eltoo, SpendWith(2, 288), FULL, settle);
-    BOOST_CHECK_MESSAGE(v != SCRIPT_ERR_UNSATISFIED_LOCKTIME && v != SCRIPT_ERR_OK,
-        "settlement with version 2 and sequence 288 must pass the delay and stop at the keys; got " << Verdict(v));
+    BOOST_CHECK_MESSAGE(v == SCRIPT_ERR_INVALID_STACK_OPERATION,
+        "settlement with version 2 and sequence 288 must pass the delay and stop at the keyhash check; got " << Verdict(v));
     BOOST_CHECK_EQUAL(VerdictFor(eltoo, SpendWith(1, 288), FULL, settle), SCRIPT_ERR_UNSATISFIED_LOCKTIME);
     BOOST_CHECK_EQUAL(VerdictFor(eltoo, SpendWith(2, DISABLE | 288), FULL, settle), SCRIPT_ERR_UNSATISFIED_LOCKTIME);
     BOOST_CHECK_EQUAL(VerdictFor(eltoo, SpendWith(2, 287), FULL, settle), SCRIPT_ERR_UNSATISFIED_LOCKTIME);
 
     v = VerdictFor(eltoo, SpendWith(1, 0xfffffffe, 600001), FULL, update);
-    BOOST_CHECK_MESSAGE(v != SCRIPT_ERR_UNSATISFIED_LOCKTIME && v != SCRIPT_ERR_OK,
-        "the update leg with the height reached must pass the absolute lock and stop at the keys; got " << Verdict(v));
+    BOOST_CHECK_MESSAGE(v == SCRIPT_ERR_INVALID_STACK_OPERATION,
+        "the update leg with the height reached must pass the absolute lock and stop at the keyhash check; got " << Verdict(v));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -244,13 +246,16 @@ BOOST_AUTO_TEST_CASE(a_delayed_v6_output_is_held_at_relay_and_in_a_block)
     const CBlock bF = CreateAndProcessBlock(std::vector<CMutableTransaction>(1, F), coinbaseSpk);
     BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == bF.GetHash(), "the funding block must connect");
     const int fundedAt = chainActive.Height();
+    // The block path runs BIP68 only where the CSV deployment is ACTIVE. On
+    // regtest it is not under the default block version, which carries no
+    // version-bit signal, so a block there enforces the opcode's rule alone.
+    bool csvActive;
     {
-        // For the record: where the CSV deployment is not ACTIVE the block path
-        // runs no BIP68, and a block refusal below is the script's alone.
         LOCK(cs_main);
-        BOOST_TEST_MESSAGE("DEPLOYMENT_CSV state at the funding tip: "
-            << VersionBitsState(chainActive.Tip(), Params().GetConsensus(fundedAt),
-                                Consensus::DEPLOYMENT_CSV, versionbitscache)
+        const ThresholdState csv = VersionBitsState(chainActive.Tip(), Params().GetConsensus(fundedAt),
+                                                    Consensus::DEPLOYMENT_CSV, versionbitscache);
+        csvActive = (csv == THRESHOLD_ACTIVE);
+        BOOST_TEST_MESSAGE("DEPLOYMENT_CSV state at the funding tip: " << csv
             << " (" << THRESHOLD_ACTIVE << " is ACTIVE)");
     }
 
@@ -304,14 +309,30 @@ BOOST_AUTO_TEST_CASE(a_delayed_v6_output_is_held_at_relay_and_in_a_block)
         "the version-2 spend before the delay must be held by BIP68 at relay; got: "
         << (r.empty() ? std::string("accepted") : r));
 
+    // The same spend in a block at the funding tip is held only where the block
+    // path runs BIP68. Either way the two refusals above are the script's: the
+    // same output, witness and tip, with only the version and the sequence
+    // differing.
+    BOOST_CHECK_EQUAL(BlockIsValid(one(S3)), !csvActive);
+
     // An empty block on the same tip connects: the refusals are the spends'.
     BOOST_CHECK(BlockIsValid(std::vector<CMutableTransaction>()));
 
+    // The delay: BIP68 admits the spend into the block at height fundedAt +
+    // DELAY, which the mempool evaluates once the tip is one below it. One
+    // block earlier the spend is still held.
+    for (int i = 0; i < DELAY - 2; ++i)
+        CreateAndProcessBlock(std::vector<CMutableTransaction>(), coinbaseSpk);
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), fundedAt + DELAY - 2);
+    r = relay(S3);
+    BOOST_CHECK_MESSAGE(r.find("non-BIP68-final") != std::string::npos,
+        "one block before the delay the version-2 spend must still be held at relay; got: "
+        << (r.empty() ? std::string("accepted") : r));
+    CreateAndProcessBlock(std::vector<CMutableTransaction>(), coinbaseSpk);
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), fundedAt + DELAY - 1);
+
     // After the delay: the version-2 spend is accepted at relay and valid in a
     // block; the two others stay refused, since no wait satisfies them.
-    for (int i = 0; i < DELAY; ++i)
-        CreateAndProcessBlock(std::vector<CMutableTransaction>(), coinbaseSpk);
-    BOOST_REQUIRE_EQUAL(chainActive.Height(), fundedAt + DELAY);
     r = relay(S3);
     BOOST_CHECK_MESSAGE(r.empty(), "the version-2 spend after the delay must be accepted at relay; got: " << r);
     BOOST_CHECK_MESSAGE(BlockIsValid(one(S3)), "a block holding the version-2 spend after the delay must connect");
