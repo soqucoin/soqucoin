@@ -2235,17 +2235,26 @@ bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) con
     if (nSequence < 0)
         return false;
 
-    // The lock time feature can be disabled and thus
-    // CHECKSEQUENCEVERIFY bypassed if the sequence number of
-    // the input is set to maxint. The CHECKSEQUENCEVERIFY
-    // opcode execution fails in this case.
-    if (txTo->vin[nIn].nSequence == CTxIn::SEQUENCE_FINAL)
+    const uint32_t txToSequence = txTo->vin[nIn].nSequence;
+
+    // BIP112 binds this check to the rule it stands on. BIP68
+    // (CalculateSequenceLocks) enforces a relative lock only on a
+    // transaction of version 2 or higher, and only on an input whose
+    // sequence number does not carry the disable flag. On a lower
+    // version, or on a disable-flag input, the bits compared below
+    // carry no consensus meaning, so a check that passed there would
+    // be satisfied with no wait behind it. Both fail here. The version
+    // comparison is unsigned, as BIP68's is. A final sequence number
+    // (0xffffffff) carries the disable flag and fails with it.
+    if (static_cast<uint32_t>(txTo->nVersion) < 2)
+        return false;
+    if (txToSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG)
         return false;
 
     // Mask off any bits that do not have consensus-enforced meaning
     // before doing the integer comparisons
     const uint32_t nLockTimeMask = CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG | CTxIn::SEQUENCE_LOCKTIME_MASK;
-    const uint32_t nSequenceMasked = txTo->vin[nIn].nSequence & nLockTimeMask;
+    const uint32_t nSequenceMasked = txToSequence & nLockTimeMask;
     const uint32_t nSequenceIn = nSequence.getint64() & nLockTimeMask;
 
     // There are two kinds of nSequence: lock-by-blockheight
