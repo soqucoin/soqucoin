@@ -32,12 +32,21 @@
 // (bead mxph). These tests now pin the fix; the history is kept in the comments
 // because the reasoning is what stops it being undone.
 
+#include "chainparams.h"
+#include "coins.h"
+#include "consensus/params.h"
+#include "consensus/validation.h"
+#include "crypto/sha256.h"
+#include "miner.h"
 #include "policy/policy.h"
 #include "script/interpreter.h"
 #include "script/script.h"
 #include "script/standard.h"
+#include "txmempool.h"
 #include "utilstrencodings.h"
+#include "validation.h"
 
+#include "test/dilithium_chain_setup.h"
 #include "test/test_bitcoin.h"
 
 #include <boost/test/unit_test.hpp>
@@ -244,6 +253,134 @@ BOOST_AUTO_TEST_CASE(restored_opcodes_are_still_noops_when_the_flag_is_absent)
         "without the flag OP_MUL is expected to be a silent NO-OP, leaving its operands. If it "
         "now ERRORS instead, that is a safer shape and the policy fix is belt-and-braces rather "
         "than load-bearing; re-read bead mxph before relying on either");
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+// ---------------------------------------------------------------------------
+// The sigop count. The mempool prices a transaction's sigops once, at
+// acceptance, and the miner sums the recorded figures against
+// MAX_BLOCK_SIGOPS_COST; ConnectBlock charges the same transaction with the
+// block's flags. The two figures must agree for the miner's budget to be the
+// block's. The witness count of a v6 input reads three deployment-gated flags
+// (P2WSH_DILITHIUM for the program, DILITHIUM_KEYHASH and CSFS for the opcodes
+// it charges), so the mempool prices with the deployment flags of the next
+// block, the same flags its script check reads.
+//
+// Driven through a real regtest chain, where the v6 deployments are active
+// from height 0: a v6 output locked by the key-hash 2-of-2 is funded in a mined
+// block and spent through the mempool, and the figure the mempool records and
+// the figure the template carries are compared with the block's charge.
+// ---------------------------------------------------------------------------
+BOOST_FIXTURE_TEST_SUITE(mempool_consensus_sigop_parity_tests, DilithiumChainSetup)
+
+BOOST_AUTO_TEST_CASE(the_mempool_records_the_sigop_cost_the_block_charges_for_a_v6_spend)
+{
+    typedef std::vector<unsigned char> valtype;
+
+    // <kh> CHECKDILITHIUMKEYHASH <kh> CHECKDILITHIUMKEYHASH 1: the key-hash
+    // 2-of-2, both keys the fixture's coinbase key.
+    valtype kh(32);
+    CSHA256().Write(coinbasePkBytes.data(), coinbasePkBytes.size()).Finalize(kh.data());
+    CScript ws;
+    ws << kh << OP_CHECKDILITHIUMKEYHASH << kh << OP_CHECKDILITHIUMKEYHASH << OP_1;
+    uint256 program;
+    CSHA256().Write(ws.data(), ws.size()).Finalize(program.begin());
+    const CScript v6Spk = CScript() << OP_6 << valtype(program.begin(), program.end());
+
+    // F: coinbase[0] to the v6 output, mined.
+    const CAmount cbValue = coinbaseTxns[0].vout[0].nValue;
+    const CAmount FEE = COIN;
+    BOOST_REQUIRE(cbValue > 3 * FEE);
+    CMutableTransaction F;
+    F.nVersion = 2;
+    F.vin.push_back(CTxIn(COutPoint(coinbaseTxns[0].GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    F.vout.push_back(CTxOut(cbValue - FEE, v6Spk));
+    SignInput(F, 0, coinbaseSpk, cbValue);
+    const CBlock bF = CreateAndProcessBlock(std::vector<CMutableTransaction>(1, F), coinbaseSpk);
+    BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == bF.GetHash(), "the funding block must connect");
+
+    // S: spends F:0 back to the coinbase key, both signatures over the
+    // witnessScript as scriptCode. Witness: [sig, pubkey, sig, pubkey]
+    // [witnessScript] [0x00-prefixed trailer].
+    const CAmount amount = cbValue - FEE;
+    CMutableTransaction S;
+    S.nVersion = 2;
+    S.vin.push_back(CTxIn(COutPoint(F.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    S.vout.push_back(CTxOut(amount - FEE, coinbaseSpk));
+    {
+        const uint256 sighash = SignatureHash(ws, CTransaction(S), 0, SIGHASH_ALL, amount,
+                                              SIGVERSION_WITNESS_V0, nullptr);
+        valtype sig;
+        BOOST_REQUIRE(coinbaseKey.Sign(sighash, sig));
+        sig.push_back((unsigned char)SIGHASH_ALL);
+        CScriptWitness w;
+        w.stack.push_back(sig);
+        w.stack.push_back(coinbasePkBytes);
+        w.stack.push_back(sig);
+        w.stack.push_back(coinbasePkBytes);
+        w.stack.push_back(valtype(ws.begin(), ws.end()));
+        w.stack.push_back(PrefixedPubkey(coinbasePkBytes));
+        S.vin[0].scriptWitness = w;
+    }
+    const CTransaction tx(S);
+
+    // The block's charge for S, with the flags ConnectBlock sets for the next
+    // block that the counter reads: P2SH and WITNESS, and the three
+    // deployment-gated flags from DeploymentActiveAtHeight at that height.
+    int64_t blockCharge = -1;
+    {
+        LOCK(cs_main);
+        const int nNext = chainActive.Height() + 1;
+        const Consensus::Params& cons = Params().GetConsensus(nNext);
+        unsigned int blockFlags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS;
+        if (Consensus::DeploymentActiveAtHeight(nNext, cons, Consensus::DEPLOYMENT_P2WSH_DILITHIUM))
+            blockFlags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
+        if (Consensus::DeploymentActiveAtHeight(nNext, cons, Consensus::DEPLOYMENT_DILITHIUM_KEYHASH))
+            blockFlags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
+        if (Consensus::DeploymentActiveAtHeight(nNext, cons, Consensus::DEPLOYMENT_CSFS))
+            blockFlags |= SCRIPT_VERIFY_CSFS;
+        BOOST_REQUIRE_MESSAGE((blockFlags & SCRIPT_VERIFY_P2WSH_DILITHIUM) != 0,
+            "v6 must be active on regtest at the next height");
+        CCoinsViewCache view(pcoinsTip);
+        blockCharge = GetTransactionSigOpCost(tx, view, blockFlags);
+    }
+    // Two key-hash checks at one sigop each; witness sigops are not scaled.
+    BOOST_CHECK_EQUAL(blockCharge, 2);
+
+    // Relay: accepted, and the figure the mempool records is the block's.
+    {
+        LOCK(cs_main);
+        CValidationState st;
+        const bool ok = AcceptToMemoryPool(mempool, st, MakeTransactionRef(S), false, nullptr, nullptr, true, 0);
+        BOOST_REQUIRE_MESSAGE(ok, "the key-hash 2-of-2 spend must be accepted at relay; got: " << FormatStateMessage(st));
+    }
+    int64_t recorded = -1;
+    {
+        LOCK(mempool.cs);
+        auto it = mempool.mapTx.find(tx.GetHash());
+        BOOST_REQUIRE(it != mempool.mapTx.end());
+        recorded = it->GetSigOpCost();
+    }
+    BOOST_CHECK_MESSAGE(recorded == blockCharge,
+        "the mempool records " << recorded << " sigops for a v6 spend the block charges " << blockCharge
+        << " for; the miner sums the recorded figure against the block budget");
+
+    // The miner: the template carries S at the recorded figure and passes
+    // CreateNewBlock's own validity check.
+    {
+        std::unique_ptr<CBlockTemplate> tmpl = BlockAssembler(Params()).CreateNewBlock(coinbaseSpk, true);
+        BOOST_REQUIRE(tmpl);
+        BOOST_REQUIRE_EQUAL(tmpl->block.vtx.size(), 2u);
+        BOOST_CHECK(tmpl->block.vtx[1]->GetHash() == tx.GetHash());
+        BOOST_CHECK_EQUAL(tmpl->vTxSigOpsCost[1], blockCharge);
+    }
+
+    // And the spend connects in a block on the same tip.
+    BOOST_CHECK(BlockIsValid(std::vector<CMutableTransaction>(1, S)));
+
+    LOCK(cs_main);
+    mempool.clear();
 }
 
 BOOST_AUTO_TEST_SUITE_END()
