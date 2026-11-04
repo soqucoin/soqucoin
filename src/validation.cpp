@@ -687,6 +687,62 @@ static bool IsCurrentForFeeEstimation()
     return true;
 }
 
+/**
+ * The script flags that deployments switch on for the next block (tip height
+ * plus one), from the predicates ConnectBlock reads at that height. The mempool
+ * prices a transaction's sigops with them and ORs them into its script checks,
+ * so a relayed transaction means and costs what it will in the block that mines
+ * it.
+ */
+static unsigned int NextBlockDeploymentScriptFlags()
+{
+    AssertLockHeld(cs_main);
+    unsigned int flags = 0;
+
+    // Relay + enforce V6 covenant txs that the NEXT block will enforce. STANDARD omits the V6
+    // covenant opcodes, so without this a B1/eLTOO (or CTV/CSFS/keyhash) tx is non-standard
+    // (won't relay) AND its covenant opcodes are no-ops at the mempool — e.g. OP_CLTV in a v6
+    // script wrongly passes a below-floor eLTOO spend that ConnectBlock rejects. OR-in the V6
+    // covenant flags gated by their height-activation (p96/Option D), mirroring ConnectBlock:
+    // they are height-0 on stagenet/regtest and NOT_SCHEDULED (never) on mainnet, so this adds
+    // NOTHING on mainnet until activation — keeping mempool policy consistent with consensus.
+    // Evaluated for the NEXT block (tip height + 1), which is what these txs would land in.
+    const int nNextHeight = chainActive.Height() + 1;
+    const Consensus::Params& cons = Params().GetConsensus(nNextHeight);
+    auto v6active = [&](Consensus::DeploymentPos pos) {
+        return Consensus::DeploymentActiveAtHeight(nNextHeight, cons, pos);
+    };
+    if (v6active(Consensus::DEPLOYMENT_CTV))               flags |= SCRIPT_VERIFY_CTV;
+    if (v6active(Consensus::DEPLOYMENT_APO))               flags |= SCRIPT_VERIFY_APO;
+    if (v6active(Consensus::DEPLOYMENT_CSFS))              flags |= SCRIPT_VERIFY_CSFS;
+    if (v6active(Consensus::DEPLOYMENT_P2WSH_DILITHIUM))   flags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
+    if (v6active(Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
+    if (v6active(Consensus::DEPLOYMENT_V6_CONTROLFLOW))    flags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
+
+    // SOQ-P001 / SOQ-P002 / SOQ-ARCH-001 / SOQ-AUD2-002: mirror the PQ + asset
+    // script flags that ConnectBlock enforces (interpreter.cpp gates the v7 USDSOQ,
+    // PAT-aggregate, LatticeFold and Lattice-BP++ verification on these exact flags).
+    // Without them the mempool verifies those inputs LENIENTLY — a v7 USDSOQ input is
+    // effectively anyone-can-spend at accept time — so a tx that ConnectBlock will
+    // REJECT is accepted and relayed, then sits in the mempool poisoning every block
+    // template until it expires: the pool mines empty (coinbase-only) blocks. That is
+    // exactly what a mis-signed v7 USDSOQ send (wrong scriptCode → NULLFAIL) did on
+    // stagenet (live bug daf9fd85). This is the same policy≡consensus fix the V6
+    // covenant flags above already apply. Match ConnectBlock's activation exactly:
+    //   PAT / LATTICEFOLD  → BIP9 VersionBitsState at the tip (= the next block's pprev)
+    //   LATTICEBP / USDSOQ → height-gated (p96/Option D) at the next block
+    if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_CHECKPATAGG, versionbitscache) == THRESHOLD_ACTIVE)
+        flags |= SCRIPT_VERIFY_PAT;
+    if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_LATTICEFOLD, versionbitscache) == THRESHOLD_ACTIVE)
+        flags |= SCRIPT_VERIFY_LATTICEFOLD;
+    if (v6active(Consensus::DEPLOYMENT_SOQUOBSCURA))         flags |= SCRIPT_VERIFY_SOQUOBSCURA;
+    if (v6active(Consensus::DEPLOYMENT_USDSOQ))            flags |= SCRIPT_VERIFY_USDSOQ;
+    // DL-BTCSOQ-CONSENSUS-NATIVE: same height-gated (p96/Option D)
+    // activation model as USDSOQ — mempool flags match ConnectBlock.
+    if (v6active(Consensus::DEPLOYMENT_BTCSOQ))            flags |= SCRIPT_VERIFY_BTCSOQ;
+    return flags;
+}
+
 bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const CTransactionRef& ptx, bool fLimitFree, bool* pfMissingInputs, int64_t nAcceptTime, std::list<CTransactionRef>* plTxnReplaced, bool fOverrideMempoolLimit, const CAmount& nAbsurdFee, std::vector<uint256>& vHashTxnToUncache)
 {
     const CTransaction& tx = *ptx;
@@ -1150,7 +1206,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             }
         }
 
-        int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS);
+        // Priced with the deployment flags of the next block, as ConnectBlock
+        // prices it: the witness count of a v6 input reads three of them (the
+        // program, CHECKDILITHIUMKEYHASH and CHECKSIGFROMSTACK), and the miner
+        // sums this figure against MAX_BLOCK_SIGOPS_COST. The script checks
+        // below read the same flags.
+        const unsigned int nextBlockFlags = NextBlockDeploymentScriptFlags();
+        int64_t nSigOpsCost = GetTransactionSigOpCost(tx, view, STANDARD_SCRIPT_VERIFY_FLAGS | nextBlockFlags);
 
         // SOQ-ARCH-002: Asset-aware fee computation.
         // SOQ-ARCH-003 FIX: Always compute fee using SOQ-only inputs and outputs.
@@ -1572,50 +1634,9 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         if (!Params().RequireStandard()) {
             scriptVerifyFlags = GetArg("-promiscuousmempoolflags", scriptVerifyFlags);
         }
-
-        // Relay + enforce V6 covenant txs that the NEXT block will enforce. STANDARD omits the V6
-        // covenant opcodes, so without this a B1/eLTOO (or CTV/CSFS/keyhash) tx is non-standard
-        // (won't relay) AND its covenant opcodes are no-ops at the mempool — e.g. OP_CLTV in a v6
-        // script wrongly passes a below-floor eLTOO spend that ConnectBlock rejects. OR-in the V6
-        // covenant flags gated by their height-activation (p96/Option D), mirroring ConnectBlock:
-        // they are height-0 on stagenet/regtest and NOT_SCHEDULED (never) on mainnet, so this adds
-        // NOTHING on mainnet until activation — keeping mempool policy consistent with consensus.
-        // Evaluated for the NEXT block (tip height + 1), which is what these txs would land in.
-        {
-            const int nNextHeight = chainActive.Height() + 1;
-            const Consensus::Params& cons = Params().GetConsensus(nNextHeight);
-            auto v6active = [&](Consensus::DeploymentPos pos) {
-                return Consensus::DeploymentActiveAtHeight(nNextHeight, cons, pos);
-            };
-            if (v6active(Consensus::DEPLOYMENT_CTV))               scriptVerifyFlags |= SCRIPT_VERIFY_CTV;
-            if (v6active(Consensus::DEPLOYMENT_APO))               scriptVerifyFlags |= SCRIPT_VERIFY_APO;
-            if (v6active(Consensus::DEPLOYMENT_CSFS))              scriptVerifyFlags |= SCRIPT_VERIFY_CSFS;
-            if (v6active(Consensus::DEPLOYMENT_P2WSH_DILITHIUM))   scriptVerifyFlags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
-            if (v6active(Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) scriptVerifyFlags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
-            if (v6active(Consensus::DEPLOYMENT_V6_CONTROLFLOW))    scriptVerifyFlags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
-
-            // SOQ-P001 / SOQ-P002 / SOQ-ARCH-001 / SOQ-AUD2-002: mirror the PQ + asset
-            // script flags that ConnectBlock enforces (interpreter.cpp gates the v7 USDSOQ,
-            // PAT-aggregate, LatticeFold and Lattice-BP++ verification on these exact flags).
-            // Without them the mempool verifies those inputs LENIENTLY — a v7 USDSOQ input is
-            // effectively anyone-can-spend at accept time — so a tx that ConnectBlock will
-            // REJECT is accepted and relayed, then sits in the mempool poisoning every block
-            // template until it expires: the pool mines empty (coinbase-only) blocks. That is
-            // exactly what a mis-signed v7 USDSOQ send (wrong scriptCode → NULLFAIL) did on
-            // stagenet (live bug daf9fd85). This is the same policy≡consensus fix the V6
-            // covenant flags above already apply. Match ConnectBlock's activation exactly:
-            //   PAT / LATTICEFOLD  → BIP9 VersionBitsState at the tip (= the next block's pprev)
-            //   LATTICEBP / USDSOQ → height-gated (p96/Option D) at the next block
-            if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_CHECKPATAGG, versionbitscache) == THRESHOLD_ACTIVE)
-                scriptVerifyFlags |= SCRIPT_VERIFY_PAT;
-            if (VersionBitsState(chainActive.Tip(), cons, Consensus::DEPLOYMENT_LATTICEFOLD, versionbitscache) == THRESHOLD_ACTIVE)
-                scriptVerifyFlags |= SCRIPT_VERIFY_LATTICEFOLD;
-            if (v6active(Consensus::DEPLOYMENT_SOQUOBSCURA))         scriptVerifyFlags |= SCRIPT_VERIFY_SOQUOBSCURA;
-            if (v6active(Consensus::DEPLOYMENT_USDSOQ))            scriptVerifyFlags |= SCRIPT_VERIFY_USDSOQ;
-            // DL-BTCSOQ-CONSENSUS-NATIVE: same height-gated (p96/Option D)
-            // activation model as USDSOQ — mempool flags match ConnectBlock.
-            if (v6active(Consensus::DEPLOYMENT_BTCSOQ))            scriptVerifyFlags |= SCRIPT_VERIFY_BTCSOQ;
-        }
+        // The deployment-gated flags of the next block, the same value the sigop
+        // count above was priced with (NextBlockDeploymentScriptFlags).
+        scriptVerifyFlags |= nextBlockFlags;
 
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
