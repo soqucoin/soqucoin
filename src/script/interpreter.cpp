@@ -1560,6 +1560,68 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 // Deprecated (SOQ-I002): OP_RESERVED_BATCHSIG (0xfe) — replaced by LatticeFold
 // Deprecated (SOQ-I003): OP_CHECKDILITHIUMSIG (0xfb) — redundant, inline in VerifyScript
 // Dilithium verification: performed inline by VerifyScript (witness v0/v1)
+// The opcodes a witness v6 (P2WSH-Dilithium) witnessScript may carry.
+//
+// EvalScript dispatches through an if-chain with no terminal else: a byte no
+// branch matches returns with the stack untouched. Inside a v6 witnessScript
+// that would make every unhandled opcode a silent no-op, so a script's meaning
+// would depend on which bytes are ignored (a HASH160 hashlock that compares
+// nothing, a CHECKSIG that checks nothing). The v6 pre-scan therefore admits
+// pushes and the opcodes with a handler, and refuses every other byte before
+// execution, in every branch and in every flag state in which the v6 branch
+// runs.
+//
+// The set is closed. Admitting a byte later would accept what this release
+// refuses, a loosening against it, so a new opcode goes to a new witness
+// version (doc/specifications/WITNESS_VERSION_FORK_CLASS.md §3a). The members:
+//   * pushes: 0x00 to OP_PUSHDATA4, OP_1 to OP_16. OP_1NEGATE and OP_RESERVED
+//     are not pushes here (the push branch pushes an empty item for them) and
+//     are out.
+//   * the restored control flow, hashlock and timelock set under
+//     SCRIPT_VERIFY_V6_CONTROLFLOW, and OP_CHECKDILITHIUMKEYHASH under
+//     SCRIPT_VERIFY_DILITHIUM_KEYHASH.
+//   * OP_CHECKTEMPLATEVERIFY and OP_CHECKSIGFROMSTACK, flag-gated NOPs when
+//     their deployment is inactive.
+//   * OP_CAT, which has no gate, and the restored byte and arithmetic set,
+//     which consensus runs with SCRIPT_VERIFY_SCRIPT_RESTORE in every block.
+// The asset and attestation opcodes stay refused with BAD_OPCODE by the ban
+// that precedes this check.
+static bool IsWitnessV6ScriptOpcode(opcodetype op)
+{
+    if (op <= OP_PUSHDATA4)
+        return true;
+    if (op >= OP_1 && op <= OP_16)
+        return true;
+    switch (op) {
+    case OP_IF:
+    case OP_NOTIF:
+    case OP_ELSE:
+    case OP_ENDIF:
+    case OP_DROP:
+    case OP_EQUAL:
+    case OP_EQUALVERIFY:
+    case OP_SHA256:
+    case OP_CHECKLOCKTIMEVERIFY:
+    case OP_CHECKSEQUENCEVERIFY:
+    case OP_CHECKDILITHIUMKEYHASH:
+    case OP_CHECKTEMPLATEVERIFY:
+    case OP_CHECKSIGFROMSTACK:
+    case OP_CAT:
+    case OP_SUBSTR:
+    case OP_LEFT:
+    case OP_RIGHT:
+    case OP_AND:
+    case OP_OR:
+    case OP_XOR:
+    case OP_MUL:
+    case OP_DIV:
+    case OP_MOD:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
     // Enforce Dilithium Output Type (OP_0 or OP_1 <32-byte hash>)
@@ -1876,6 +1938,11 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         // Scanned with GetOp so bytes inside pushes are not mistaken for
         // opcodes; a script that fails to parse is rejected here rather than
         // half-executed.
+        //
+        // The same walk then holds the script to the witness v6 opcode set
+        // (IsWitnessV6ScriptOpcode above): any other byte is refused with
+        // SCRIPT_ERR_DISALLOWED_OPCODE before EvalScript runs, whatever branch
+        // it sits in. Pinned by v6_witness_script_opcode_set_tests.
         {
             CScript::const_iterator pc = witnessScript.begin();
             opcodetype op;
@@ -1889,6 +1956,9 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                     op == OP_SOQUOBSCURA_RANGEPROOF || op == OP_CHECKFOLDPROOF ||
                     op == OP_CHECKPATAGG) {
                     return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                }
+                if (!IsWitnessV6ScriptOpcode(op)) {
+                    return set_error(serror, SCRIPT_ERR_DISALLOWED_OPCODE);
                 }
             }
         }

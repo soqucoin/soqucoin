@@ -64,6 +64,8 @@ const char* ScriptErrorString(const ScriptError serror)
         return "Output type not allowed (must be Dilithium bech32m)";
     case SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO:
         return "Classical cryptography (ECDSA) is extinct";
+    case SCRIPT_ERR_DISALLOWED_OPCODE:
+        return "Opcode not in the witness v6 script set";
     case SCRIPT_ERR_UNKNOWN_SCRIPT_TYPE:
     case SCRIPT_ERR_OP_COUNT:
         return "Operation limit exceeded";
