@@ -8,7 +8,7 @@
 // no branch matches returns with the stack untouched. Inside a v6 witnessScript
 // that would make every unhandled opcode a silent no-op, and a script's
 // meaning would depend on which bytes are ignored. The pre-scan in
-// VerifyWitnessProgram's v6 branch therefore admits pushes and the handled set
+// VerifyScript's v6 branch therefore admits pushes and the handled set
 // and refuses every other byte with SCRIPT_ERR_DISALLOWED_OPCODE before
 // execution, in every branch and in every flag state in which the v6 branch
 // runs. The set is closed: admitting a byte later would be a loosening against
@@ -103,9 +103,10 @@ std::string Verdict(ScriptError e) { return std::string(ScriptErrorString(e)); }
 
 BOOST_FIXTURE_TEST_SUITE(v6_witness_script_opcode_set_tests, BasicTestingSetup)
 
-// Every byte above OP_16, alone and after an innocuous prefix. A member of the
-// set reaches its handler, which objects to the empty stack with an error of
-// its own; anything else is refused by the scan before execution.
+// Every non-push byte (0x4f, 0x50 and everything above OP_16), alone and after
+// an innocuous prefix. A member of the set reaches its handler, which objects
+// to the empty stack with an error of its own; anything else is refused by the
+// scan before execution.
 BOOST_AUTO_TEST_CASE(every_byte_outside_the_set_is_refused_before_execution)
 {
     int refused = 0, handled = 0;
@@ -114,8 +115,8 @@ BOOST_AUTO_TEST_CASE(every_byte_outside_the_set_is_refused_before_execution)
             continue;
         const opcodetype op = static_cast<opcodetype>(b);
         const ScriptError alone = VerdictFor(CScript() << op, FULL);
-        const ScriptError after = VerdictFor(CScript() << OP_TRUE << op, FULL);
         if (InAsset(b)) {
+            const ScriptError after = VerdictFor(CScript() << OP_TRUE << op, FULL);
             BOOST_CHECK_MESSAGE(alone == SCRIPT_ERR_BAD_OPCODE && after == SCRIPT_ERR_BAD_OPCODE,
                 GetOpName(op) << " keeps BAD_OPCODE under the asset ban; got "
                               << Verdict(alone) << " / " << Verdict(after));
@@ -126,6 +127,7 @@ BOOST_AUTO_TEST_CASE(every_byte_outside_the_set_is_refused_before_execution)
                 GetOpName(op) << " is in the set and must reach its handler; got " << Verdict(alone));
         } else {
             ++refused;
+            const ScriptError after = VerdictFor(CScript() << OP_TRUE << op, FULL);
             BOOST_CHECK_MESSAGE(alone == SCRIPT_ERR_DISALLOWED_OPCODE,
                 GetOpName(op) << " (0x" << std::hex << b << std::dec
                               << ") is outside the set and must be refused; got " << Verdict(alone));

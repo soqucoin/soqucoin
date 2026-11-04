@@ -1582,8 +1582,8 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 //     SCRIPT_VERIFY_DILITHIUM_KEYHASH.
 //   * OP_CHECKTEMPLATEVERIFY and OP_CHECKSIGFROMSTACK, flag-gated NOPs when
 //     their deployment is inactive.
-//   * OP_CAT and the restored byte and arithmetic set, which consensus runs
-//     with SCRIPT_VERIFY_SCRIPT_RESTORE in every block.
+//   * OP_CAT, which has no gate, and the restored byte and arithmetic set,
+//     which consensus runs with SCRIPT_VERIFY_SCRIPT_RESTORE in every block.
 // The asset and attestation opcodes stay refused with BAD_OPCODE by the ban
 // that precedes this check.
 static bool IsWitnessV6ScriptOpcode(opcodetype op)
