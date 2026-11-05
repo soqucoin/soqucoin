@@ -691,8 +691,7 @@ static bool IsCurrentForFeeEstimation()
  * The script flags that deployments switch on for the next block (tip height
  * plus one), from the predicates ConnectBlock reads at that height. The mempool
  * prices a transaction's sigops with them and ORs them into its script checks,
- * so a relayed transaction means and costs what it will in the block that mines
- * it.
+ * so a relayed transaction means and costs what it will in the next block.
  */
 static unsigned int NextBlockDeploymentScriptFlags()
 {
@@ -770,8 +769,8 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
     // so relaying an output of that form before activation is a fund-loss path,
     // not a safe failure: it confirms, and then anybody may spend it. Policy must
     // therefore track consensus on the OUTPUT side, exactly as it already does on
-    // the INPUT side (see the scriptVerifyFlags block below, added after live bug
-    // daf9fd85). Anything not listed here stays non-standard, which is the
+    // the INPUT side (see NextBlockDeploymentScriptFlags above, added after live
+    // bug daf9fd85). Anything not listed here stays non-standard, which is the
     // fail-safe direction.
     WitnessVersionMask activeWitnessVersions = 0;
     {
