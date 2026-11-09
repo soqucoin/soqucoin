@@ -1,7 +1,7 @@
 # Reviewing a release or a consensus pull request
 
 A release branch `release/vX.Y.Z` or a pull request against `main` arrives with a base, a head and
-a set of claims. The review checks the claims, the diff and the tests, and ends in a report. The
+a set of claims. The review checks the claims, the diff and the tests. It ends in a report. The
 vocabulary and the build commands are in `doc/reviewer-guide.md`.
 
 ## What arrives
@@ -9,8 +9,8 @@ vocabulary and the build commands are in `doc/reviewer-guide.md`.
 - The base: the previous release tag, or `main` for a pull request. The head: the branch's last
   commit, by hash.
 - The draft release notes under `doc/release-notes/`, or the pull request body. For a change to
-  validation the body states what changes, what an attacker could do before and after, and how the
-  test proves the difference (`CONTRIBUTING.md`).
+  validation the body states three things (`CONTRIBUTING.md`). What changes. What an attacker
+  could do before and after. How the test proves the difference.
 - The size, to plan the evenings. Two readings for scale, each from one command:
 
 ```
@@ -22,9 +22,9 @@ git diff --stat v2.5.3..v2.6.0 | tail -1    # 47 files changed, 2225 insertions(
 
 ### 1. List the claims
 
-Read the notes or the body before the diff. Write down every claim: "no consensus change", "the
-RPC interface is unchanged", "activates at height H", "inert on mainnet", "the on-disk format is
-unchanged". Each claim becomes a check in step 9.
+Read the notes or the body before the diff. Write down every claim. Examples: "no consensus
+change" or "the RPC interface is unchanged". Also "activates at height H" or "inert on mainnet".
+Each claim becomes a check in step 9.
 
 ### 2. Enumerate the diff
 
@@ -33,23 +33,23 @@ git diff --stat <base>..<head>
 git diff <base>..<head> -- src ':!src/test' ':!src/qt'
 ```
 
-For every function added or changed outside the tests, name its sibling: the other site that
-applies the same rule or handles the same value on another path. The block path and the mempool
-path. Serialize and unserialize. The accept branch and the reject branch. Connect and disconnect.
-A fix applied at one site and missed at its sibling is a common shape of defect.
+For every function added or changed outside the tests, name its sibling. The sibling is the other
+site that applies the same rule or handles the same value on another path. The block path and the
+mempool path. Serialize and unserialize. The accept branch and the reject branch. Connect and
+disconnect. A fix applied at one site and missed at its sibling is a common shape of defect.
 
 ### 3. Build and run from the head, clean
 
-On Linux and on macOS, from the exact head commit: `make check`, the CI functional list, then the
-full default list. Record the platform, the compiler and its version, the case counts, every
-failure and every flake, and the wall time. A test that fails once and passes on rerun is a
-finding, with the log attached.
+Build on Linux and on macOS from the exact head commit. Run `make check`, then the CI functional
+list, then the full default list. Record the platform and the compiler with its version. Record
+the case counts, every failure, every flake and the wall time. A test that fails once and passes
+on rerun is a finding, with the log attached.
 
 ### 4. The same suites under sanitizers
 
-The address and undefined-behaviour build from `doc/reviewer-guide.md`, one unit suite per
-process, then the functional list. Every report is a finding. A report in inherited code is still
-a finding.
+Use the address and undefined-behaviour build from `doc/reviewer-guide.md`. Run one unit suite
+per process, then the functional list. Every report is a finding. A report in inherited code is
+still a finding.
 
 ### 5. Coverage of the changed lines
 
@@ -62,30 +62,30 @@ line without asserting on its result counts as no coverage.
 For every changed function that a peer can reach with a message, a transaction or a block, and
 for every changed RPC:
 
-- Sizes are checked before use, and a wrong size is rejected before any allocation.
+- Sizes are checked before use. A wrong size is rejected before any allocation.
 - Allocations are bounded by a constant or by the input length.
 - Loops are bounded by the input length or by a constant.
-- Integer widths and conversions: `size_t` against `int`, signed overflow, a shift by the full
-  width, a multiplication before a bounds check.
+- Integer widths and conversions. `size_t` against `int`. Signed overflow. A shift by the full
+  width. A multiplication before a bounds check.
 - Serialization round-trips: unserialize then serialize gives the same bytes. A truncated input
   and an oversized input are rejected with an exception the caller catches.
-- Exceptions: every exception thrown on the input path is caught at the boundary, and the peer
-  that caused it is penalised or disconnected.
-- Locks: which lock the function holds (`cs_main` for the chain state), what else waits on it,
-  and how long the function can hold it on the largest input.
+- Exceptions: every exception thrown on the input path is caught at the boundary. The peer that
+  caused it is penalised or disconnected.
+- Locks. Which lock the function holds (`cs_main` for the chain state). What else waits on it.
+  How long the function can hold it on the largest input.
 
 ### 7. Determinism
 
 For every changed line inside the consensus boundary (`doc/reviewer-guide.md`, section 4):
 
-- No clock, no locale, no environment variable, no file other than the chain state.
+- No clock, locale or environment variable. No file other than the chain state.
 - No floating point.
-- No platform-dependent width: `long`, `size_t` in a serialized value, `int` where the value can
-  exceed 31 bits.
+- No platform-dependent width. `long`, `size_t` in a serialized value, or `int` where the value
+  can exceed 31 bits.
 - No iteration over an unordered container where the order reaches the verdict.
 - No uninitialized read and no undefined behaviour, shown by the sanitizer run.
 - No configuration argument that changes a verdict. The exception is an argument the code accepts
-  on regtest only, so a private network can rehearse a height.
+  on regtest only. A private network uses it to rehearse a height.
 - The same input gives the same verdict on the old release and on the new one for every block
   before H.
 
@@ -100,7 +100,7 @@ For every rule gated by a height H:
 - Before H the new output form is refused at relay (non-standard) and accepted in a block.
 - Two binaries on one regtest chain, the previous release and the candidate, agree on every block
   before H.
-- The height and its date in the release notes match `src/chainparams.cpp`, and
+- The height and its date in the release notes match `src/chainparams.cpp`.
   `doc/DEPLOYMENT_PRECONDITIONS.md` has the deployment's entry.
 
 ### 9. The claims
@@ -115,8 +115,8 @@ mainnet" is shown by the mainnet activation height in `src/chainparams.cpp` and 
 - The version in `configure.ac` and `src/clientversion.h`.
 - The release notes carry the height and its date, and how a node operator confirms the upgrade.
 - `nMinimumChainWork` and `defaultAssumeValid` in `src/chainparams.cpp`, as
-  `doc/release-process.md` describes, with a replay from the first block under `assumevalid=0` on
-  a copy of a data directory.
+  `doc/release-process.md` describes. A replay from the first block under `assumevalid=0` on a
+  copy of a data directory confirms them.
 - The supported-versions table in `.github/SECURITY.md`.
 - `doc/node-operators.md`, where behaviour an operator sees has changed.
 - `doc/specifications/WITNESS_VERSION_FORK_CLASS.md`, where a witness version changes state.
@@ -151,7 +151,7 @@ A finding with a file, a line and a reproducer gets the fastest response (`doc/F
 | Remote stop | A crash, a hang or unbounded memory from a peer message or a block. | Private report |
 | Local | A defect that needs RPC access, a local file or a configuration flag. | Issue |
 | Test gap | A changed line no test executes. A test that passes with garbage input. | Issue or review comment |
-| Quality | Dead code, duplicate logic, a comment that disagrees with the code, a warning. | Review comment |
+| Quality | Dead code or duplicate logic. A comment that disagrees with the code. A warning. | Review comment |
 
 Private report: GitHub private vulnerability reporting, as `.github/SECURITY.md` describes.
 
@@ -159,8 +159,8 @@ Private report: GitHub private vulnerability reporting, as `.github/SECURITY.md`
 
 A finding in code, in a test, or a false claim in a tracked file blocks the merge until it is fixed
 or shown wrong. A sentence in a pull request body is corrected in place. A review runs two rounds
-at most: the first on the diff, the second on the fixes and the delta they add. What remains after
-the second round becomes a tracked issue.
+at most. The first is on the diff. The second is on the fixes and the delta they add. What remains
+after the second round becomes a tracked issue.
 
 ## Time
 
