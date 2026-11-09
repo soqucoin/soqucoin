@@ -107,7 +107,9 @@ For every rule gated by a height H:
 
 Each claim from step 1 has a test or a run that shows it, or the report marks it unverified. "No
 consensus change" is shown by a diff that touches nothing inside the consensus boundary. "The RPC
-interface is unchanged" is shown by the diff under `src/rpc/` and the help text. "Inert on
+interface is unchanged" is shown by a diff that touches no RPC handler and no response-building
+helper. The handlers live under `src/rpc/` and `src/wallet/` (`rpcwallet.cpp`, `rpcdump.cpp`,
+`rpcusdsoq.cpp` and `pqwallet/rpc_pqwallet.cpp`). The help text records the interface. "Inert on
 mainnet" is shown by the mainnet activation height in `src/chainparams.cpp` and by the relay rule.
 
 ### 10. Release mechanics (release branches only)
@@ -149,7 +151,8 @@ A finding with a file, a line and a reproducer gets the fastest response (`doc/F
 | Supply | Coins created outside the emission schedule. | Private report |
 | Theft | A coin spent without the key that locks it, or a signature check skipped. | Private report |
 | Remote stop | A crash, a hang or unbounded memory from a peer message or a block. | Private report |
-| Local | A defect that needs RPC access, a local file or a configuration flag. | Issue |
+| Local security | Key leakage, weak derivation or an authentication bypass. Any defect with a security consequence that needs RPC access or a local file. | Private report |
+| Local bug | A wrong result or a crash with no security consequence, reached through a local command or file. | Issue |
 | Test gap | A changed line no test executes. A test that passes with garbage input. | Issue or review comment |
 | Quality | Dead code or duplicate logic. A comment that disagrees with the code. A warning. | Review comment |
 

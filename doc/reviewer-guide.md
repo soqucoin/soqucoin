@@ -97,7 +97,8 @@ live in:
 - `src/chainparams.cpp`, `src/pow.cpp` and `src/auxpow.cpp`
 - `src/primitives/`, the serialization of blocks and transactions
 - `src/coins.cpp` and `src/txdb.cpp`, the on-disk state
-- every function under `src/crypto/` that validation calls
+- `src/soqucoin.cpp`, the block subsidy that `ConnectBlock` checks against the coinbase
+- every function those files call on the way to a verdict, under `src/crypto/` or anywhere else
 
 New rules on this chain activate by a per-network height set in a coordinated release
 (`doc/FOR_AI_REVIEWERS.md`, section 2). `CONTRIBUTING.md` states what a pull request that touches
@@ -135,6 +136,8 @@ make -j"$(nproc)"
 
 ```bash
 brew install automake libtool boost miniupnpc openssl@3 pkg-config libevent zeromq berkeley-db
+pip3 install pyzmq                    # the functional tests import zmq
+./qa/pull-tester/install-deps.sh      # the scrypt hasher the functional tests need
 ./autogen.sh
 ./configure --without-gui --with-incompatible-bdb --with-boost=/opt/homebrew/opt/boost \
   LDFLAGS=-L/opt/homebrew/lib CPPFLAGS=-I/opt/homebrew/include
@@ -187,18 +190,25 @@ in with `-enablemining=1` (`src/init.cpp`, the option's help text).
 ### Coverage (Linux)
 
 ```bash
+sudo apt-get install -y lcov python-is-python3   # configure refuses --enable-lcov without them
+make clean                                       # objects built with other flags are kept otherwise
 ./configure --enable-lcov <the other flags>
 make -j"$(nproc)" && make cov
 ```
 
 `make cov` writes `test_bitcoin.coverage/` for the unit suite and `total.coverage/` for the unit
-and functional suites together (`Makefile.am`, the `cov` target). CI has no coverage job.
+and functional suites together (`Makefile.am`, the `cov` target). The functional half ignores a
+failing test run (`Makefile.am`, the `rpc_test.info` recipe). Read the runner's output before
+trusting the report. CI has no coverage job.
 
 ### Sanitizers
 
-No configure option enables them. Pass the flags:
+No configure option enables them. Run `make clean` first, or build in a fresh clone. Objects
+built with other flags are kept otherwise, and the loop would run uninstrumented code. Pass the
+flags:
 
 ```bash
+make clean
 ./configure <the other flags> \
   CFLAGS="-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
   CXXFLAGS="-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
@@ -215,7 +225,8 @@ report instead of the first one. CI has no sanitizer job.
 ### Fuzzing
 
 `src/test/fuzz/fuzz` is built with the tests. `src/test/fuzz/fuzz --list` prints the registered
-targets. `FUZZ=<target> src/test/fuzz/fuzz <file>` runs one input through one target.
+targets. `FUZZ=<target> src/test/fuzz/fuzz < <file>` runs one input through one target. The driver reads
+the input from standard input (`src/test/fuzz/Fuzz.cpp`, `main`).
 `make check` runs every target over the seed corpus under `src/test/fuzz/corpus` once, as a smoke
 gate. The script states what that run does and does not prove. A fuzzing campaign needs a
 per-target corpus and an engine. The engines are libFuzzer through clang's `-fsanitize=fuzzer`,
@@ -232,7 +243,8 @@ compiles the Python tests and runs shellcheck on the project's scripts.
 | Finding | Channel |
 |---|---|
 | A crash, a hang or unbounded memory from a peer message or a block. Two nodes reaching different verdicts. A spend without the key. Coins from nothing. Anything else a stranger could trigger on mainnet. | GitHub private vulnerability reporting, as `.github/SECURITY.md` describes. A public issue or a public review comment would publish the defect before the fix. The fix is built in a private fork. |
-| A defect that needs RPC access or a local file. | An issue with the file, the line, a reproducer and a falsifiable claim. |
+| A security defect that needs RPC access, a local file or a configuration flag. Key leakage, weak derivation, an authentication bypass. | The same private channel. The policy's scope covers wallet and key management and RPC authentication (`.github/SECURITY.md`). |
+| A bug with no security consequence. A wrong result on a local command, a wrong help text, a crash on a malformed configuration file. | An issue with the file, the line, a reproducer and a falsifiable claim. |
 | A changed line no test executes. A test that would pass with garbage input. Dead code or duplicate logic. A comment that disagrees with the code. | A review comment on the pull request, or an issue. |
 
 Text in a pull request passes the `register` check (`CONTRIBUTING.md`). The check reads the
