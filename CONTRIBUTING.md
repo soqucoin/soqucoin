@@ -19,6 +19,10 @@ Soqucoin is a post-quantum cryptocurrency. Its mainnet has run since 13 October 
    * **ML-DSA-44 only**: every signature in the transaction path is ML-DSA-44 (Dilithium).
 5. **Consensus changes** get the hardest review. A pull request that touches validation states in its body what it changes, what an attacker could do before and after it, and how the test proves the difference. It must be a change that nodes already on the network accept. A change that would split the chain from existing nodes is rejected.
 
+## Reviewing
+
+A reviewer new to this codebase starts at [doc/reviewer-guide.md](doc/reviewer-guide.md). A release branch or a pull request that touches validation is reviewed with [doc/release-review-checklist.md](doc/release-review-checklist.md).
+
 ## Pull request process
 
 1. One change per pull request. Build it on Linux and on macOS (Apple silicon) before opening it.
