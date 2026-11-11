@@ -11,9 +11,8 @@
 //
 // OP_SIZE pushes the byte length of the top stack item as a script number and
 // leaves the item in place, so the item measured is the item hashed. A hashlock
-// alone is satisfied by a preimage of any length. The template fixes the length
-// so that the secret which opens this contract is one the script of any other
-// chain in the same swap can carry.
+// alone is satisfied by a preimage of any length; with the check ahead of it the
+// claim needs one of exactly 32 bytes.
 //
 // Two suites. The first drives the template through VerifyScript with ML-DSA-44
 // keys and signatures on both sides of the length, with the same script less
