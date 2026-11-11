@@ -143,6 +143,7 @@ BITCOIN_TESTS =\
   test/scriptnum_tests.cpp \
   test/scrypt_tests.cpp \
   test/serialize_tests.cpp \
+  test/sigopcount_tests.cpp \
   test/skiplist_tests.cpp \
   test/streams_tests.cpp \
   test/sync_tests.cpp \
@@ -153,6 +154,7 @@ BITCOIN_TESTS =\
   test/template_default_size_tests.cpp \
   test/timedata_tests.cpp \
   test/txrequest_tests.cpp \
+  test/txvalidationcache_tests.cpp \
   test/uint256_tests.cpp \
   test/univalue_tests.cpp \
   test/util_tests.cpp \
@@ -181,6 +183,7 @@ BITCOIN_TESTS =\
   test/sdk_sighash_vector_tests.cpp \
   test/pqsecret_tests.cpp \
   test/dilithium_keyhash_committed_tests.cpp \
+  test/keyhash_broadcast_tests.cpp \
   test/usdsoq_v7_holding_tests.cpp \
   test/authority_skip_gate_tests.cpp \
   test/witness_prune_tests.cpp \
