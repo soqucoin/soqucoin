@@ -220,7 +220,7 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     return true;
 }
 
-bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
+bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions)
 {
     if (tx.IsCoinBase())
         return true; // Coinbases are skipped
@@ -265,6 +265,30 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
                 return false;
             for (unsigned int j = 0; j < sizeWitnessStack; j++) {
                 if (tx.vin[i].scriptWitness.stack[j].size() > MAX_STANDARD_P2WSH_STACK_ITEM_SIZE)
+                    return false;
+            }
+        }
+
+        // Check P2WSH-Dilithium (witness v6) standard limits while the v6 rules are active.
+        // The witness is [satisfaction items...] [witnessScript] [trailer].
+        if (witnessversion == 6 && witnessprogram.size() == 32 && (activeWitnessVersions & WitnessVersionBit(6))) {
+            const std::vector<std::vector<unsigned char> >& stack = tx.vin[i].scriptWitness.stack;
+            if (stack.size() < 2)
+                return false;
+            // The satisfaction items come first, so their number is the witnessScript's index
+            const size_t nSatisfactionItems = stack.size() - 2;
+            if (stack[nSatisfactionItems].size() > MAX_STANDARD_V6_SCRIPT_SIZE)
+                return false;
+            if (nSatisfactionItems > MAX_STANDARD_V6_SATISFACTION_ITEMS)
+                return false;
+            // Every item other than the witnessScript, the trailer included
+            for (size_t j = 0; j < stack.size(); j++) {
+                if (j == nSatisfactionItems)
+                    continue;
+                const size_t itemSize = stack[j].size();
+                if (itemSize > MAX_STANDARD_V6_ITEM_SIZE &&
+                    itemSize != STANDARD_V6_SIGNATURE_SIZE && itemSize != STANDARD_V6_SIGNATURE_SIZE + 1 &&
+                    itemSize != STANDARD_V6_PUBKEY_SIZE && itemSize != STANDARD_V6_PUBKEY_SIZE + 1)
                     return false;
             }
         }

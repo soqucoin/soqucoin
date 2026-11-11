@@ -69,6 +69,16 @@ static const unsigned int MAX_STANDARD_P2WSH_STACK_ITEMS = 100;
 static const unsigned int MAX_STANDARD_P2WSH_STACK_ITEM_SIZE = 80;
 /** The maximum size of a standard witnessScript */
 static const unsigned int MAX_STANDARD_P2WSH_SCRIPT_SIZE = 3600;
+/** The maximum number of satisfaction items (the items before the witnessScript) in a standard witness v6 witness */
+static const unsigned int MAX_STANDARD_V6_SATISFACTION_ITEMS = 100;
+/** The maximum size of a standard witness v6 item, the witnessScript aside, that has neither of the two lengths below */
+static const unsigned int MAX_STANDARD_V6_ITEM_SIZE = 80;
+/** The length of an ML-DSA-44 signature as a standard witness v6 item; one byte more with its hashtype byte */
+static const unsigned int STANDARD_V6_SIGNATURE_SIZE = 2420;
+/** The length of an ML-DSA-44 public key as a standard witness v6 item; one byte more with its 0x00 prefix */
+static const unsigned int STANDARD_V6_PUBKEY_SIZE = 1312;
+/** The maximum size of a standard witness v6 witnessScript */
+static const unsigned int MAX_STANDARD_V6_SCRIPT_SIZE = 3600;
 /**
  * Soqucoin: Default dust limit that is evaluated when considering whether a
  * transaction output is required to pay additional fee for relay and inclusion
@@ -204,8 +214,14 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
      * Check if the transaction is over standard P2WSH resources limit:
      * 3600bytes witnessScript size, 80bytes per witness stack element, 100 witness stack elements
      * These limits are adequate for multi-signature up to n-of-100 using OP_CHECKSIG, OP_ADD, and OP_EQUAL,
+     *
+     * A witness v6 (P2WSH-Dilithium) input is held to the MAX_STANDARD_V6_* limits while bit 6 of
+     * activeWitnessVersions is set. They bound the size of the witnessScript and the number of
+     * satisfaction items. Every item other than the witnessScript is MAX_STANDARD_V6_ITEM_SIZE bytes
+     * at most, or has the length of a signature or of a public key. With the bit clear no v6 limit
+     * applies.
      */
-bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs);
+bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions = 0);
 
 extern CFeeRate incrementalRelayFee;
 extern CFeeRate dustRelayFee;
