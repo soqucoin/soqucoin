@@ -111,3 +111,15 @@ CTxDestination DecodeDilithiumAddress(const std::string& addr, const std::string
 {
     return DecodeDestination(addr, hrp);
 }
+
+std::string EncodeWitnessV6Address(const std::vector<unsigned char>& program, const std::string& hrp)
+{
+    // Not implemented yet: no program is encoded.
+    return std::string();
+}
+
+bool DecodeWitnessV6Address(const std::string& str, const std::string& hrp, std::vector<unsigned char>& programRet)
+{
+    // Not implemented yet: every string is refused.
+    return false;
+}
