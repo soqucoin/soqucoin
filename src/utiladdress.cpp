@@ -16,13 +16,16 @@ namespace
 
 std::vector<uint8_t> ConvertBits(const std::vector<uint8_t>& data, int frombits, int tobits, bool pad)
 {
-    int acc = 0;
+    // The accumulator is unsigned and masked to the bits not yet written out,
+    // so the shift below stays inside the type for any input length.
+    uint32_t acc = 0;
     int bits = 0;
     std::vector<uint8_t> ret;
-    int maxv = (1 << tobits) - 1;
+    const uint32_t maxv = (1u << tobits) - 1;
+    const uint32_t max_acc = (1u << (frombits + tobits - 1)) - 1;
 
     for (const auto& value : data) {
-        acc = (acc << frombits) | value;
+        acc = ((acc << frombits) | value) & max_acc;
         bits += frombits;
         while (bits >= tobits) {
             bits -= tobits;
