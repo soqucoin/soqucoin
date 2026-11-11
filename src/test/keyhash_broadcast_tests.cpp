@@ -13,11 +13,13 @@
 //      BIP68 at relay (non-BIP68-final) until the lock is met, and is refused
 //      one block before that.
 //
+//   4) keyhash_broadcast_refusal_tests: a spend of the 2-of-2 output without
+//      one of its two keys is refused at relay and in a block.
+//
 // WHAT THIS DOES NOT ASSERT:
-//   A refusal for a wrong key or a missing signature. The rebinding of a 0x42
-//   signature to a second outpoint: the signed spend uses one outpoint. A
-//   delay required by the output: the witnessScript holds no
-//   OP_CHECKSEQUENCEVERIFY, so the 288 blocks are the spender's own choice
+//   The rebinding of a 0x42 signature to a second outpoint: the signed spend
+//   uses one outpoint. A delay required by the output: the witnessScript holds
+//   no OP_CHECKSEQUENCEVERIFY, so the 288 blocks are the spender's own choice
 //   (v6_checksequence_bip112_tests covers the opcode). The eLTOO supersession
 //   guard: the update output U:0 is a plain keyhash-2-of-2.
 //
@@ -45,6 +47,8 @@
 #include "pubkey.h"
 #include "script/interpreter.h"
 #include "script/script.h"
+#include "script/script_error.h"
+#include "test/dilithium_chain_setup.h"
 #include "test/test_bitcoin.h"
 #include "txmempool.h"
 #include "utilstrencodings.h"
@@ -565,6 +569,125 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         "S (early)          : refused non-BIP68-final at U's confirmation\n"
         "S (one block short): refused non-BIP68-final\n"
         "S (lock met)       : accepted and mined");
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+// ============================================================================
+// The refusals. The keyhash-2-of-2 output is funded in a mined block; a spend
+// of it must carry a signature by each committed key over that spend. Each
+// spend below lacks one, and relay and a block must refuse it. The spend signed
+// by both keys is the control, judged on the same tip.
+// ============================================================================
+BOOST_FIXTURE_TEST_SUITE(keyhash_broadcast_refusal_tests, DilithiumChainSetup)
+
+BOOST_AUTO_TEST_CASE(keyhash_2of2_spend_needs_a_signature_by_each_committed_key)
+{
+    CKey alice, bob, carol, dave;
+    alice.MakeNewKey(true);
+    bob.MakeNewKey(true);
+    carol.MakeNewKey(true);
+    dave.MakeNewKey(true);
+    auto raw = [](const CKey& key) {
+        CPubKey pk = key.GetPubKey();
+        BOOST_REQUIRE(pk.IsValid());
+        return std::vector<unsigned char>(pk.begin(), pk.end());
+    };
+    const std::vector<unsigned char> aPk = raw(alice), bPk = raw(bob), cPk = raw(carol), dPk = raw(dave);
+
+    // witnessScript: <khB> OP_CDKH <khA> OP_CDKH OP_1
+    CScript ws;
+    ws << KeyHash(bPk) << OP_CHECKDILITHIUMKEYHASH
+       << KeyHash(aPk) << OP_CHECKDILITHIUMKEYHASH
+       << OP_1;
+    const CScript spk = MakeV6Spk(ws);
+
+    // F: coinbase[0] to the 2-of-2 output, mined.
+    const CAmount cbValue = coinbaseTxns[0].vout[0].nValue;
+    const CAmount FEE = COIN;
+    BOOST_REQUIRE(cbValue > 3 * FEE);
+    const CAmount V = cbValue - FEE;
+    CMutableTransaction F;
+    F.nVersion = 2;
+    F.vin.push_back(CTxIn(COutPoint(coinbaseTxns[0].GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    F.vout.push_back(CTxOut(V, spk));
+    SignInput(F, 0, coinbaseSpk, cbValue);
+    const CBlock bF = CreateAndProcessBlock(std::vector<CMutableTransaction>(1, F), coinbaseSpk);
+    BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == bF.GetHash(), "the funding block must connect");
+
+    // S: spends F:0 to the coinbase key.
+    CMutableTransaction S;
+    S.nVersion = 2;
+    S.vin.push_back(CTxIn(COutPoint(F.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    S.vout.push_back(CTxOut(V - FEE, coinbaseSpk));
+
+    // S with the witness sigA pubkeyA sigB pubkeyB, the witnessScript, the trailer.
+    auto spend = [&](const CMutableTransaction& tx,
+                     const std::vector<unsigned char>& sigA, const std::vector<unsigned char>& pubkeyA,
+                     const std::vector<unsigned char>& sigB, const std::vector<unsigned char>& pubkeyB) {
+        CMutableTransaction out(tx);
+        CScriptWitness w;
+        w.stack.push_back(sigA);
+        w.stack.push_back(pubkeyA);
+        w.stack.push_back(sigB);
+        w.stack.push_back(pubkeyB);
+        w.stack.push_back(std::vector<unsigned char>(ws.begin(), ws.end()));
+        w.stack.push_back(Prefixed(aPk));
+        out.vin[0].scriptWitness = w;
+        return out;
+    };
+    auto sign = [&](const CKey& key, const CMutableTransaction& tx) {
+        return SignWith(key, ws, CTransaction(tx), 0, V, SIGHASH_ALL);
+    };
+    // The relay verdict: the reject reason, or "" when accepted. The mempool is
+    // emptied after each try, so every spend of the output is judged on its own.
+    auto relay = [](const CMutableTransaction& tx) -> std::string {
+        LOCK(cs_main);
+        CValidationState st;
+        const bool ok = AcceptToMemoryPool(mempool, st, MakeTransactionRef(tx), false, nullptr, nullptr, true, 0);
+        const std::string reason = ok ? std::string() : FormatStateMessage(st);
+        mempool.clear();
+        return reason;
+    };
+    auto one = [](const CMutableTransaction& tx) { return std::vector<CMutableTransaction>(1, tx); };
+    const std::string keyhashError = ScriptErrorString(SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+    auto expectRefused = [&](const CMutableTransaction& tx, const char* what) {
+        const std::string r = relay(tx);
+        BOOST_CHECK_MESSAGE(r.find(keyhashError) != std::string::npos,
+            what << " must be refused at relay by the keyhash check; got: "
+                 << (r.empty() ? std::string("accepted") : r));
+        BOOST_CHECK_MESSAGE(!BlockIsValid(one(tx)), "a block holding " << what << " must fail ConnectBlock");
+    };
+
+    // The control: a signature by each committed key.
+    const CMutableTransaction both = spend(S, sign(alice, S), aPk, sign(bob, S), bPk);
+    const std::string accepted = relay(both);
+    BOOST_CHECK_MESSAGE(accepted.empty(), "the spend signed by both keys must be accepted at relay; got: " << accepted);
+    BOOST_CHECK_MESSAGE(BlockIsValid(one(both)), "a block holding the spend signed by both keys must connect");
+
+    // Two other keys with their own public keys: neither hashes to a committed keyhash.
+    expectRefused(spend(S, sign(carol, S), cPk, sign(dave, S), dPk),
+                  "a spend signed by two other keys with their public keys");
+
+    // The committed public keys, the signatures made by two other keys.
+    expectRefused(spend(S, sign(carol, S), aPk, sign(dave, S), bPk),
+                  "a spend carrying the committed public keys and signatures by two other keys");
+
+    // One committed key signs, another key signs in place of the second.
+    expectRefused(spend(S, sign(alice, S), aPk, sign(dave, S), bPk),
+                  "a spend signed by one committed key and one other key");
+    expectRefused(spend(S, sign(carol, S), aPk, sign(bob, S), bPk),
+                  "a spend signed by one other key and one committed key");
+
+    // Both committed keys sign, and the output is changed afterwards.
+    CMutableTransaction changed(both);
+    changed.vout[0].nValue = V - 2 * FEE;
+    expectRefused(changed, "a spend whose output was changed after both keys signed");
+
+    // The controls again, after the refusals: the tip did not move and the
+    // spend signed by both keys still connects.
+    BOOST_CHECK(chainActive.Tip()->GetBlockHash() == bF.GetHash());
+    BOOST_CHECK_MESSAGE(BlockIsValid(one(both)), "a block holding the spend signed by both keys must connect");
 }
 
 BOOST_AUTO_TEST_SUITE_END()
