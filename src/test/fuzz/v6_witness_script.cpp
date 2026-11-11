@@ -39,6 +39,10 @@
 //   signature     with DILITHIUM_KEYHASH clear no signature is checked; with it
 //                 set, an accepted witnessScript without a conditional checked
 //                 one signature for each OP_CHECKDILITHIUMKEYHASH it holds.
+//   keyhash       with DILITHIUM_KEYHASH set, in an accepted witnessScript whose
+//                 every OP_CHECKDILITHIUMKEYHASH directly follows a push of 32
+//                 bytes, each signature was checked for a key whose SHA-256 is
+//                 that push, in script order.
 //
 // The opcode set is not written here. It is read from the binary once, with
 // one-opcode scripts in the state with all six flags set, and four things
@@ -134,26 +138,6 @@ std::string Describe(bool ok, ScriptError err)
 //! The transaction checker of the node with the final ML-DSA-44 verification
 //! replaceable, and counted. Everything before it (the hashtype byte, the
 //! signature hash, the locktime, sequence and template checks) is the node's.
-class CountingChecker : public TransactionSignatureChecker
-{
-    const SigMode mode;
-    mutable unsigned int nChecked;
-
-protected:
-    bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const override
-    {
-        ++nChecked;
-        if (mode == SIG_ACCEPT) return true;
-        if (mode == SIG_REFUSE) return false;
-        return TransactionSignatureChecker::VerifySignature(vchSig, pubkey, sighash);
-    }
-
-public:
-    CountingChecker(const CTransaction* tx, const CAmount& amount, SigMode modeIn)
-        : TransactionSignatureChecker(tx, 0, amount), mode(modeIn), nChecked(0) {}
-    unsigned int Checked() const { return nChecked; }
-};
-
 uint256 Sha256(const valtype& data)
 {
     // An empty vector may hold a null pointer; hash from a real one, wide
@@ -164,6 +148,27 @@ uint256 Sha256(const valtype& data)
     return hash;
 }
 
+class CountingChecker : public TransactionSignatureChecker
+{
+    const SigMode mode;
+    //! SHA-256 of the public key of each signature check, in the order made.
+    mutable std::vector<uint256> keys;
+
+protected:
+    bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const override
+    {
+        keys.push_back(Sha256(valtype(pubkey.begin(), pubkey.end())));
+        if (mode == SIG_ACCEPT) return true;
+        if (mode == SIG_REFUSE) return false;
+        return TransactionSignatureChecker::VerifySignature(vchSig, pubkey, sighash);
+    }
+
+public:
+    CountingChecker(const CTransaction* tx, const CAmount& amount, SigMode modeIn)
+        : TransactionSignatureChecker(tx, 0, amount), mode(modeIn) {}
+    const std::vector<uint256>& Keys() const { return keys; }
+};
+
 CScript V6Program(const uint256& program)
 {
     return CScript() << OP_6 << valtype(program.begin(), program.end());
@@ -172,8 +177,9 @@ CScript V6Program(const uint256& program)
 struct Verdict {
     bool ok;
     ScriptError err;
-    unsigned int nChecked;
-    bool operator==(const Verdict& o) const { return ok == o.ok && err == o.err && nChecked == o.nChecked; }
+    //! SHA-256 of the public key of each signature the checker was asked for.
+    std::vector<uint256> keys;
+    bool operator==(const Verdict& o) const { return ok == o.ok && err == o.err && keys == o.keys; }
 };
 
 //! The spend under test: a fixed one-input transaction shape whose version,
@@ -192,12 +198,12 @@ struct Spend {
         const CountingChecker first(&tx, amount, sigMode);
         ScriptError err = SCRIPT_ERR_UNKNOWN_ERROR;
         const bool ok = VerifyScript(CScript(), scriptPubKey, w, flags, first, &err);
-        const Verdict v = {ok, err, first.Checked()};
+        const Verdict v = {ok, err, first.Keys()};
 
         const CountingChecker second(&tx, amount, sigMode);
         ScriptError err2 = SCRIPT_ERR_UNKNOWN_ERROR;
         const bool ok2 = VerifyScript(CScript(), scriptPubKey, w, flags, second, &err2);
-        const Verdict v2 = {ok2, err2, second.Checked()};
+        const Verdict v2 = {ok2, err2, second.Keys()};
         if (!(v == v2))
             Fail("determinism", "VerifyScript under flags " + Hex(flags) + ": " + Describe(ok, err) + " then " + Describe(ok2, err2));
 
@@ -341,23 +347,57 @@ struct OpcodeSet {
     }
 };
 
-//! What the pre-scan does with a witnessScript, by the opcode set: SCRIPT_ERR_OK
-//! when it passes. Also counts the keyhash opcodes and notes a conditional.
-ScriptError Prescan(const OpcodeSet& set, const CScript& script, unsigned int& nKeyhashOps, bool& fConditional)
+//! A witnessScript as the checks need it.
+struct ScriptShape {
+    //! What the pre-scan does with it, by the opcode set: SCRIPT_ERR_OK when it passes.
+    ScriptError refusal;
+    unsigned int nKeyhashOps;
+    //! It holds OP_IF, OP_NOTIF, OP_ELSE or OP_ENDIF.
+    bool fConditional;
+    //! Every OP_CHECKDILITHIUMKEYHASH directly follows a push of 32 bytes.
+    bool fKeyhashesPushed;
+    //! Those pushes, in script order.
+    std::vector<uint256> keyhashes;
+};
+
+ScriptShape Shape(const OpcodeSet& set, const CScript& script)
 {
-    nKeyhashOps = 0;
-    fConditional = false;
+    ScriptShape s = {SCRIPT_ERR_OK, 0, false, true, std::vector<uint256>()};
     CScript::const_iterator pc = script.begin();
     opcodetype op;
+    valtype data;
+    valtype previous;
+    bool fPreviousPush32 = false;
     while (pc < script.end()) {
-        if (!script.GetOp(pc, op))
-            return set.unparseable;
-        if (!set.Admits(op))
-            return set.refusal[op];
-        if (op == OP_CHECKDILITHIUMKEYHASH) nKeyhashOps++;
-        if (op == OP_IF || op == OP_NOTIF || op == OP_ELSE || op == OP_ENDIF) fConditional = true;
+        if (!script.GetOp(pc, op, data)) {
+            s.refusal = set.unparseable;
+            return s;
+        }
+        if (!set.Admits(op)) {
+            s.refusal = set.refusal[op];
+            return s;
+        }
+        if (op == OP_CHECKDILITHIUMKEYHASH) {
+            s.nKeyhashOps++;
+            if (fPreviousPush32)
+                s.keyhashes.push_back(uint256(previous));
+            else
+                s.fKeyhashesPushed = false;
+        }
+        if (op == OP_IF || op == OP_NOTIF || op == OP_ELSE || op == OP_ENDIF) s.fConditional = true;
+        fPreviousPush32 = (op <= OP_PUSHDATA4 && data.size() == 32);
+        previous = data;
     }
-    return SCRIPT_ERR_OK;
+    return s;
+}
+
+//! Whether `part` is `whole` with elements left out, the order kept.
+bool IsSubsequence(const std::vector<uint256>& part, const std::vector<uint256>& whole)
+{
+    size_t matched = 0;
+    for (size_t i = 0; i < whole.size() && matched < part.size(); i++)
+        if (whole[i] == part[matched]) matched++;
+    return matched == part.size();
 }
 
 //! Reads the input; past its end every byte is zero.
@@ -400,7 +440,7 @@ Verdict CheckState(const OpcodeSet& set, const Spend& spend, unsigned int flags,
     if (!(flags & SCRIPT_VERIFY_P2WSH_DILITHIUM)) {
         if (!v.ok || v.err != SCRIPT_ERR_OK)
             Fail("dormant", got);
-        if (v.nChecked != 0)
+        if (!v.keys.empty())
             Fail("signature", got + ", a signature was checked with the v6 branch dormant");
         if (trace) *trace += " dormant";
         return v;
@@ -446,13 +486,11 @@ Verdict CheckState(const OpcodeSet& set, const Spend& spend, unsigned int flags,
     }
 
     const CScript script(scriptBytes.begin(), scriptBytes.end());
-    unsigned int nKeyhashOps = 0;
-    bool fConditional = false;
-    const ScriptError refusal = Prescan(set, script, nKeyhashOps, fConditional);
-    if (refusal != SCRIPT_ERR_OK) {
-        if (v.ok || v.err != refusal)
-            Fail("prescan", got + ", expected " + ScriptErrorString(refusal));
-        if (v.nChecked != 0)
+    const ScriptShape shape = Shape(set, script);
+    if (shape.refusal != SCRIPT_ERR_OK) {
+        if (v.ok || v.err != shape.refusal)
+            Fail("prescan", got + ", expected " + ScriptErrorString(shape.refusal));
+        if (!v.keys.empty())
             Fail("signature", got + ", a signature was checked for a refused witnessScript");
         if (trace) *trace += " prescan-refused";
         return v;
@@ -465,13 +503,19 @@ Verdict CheckState(const OpcodeSet& set, const Spend& spend, unsigned int flags,
         Fail("dispatch", got + ", EvalScript " + Describe(e.ok, e.err) + " with " + std::to_string(e.stack.size()) + " stack items");
 
     if (!(flags & SCRIPT_VERIFY_DILITHIUM_KEYHASH)) {
-        if (v.nChecked != 0)
+        if (!v.keys.empty())
             Fail("signature", got + ", a signature was checked with DILITHIUM_KEYHASH clear");
     } else {
-        if (v.nChecked > nKeyhashOps)
+        if (v.keys.size() > shape.nKeyhashOps)
             Fail("signature", got + ", more signatures checked than keyhash opcodes");
-        if (v.ok && !fConditional && v.nChecked != nKeyhashOps)
-            Fail("signature", got + ", " + std::to_string(v.nChecked) + " signatures checked for " + std::to_string(nKeyhashOps) + " keyhash opcodes");
+        if (v.ok && !shape.fConditional && v.keys.size() != shape.nKeyhashOps)
+            Fail("signature", got + ", " + std::to_string(v.keys.size()) + " signatures checked for " + std::to_string(shape.nKeyhashOps) + " keyhash opcodes");
+        // Each keyhash opcode runs once at most and in script order, so the keys
+        // checked hash to the pushes that precede the opcodes that ran.
+        if (v.ok && shape.fKeyhashesPushed) {
+            if (shape.fConditional ? !IsSubsequence(v.keys, shape.keyhashes) : v.keys != shape.keyhashes)
+                Fail("keyhash", got + ", a signature was checked for a key that does not hash to the keyhash pushed before its opcode");
+        }
     }
     if (trace) *trace += v.ok ? " executed-accepted" : " executed-refused";
     return v;
