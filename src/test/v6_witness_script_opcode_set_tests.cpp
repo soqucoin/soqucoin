@@ -78,7 +78,7 @@ const unsigned int FULL = P2WSH | SCRIPT_VERIFY_DILITHIUM_KEYHASH | SCRIPT_VERIF
 //! Pushes (0x00 to OP_PUSHDATA4, OP_1 to OP_16) are checked separately.
 const opcodetype SET[] = {
     OP_IF, OP_NOTIF, OP_ELSE, OP_ENDIF,
-    OP_DROP, OP_EQUAL, OP_EQUALVERIFY, OP_SHA256,
+    OP_DROP, OP_SIZE, OP_EQUAL, OP_EQUALVERIFY, OP_SHA256,
     OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY,
     OP_CHECKDILITHIUMKEYHASH,
     OP_CHECKTEMPLATEVERIFY, OP_CHECKSIGFROMSTACK,
@@ -163,7 +163,7 @@ BOOST_AUTO_TEST_CASE(pushes_of_every_form_pass_the_scan)
         data.push_back(OP_CHECKSIG);
         data.push_back(OP_HASH160);
         data.push_back(OP_DUP);
-        data.push_back(OP_SIZE);
+        data.push_back(OP_RIPEMD160);
         BOOST_CHECK_EQUAL(VerdictFor(CScript() << data, FULL), SCRIPT_ERR_OK);
     }
 }

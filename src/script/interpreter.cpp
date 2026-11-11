@@ -860,6 +860,15 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
                         popstack(stack);
 
+                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_SIZE) {
+                        // DL-V6-CONTROLFLOW-RESTORE: push the byte length of the top item
+                        // as a script number; the item stays (HTLC preimage length). No
+                        // stack item is copied and nothing is verified.
+                        if (stack.size() < 1)
+                            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+                        CScriptNum bnSize(stacktop(-1).size());
+                        stack.push_back(bnSize.getvch());
+
                     } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) &&
                                (opcode == OP_EQUAL || opcode == OP_EQUALVERIFY)) {
                         // DL-V6-CONTROLFLOW-RESTORE: byte-equality (HTLC hashlock).
@@ -1577,7 +1586,7 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 //   * pushes: 0x00 to OP_PUSHDATA4, OP_1 to OP_16. OP_1NEGATE and OP_RESERVED
 //     are not pushes here (the push branch pushes an empty item for them) and
 //     are out.
-//   * the restored control flow, hashlock and timelock set under
+//   * the restored control flow, length, hashlock and timelock set under
 //     SCRIPT_VERIFY_V6_CONTROLFLOW, and OP_CHECKDILITHIUMKEYHASH under
 //     SCRIPT_VERIFY_DILITHIUM_KEYHASH.
 //   * OP_CHECKTEMPLATEVERIFY and OP_CHECKSIGFROMSTACK, flag-gated NOPs when
@@ -1598,6 +1607,7 @@ static bool IsWitnessV6ScriptOpcode(opcodetype op)
     case OP_ELSE:
     case OP_ENDIF:
     case OP_DROP:
+    case OP_SIZE:
     case OP_EQUAL:
     case OP_EQUALVERIFY:
     case OP_SHA256:
