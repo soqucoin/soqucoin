@@ -50,6 +50,20 @@ void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fInclud
 
     if (!ExtractDestinations(scriptPubKey, type, addresses, nRequired)) {
         out.pushKV("type", GetTxnOutputType(type));
+        if (type == TX_WITNESS_V6_COVENANT) {
+            // A witness v6 output is no CTxDestination. Its address is encoded
+            // from the program, for display only.
+            int witnessversion;
+            std::vector<unsigned char> witnessprogram;
+            if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram) && witnessversion == 6) {
+                std::string addrStr = EncodeWitnessV6Address(witnessprogram, Params().Bech32HRP());
+                if (!addrStr.empty()) {
+                    UniValue a(UniValue::VARR);
+                    a.push_back(addrStr);
+                    out.pushKV("addresses", a);
+                }
+            }
+        }
         return;
     }
 
