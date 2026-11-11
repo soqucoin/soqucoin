@@ -373,6 +373,7 @@ test_fuzz_fuzz_SOURCES = \
   test/fuzz/dilithium_verify.cpp \
   test/fuzz/binius_commit.cpp \
   test/fuzz/pat_aggregate.cpp \
+  test/fuzz/v6_witness_script.cpp \
   test/fuzz/pqwallet_fuzz.cpp \
   test/fuzz/pqwallet_crypto_fuzz.cpp
 test_fuzz_fuzz_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
