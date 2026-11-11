@@ -392,7 +392,9 @@ BOOST_FIXTURE_TEST_CASE(file_invalid_strings_fail_the_named_check, BasicTestingS
                 BOOST_CHECK_MESSAGE(seen[prefix + "/" + std::to_string(version) + "/" + reason] > 0,
                     "no invalid vector for " + prefix + " version " + std::to_string(version) + " reason " + reason);
 
-    // Every program length from 0 to 40 bytes other than 32 is among them.
+    // Every program length other than 32 that fits in a string of 90
+    // characters is among them: the prefix, the separator, the version
+    // character, the program in 5-bit groups, six checksum characters.
     for (const std::string& prefix : prefixes)
         for (int version : {1, 6}) {
             std::set<size_t> lengths;
@@ -403,9 +405,11 @@ BOOST_FIXTURE_TEST_CASE(file_invalid_strings_fail_the_named_check, BasicTestingS
                 BOOST_REQUIRE(FromGroups(dec.data, 1, program));
                 lengths.insert(program.size());
             }
-            for (size_t length = 0; length <= 40; ++length)
-                BOOST_CHECK_MESSAGE((length == 32) != (lengths.count(length) > 0),
+            for (size_t length = 0; length <= 64; ++length) {
+                const bool fits = prefix.size() + 8 + (length * 8 + 4) / 5 <= 90;
+                BOOST_CHECK_MESSAGE((length != 32 && fits) == (lengths.count(length) > 0),
                     "program length " + std::to_string(length) + " for " + prefix + " version " + std::to_string(version));
+            }
         }
 }
 
