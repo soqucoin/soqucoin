@@ -387,9 +387,9 @@ UniValue verifytxoutproof(const JSONRPCRequest& request)
 
 UniValue createrawtransaction(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() < 2 || request.params.size() > 3)
+    if (request.fHelp || request.params.size() < 2 || request.params.size() > 4)
         throw runtime_error(
-            "createrawtransaction [{\"txid\":\"id\",\"vout\":n},...] {\"address\":amount,\"data\":\"hex\",...} ( locktime )\n"
+            "createrawtransaction [{\"txid\":\"id\",\"vout\":n},...] {\"address\":amount,\"data\":\"hex\",...} ( locktime version )\n"
             "\nCreate a transaction spending the given inputs and creating new outputs.\n"
             "Outputs can be addresses or data.\n"
             "Returns hex-encoded raw transaction.\n"
@@ -413,6 +413,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             "      ,...\n"
             "    }\n"
             "3. locktime                  (numeric, optional, default=0) Raw locktime. Non-0 value also locktime-activates inputs\n"
+            "4. version                   (numeric, optional, default=" + strprintf("%d", (int)CTransaction::CURRENT_VERSION) + ") Transaction version, an integer from 1 to " + strprintf("%d", (int)CTransaction::MAX_STANDARD_VERSION) + ". Relative lock times (BIP68) apply from version 2\n"
             "\nResult:\n"
             "\"transaction\"              (string) hex string of the transaction\n"
 
@@ -423,7 +424,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             + HelpExampleRpc("createrawtransaction", "\"[{\\\"txid\\\":\\\"myid\\\",\\\"vout\\\":0}]\", \"{\\\"data\\\":\\\"00010203\\\"}\"")
         );
 
-    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VARR)(UniValue::VOBJ)(UniValue::VNUM), true);
+    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VARR)(UniValue::VOBJ)(UniValue::VNUM)(UniValue::VNUM), true);
     if (request.params[0].isNull() || request.params[1].isNull())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, arguments 1 and 2 must be non-null");
 
@@ -437,6 +438,15 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
         if (nLockTime < 0 || nLockTime > std::numeric_limits<uint32_t>::max())
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, locktime out of range");
         rawTx.nLockTime = nLockTime;
+    }
+
+    if (request.params.size() > 3 && !request.params[3].isNull()) {
+        // The versions relay accepts (IsStandardTx), and whole numbers only:
+        // the value is parsed as an integer and compared before it is narrowed.
+        int64_t nVersion;
+        if (!ParseInt64(request.params[3].getValStr(), &nVersion) || nVersion < 1 || nVersion > CTransaction::MAX_STANDARD_VERSION)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, version out of range");
+        rawTx.nVersion = (int32_t)nVersion;
     }
 
     for (unsigned int idx = 0; idx < inputs.size(); idx++) {
@@ -1076,7 +1086,7 @@ static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafeMode
   //  --------------------- ------------------------  -----------------------  ----------
     { "rawtransactions",    "getrawtransaction",      &getrawtransaction,      true,  {"txid","verbose"} },
-    { "rawtransactions",    "createrawtransaction",   &createrawtransaction,   true,  {"inputs","outputs","locktime"} },
+    { "rawtransactions",    "createrawtransaction",   &createrawtransaction,   true,  {"inputs","outputs","locktime","version"} },
     { "rawtransactions",    "decoderawtransaction",   &decoderawtransaction,   true,  {"hexstring"} },
     { "rawtransactions",    "decodescript",           &decodescript,           true,  {"hexstring"} },
     { "rawtransactions",    "sendrawtransaction",     &sendrawtransaction,     false, {"hexstring","allowhighfees"} },
