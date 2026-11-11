@@ -5,27 +5,30 @@
 // ---------------------------------------------------------------------------
 // Phase 1a on-chain broadcast integration test (SOQ-COV-013).
 //
-// WHAT THIS PROVES (from PHASE1A_BROADCAST_CHECKLIST.md):
-//   1) The node accepts+mines a tx spending a keyhash-2-of-2 v6 output with a
-//      real 2-of-2 Dilithium witness.
-//   2) APO 0x42 rebinding works on-chain for the update tx.
-//   3) BIP68 relative timelock (CSV 288) gates the settlement spend of the
-//      update output: REJECT pre-288, ACCEPT post-288.
+// WHAT THIS ASSERTS, each step at relay and then in a mined block:
+//   1) A transaction that funds a keyhash-2-of-2 v6 output is accepted.
+//   2) A spend of that output with a 2-of-2 ML-DSA-44 witness is accepted, the
+//      two signatures made with hashtype 0x42 (SIGHASH_ANYPREVOUTANYSCRIPT).
+//   3) A version-2 spend whose input sequence encodes 288 blocks is held by
+//      BIP68 at relay (non-BIP68-final) until the lock is met, and is refused
+//      one block before that.
 //
-// WHAT THIS DOES NOT PROVE (explicit scope boundary):
-//   The eLTOO supersession guard (a newer-state update spending an older update
-//   output). The update output U:0 is a plain keyhash-2-of-2, not a
-//   state-guarded output.
+// WHAT THIS DOES NOT ASSERT:
+//   A refusal for a wrong key or a missing signature. The rebinding of a 0x42
+//   signature to a second outpoint: the signed spend uses one outpoint. A
+//   delay required by the output: the witnessScript holds no
+//   OP_CHECKSEQUENCEVERIFY, so the 288 blocks are the spender's own choice
+//   (v6_checksequence_bip112_tests covers the opcode). The eLTOO supersession
+//   guard: the update output U:0 is a plain keyhash-2-of-2.
 //
 // APPROACH:
 //   Uses TestingSetup (regtest) with manually mined blocks. Coinbase outputs
-//   are v6 P2WSH-Dilithium single-key scripts, spendable with a proper v6
-//   witness that passes HasDilithiumSignatures().
+//   are witness v1 single-key outputs.
 //
 //   Transaction graph:
 //     F (funding)   → coinbase spend → keyhash-2-of-2 output (value V)
-//     U (update)    → spends F:0 with APO 0x42 → keyhash-2-of-2 (value V-fee)
-//     S (settlement)→ spends U:0 with CSV 288  → OP_TRUE payout (value V-2*fee)
+//     U (update)    → spends F:0, hashtype 0x42 → keyhash-2-of-2 (value V-fee)
+//     S (settlement)→ spends U:0, nSequence 288 → two keyhash payouts (value V-2*fee)
 //
 // BUILD + RUN:
 //   make -j$(sysctl -n hw.ncpu) test/test_soqucoin
@@ -144,7 +147,7 @@ static const int COINBASE_MATURITY_SOQ = 60 * 4;
 // ============================================================================
 // Fixture: builds a 240-block regtest chain with v1 Dilithium coinbase outputs.
 // v1 (OP_1 <SHA256(pk)>) is required because CreateNewBlock enforces
-// dilithiumOnlyHeight=0 on regtest (miner.cpp:201). The 2-of-2 keyhash
+// dilithiumOnlyHeight=0 on regtest. The 2-of-2 keyhash
 // outputs in the test use v6 P2WSH-Dilithium for covenant execution.
 // ============================================================================
 struct DilithiumCoinbaseChainSetup : public TestingSetup {
@@ -255,8 +258,6 @@ struct DilithiumCoinbaseChainSetup : public TestingSetup {
         CTxOut out;
         out.nValue = outputValue;
         out.scriptPubKey = outputSpk;
-        out.nVisibility = 0;
-        out.nAssetType = 0;
         mtx.vout.push_back(out);
 
         // Sign the coinbase spend (single-key v1 Dilithium).
@@ -281,8 +282,9 @@ struct DilithiumCoinbaseChainSetup : public TestingSetup {
 
 // ============================================================================
 // THE TEST: keyhash-2-of-2 eLTOO graph on regtest
-//   F (funding) → U (update, APO 0x42) → S (settlement, CSV 288)
-//   Proves: mempool acceptance, BIP68 rejection pre-288, acceptance post-288.
+//   F (funding) → U (update, hashtype 0x42) → S (settlement, nSequence 288)
+//   Asserts: acceptance at relay and in a block; S held by BIP68 up to one
+//   block short of its sequence lock, accepted once the lock is met.
 // ============================================================================
 BOOST_FIXTURE_TEST_SUITE(keyhash_broadcast_tests, DilithiumCoinbaseChainSetup)
 
@@ -358,15 +360,13 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         CTxIn in;
         in.prevout.hash = CTransaction(fundTx).GetHash();
         in.prevout.n = 0;
-        in.nSequence = 0xffffffff;  // final (no CSV on U's input)
+        in.nSequence = 0xffffffff;  // final (no relative lock on U's input)
         updateTx.vin.push_back(in);
     }
     {
         CTxOut out;
         out.nValue = V_U;
         out.scriptPubKey = spk;  // same 2-of-2
-        out.nVisibility = 0;
-        out.nAssetType = 0;
         updateTx.vout.push_back(out);
     }
 
@@ -391,7 +391,7 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
     BOOST_TEST_MESSAGE("U txid: " << CTransaction(updateTx).GetHash().ToString());
 
     // ----------------------------------------------------------------
-    // Step 5: Build S (settlement tx) — spends U:0 with CSV 288, SIGHASH_ALL
+    // Step 5: Build S (settlement tx) — spends U:0 with nSequence 288, SIGHASH_ALL
     // ----------------------------------------------------------------
     CMutableTransaction settleTx;
     settleTx.nVersion = 2;
@@ -404,7 +404,7 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         settleTx.vin.push_back(in);
     }
     {
-        // Payout to OP_TRUE (simplest valid output for testing).
+        // Payout to two single-key keyhash outputs.
         // Split: Alice gets 60%, Bob 40%.
         CAmount alicePayout = (V_S * 6) / 10;
         CAmount bobPayout   = V_S - alicePayout;
@@ -415,8 +415,6 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         CTxOut outA;
         outA.nValue = alicePayout;
         outA.scriptPubKey = MakeV6Spk(alicePayoutWs);
-        outA.nVisibility = 0;
-        outA.nAssetType = 0;
         settleTx.vout.push_back(outA);
 
         // Bob payout
@@ -425,8 +423,6 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         CTxOut outB;
         outB.nValue = bobPayout;
         outB.scriptPubKey = MakeV6Spk(bobPayoutWs);
-        outB.nVisibility = 0;
-        outB.nAssetType = 0;
         settleTx.vout.push_back(outB);
     }
 
@@ -498,69 +494,64 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         CBlock b = MineBlock();
         BOOST_CHECK(chainActive.Tip()->GetBlockHash() == b.GetHash());
         BOOST_TEST_MESSAGE("U mined in block " << chainActive.Height()
-                           << " — keyhash-2-of-2 funding spend + APO 0x42 PROVEN ON-CHAIN");
+                           << ": keyhash-2-of-2 spend, hashtype 0x42");
     }
     BOOST_CHECK_EQUAL(mempool.size(), 0u);
 
     int uConfHeight = chainActive.Height();  // U's confirmation height
 
-    // ----------------------------------------------------------------
-    // Step 8: S early → EXPECT REJECT (non-BIP68-final)
-    // ----------------------------------------------------------------
-    BOOST_TEST_MESSAGE("\n=== Broadcasting S EARLY (expect BIP68 rejection) ===");
-    BOOST_TEST_MESSAGE("U confirmed at height " << uConfHeight
-                       << ", current tip = " << chainActive.Height()
-                       << " → only 1 conf (need 288)");
-    {
+    // The reject reason must name BIP68.
+    auto expectHeldByBip68 = [&](const char* when) {
         std::string reason;
         bool ok = ToMemPool(settleTx, reason);
-        BOOST_CHECK_MESSAGE(!ok,
-            "S MUST be rejected pre-288 confs; but was ACCEPTED (this is a bug!)");
-        // The exact reject reason should contain "non-BIP68-final".
+        BOOST_CHECK_MESSAGE(!ok, "S must be refused at relay " << when << "; it was accepted");
         BOOST_CHECK_MESSAGE(reason.find("non-BIP68-final") != std::string::npos,
-            "S rejection must be 'non-BIP68-final'; got: " << reason);
-        BOOST_TEST_MESSAGE("S correctly REJECTED pre-288: " << reason
-                           << " ← CSV timelock proven");
-    }
+            "S must be refused " << when << " as non-BIP68-final; got: " << reason);
+        BOOST_TEST_MESSAGE("S refused " << when << ": " << reason);
+    };
 
     // ----------------------------------------------------------------
-    // Step 9: Mine 287 more blocks (total 288 confs on U)
+    // Step 8: S right after U confirms → EXPECT REJECT (non-BIP68-final)
     // ----------------------------------------------------------------
-    BOOST_TEST_MESSAGE("\n=== Mining 287 more blocks (total 288 confs on U) ===");
-    for (int i = 0; i < 287; i++) {
+    BOOST_TEST_MESSAGE("\n=== Broadcasting S early (expect non-BIP68-final) ===");
+    BOOST_TEST_MESSAGE("U confirmed at height " << uConfHeight
+                       << ", current tip = " << chainActive.Height());
+    expectHeldByBip68("at U's confirmation");
+
+    // ----------------------------------------------------------------
+    // Step 9: one block short of the lock → EXPECT REJECT
+    // ----------------------------------------------------------------
+    // BIP68 (CalculateSequenceLocks) admits S into a block whose height is above
+    // uConfHeight + 288 - 1, and relay judges the next block, tip + 1. With 286
+    // more blocks the next block is at uConfHeight + 287: S is still held.
+    BOOST_TEST_MESSAGE("\n=== Mining 286 more blocks (one short of the lock) ===");
+    for (int i = 0; i < 286; i++) {
         std::vector<CMutableTransaction> noTxns;
         CreateAndProcessBlock(noTxns, coinbaseSpk);
     }
-    int totalConfs = chainActive.Height() - uConfHeight;
-    BOOST_TEST_MESSAGE("U now has " << totalConfs << " confirmations"
-                       << " (tip=" << chainActive.Height() << ")");
-    // BIP68 requires >= 288 confs. After mining 287 more blocks on top of the
-    // block that included U, U has 288 confs (including the block it's in).
-    // Actually: confs = tip_height - confirm_height + 1 in user terms,
-    // but BIP68's CalculateSequenceLocks uses raw block heights.
-    // With 1 block mined after U + 287 more = tip at uConfHeight + 288.
-    // CheckSequenceLocks evaluates at tip+1, so the lock height is
-    // uConfHeight + 288, and tip+1 = uConfHeight + 289. Should pass.
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), uConfHeight + 286);
+    expectHeldByBip68("one block short of the lock");
 
     // ----------------------------------------------------------------
-    // Step 10: S again → EXPECT ACCEPT (CSV 288 satisfied)
+    // Step 10: the 287th block → EXPECT ACCEPT (the lock is met)
     // ----------------------------------------------------------------
-    BOOST_TEST_MESSAGE("\n=== Broadcasting S post-288 (expect ACCEPT) ===");
+    {
+        std::vector<CMutableTransaction> noTxns;
+        CreateAndProcessBlock(noTxns, coinbaseSpk);
+    }
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), uConfHeight + 287);
+    BOOST_TEST_MESSAGE("\n=== Broadcasting S with the lock met (expect accept) ===");
     {
         std::string reason;
         bool ok = ToMemPool(settleTx, reason);
         BOOST_CHECK_MESSAGE(ok,
-            "S must be accepted post-288 confs (BIP68 CSV proven); reject=" << reason);
-        if (!ok) {
-            BOOST_TEST_MESSAGE("FINDING: S still rejected post-288: " << reason);
-        }
+            "S must be accepted once the sequence lock is met; reject=" << reason);
     }
     // Mine a final block containing S.
     {
         CBlock b = MineBlock();
         BOOST_CHECK(chainActive.Tip()->GetBlockHash() == b.GetHash());
-        BOOST_TEST_MESSAGE("S mined in block " << chainActive.Height()
-                           << " — BIP68 CSV 288 PROVEN ON-CHAIN");
+        BOOST_TEST_MESSAGE("S mined in block " << chainActive.Height());
     }
     BOOST_CHECK_EQUAL(mempool.size(), 0u);
 
@@ -568,12 +559,12 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
     // SUMMARY
     // ================================================================
     BOOST_TEST_MESSAGE("\n"
-        "=== Phase 1a REGTEST RESULTS ===\n"
-        "F (funding)    : ACCEPTED + MINED — coinbase → keyhash-2-of-2 v6\n"
-        "U (update)     : ACCEPTED + MINED — keyhash-2-of-2 spend + APO 0x42\n"
-        "S (early)      : REJECTED non-BIP68-final (1 conf < 288) ← CSV PROVEN\n"
-        "S (post-288)   : ACCEPTED + MINED — CSV 288 satisfied\n"
-        "=== Phase 1a on regtest: GREEN ===");
+        "=== Phase 1a regtest results ===\n"
+        "F (funding)        : accepted and mined, coinbase → keyhash-2-of-2 v6\n"
+        "U (update)         : accepted and mined, keyhash-2-of-2 spend, hashtype 0x42\n"
+        "S (early)          : refused non-BIP68-final at U's confirmation\n"
+        "S (one block short): refused non-BIP68-final\n"
+        "S (lock met)       : accepted and mined");
 }
 
 BOOST_AUTO_TEST_SUITE_END()
