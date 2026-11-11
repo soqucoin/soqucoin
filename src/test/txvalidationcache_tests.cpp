@@ -61,7 +61,7 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, DilithiumChainSetup)
     // The blocks are built while the mempool is empty: a block template commits
     // to the transactions it was assembled from. Each spend is valid in a block
     // of its own, so a refusal below is the refusal of the second spend.
-    BOOST_REQUIRE_EQUAL(mempool.size(), 0);
+    BOOST_REQUIRE_EQUAL(mempool.size(), 0U);
     BOOST_CHECK(BlockIsValid(oneSpend));
     BOOST_CHECK(BlockIsValid(std::vector<CMutableTransaction>(1, spends[1])));
     const CBlock both = BuildSolvedBlock(spends, coinbaseSpk);
@@ -96,7 +96,7 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, DilithiumChainSetup)
     BOOST_CHECK_EQUAL(rejectReason(both), doubleSpend);
     process(both);
     BOOST_CHECK(chainActive.Tip()->GetBlockHash() == tipBefore);
-    BOOST_CHECK_EQUAL(mempool.size(), 1);
+    BOOST_CHECK_EQUAL(mempool.size(), 1U);
 
     // Final sanity test: second spend in mempool, first in block, that's OK:
     BOOST_CHECK_EQUAL(rejectReason(first), "");
@@ -104,7 +104,7 @@ BOOST_FIXTURE_TEST_CASE(tx_mempool_block_doublespend, DilithiumChainSetup)
     BOOST_CHECK(chainActive.Tip()->GetBlockHash() == first.GetHash());
     // spends[1] should have been removed from the mempool when the
     // block with spends[0] is accepted:
-    BOOST_CHECK_EQUAL(mempool.size(), 0);
+    BOOST_CHECK_EQUAL(mempool.size(), 0U);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
