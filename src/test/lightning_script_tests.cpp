@@ -2137,21 +2137,22 @@ BOOST_AUTO_TEST_CASE(htlc_v6_target)
     std::vector<unsigned char> H(32, 0xab), khPayee(32, 0x55), khPayer(32, 0x66);
     const int64_t cltv = 500;
 
-    // B1 HTLC: IF OP_SHA256 <H> OP_EQUALVERIFY <khPayee> CDKH OP_1
+    // B1 HTLC: IF OP_SIZE <32> OP_EQUALVERIFY OP_SHA256 <H> OP_EQUALVERIFY <khPayee> CDKH OP_1
     //          ELSE <cltv> CLTV DROP <khPayer> CDKH OP_1 ENDIF
     CScript ws;
     ws << OP_IF
+         << OP_SIZE << CScriptNum(32) << OP_EQUALVERIFY
          << OP_SHA256 << H << OP_EQUALVERIFY << khPayee << OP_CHECKDILITHIUMKEYHASH << OP_1
        << OP_ELSE
          << CScriptNum(cltv) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << khPayer << OP_CHECKDILITHIUMKEYHASH << OP_1
        << OP_ENDIF;
 
     std::vector<int> expected = {
-        OP_IF, OP_SHA256, -1, OP_EQUALVERIFY, -1, OP_CHECKDILITHIUMKEYHASH, OP_1,
+        OP_IF, OP_SIZE, -1, OP_EQUALVERIFY, OP_SHA256, -1, OP_EQUALVERIFY, -1, OP_CHECKDILITHIUMKEYHASH, OP_1,
         OP_ELSE, -1, OP_CHECKLOCKTIMEVERIFY, OP_DROP, -1, OP_CHECKDILITHIUMKEYHASH, OP_1,
         OP_ENDIF };
     BOOST_CHECK_MESSAGE(OpSkeleton(ws) == expected,
-        "HTLC script matches the locked B1 form (IF-hashlock-payee / ELSE-CLTV-payer)");
+        "HTLC script matches the locked B1 form (IF-length-hashlock-payee / ELSE-CLTV-payer)");
 
     if (!V6ControlFlowActive()) {
         BOOST_TEST_MESSAGE("PENDING DL-V6-CONTROLFLOW-RESTORE: HTLC success/timeout asserted once "
@@ -2174,6 +2175,7 @@ BOOST_AUTO_TEST_CASE(htlc_v6_target)
 
     CScript htlc;
     htlc << OP_IF
+           << OP_SIZE << CScriptNum(32) << OP_EQUALVERIFY
            << OP_SHA256 << Hreal << OP_EQUALVERIFY << kh(peeB) << OP_CHECKDILITHIUMKEYHASH << OP_1
          << OP_ELSE
            << CScriptNum(cltv) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << kh(perB) << OP_CHECKDILITHIUMKEYHASH << OP_1
@@ -2243,8 +2245,19 @@ BOOST_AUTO_TEST_CASE(htlc_v6_target)
 }
 
 // ------------------------------------------- B1 script byte vectors (for the SDKs)
-// Emits the canonical B1 eLTOO update + HTLC script hex for deterministic keyhash inputs,
-// so the TS/Dart SDKs can byte-match (the keyhash = SHA256(pubkey) step is pinned by P4).
+// Pins and emits the canonical B1 eLTOO update + HTLC script hex for deterministic keyhash
+// inputs, so the TS/Dart SDKs can byte-match (the keyhash = SHA256(pubkey) step is pinned by P4).
+//
+// The canonical HTLC:
+//   OP_IF
+//     OP_SIZE 32 OP_EQUALVERIFY OP_SHA256 <H> OP_EQUALVERIFY <khPayee> OP_CHECKDILITHIUMKEYHASH OP_1
+//   OP_ELSE
+//     <cltv> OP_CHECKLOCKTIMEVERIFY OP_DROP <khPayer> OP_CHECKDILITHIUMKEYHASH OP_1
+//   OP_ENDIF
+// OP_SIZE 32 OP_EQUALVERIFY (82 01 20 88) holds the preimage to 32 bytes on this chain.
+// The protocol rule that goes with it, for a swap across two chains: the secret is
+// revealed first on the chain whose contract bounds its length. The claim that follows
+// on the other chain is then made with a secret of the length both contracts take.
 // Run: test_soqucoin --run_test=lightning_script_tests/b1_script_vectors --log_level=message
 BOOST_AUTO_TEST_CASE(b1_script_vectors)
 {
@@ -2267,10 +2280,16 @@ BOOST_AUTO_TEST_CASE(b1_script_vectors)
     const int64_t cltv = 500;
     CScript htlc;
     htlc << OP_IF
+           << OP_SIZE << CScriptNum(32) << OP_EQUALVERIFY
            << OP_SHA256 << H << OP_EQUALVERIFY << khPayee << OP_CHECKDILITHIUMKEYHASH << OP_1
          << OP_ELSE
            << CScriptNum(cltv) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << khPayer << OP_CHECKDILITHIUMKEYHASH << OP_1
          << OP_ENDIF;
+
+    // The pinned bytes. A change to either line changes a canonical template, and the
+    // SDK vectors move with it.
+    BOOST_CHECK_EQUAL(hexs(eltoo), "6303c12709b175202222222222222222222222222222222222222222222222222222222222222222b6201111111111111111111111111111111111111111111111111111111111111111b65167022001b275204444444444444444444444444444444444444444444444444444444444444444b6203333333333333333333333333333333333333333333333333333333333333333b65168");
+    BOOST_CHECK_EQUAL(hexs(htlc), "6382012088a820abababababababababababababababababababababababababababababababab88205555555555555555555555555555555555555555555555555555555555555555b6516702f401b175206666666666666666666666666666666666666666666666666666666666666666b65168");
 
     BOOST_TEST_MESSAGE("B1_VECTORS_BEGIN");
     BOOST_TEST_MESSAGE("eltoo_stateNum=" << N);

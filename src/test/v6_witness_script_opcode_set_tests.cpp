@@ -216,6 +216,7 @@ BOOST_AUTO_TEST_CASE(the_shipped_templates_are_inside_the_set)
     const valtype H(32, 0xab), khPayee(32, 0x55), khPayer(32, 0x66);
     CScript htlc;
     htlc << OP_IF
+           << OP_SIZE << CScriptNum(32) << OP_EQUALVERIFY
            << OP_SHA256 << H << OP_EQUALVERIFY << khPayee << OP_CHECKDILITHIUMKEYHASH << OP_1
          << OP_ELSE
            << CScriptNum(500) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << khPayer << OP_CHECKDILITHIUMKEYHASH << OP_1
