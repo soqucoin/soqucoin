@@ -70,7 +70,8 @@ std::string EncodeWitnessV6Address(const std::vector<unsigned char>& program, co
  * Decode a witness version 6 Bech32m address.
  * @param str The address string
  * @param hrp The expected human-readable part
- * @param programRet The 32-byte witness program, in the order its bytes sit in the output script
+ * @param programRet The 32-byte witness program, in the order its bytes sit in the output script;
+ *                   written only when the function returns true
  * @return true if str is a witness version 6 address with a 32-byte program for hrp
  */
 bool DecodeWitnessV6Address(const std::string& str, const std::string& hrp, std::vector<unsigned char>& programRet);

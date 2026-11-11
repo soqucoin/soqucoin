@@ -533,6 +533,8 @@ BOOST_FIXTURE_TEST_CASE(v6_decoder_refuses_invalid_vectors, BasicTestingSetup)
             std::vector<unsigned char> program(1, 0x42);
             BOOST_CHECK_MESSAGE(!DecodeWitnessV6Address(v.address, hrp, program),
                 network + " accepts '" + v.address + "' (" + v.reason + ")");
+            // A refusal leaves the caller's program as it was.
+            BOOST_CHECK(program == std::vector<unsigned char>(1, 0x42));
         }
         BOOST_CHECK_MESSAGE(run > 0, "no invalid version 6 vector ran on " + network);
     }
