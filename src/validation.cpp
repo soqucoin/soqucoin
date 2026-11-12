@@ -3620,10 +3620,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
     }
 
-    // DL-V6-CONTROLFLOW-RESTORE: Start enforcing the restored branch/timelock/hashlock opcodes
-    // (OP_IF/ELSE/ENDIF, OP_DROP, OP_CLTV, OP_CSV, OP_SHA256, OP_EQUAL[VERIFY]) in v6 EvalScript —
-    // the eLTOO state ratchet, settlement CSV, and HTLC hashlock/timeout. PQ sigs stay on
-    // CSFS/keyhash. When inactive these opcodes remain no-ops (unchanged behaviour).
+    // DL-V6-CONTROLFLOW-RESTORE: Start enforcing the restored branch/length/timelock/hashlock opcodes
+    // (OP_IF/NOTIF/ELSE/ENDIF, OP_DROP, OP_SIZE, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY, OP_SHA256,
+    // OP_EQUAL/OP_EQUALVERIFY) in v6 EvalScript — the eLTOO state ratchet, settlement CSV, and HTLC hashlock/timeout.
+    // PQ sigs stay on CSFS/keyhash. When inactive these opcodes remain no-ops (unchanged behaviour).
     if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_V6_CONTROLFLOW)) {
         flags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
     }

@@ -188,6 +188,7 @@ BITCOIN_TESTS =\
   test/v6_asset_opcode_ban_tests.cpp \
   test/v6_witness_script_opcode_set_tests.cpp \
   test/v6_checksequence_bip112_tests.cpp \
+  test/v6_htlc_preimage_length_tests.cpp \
   test/v6_witness_item_bounds_tests.cpp \
   test/apo_hashtype_gate_tests.cpp \
   test/dormancy_matrix_tests.cpp \
