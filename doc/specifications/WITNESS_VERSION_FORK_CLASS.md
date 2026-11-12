@@ -137,9 +137,14 @@ buying consensus exemptions while the verifier was dormant. The second is closed
 every exemption is gated on the deployment being active *and* the authority initialised, so the
 shape alone buys nothing, and the activation release deletes the exemptions outright. The first
 is bounded and stays open, exactly as it is on Bitcoin: dormant-version outputs are non-standard
-(`policy.cpp`, mask from `AcceptToMemoryPoolWorker`), `DecodeDestination` decodes witness v1
-only, so no wallet or RPC path builds an output from an address of another witness version
-(`utiladdress.cpp`), and a stock miner builds blocks from its mempool. The decoded-script
+(`policy.cpp`, mask from `AcceptToMemoryPoolWorker`), no wallet or RPC path builds an output
+from an address of a dormant witness version, and a stock miner builds blocks from its mempool.
+The address bound has two parts. `DecodeDestination` decodes witness v1 only (`utiladdress.cpp`),
+and it is the only Bech32m decoder the wallet's send paths and the mining payout address call.
+`createrawtransaction` also reads a witness v6 address (`DecodeWitnessV6Address`) and builds
+its `OP_6` output only when the v6 deployment is active at the next block height, the condition
+under which the relay mask accepts that output; in every other state it refuses with an error
+that names the height (`rpc/rawtransaction.cpp`). The decoded-script
 output of the RPCs shows an address for a witness v6 output (`ScriptPubKeyToJSON`,
 `rpc/rawtransaction.cpp`); `DecodeDestination` refuses that string. Reaching
 the anyone-can-spend window takes raw construction plus a miner running modified policy, and

@@ -12,8 +12,11 @@
 // dormant version consensus-reserved), which closed a fund-and-sweep hazard
 // at the price of making every activation a hard fork. The hazard is bounded
 // instead by the relay layer (policy.cpp gates v2-v16 on the live activation
-// mask; witness_standardness_tests) and by the fact that no wallet path can
-// construct a non-v1 address (utiladdress.cpp DecodeDestination).
+// mask; witness_standardness_tests) and by the fact that no wallet or RPC path
+// builds an output from an address of a dormant version: DecodeDestination
+// decodes witness v1 only (utiladdress.cpp), and createrawtransaction builds
+// an output from a witness v6 address only when the v6 deployment is active at
+// the next block height (rpc/rawtransaction.cpp; witness_v6_address_tests).
 //
 // What this file pins, in order:
 //   1. only v2 is reserved; every other version is creatable while dormant;
