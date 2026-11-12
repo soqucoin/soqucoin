@@ -240,11 +240,13 @@ Prior inventory for the record, executed 2026-08-26 at the pre-FC4 commit
 this document originally described: 721 cases, 717 passed, 3 failed (the
 then-deliberate tripwires), 1 skipped.
 
-Static inventory: src/Makefile.test.include builds 117 unit-test files plus
+Static inventory, counted 2026-11-12 with keyhash_broadcast_tests.cpp,
+sigopcount_tests.cpp and txvalidationcache_tests.cpp added to the build:
+src/Makefile.test.include builds 118 unit-test files plus
 harness files, and 5 wallet test files (11 cases,
-Makefile.test.include:224-228). Seven test files exist on disk but are not
+Makefile.test.include:225-229). Seven test files exist on disk but are not
 built: five excluded with an explanatory comment ("Legacy ECDSA tests
-disabled for Post-Quantum Transition", Makefile.test.include:213-218), and
+disabled for Post-Quantum Transition", Makefile.test.include:214-219), and
 two excluded with no comment (rpc_tests.cpp, versionbits_tests.cpp). The
 silent two are an open tracked item: they will either be built or their
 exclusion documented.
