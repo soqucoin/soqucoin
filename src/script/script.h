@@ -30,6 +30,17 @@ static const int MAX_PUBKEYS_PER_MULTISIG = 20;
 // Maximum script length in bytes
 static const int MAX_SCRIPT_SIZE = 10000;
 
+// Maximum size in bytes of a satisfaction item of a witness v6 witness (an item
+// before the witnessScript): an ML-DSA-44 signature with its hashtype byte
+static const unsigned int MAX_V6_SATISFACTION_ITEM_SIZE = 2421;
+
+// Maximum number of satisfaction items in a witness v6 witness
+static const unsigned int MAX_V6_SATISFACTION_ITEMS = 1000;
+
+// The two figures above are consensus rules. On a network where witness v6 is
+// active, a later release can lower either figure and can never raise it: a
+// higher figure accepts a witness that this release refuses.
+
 // Threshold for nLockTime: below this value it is interpreted as block number,
 // otherwise as UNIX timestamp.
 static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20 1985 UTC
