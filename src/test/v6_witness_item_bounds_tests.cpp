@@ -21,7 +21,8 @@
 // v6 bit of the activation mask set and clear. The third funds v6 outputs in a
 // mined regtest block and spends them through the mempool and in a block, with
 // the v6 deployment active and with it not scheduled. Every figure is read
-// from its constant.
+// from its constant, and the two consensus figures are also pinned to their
+// values.
 
 #include "chainparams.h"
 #include "coins.h"
@@ -281,7 +282,8 @@ BOOST_AUTO_TEST_CASE(the_bound_follows_the_v6_flag)
 // witnessScript size is at most the consensus script size, and the standard
 // number of satisfaction items is below the consensus number. The two exempt
 // lengths are those of an ML-DSA-44 signature and public key, and the consensus
-// item size is a signature with its hashtype byte.
+// item size is a signature with its hashtype byte. The two consensus figures
+// are pinned to their values.
 BOOST_AUTO_TEST_CASE(the_policy_figures_are_within_the_consensus_figures)
 {
     BOOST_CHECK(MAX_STANDARD_V6_ITEM_SIZE <= MAX_V6_SATISFACTION_ITEM_SIZE);
@@ -294,6 +296,13 @@ BOOST_AUTO_TEST_CASE(the_policy_figures_are_within_the_consensus_figures)
     BOOST_CHECK_EQUAL(STANDARD_V6_PUBKEY_SIZE, (unsigned int)pqcrystals_dilithium2_PUBLICKEYBYTES);
     BOOST_CHECK_EQUAL(STANDARD_V6_PUBKEY_SIZE, (unsigned int)CPubKey::SIZE);
     BOOST_CHECK_EQUAL(MAX_V6_SATISFACTION_ITEM_SIZE, (unsigned int)pqcrystals_dilithium2_BYTES + 1);
+
+    // The two consensus figures by value. A change to either is a consensus
+    // change: on a network where witness v6 is active, a lower figure refuses
+    // a witness this release accepts and a higher figure accepts one it
+    // refuses.
+    BOOST_CHECK_EQUAL(MAX_V6_SATISFACTION_ITEM_SIZE, 2421u);
+    BOOST_CHECK_EQUAL(MAX_V6_SATISFACTION_ITEMS, 1000u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
