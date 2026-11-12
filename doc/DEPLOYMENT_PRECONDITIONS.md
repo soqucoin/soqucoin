@@ -306,8 +306,9 @@ Witness v6: P2WSH with Dilithium. Covenant script execution and L2SOQ Lightning.
    these scripts stay unpruned regardless.
 
 ### `DEPLOYMENT_V6_CONTROLFLOW` (bit 13)
-`IF`/`CLTV`/`CSV`/`DROP`/`SHA256`/`EQUAL` inside v6 `EvalScript`, for the eLTOO
-ratchet and HTLCs.
+`OP_IF`, `OP_NOTIF`, `OP_ELSE`, `OP_ENDIF`, `OP_DROP`, `OP_SIZE`,
+`OP_CHECKLOCKTIMEVERIFY`, `OP_CHECKSEQUENCEVERIFY`, `OP_SHA256`, `OP_EQUAL` and
+`OP_EQUALVERIFY` inside v6 `EvalScript`, for the eLTOO ratchet and HTLCs.
 
 **Preconditions:**
 1. ☐ Cannot precede `DEPLOYMENT_P2WSH_DILITHIUM`: it extends v6 script execution,

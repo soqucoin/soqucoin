@@ -11,9 +11,10 @@
 // VerifyScript's v6 branch therefore admits pushes and the handled set
 // and refuses every other byte with SCRIPT_ERR_DISALLOWED_OPCODE before
 // execution, in every branch and in every flag state in which the v6 branch
-// runs. The set is closed: admitting a byte later would be a loosening against
-// the release that refused it (doc/specifications/WITNESS_VERSION_FORK_CLASS.md
-// §3a), so a new opcode goes to a new witness version.
+// runs. The set is closed from the first release that carries this pre-scan: a
+// byte admitted after that release would be accepted where that release refuses
+// it, a loosening against it (doc/specifications/WITNESS_VERSION_FORK_CLASS.md
+// §3a), so from then on a new opcode goes to a new witness version.
 //
 // Two suites. The first walks every opcode byte at the VerifyScript level and
 // pins the set. The second drives a Bitcoin-shaped HTLC (HASH160 hashlock,

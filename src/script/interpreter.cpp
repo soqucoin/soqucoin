@@ -1580,9 +1580,9 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 // execution, in every branch and in every flag state in which the v6 branch
 // runs.
 //
-// The set is closed. Admitting a byte later would accept what this release
-// refuses, a loosening against it, so a new opcode goes to a new witness
-// version (doc/specifications/WITNESS_VERSION_FORK_CLASS.md §3a). The members:
+// The set is closed from the first release that carries this pre-scan. A byte admitted after that release
+// would be accepted where that release refuses it, a loosening against it, so from then on a new opcode
+// goes to a new witness version (doc/specifications/WITNESS_VERSION_FORK_CLASS.md §3a). The members:
 //   * pushes: 0x00 to OP_PUSHDATA4, OP_1 to OP_16. OP_1NEGATE and OP_RESERVED
 //     are not pushes here (the push branch pushes an empty item for them) and
 //     are out.
