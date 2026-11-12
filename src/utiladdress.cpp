@@ -16,13 +16,16 @@ namespace
 
 std::vector<uint8_t> ConvertBits(const std::vector<uint8_t>& data, int frombits, int tobits, bool pad)
 {
-    int acc = 0;
+    // The accumulator is unsigned and masked to the bits not yet written out,
+    // so the shift below stays inside the type for any input length.
+    uint32_t acc = 0;
     int bits = 0;
     std::vector<uint8_t> ret;
-    int maxv = (1 << tobits) - 1;
+    const uint32_t maxv = (1u << tobits) - 1;
+    const uint32_t max_acc = (1u << (frombits + tobits - 1)) - 1;
 
     for (const auto& value : data) {
-        acc = (acc << frombits) | value;
+        acc = ((acc << frombits) | value) & max_acc;
         bits += frombits;
         while (bits >= tobits) {
             bits -= tobits;
@@ -39,6 +42,46 @@ std::vector<uint8_t> ConvertBits(const std::vector<uint8_t>& data, int frombits,
     return ret;
 }
 
+//! Size of the witness program of both address forms.
+const size_t WITNESS_PROGRAM_SIZE = 32;
+
+//! Witness versions that have an address form.
+const uint8_t WITNESS_V1 = 1;
+const uint8_t WITNESS_V6 = 6;
+
+//! Bech32m address of a witness version and a 32-byte program. Empty for a
+//! program of any other size.
+std::string EncodeWitnessProgram(uint8_t version, const std::vector<uint8_t>& program, const std::string& hrp)
+{
+    if (program.size() != WITNESS_PROGRAM_SIZE) return std::string();
+
+    std::vector<uint8_t> conv = ConvertBits(program, 8, 5, true);
+    std::vector<uint8_t> enc;
+    enc.push_back(version);
+    enc.insert(enc.end(), conv.begin(), conv.end());
+    return bech32::Encode(bech32::Encoding::BECH32M, hrp, enc);
+}
+
+//! Decode a Bech32m address of exactly this witness version, this
+//! human-readable part and a 32-byte program. Both address forms decode
+//! through here, so they share the checksum, prefix, version and length
+//! checks. programRet is written only on success.
+bool DecodeWitnessProgram(const std::string& str, const std::string& hrp, uint8_t version, std::vector<uint8_t>& programRet)
+{
+    bech32::DecodeResult dec = bech32::Decode(str);
+
+    if (dec.encoding != bech32::Encoding::BECH32M || dec.hrp != hrp || dec.data.empty() || dec.data[0] != version)
+        return false;
+
+    std::vector<uint8_t> conv = ConvertBits(
+        std::vector<uint8_t>(dec.data.begin() + 1, dec.data.end()),
+        5, 8, false);
+    if (conv.size() != WITNESS_PROGRAM_SIZE) return false;
+
+    programRet = conv;
+    return true;
+}
+
 } // namespace
 
 std::string EncodeDestination(const CTxDestination& dest, const std::string& hrp)
@@ -47,11 +90,7 @@ std::string EncodeDestination(const CTxDestination& dest, const std::string& hrp
         const WitnessV1ScriptHash* witness_v1 = boost::get<WitnessV1ScriptHash>(&dest);
         if (witness_v1) {
             std::vector<uint8_t> data(witness_v1->begin(), witness_v1->end());
-            std::vector<uint8_t> conv = ConvertBits(data, 8, 5, true);
-            std::vector<uint8_t> enc;
-            enc.push_back(1); // witness version 1
-            enc.insert(enc.end(), conv.begin(), conv.end());
-            return bech32::Encode(bech32::Encoding::BECH32M, hrp, enc);
+            return EncodeWitnessProgram(WITNESS_V1, data, hrp);
         }
     }
 
@@ -61,21 +100,13 @@ std::string EncodeDestination(const CTxDestination& dest, const std::string& hrp
 
 CTxDestination DecodeDestination(const std::string& str, const std::string& hrp)
 {
-    bech32::DecodeResult dec = bech32::Decode(str);
-
-    if (dec.encoding == bech32::Encoding::BECH32M && dec.hrp == hrp && !dec.data.empty()) {
-        // Witness v1 (Dilithium)
-        if (dec.data[0] == 1) {
-            std::vector<uint8_t> conv = ConvertBits(
-                std::vector<uint8_t>(dec.data.begin() + 1, dec.data.end()),
-                5, 8, false);
-
-            if (conv.size() == 32) {
-                WitnessV1ScriptHash hash;
-                std::copy(conv.begin(), conv.end(), hash.begin());
-                return hash;
-            }
-        }
+    // Witness v1 (Dilithium) only. A witness v6 address is not a destination:
+    // it decodes through DecodeWitnessV6Address.
+    std::vector<uint8_t> program;
+    if (DecodeWitnessProgram(str, hrp, WITNESS_V1, program)) {
+        WitnessV1ScriptHash hash;
+        std::copy(program.begin(), program.end(), hash.begin());
+        return hash;
     }
 
     return CNoDestination();
@@ -110,4 +141,14 @@ std::string EncodeDilithiumAddress(const CPubKey& pubkey, const std::string& hrp
 CTxDestination DecodeDilithiumAddress(const std::string& addr, const std::string& hrp)
 {
     return DecodeDestination(addr, hrp);
+}
+
+std::string EncodeWitnessV6Address(const std::vector<unsigned char>& program, const std::string& hrp)
+{
+    return EncodeWitnessProgram(WITNESS_V6, program, hrp);
+}
+
+bool DecodeWitnessV6Address(const std::string& str, const std::string& hrp, std::vector<unsigned char>& programRet)
+{
+    return DecodeWitnessProgram(str, hrp, WITNESS_V6, programRet);
 }

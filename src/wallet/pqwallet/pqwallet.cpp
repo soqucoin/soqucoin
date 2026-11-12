@@ -259,8 +259,8 @@ bool PQKeyPair::Verify(const std::vector<uint8_t>& message,
 // SOQ-INFRA-010 REMEDIATION: Changed from BLAKE2b-160 (20 bytes) to SHA-256 (32 bytes)
 // to match the consensus-active path:
 //   - VerifyScript() (interpreter.cpp L639-640): SHA-256(pubkey) compared to scriptPubKey[2..34]
-//   - DecodeDestination() (utiladdress.cpp L73): requires conv.size() == 32
-//   - EncodeDilithiumAddress() (utiladdress.cpp L100-102): uses CSHA256()
+//   - DecodeDestination() (utiladdress.cpp L101-113, through DecodeWitnessProgram() L79): requires conv.size() == 32
+//   - EncodeDilithiumAddress() (utiladdress.cpp L131-133): uses CSHA256()
 //   - getnewaddress (rpcwallet.cpp L143): uses SHA-256 via EncodeDilithiumAddress()
 //
 // MITIGATION: SHA-256 provides 128-bit collision resistance
@@ -277,7 +277,7 @@ std::array<uint8_t, 32> PQAddress::HashPublicKey(
     // SOQ-INFRA-010: Use SHA-256 to match consensus path in VerifyScript()
     // This is the same hash function used by:
     //   - VerifyScript() (interpreter.cpp L640): CSHA256().Write(pubkeyData, pubkeySize).Finalize(hash.begin())
-    //   - EncodeDilithiumAddress() (utiladdress.cpp L102): CSHA256().Write(...).Finalize(hash.begin())
+    //   - EncodeDilithiumAddress() (utiladdress.cpp L133): CSHA256().Write(...).Finalize(hash.begin())
     CSHA256().Write(pubkey.data(), pubkey.size()).Finalize(hash.data());
 
     return hash;

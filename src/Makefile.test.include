@@ -79,7 +79,8 @@ JSON_TEST_FILES = \
   test/data/base58_keys_invalid.json \
   test/data/tx_invalid.json \
   test/data/tx_valid.json \
-  test/data/sighash.json
+  test/data/sighash.json \
+  test/data/witness_address_vectors.json
 
 RAW_TEST_FILES =
 
@@ -193,6 +194,7 @@ BITCOIN_TESTS =\
   test/v6_witness_script_opcode_set_tests.cpp \
   test/v6_checksequence_bip112_tests.cpp \
   test/v6_htlc_preimage_length_tests.cpp \
+  test/v6_witness_item_bounds_tests.cpp \
   test/apo_hashtype_gate_tests.cpp \
   test/dormancy_matrix_tests.cpp \
   test/usdsoq_reorg_tests.cpp \
@@ -210,6 +212,7 @@ BITCOIN_TESTS =\
   test/sigop_budget_tests.cpp \
   test/serialization_invariance_tests.cpp \
   test/mempool_consensus_parity_tests.cpp \
+  test/witness_v6_address_tests.cpp \
   test/dilithium_chain_setup.h
 # Legacy ECDSA tests disabled for Post-Quantum Transition
 #  test/audit_tests.cpp
