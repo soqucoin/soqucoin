@@ -152,7 +152,9 @@ soqucoin-cli getblockchaininfo | grep -E "(blocks|headers|verificationprogress)"
 
 ### 3.1 Address Generation
 
-Derive one deposit address per customer in your own key store with the SDK, as described in [Step 1: Generate Deposit Addresses](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#step-1-generate-deposit-addresses). A Soqucoin address is bech32m with witness version 1, and its 32-byte witness program is the SHA-256 of an ML-DSA-44 public key.
+Derive one deposit address per customer in your own key store with the SDK, as described in [Step 1: Generate Deposit Addresses](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#step-1-generate-deposit-addresses). A deposit address is bech32m with witness version 1, and its 32-byte witness program is the SHA-256 of an ML-DSA-44 public key.
+
+For an `OP_6 <32 bytes>` output, the decoded-script JSON of `getrawtransaction <txid> 1`, `decoderawtransaction`, `gettxout` and `getblock` at verbosity 2 carries `type` `witness_v6_covenant` and one entry in `addresses`, a Bech32m string with the version character `x` (`sq1x...`, on stagenet `ssq1x...`), and no `reqSigs`. `validateaddress` reports such a string as `"isvalid": false`, and `createrawtransaction` refuses it as an output. Such a string is not an address a wallet derives or a deposit address.
 
 ### 3.2 Address Validation
 
