@@ -453,6 +453,7 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-migrationtotal=<n>", "Override the armed nMigrationTotal in sats (regtest-only; default: the sum of -migrationoutputs, override exists to test the mismatch reject)");
         strUsage += HelpMessageOpt("-minblock1time=<n>", "Minimum nTime of the block at height 1, a unix time (regtest-only; 0 = no gate; mainnet carries 1791903600)");
         strUsage += HelpMessageOpt("-chainidrequiredheight=<n>", "Height from which every non-legacy block must carry the chain id in its version (regtest-only; 0 = no rule)");
+        strUsage += HelpMessageOpt("-activationheight=<deployment>:<height>", "Height from which the named height-gated deployment is active, for a deployment listed under activation_heights in getblockchaininfo (regtest-only; once per deployment; 0 = from genesis, 2147483647 = not scheduled; each value sets that deployment alone, where every network gives the deployments of one witness version one height)");
     }
     std::string debugCategories = "addrman, alert, bench, cmpctblock, coindb, db, http, libevent, lock, mempool, mempoolrej, net, proxy, prune, rand, reindex, rpc, selectcoins, tor, zmq"; // Don't translate these and qt below
     if (mode == HMM_BITCOIN_QT)
@@ -1188,6 +1189,46 @@ bool AppInitParameterInteraction()
         }
     }
 
+    if (mapMultiArgs.count("-activationheight")) {
+        // The activation height of a height-gated deployment for testing.
+        // Regtest only: on real networks the height is consensus. A value
+        // names one deployment the node reports (REPORTED_ACTIVATION_HEIGHTS)
+        // and sets that deployment alone, so the deployments of one witness
+        // version, which every network gives one height, can be set apart
+        // here. The height is 0 to 2147483647: a negative one is refused,
+        // and -1 with it, the stored number of a deployment that has no
+        // height gate. A deployment named twice is refused: the later value
+        // would win, and a value from the configuration file is later than
+        // one from the command line.
+        if (!chainparams.MineBlocksOnDemand()) {
+            return InitError("-activationheight may only be set on regtest.");
+        }
+        std::set<Consensus::DeploymentPos> setNamed;
+        for (const std::string& strValue : mapMultiArgs.at("-activationheight")) {
+            const size_t nColon = strValue.find(':');
+            int32_t nHeight;
+            if (nColon == std::string::npos || !ParseInt32(strValue.substr(nColon + 1), &nHeight) || nHeight < 0) {
+                return InitError(strprintf("Invalid -activationheight (%s): expected <deployment>:<height>, a block height from 0 to 2147483647", strValue));
+            }
+            const std::string strName = strValue.substr(0, nColon);
+            bool found = false;
+            for (const Consensus::DeploymentPos pos : REPORTED_ACTIVATION_HEIGHTS) {
+                if (strName != VersionBitsDeploymentInfo[pos].name) {
+                    continue;
+                }
+                if (!setNamed.insert(pos).second) {
+                    return InitError(strprintf("Invalid -activationheight (%s): the deployment is named more than once", strValue));
+                }
+                UpdateRegtestActivationHeight(pos, nHeight);
+                found = true;
+                break;
+            }
+            if (!found) {
+                return InitError(strprintf("Invalid -activationheight (%s): the deployment is not one listed under activation_heights in getblockchaininfo", strValue));
+            }
+        }
+    }
+
     if (IsArgSet("-maxreorgdepth")) {
         // Allow overriding the finality horizon (Consensus::nMaxReorgDepth) for
         // testing. Regtest only — it is a consensus parameter on real networks.
@@ -1320,6 +1361,18 @@ bool AppInitParameterInteraction()
                       chainIdTier.nAuxpowChainId, chainIdTier.nChainIdRequiredHeight);
         } else {
             LogPrintf("Chain id rule: none\n");
+        }
+        // The activation height this binary enforces for each height-gated
+        // deployment it reports, the read getblockchaininfo prints under
+        // activation_heights: the lines an operator checks against the
+        // published height before the node reaches it.
+        for (const Consensus::DeploymentPos pos : REPORTED_ACTIVATION_HEIGHTS) {
+            const int nActivationHeight = ReportedActivationHeight(chainparams, pos);
+            if (nActivationHeight == Consensus::BIP9Deployment::NOT_SCHEDULED) {
+                LogPrintf("Deployment %s: not scheduled\n", VersionBitsDeploymentInfo[pos].name);
+            } else {
+                LogPrintf("Deployment %s: active from height %d\n", VersionBitsDeploymentInfo[pos].name, nActivationHeight);
+            }
         }
     }
     return true;

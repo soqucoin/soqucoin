@@ -153,6 +153,35 @@ void UpdateRegtestBIP9Parameters(Consensus::DeploymentPos d, int64_t nStartTime,
 void UpdateRegtestActivationHeight(Consensus::DeploymentPos d, int nActivationHeight);
 
 /**
+ * The height-gated deployments whose activation height a node reports: the
+ * "activation_heights" object of getblockchaininfo, one startup line each, and
+ * the names -activationheight accepts on regtest. Every entry is height-gated
+ * on every network (its nActivationHeight is never
+ * BIP9Deployment::NO_HEIGHT_ACTIVATION), so the stored number is the first
+ * height the deployment is active at (Consensus::DeploymentActiveAtHeight), and
+ * BIP9Deployment::NOT_SCHEDULED (2147483647) is the number of a deployment
+ * with no height. A deployment joins by one line here; its name is its
+ * VersionBitsDeploymentInfo entry.
+ */
+static const Consensus::DeploymentPos REPORTED_ACTIVATION_HEIGHTS[] = {
+    Consensus::DEPLOYMENT_P2WSH_DILITHIUM,
+    Consensus::DEPLOYMENT_DILITHIUM_KEYHASH,
+    Consensus::DEPLOYMENT_V6_CONTROLFLOW,
+};
+
+/**
+ * The activation height the given parameters enforce for a deployment of
+ * REPORTED_ACTIVATION_HEIGHTS, read through the tier that validates that
+ * height, the struct ConnectBlock consults there, as the chain id rule's
+ * height is read.
+ */
+inline int ReportedActivationHeight(const CChainParams& params, Consensus::DeploymentPos pos)
+{
+    const int nHeight = params.GetConsensus(0).vDeployments[pos].nActivationHeight;
+    return params.GetConsensus(nHeight > 0 ? nHeight : 0).vDeployments[pos].nActivationHeight;
+}
+
+/**
  * Allows overriding the regtest finality horizon (Consensus::nMaxReorgDepth)
  * for functional tests. Regtest only.
  */
