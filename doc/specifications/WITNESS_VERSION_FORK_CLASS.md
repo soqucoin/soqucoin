@@ -136,9 +136,12 @@ SOQ-I009 (2026-08-24) closed two hazards: fund-and-sweep of a dormant shape, and
 buying consensus exemptions while the verifier was dormant. The second is closed at its source:
 every exemption is gated on the deployment being active *and* the authority initialised, so the
 shape alone buys nothing, and the activation release deletes the exemptions outright. The first
-is bounded, not closed, exactly as it is on Bitcoin: dormant-version outputs are non-standard
-(`policy.cpp`, mask from `AcceptToMemoryPoolWorker`), no wallet or RPC path constructs a
-non-v1 address (`utiladdress.cpp`), and a stock miner builds blocks from its mempool. Reaching
+is bounded and stays open, exactly as it is on Bitcoin: dormant-version outputs are non-standard
+(`policy.cpp`, mask from `AcceptToMemoryPoolWorker`), `DecodeDestination` decodes witness v1
+only, so no wallet or RPC path builds an output from an address of another witness version
+(`utiladdress.cpp`), and a stock miner builds blocks from its mempool. The decoded-script
+output of the RPCs shows an address for a witness v6 output (`ScriptPubKeyToJSON`,
+`rpc/rawtransaction.cpp`); `DecodeDestination` refuses that string. Reaching
 the anyone-can-spend window takes raw construction plus a miner running modified policy, and
 the only funds at risk are the constructor's own.
 
