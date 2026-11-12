@@ -161,7 +161,7 @@ named in section 3.5 (`rpcdump.cpp:611-616`).
 The standard single-key output is a witness version 1 program, `OP_1 <32 bytes>` (`standard.cpp:101-104`,
 `TX_WITNESS_V1_SCRIPTHASH`; the destination type `WitnessV1ScriptHash`, `standard.h:30,84`). The 32-byte
 program is the single SHA-256 of the 1,312-byte public key (`rpcwallet.cpp:141-145` for `getnewaddress`;
-`utiladdress.cpp:95-104`, `EncodeDilithiumAddress`). The address path uses no RIPEMD-160 and no BLAKE2b; the
+`utiladdress.cpp:126-135`, `EncodeDilithiumAddress`). The address path uses no RIPEMD-160 and no BLAKE2b; the
 double SHA-256 appears only as the wallet-encryption IV of section 4.
 
 Consensus also spends `OP_0 <32 bytes>` with the same witness: `VerifyScript` treats a 34-byte `scriptPubKey`
@@ -177,13 +177,15 @@ implementer that produces outputs uses version 1 only.
 
 Bech32m (BIP 350). The human-readable part is the chain's `bech32HRP`: `sq` on mainnet, testnet and regtest
 (`chainparams.cpp:195,715,986`), `ssq` on stagenet (`chainparams.cpp:1299`). The data part is the witness version
-as one 5-bit value, `1`, followed by the 8-to-5 conversion of the 32-byte program (`utiladdress.cpp:44-58`). The
+as one 5-bit value, `1`, followed by the 8-to-5 conversion of the 32-byte program (`EncodeDestination`,
+`utiladdress.cpp:87-95`, through `EncodeWitnessProgram`, `utiladdress.cpp:54-63`). The
 version value `1` is the character `p`, 32 bytes convert to 52 values and the checksum is six characters, so a
 mainnet address is 62 characters beginning `sq1p` and a stagenet address 63 characters beginning `ssq1p`.
 
 ### 3.3 Decoding
 
-`DecodeDestination` (`utiladdress.cpp:62-78`) accepts an address only if all four hold: the encoding is bech32m;
+`DecodeDestination` (`utiladdress.cpp:101-113`, through `DecodeWitnessProgram`, `utiladdress.cpp:69-83`) accepts
+an address only if all four hold: the encoding is bech32m;
 the human-readable part equals this node's; the first data value is 1; the program converts to exactly 32 bytes
 under the strict rule of `ConvertBits` (`utiladdress.cpp:28-40`: more than four leftover bits, or non-zero
 padding bits, is a failure). Mixed case fails in `bech32::Decode`. `pqvalidateaddress` applies the same rule and
