@@ -392,6 +392,9 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             "createrawtransaction [{\"txid\":\"id\",\"vout\":n},...] {\"address\":amount,\"data\":\"hex\",...} ( locktime version )\n"
             "\nCreate a transaction spending the given inputs and creating new outputs.\n"
             "Outputs can be addresses or data.\n"
+            "An output to a witness version 6 address (Bech32m, version character \"x\") is built only when\n"
+            "the version 6 deployment is active at the next block height. Until then the call fails with\n"
+            "error " + strprintf("%d", (int)RPC_INVALID_PARAMETER) + ", \"Invalid parameter, witness version 6 is not active at the next block height (n): address\".\n"
             "Returns hex-encoded raw transaction.\n"
             "Note that the transaction's inputs are not signed, and\n"
             "it is not stored in the wallet or transmitted to the network.\n"
@@ -496,14 +499,29 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
                 if (legacyAddr.IsValid())
                     dest = legacyAddr.Get();
             }
-            if (!IsValidDestination(dest))
+            // A witness version 6 address is no CTxDestination. Its output is
+            // built only when the version 6 deployment is active at the next
+            // block height, which is what the relay mask asks of the same
+            // output (AcceptToMemoryPoolWorker, validation.cpp): until then
+            // consensus lets any witness spend it.
+            std::vector<unsigned char> v6Program;
+            const bool fWitnessV6 = !IsValidDestination(dest) && DecodeWitnessV6Address(name_, Params().Bech32HRP(), v6Program);
+            if (fWitnessV6) {
+                int nNextHeight;
+                {
+                    LOCK(cs_main);
+                    nNextHeight = chainActive.Height() + 1;
+                }
+                if (!Consensus::DeploymentActiveAtHeight(nNextHeight, Params().GetConsensus(nNextHeight), Consensus::DEPLOYMENT_P2WSH_DILITHIUM))
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid parameter, witness version 6 is not active at the next block height (%d): %s", nNextHeight, name_));
+            } else if (!IsValidDestination(dest))
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, string("Invalid Soqucoin address: ")+name_);
 
             if (setAddress.count(name_))
                 throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ")+name_);
             setAddress.insert(name_);
 
-            CScript scriptPubKey = GetScriptForDestination(dest);
+            CScript scriptPubKey = fWitnessV6 ? CScript() << OP_6 << v6Program : GetScriptForDestination(dest);
             CAmount nAmount = AmountFromValue(sendTo[name_]);
 
             CTxOut out(nAmount, scriptPubKey);
