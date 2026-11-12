@@ -240,15 +240,14 @@ Prior inventory for the record, executed 2026-08-26 at the pre-FC4 commit
 this document originally described: 721 cases, 717 passed, 3 failed (the
 then-deliberate tripwires), 1 skipped.
 
-Static inventory: src/Makefile.test.include builds 96 unit-test files plus
-harness files, and 3 wallet test files (11 cases,
-Makefile.test.include:202-204). Ten test files exist on disk but are not
+Static inventory: src/Makefile.test.include builds 117 unit-test files plus
+harness files, and 5 wallet test files (11 cases,
+Makefile.test.include:224-228). Seven test files exist on disk but are not
 built: five excluded with an explanatory comment ("Legacy ECDSA tests
-disabled for Post-Quantum Transition", Makefile.test.include:191-196), and
-five excluded with no comment (keyhash_broadcast_tests.cpp, rpc_tests.cpp,
-sigopcount_tests.cpp, txvalidationcache_tests.cpp,
-versionbits_tests.cpp). The silent five are an open tracked item: they
-will either be built or their exclusion documented.
+disabled for Post-Quantum Transition", Makefile.test.include:213-218), and
+two excluded with no comment (rpc_tests.cpp, versionbits_tests.cpp). The
+silent two are an open tracked item: they will either be built or their
+exclusion documented.
 
 Functional tests: `qa/rpc-tests/` holds 98 files. The runner
 (qa/pull-tester/rpc-tests.py) lists 70 in the default list plus one

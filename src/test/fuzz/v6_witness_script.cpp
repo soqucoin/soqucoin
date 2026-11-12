@@ -9,8 +9,10 @@
 //
 // Input layout. Every byte string decodes; bytes past the end read as zero.
 //   [0]       bits 0..5  the six deployment flags, in the order above
-//             bits 6..7  the signature check: 0 real ML-DSA-44, 1 always
-//                        refuses, 2 and 3 always accepts
+//             bits 6..7  the mode of the stand-in for the ML-DSA-44
+//                        verification that ends the transaction checker's
+//                        CheckSig: 0 the node's own verification, 1 it answers
+//                        false, 2 and 3 it answers true
 //   [1]       bits 0..1  the witness: 0 items, script, trailer; 1 none at all;
 //                        2 no trailer; 3 the program differs from the script
 //   [2..5]    nVersion of the spending transaction, little-endian
@@ -19,6 +21,14 @@
 //   [14]      n, the number of satisfaction items
 //   n times   a two-byte little-endian length, then that many bytes
 //   the rest  the witnessScript
+//
+// The mode governs that one step and nothing else. OP_CHECKDILITHIUMKEYHASH
+// reaches it through checker.CheckSig, after the handler's own checks (the
+// item count and sizes, the key hash, the hashtype) and after CheckSig refuses
+// an empty signature, so a keyhash check can fail in modes 2 and 3.
+// OP_CHECKSIGFROMSTACK does not ask the checker: it verifies with
+// CPubKey::Verify in every mode, and the target neither replaces nor records
+// that verification.
 //
 // What is checked for each input, beyond the absence of a memory error. A
 // failed check prints its name and aborts.
@@ -144,9 +154,6 @@ std::string Describe(bool ok, ScriptError err)
     return std::string(ok ? "accepted" : "refused") + " (error " + std::to_string(static_cast<int>(err)) + ", " + ScriptErrorString(err) + ")";
 }
 
-//! The transaction checker of the node with the final ML-DSA-44 verification
-//! replaceable, and counted. Everything before it (the hashtype byte, the
-//! signature hash, the locktime, sequence and template checks) is the node's.
 uint256 Sha256(const valtype& data)
 {
     // An empty vector may hold a null pointer; hash from a real one, wide
@@ -170,6 +177,11 @@ struct SignatureRecord {
     bool operator==(const SignatureRecord& o) const { return answers == o.answers && keys == o.keys && nVerified == o.nVerified; }
 };
 
+//! The transaction checker of the node with the ML-DSA-44 verification that
+//! ends CheckSig replaceable, and with every CheckSig call and every
+//! verification recorded. Everything before the verification (the hashtype
+//! byte, the signature hash, the locktime, sequence and template checks) is
+//! the node's.
 class CountingChecker : public TransactionSignatureChecker
 {
     const SigMode mode;
