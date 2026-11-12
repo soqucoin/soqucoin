@@ -162,7 +162,7 @@ enum {
 
     // DL-V6-CONTROLFLOW-RESTORE: execute the bounded standard-opcode set that
     // trust-minimised Lightning needs but V6's PQ-only EvalScript treats as no-ops:
-    // OP_IF/NOTIF/ELSE/ENDIF, OP_DROP, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY,
+    // OP_IF/NOTIF/ELSE/ENDIF, OP_DROP, OP_SIZE, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY,
     // OP_SHA256, OP_EQUAL/OP_EQUALVERIFY. PQ signatures stay on CSFS/keyhash (the
     // 520-byte push limit still forbids inline 1312-byte pubkeys → no inline CHECKSIG).
     // When clear, those opcodes remain no-ops (unchanged behaviour).
