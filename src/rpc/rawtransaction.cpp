@@ -501,9 +501,9 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             }
             // A witness version 6 address is no CTxDestination. Its output is
             // built only when the version 6 deployment is active at the next
-            // block height, which is what the relay mask asks of the same
-            // output (AcceptToMemoryPoolWorker, validation.cpp): until then
-            // consensus lets any witness spend it.
+            // block height, as the relay mask asks of the same output
+            // (AcceptToMemoryPoolWorker, validation.cpp): below the activation
+            // height consensus runs no script for a spend of it.
             std::vector<unsigned char> v6Program;
             const bool fWitnessV6 = !IsValidDestination(dest) && DecodeWitnessV6Address(name_, Params().Bech32HRP(), v6Program);
             if (fWitnessV6) {

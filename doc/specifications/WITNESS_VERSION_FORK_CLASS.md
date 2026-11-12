@@ -146,9 +146,21 @@ its `OP_6` output only when the v6 deployment is active at the next block height
 under which the relay mask accepts that output; in every other state it refuses with an error
 that names the height (`rpc/rawtransaction.cpp`). The decoded-script
 output of the RPCs shows an address for a witness v6 output (`ScriptPubKeyToJSON`,
-`rpc/rawtransaction.cpp`); `DecodeDestination` refuses that string. Reaching
-the anyone-can-spend window takes raw construction plus a miner running modified policy, and
-the only funds at risk are the constructor's own.
+`rpc/rawtransaction.cpp`); `DecodeDestination` refuses that string.
+
+Where relay requires standardness, as on mainnet and stagenet (`fRequireStandard`,
+`chainparams.cpp`), reaching the anyone-can-spend window takes one of two things. The first is
+raw construction plus a miner running modified policy. The second needs no modified policy:
+the mask and the RPC read the tip once and the mempool does not apply the mask again when the
+tip moves back (`CTxMemPool::removeForReorg`; `witness_v6_address_tests` pins it at the
+boundary), so a witness v6 output accepted while the deployment was active at the next block
+height can be confirmed below the activation height once the next block is below that height
+again. The second is bounded by the height of the tip, since every block at or above the
+activation height runs the committed script, and by the reorganisation depth limit, since a
+node refuses a header whose branch leaves its active chain `nMaxReorgDepth` or more blocks
+below its tip (`ContextualCheckBlockHeader`, `bad-fork-beyond-finality`; skipped during
+initial block download, and off where the constant is 0, as on regtest). In both, the only
+funds at risk are those paid into the output.
 
 Residual, tracked separately: the USDSOQ bootstrap in `ConnectBlock` selects its authority
 input by SHAPE — any `OP_5 <32>` prevout, while the tracked outpoint is null — and does not
