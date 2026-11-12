@@ -223,7 +223,9 @@ ALL TESTS PASSED
 | Testnet | `sq` | `sq1p...` (62 chars) |
 | Stagenet | `ssq` | `ssq1p...` (63 chars) |
 
-Every address is witness version 1, and its 32-byte witness program is the SHA-256 of the ML-DSA-44 public key. The node accepts only witness version 1 addresses as payment destinations.
+Every address a wallet derives is witness version 1, and its 32-byte witness program is the SHA-256 of the ML-DSA-44 public key. The node accepts only witness version 1 addresses as payment destinations.
+
+For an `OP_6 <32 bytes>` output, the decoded-script JSON of `getrawtransaction` with verbose output, `decoderawtransaction`, `decodescript`, `gettxout` and `getblock` at verbosity 2 carries `type` `witness_v6_covenant` and one entry in `addresses`, a Bech32m string with the version character `x` (`sq1x...`, on stagenet `ssq1x...`), and no `reqSigs`. `validateaddress` reports such a string as `"isvalid": false`, and `createrawtransaction` refuses it as an output. Such a string is not an address a wallet derives.
 
 ### Address Types
 

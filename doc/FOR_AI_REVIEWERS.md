@@ -55,8 +55,11 @@ is a hard fork, and until 2026-09 the genesis candidate carried exactly that
 doc/specifications/WITNESS_VERSION_FORK_CLASS.md). What bounds the window is that
 such outputs are NON-STANDARD until their deployment is active
 (src/policy/policy.cpp `IsStandard`, mask from `AcceptToMemoryPoolWorker`)
-and that no wallet or RPC path can construct a non-v1 address
-(src/utiladdress.cpp `DecodeDestination`). Only witness v2 (PAT) is
+and that `DecodeDestination` decodes witness v1 only (src/utiladdress.cpp),
+so no wallet or RPC path builds an output from an address of another witness
+version. The decoded-script output of the RPCs shows an address for a witness
+v6 output (src/rpc/rawtransaction.cpp `ScriptPubKeyToJSON`);
+`DecodeDestination` refuses that string. Only witness v2 (PAT) is
 consensus-unfundable, because its spend path binds nothing.
 
 If your scan reports "witness v5+ returns set_success, anyone can spend",
