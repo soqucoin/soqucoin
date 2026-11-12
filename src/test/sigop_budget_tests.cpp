@@ -187,9 +187,12 @@ BOOST_AUTO_TEST_CASE(block_weight_binds_before_the_sigop_budget)
 // MAX_SCRIPT_ELEMENT_SIZE, and the v6 opcode set has no opcode that copies a
 // stack item. So every executed check is paid for in witness bytes, and block
 // weight caps the verification work long before the sigop budget does. That is
-// why v6 carries no budget of its own, and this case is the record: it fails
-// if a signature or key size, a weight limit or a sigop limit moves, or if the
-// counter stops charging one unit for each check.
+// why v6 carries no budget of its own, and this case is the record. It fails
+// if a signature or key size changes, if a weight limit moves far enough to
+// change the number of checks a block or a standard transaction holds, if a
+// sigop limit falls far enough to lose one of the margins the case asserts, or
+// if the counter stops charging one unit for each check. A higher sigop limit
+// passes every assertion.
 //
 // The counter is static: it charges the opcode byte in a branch that is not
 // taken as well. That overcharges and never undercharges, a charged check

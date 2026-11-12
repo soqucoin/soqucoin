@@ -494,7 +494,11 @@ BOOST_AUTO_TEST_CASE(the_rule_reads_the_v6_bit_and_the_v6_inputs)
     BOOST_CHECK(!Standard(V6, above, allButV6 | V6_ACTIVE));
     BOOST_CHECK(IsWitnessStandard(SpendOf({V6}, {above}), view, V6_DORMANT));
 
-    // A witness v1 input whose witness is outside every v6 figure.
+    // A witness v1 input whose witness, read as a v6 witness, is outside the
+    // standard number of satisfaction items by one and outside the item
+    // lengths: every item is MAX_STANDARD_V6_ITEM_SIZE + 1 bytes, which the
+    // v6 rule admits for the witnessScript alone. The item in the
+    // witnessScript's place is inside MAX_STANDARD_V6_SCRIPT_SIZE.
     CScriptWitness outside;
     outside.stack.assign(MAX_STANDARD_V6_SATISFACTION_ITEMS + 3, valtype(MAX_STANDARD_V6_ITEM_SIZE + 1, 0x01));
     BOOST_CHECK(Standard(V1, outside, V6_ACTIVE));

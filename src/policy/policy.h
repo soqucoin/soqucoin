@@ -191,9 +191,13 @@ static const unsigned int STANDARD_LOCKTIME_VERIFY_FLAGS = LOCKTIME_VERIFY_SEQUE
  * such an output is a fund-loss path rather than a safe failure: it confirms, and
  * then anybody may spend it.
  *
- * The default of 0 means "nothing gated is active", which is the fail-safe
- * direction — an unknown activation state rejects rather than relays. Callers that
- * know the chain state (the mempool acceptance path) pass the real mask.
+ * IsStandard and IsStandardTx take a default of 0, "nothing gated is active".
+ * For them that is the fail-safe direction: with its bit clear an output of a
+ * gated version is non-standard, so an unknown activation state rejects rather
+ * than relays. IsWitnessStandard takes no default: there a clear bit 6 applies
+ * no v6 limit, so a mask of 0 would relay what the active rule refuses, and
+ * every caller states the mask. Callers that know the chain state (the mempool
+ * acceptance path) pass the real mask.
  */
 typedef uint32_t WitnessVersionMask;
 static inline WitnessVersionMask WitnessVersionBit(int version) { return (uint32_t)1 << version; }
