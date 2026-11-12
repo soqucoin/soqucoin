@@ -209,11 +209,10 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
     }
 
     // Witness v0 program of 32 bytes. The count of 2 below pins how the counter
-    // reads this output form: it takes the last witness item as a script and
-    // counts its signature opcodes (script/interpreter.cpp:1206-1218).
-    // VerifyScript reads the same form as a single-key output whose last
-    // witness item is the public key (script/interpreter.cpp:2056-2083), and
-    // refuses this three-item witness. The count is unrelated to what
+    // reads this output form: CountWitnessSigOps takes the last witness item as
+    // a script and counts its signature opcodes. VerifyScript reads the same
+    // form as a single-key output whose last witness item is the public key,
+    // and refuses this three-item witness. The count is unrelated to what
     // verification runs. Tracked as bead gbc4f.
     {
         CScript witnessScript = CScript() << 1 << ToByteVector(pubkey) << ToByteVector(pubkey) << 2 << OP_CHECKMULTISIGVERIFY;
