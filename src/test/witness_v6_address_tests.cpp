@@ -9,7 +9,8 @@
 // programs with their version 1 and version 6 addresses, and strings a decoder
 // must refuse, each with the first check it fails. Codecs outside this tree
 // read the same file, so it carries no script bytes: every script here is
-// built from the vector's program.
+// built from the vector's program. test/data/gen_witness_address_vectors.py
+// writes the file.
 //
 // Covered:
 //   * the file: its network map against chainparams, every valid string
@@ -22,7 +23,11 @@
 //   * createrawtransaction: the bytes it builds without the version argument,
 //     and the version argument;
 //   * decodescript, decoderawtransaction and gettxout printing the address of
-//     a version 6 output, the last two for an output mined in a regtest block.
+//     a version 6 output, the last two for an output mined in a regtest block,
+//     and the shape of that JSON: the type name, exactly one address, no
+//     reqSigs;
+//   * bech32::Decode and bech32::Encode on the Bech32m test strings BIP-350
+//     publishes.
 
 #include "base58.h"
 #include "bech32.h"
@@ -127,6 +132,14 @@ std::string Upper(const std::string& str)
     std::string out(str);
     for (char& c : out)
         if (c >= 'a' && c <= 'z') c = c - 'a' + 'A';
+    return out;
+}
+
+std::string Lower(const std::string& str)
+{
+    std::string out(str);
+    for (char& c : out)
+        if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
     return out;
 }
 
@@ -292,6 +305,20 @@ std::vector<std::string> ShownAddresses(const UniValue& scriptPubKey)
         for (size_t i = 0; i < addresses.size(); ++i)
             out.push_back(addresses[i].get_str());
     return out;
+}
+
+//! The shape of the decoded JSON of a version 6 output: the type name, exactly
+//! one entry in "addresses", and no "reqSigs" key.
+void CheckV6Shape(const UniValue& scriptPubKey, const std::string& where)
+{
+    const UniValue& type = find_value(scriptPubKey, "type");
+    BOOST_CHECK_MESSAGE(type.isStr() && type.get_str() == "witness_v6_covenant",
+        where + ": type is " + (type.isStr() ? type.get_str() : std::string("absent")) + ", expected witness_v6_covenant");
+    const UniValue& addresses = find_value(scriptPubKey, "addresses");
+    BOOST_CHECK_MESSAGE(addresses.isArray() && addresses.size() == 1,
+        where + ": addresses holds " + (addresses.isArray() ? std::to_string(addresses.size()) : std::string("no")) +
+        " entries, expected exactly one");
+    BOOST_CHECK_MESSAGE(!scriptPubKey.exists("reqSigs"), where + ": a version 6 output carries reqSigs");
 }
 
 const char* const TXID_A = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";
@@ -801,6 +828,14 @@ BOOST_FIXTURE_TEST_CASE(decodescript_shows_the_v6_address, TestingSetup)
             BOOST_CHECK_MESSAGE(shown.size() == 1 && shown[0] == v.address,
                 network + " decodescript of version " + std::to_string(v.version) + " shows " +
                 (shown.empty() ? std::string("no address") : shown[0]) + ", expected " + v.address);
+            if (v.version == 6) {
+                CheckV6Shape(decoded.value, network + " decodescript of " + v.address);
+            } else {
+                // A version 1 output is a destination and carries reqSigs.
+                const UniValue& req_sigs = find_value(decoded.value, "reqSigs");
+                BOOST_CHECK_MESSAGE(req_sigs.isNum() && req_sigs.get_int() == 1,
+                    network + " decodescript of " + v.address + ": reqSigs is not 1");
+            }
         }
         BOOST_CHECK_MESSAGE(run > 0, "no vector ran on " + network);
     }
@@ -869,6 +904,7 @@ BOOST_FIXTURE_TEST_CASE(mined_v6_outputs_show_their_addresses, DilithiumChainSet
         BOOST_CHECK_MESSAGE(shown.size() == 1 && shown[0] == vectors[i].address,
             "decoderawtransaction output " + std::to_string(i) + " shows " +
             (shown.empty() ? std::string("no address") : shown[0]) + ", expected " + vectors[i].address);
+        CheckV6Shape(spk, "decoderawtransaction output " + std::to_string(i));
 
         UniValue params(UniValue::VARR);
         params.push_back(funding.GetHash().GetHex());
@@ -883,6 +919,68 @@ BOOST_FIXTURE_TEST_CASE(mined_v6_outputs_show_their_addresses, DilithiumChainSet
         BOOST_CHECK_MESSAGE(shown.size() == 1 && shown[0] == vectors[i].address,
             "gettxout output " + std::to_string(i) + " shows " +
             (shown.empty() ? std::string("no address") : shown[0]) + ", expected " + vectors[i].address);
+        CheckV6Shape(coin_spk, "gettxout output " + std::to_string(i));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The Bech32m coder on the strings BIP-350 publishes
+// ---------------------------------------------------------------------------
+
+// The strings under "Test vectors for Bech32m" in BIP-350, copied from
+// https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki with the
+// reason the BIP gives for each invalid one. The BIP writes the first byte of
+// three invalid strings as 0x20, 0x7F and 0x80; they are the \x escapes here.
+// A valid string decodes as Bech32m and encodes back to its lower-case form;
+// an invalid string does not decode.
+BOOST_AUTO_TEST_CASE(bip350_bech32m_strings)
+{
+    const std::vector<std::string> valid = {
+        "A1LQFN3A",
+        "a1lqfn3a",
+        "an83characterlonghumanreadablepartthatcontainsthetheexcludedcharactersbioandnumber11sg7hg6",
+        "abcdef1l7aum6echk45nj3s0wdvt2fg8x9yrzpqzd3ryx",
+        "11llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllludsr8",
+        "split1checkupstagehandshakeupstreamerranterredcaperredlc445v",
+        "?1v759aa",
+    };
+    const std::vector<std::pair<std::string, std::string> > invalid = {
+        {"\x20" "1xj0phk", "HRP character out of range"},
+        {"\x7F" "1g6xzxy", "HRP character out of range"},
+        {"\x80" "1vctc34", "HRP character out of range"},
+        {"an84characterslonghumanreadablepartthatcontainsthetheexcludedcharactersbioandnumber11d6pts4", "overall max length exceeded"},
+        {"qyrz8wqd2c9m", "No separator character"},
+        {"1qyrz8wqd2c9m", "Empty HRP"},
+        {"y1b0jsk6g", "Invalid data character"},
+        {"lt1igcx5c0", "Invalid data character"},
+        {"in1muywd", "Too short checksum"},
+        {"mm1crxm3i", "Invalid character in checksum"},
+        {"au1s5cgom", "Invalid character in checksum"},
+        {"M1VUXWEZ", "checksum calculated with uppercase form of HRP"},
+        {"16plkw9", "empty HRP"},
+        {"1p2gdwpf", "empty HRP"},
+    };
+    BOOST_CHECK_EQUAL(valid.size(), 7u);
+    BOOST_CHECK_EQUAL(invalid.size(), 14u);
+
+    for (const std::string& str : valid) {
+        const bech32::DecodeResult dec = bech32::Decode(str);
+        BOOST_CHECK_MESSAGE(dec.encoding == bech32::Encoding::BECH32M, "not decoded as Bech32m: " + str);
+        if (dec.encoding != bech32::Encoding::BECH32M) continue;
+        // The parts: the prefix before the last separator, and the data
+        // characters less the six of the checksum.
+        const size_t separator = str.rfind('1');
+        BOOST_CHECK_EQUAL(dec.hrp, Lower(str.substr(0, separator)));
+        BOOST_CHECK_EQUAL(dec.data.size(), str.size() - separator - 1 - 6);
+        BOOST_CHECK_EQUAL(bech32::Encode(bech32::Encoding::BECH32M, dec.hrp, dec.data), Lower(str));
+        // The Bech32 checksum of the same parts gives another string.
+        BOOST_CHECK(bech32::Encode(bech32::Encoding::BECH32, dec.hrp, dec.data) != Lower(str));
+    }
+
+    for (const std::pair<std::string, std::string>& v : invalid) {
+        const bech32::DecodeResult dec = bech32::Decode(v.first);
+        BOOST_CHECK_MESSAGE(dec.encoding == bech32::Encoding::INVALID,
+            "decoded, bytes " + HexStr(v.first.begin(), v.first.end()) + " (" + v.second + ")");
     }
 }
 
