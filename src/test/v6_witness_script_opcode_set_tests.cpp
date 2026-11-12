@@ -11,9 +11,10 @@
 // VerifyScript's v6 branch therefore admits pushes and the handled set
 // and refuses every other byte with SCRIPT_ERR_DISALLOWED_OPCODE before
 // execution, in every branch and in every flag state in which the v6 branch
-// runs. The set is closed: admitting a byte later would be a loosening against
-// the release that refused it (doc/specifications/WITNESS_VERSION_FORK_CLASS.md
-// §3a), so a new opcode goes to a new witness version.
+// runs. The set is closed from the first release that carries this pre-scan: a
+// byte admitted after that release would be accepted where that release refuses
+// it, a loosening against it (doc/specifications/WITNESS_VERSION_FORK_CLASS.md
+// §3a), so from then on a new opcode goes to a new witness version.
 //
 // Two suites. The first walks every opcode byte at the VerifyScript level and
 // pins the set. The second drives a Bitcoin-shaped HTLC (HASH160 hashlock,
@@ -78,7 +79,7 @@ const unsigned int FULL = P2WSH | SCRIPT_VERIFY_DILITHIUM_KEYHASH | SCRIPT_VERIF
 //! Pushes (0x00 to OP_PUSHDATA4, OP_1 to OP_16) are checked separately.
 const opcodetype SET[] = {
     OP_IF, OP_NOTIF, OP_ELSE, OP_ENDIF,
-    OP_DROP, OP_EQUAL, OP_EQUALVERIFY, OP_SHA256,
+    OP_DROP, OP_SIZE, OP_EQUAL, OP_EQUALVERIFY, OP_SHA256,
     OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY,
     OP_CHECKDILITHIUMKEYHASH,
     OP_CHECKTEMPLATEVERIFY, OP_CHECKSIGFROMSTACK,
@@ -163,7 +164,7 @@ BOOST_AUTO_TEST_CASE(pushes_of_every_form_pass_the_scan)
         data.push_back(OP_CHECKSIG);
         data.push_back(OP_HASH160);
         data.push_back(OP_DUP);
-        data.push_back(OP_SIZE);
+        data.push_back(OP_RIPEMD160);
         BOOST_CHECK_EQUAL(VerdictFor(CScript() << data, FULL), SCRIPT_ERR_OK);
     }
 }
@@ -216,6 +217,7 @@ BOOST_AUTO_TEST_CASE(the_shipped_templates_are_inside_the_set)
     const valtype H(32, 0xab), khPayee(32, 0x55), khPayer(32, 0x66);
     CScript htlc;
     htlc << OP_IF
+           << OP_SIZE << CScriptNum(32) << OP_EQUALVERIFY
            << OP_SHA256 << H << OP_EQUALVERIFY << khPayee << OP_CHECKDILITHIUMKEYHASH << OP_1
          << OP_ELSE
            << CScriptNum(500) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << khPayer << OP_CHECKDILITHIUMKEYHASH << OP_1
