@@ -221,7 +221,7 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
      * at most, or has the length of a signature or of a public key. With the bit clear no v6 limit
      * applies.
      */
-bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions = 0);
+bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions);
 
 extern CFeeRate incrementalRelayFee;
 extern CFeeRate dustRelayFee;

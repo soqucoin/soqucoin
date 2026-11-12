@@ -476,10 +476,10 @@ BOOST_AUTO_TEST_CASE(the_template_witnesses_are_standard)
     BOOST_CHECK(Standard(V6, WitnessOf({sig, key, sig, key}, twoOfTwoBytes, Trailer()), V6_ACTIVE));
 }
 
-// The rule reads bit 6 of the mask and nothing else, the default mask is 0,
-// every input is read, and the rule applies to a 32-byte witness v6 program
-// alone: not to witness v1, not to the versions on either side of v6, and not
-// to a v6 version byte over a program of another length.
+// The rule reads bit 6 of the mask and nothing else, a mask of 0 applies no v6
+// limit, every input is read, and the rule applies to a 32-byte witness v6
+// program alone: not to witness v1, not to the versions on either side of v6,
+// and not to a v6 version byte over a program of another length.
 BOOST_AUTO_TEST_CASE(the_rule_reads_the_v6_bit_and_the_v6_inputs)
 {
     const CScriptWitness above =
@@ -492,7 +492,7 @@ BOOST_AUTO_TEST_CASE(the_rule_reads_the_v6_bit_and_the_v6_inputs)
     }
     BOOST_CHECK(Standard(V6, above, allButV6));
     BOOST_CHECK(!Standard(V6, above, allButV6 | V6_ACTIVE));
-    BOOST_CHECK(IsWitnessStandard(SpendOf({V6}, {above}), view));
+    BOOST_CHECK(IsWitnessStandard(SpendOf({V6}, {above}), view, V6_DORMANT));
 
     // A witness v1 input whose witness is outside every v6 figure.
     CScriptWitness outside;
