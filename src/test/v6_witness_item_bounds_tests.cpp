@@ -622,10 +622,14 @@ struct ItemBoundsChainSetup : public DilithiumChainSetup {
 
 std::string OrAccepted(const std::string& reason) { return reason.empty() ? std::string("accepted") : reason; }
 
-//! The reject reasons of the witness standardness check and of the mempool's
-//! script check, as AcceptToMemoryPool words them.
+//! The reject reason of the witness standardness check, as AcceptToMemoryPool
+//! words it, and the full reasons of the mempool's script check for an item
+//! above the consensus size and for a witness above the consensus number, as
+//! FormatStateMessage prints them: the mandatory wording, the text of the
+//! script error and the reject code.
 const std::string NONSTANDARD = "bad-witness-nonstandard";
-const std::string SCRIPT_CHECK = "script-verify-flag";
+const std::string ITEM_SIZE_REFUSAL = "mandatory-script-verify-flag-failed (Push value size limit exceeded) (code 16)";
+const std::string ITEM_NUMBER_REFUSAL = "mandatory-script-verify-flag-failed (Stack size limit exceeded) (code 16)";
 
 } // namespace
 
@@ -674,20 +678,19 @@ BOOST_AUTO_TEST_CASE(a_witness_outside_the_consensus_bound_is_refused_at_relay_a
 
     // At relay without it, as regtest and testnet run by default: the
     // mempool's script check holds the consensus bound alone. Each refusal is
-    // the script check's, and the spend beside it differs by one byte or one
-    // item; the first suite pins the two error codes.
+    // the script check's mandatory one, matched in full with the text of its
+    // script error, and the spend beside it differs by one byte or one item;
+    // the first suite pins the two error codes.
     {
         ScopedRequireStandard notRequired(false);
         r = Relay(itemAtBound);
         BOOST_CHECK_MESSAGE(r.empty(), "an item at the size must pass the mempool's script check; got: " << r);
         r = Relay(itemAbove);
-        BOOST_CHECK_MESSAGE(r.find(SCRIPT_CHECK) != std::string::npos,
-            "an item above the size must be refused by the mempool's script check; got: " << OrAccepted(r));
+        BOOST_CHECK_EQUAL(r, ITEM_SIZE_REFUSAL);
         r = Relay(numberAtBound);
         BOOST_CHECK_MESSAGE(r.empty(), "the full number of items must pass the mempool's script check; got: " << r);
         r = Relay(numberAbove);
-        BOOST_CHECK_MESSAGE(r.find(SCRIPT_CHECK) != std::string::npos,
-            "one item too many must be refused by the mempool's script check; got: " << OrAccepted(r));
+        BOOST_CHECK_EQUAL(r, ITEM_NUMBER_REFUSAL);
     }
 }
 
