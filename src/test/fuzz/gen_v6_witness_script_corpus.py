@@ -156,6 +156,7 @@ def two_of_two(a, b):
 
 def htlc(hashlock, kh_payee, kh_payer, cltv=500):
     return ops(OP_IF,
+               OP_SIZE, num(32), OP_EQUALVERIFY,
                OP_SHA256, push(hashlock), OP_EQUALVERIFY, push(kh_payee), OP_CDKH, op(1),
                OP_ELSE,
                num(cltv), OP_CLTV, OP_DROP, push(kh_payer), OP_CDKH, op(1),
@@ -177,9 +178,19 @@ FALSE = b""
 # The templates with keyhashes of the stand-in keys, so the keyhash check can pass.
 HTLC = htlc(sha256(PREIMAGE), keyhash(1), keyhash(2))
 ELTOO = eltoo(keyhash(1), keyhash(2), keyhash(3), keyhash(4))
-# The templates byte for byte as b1_script_vectors emits them.
+# The templates byte for byte as b1_script_vectors emits them. The two hex
+# strings are the ones that case asserts.
 HTLC_B1 = htlc(bytes([0xab]) * 32, bytes([0x55]) * 32, bytes([0x66]) * 32)
 ELTOO_B1 = eltoo(bytes([0x11]) * 32, bytes([0x22]) * 32, bytes([0x33]) * 32, bytes([0x44]) * 32)
+assert HTLC_B1.hex() == (
+    "6382012088a820abababababababababababababababababababababababababababababababab88"
+    "205555555555555555555555555555555555555555555555555555555555555555b6516702f401b175"
+    "206666666666666666666666666666666666666666666666666666666666666666b65168"), "HTLC_B1 differs from b1_script_vectors"
+assert ELTOO_B1.hex() == (
+    "6303c12709b175202222222222222222222222222222222222222222222222222222222222222222b6"
+    "201111111111111111111111111111111111111111111111111111111111111111b65167022001b275"
+    "204444444444444444444444444444444444444444444444444444444444444444b6"
+    "203333333333333333333333333333333333333333333333333333333333333333b65168"), "ELTOO_B1 differs from b1_script_vectors"
 
 HTLC_CLAIM = [sig(1), key(1), PREIMAGE, TRUE]
 HTLC_REFUND = [sig(2), key(2), FALSE]
@@ -215,6 +226,8 @@ SEEDS = [
     ("htlc_claim", seed(ALL, A, HTLC, HTLC_CLAIM)),
     ("htlc_claim_signature_refused", seed(ALL, R, HTLC, HTLC_CLAIM)),
     ("htlc_claim_other_preimage", seed(ALL, A, HTLC, [sig(1), key(1), bytes([0x08]) * 32, TRUE])),
+    ("htlc_claim_preimage_33_bytes", seed(ALL, A, HTLC, [sig(1), key(1), PREIMAGE + bytes([0x07]), TRUE])),
+    ("htlc_claim_preimage_31_bytes", seed(ALL, A, HTLC, [sig(1), key(1), PREIMAGE[:31], TRUE])),
     ("htlc_refund", seed(ALL, A, HTLC, HTLC_REFUND, locktime=500, sequence=SEQUENCE_FINAL - 1)),
     ("htlc_refund_one_block_early", seed(ALL, A, HTLC, HTLC_REFUND, locktime=499, sequence=SEQUENCE_FINAL - 1)),
     ("htlc_refund_final_sequence", seed(ALL, A, HTLC, HTLC_REFUND, locktime=500, sequence=SEQUENCE_FINAL)),
@@ -227,7 +240,10 @@ SEEDS = [
     ("eltoo_settlement_disable_flag", seed(ALL, A, ELTOO, ELTOO_SETTLE, version=2, sequence=SEQUENCE_DISABLE | 288)),
     ("eltoo_settlement_one_block_short", seed(ALL, A, ELTOO, ELTOO_SETTLE, version=2, sequence=287)),
     ("eltoo_b1_vector", seed(ALL, A, ELTOO_B1, ELTOO_SETTLE, version=2, sequence=288)),
-    # Timelocks and the hashlock on their own.
+    # Timelocks, the hashlock and the length check on their own.
+    ("size_32_bytes", seed(ALL, R, ops(OP_SIZE, num(32), OP_EQUALVERIFY, OP_DROP, op(1)), [PREIMAGE])),
+    ("size_33_bytes", seed(ALL, R, ops(OP_SIZE, num(32), OP_EQUALVERIFY, OP_DROP, op(1)), [PREIMAGE + bytes([0x07])])),
+    ("size_controlflow_clear", seed(P2WSH, R, ops(OP_SIZE, num(32), OP_EQUALVERIFY, OP_DROP, op(1)), [PREIMAGE + bytes([0x07])])),
     ("csv_delay", seed(ALL, R, ops(num(20), OP_CSV, OP_DROP, op(1)), version=2, sequence=20)),
     ("csv_operand_not_minimal", seed(ALL, R, ops(push(bytes([0x14, 0x00])), OP_CSV, OP_DROP, op(1)), version=2, sequence=20)),
     ("csv_operand_negative", seed(ALL, R, ops(num(-1), OP_CSV, OP_DROP, op(1)), version=2, sequence=20)),
@@ -237,9 +253,8 @@ SEEDS = [
     ("opcode_bitcoin_htlc", seed(ALL, R, BITCOIN_HTLC)),
     ("opcode_in_branch_not_taken", seed(ALL, R, ops(OP_0, OP_IF, OP_CHECKSIG, OP_ENDIF, op(1)))),
     ("opcode_1negate", seed(ALL, R, ops(OP_1NEGATE))),
-    ("opcode_size", seed(ALL, R, ops(op(1), OP_SIZE))),
     ("opcode_checkpatagg", seed(ALL, R, ops(op(1), OP_CHECKPATAGG))),
-    ("opcode_bytes_inside_a_push", seed(ALL, R, ops(push(bytes([OP_CHECKSIG, OP_HASH160, OP_DUP, OP_SIZE])), OP_DROP, op(1)))),
+    ("opcode_bytes_inside_a_push", seed(ALL, R, ops(push(bytes([OP_CHECKSIG, OP_HASH160, OP_DUP, OP_1NEGATE])), OP_DROP, op(1)))),
     ("script_ends_inside_a_push", seed(ALL, R, bytes([OP_PUSHDATA2, 0xff]))),
     # Push encodings.
     ("push_pushdata1", seed(ALL, R, ops(push(bytes([0x01]) * 100), OP_DROP, op(1)))),
