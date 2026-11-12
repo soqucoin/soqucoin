@@ -60,6 +60,8 @@ const char* ScriptErrorString(const ScriptError serror)
         return "LatticeFold proof verification failed";
     case SCRIPT_ERR_SCRIPT_SIZE:
         return "Script is too big";
+    case SCRIPT_ERR_PUSH_SIZE:
+        return "Push value size limit exceeded";
     case SCRIPT_ERR_DISALLOWED_OUTPUT_TYPE:
         return "Output type not allowed (must be Dilithium bech32m)";
     case SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO:

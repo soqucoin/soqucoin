@@ -1280,6 +1280,23 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
     return 0;
 }
 
+// Holds the witness items in [itemsBegin, itemsEnd) to maxItems in number and
+// to maxItemSize bytes each. A witness version passes the items it is about to
+// copy onto the execution stack and its own two figures. Fails with
+// SCRIPT_ERR_STACK_SIZE on the number and SCRIPT_ERR_PUSH_SIZE on a size.
+static bool CheckWitnessItemBounds(std::vector<valtype>::const_iterator itemsBegin,
+                                   std::vector<valtype>::const_iterator itemsEnd,
+                                   size_t maxItems, size_t maxItemSize, ScriptError* serror)
+{
+    if (static_cast<size_t>(itemsEnd - itemsBegin) > maxItems)
+        return set_error(serror, SCRIPT_ERR_STACK_SIZE);
+    for (std::vector<valtype>::const_iterator it = itemsBegin; it != itemsEnd; ++it) {
+        if (it->size() > maxItemSize)
+            return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+    }
+    return true;
+}
+
 PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& tx)
 {
     // Precompute hashPrevouts (BIP143 step 2)
@@ -1901,6 +1918,14 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         // Enforce MAX_SCRIPT_SIZE on the witnessScript to prevent DoS
         if (witnessScriptBytes.size() > MAX_SCRIPT_SIZE) {
             return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
+        }
+
+        // Hold the satisfaction items, the range copied below, to
+        // MAX_V6_SATISFACTION_ITEMS in number and MAX_V6_SATISFACTION_ITEM_SIZE
+        // bytes each before any of them is copied
+        if (!CheckWitnessItemBounds(witness->stack.begin(), witness->stack.begin() + (stackSize - 2),
+                                    MAX_V6_SATISFACTION_ITEMS, MAX_V6_SATISFACTION_ITEM_SIZE, serror)) {
+            return false;  // serror already set by CheckWitnessItemBounds
         }
 
         // Build the EvalScript stack: satisfaction items only (exclude witnessScript and pubkey)
