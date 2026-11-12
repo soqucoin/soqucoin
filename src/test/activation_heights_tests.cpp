@@ -56,6 +56,25 @@ struct RegtestHeight {
     RegtestHeight(Consensus::DeploymentPos posIn, int nHeight) : pos(posIn) { UpdateRegtestActivationHeight(pos, nHeight); }
     ~RegtestHeight() { UpdateRegtestActivationHeight(pos, 0); }
 };
+
+// Parameters of two tiers that hold different heights for one deployment, a
+// state no network is in (genesis_chainparams_tests,
+// f8_deployment_posture_is_uniform_across_consensus_tiers). The root tier
+// validates the heights below nUpperFrom and the upper tier the others.
+struct TwoTierParams : public CChainParams {
+    Consensus::Params upper;
+    TwoTierParams(Consensus::DeploymentPos pos, int nRootHeight, int nUpperHeight, uint32_t nUpperFrom)
+    {
+        consensus = Consensus::Params();
+        consensus.nHeightEffective = 0;
+        consensus.vDeployments[pos].nActivationHeight = nRootHeight;
+        upper = consensus;
+        upper.nHeightEffective = nUpperFrom;
+        upper.vDeployments[pos].nActivationHeight = nUpperHeight;
+        consensus.pRight = &upper;
+        pConsensusRoot = &consensus;
+    }
+};
 } // namespace
 
 BOOST_AUTO_TEST_SUITE(activation_heights_tests)
@@ -111,6 +130,35 @@ BOOST_FIXTURE_TEST_CASE(reported_height_follows_the_regtest_setter, BasicTesting
         }
     }
     BOOST_CHECK_EQUAL(ReportedActivationHeight(params, pos), 0);
+}
+
+// The number is read in the tier that validates the height the root tier
+// stores, the struct ConnectBlock consults for a block at that height.
+BOOST_AUTO_TEST_CASE(reported_height_is_read_in_the_tier_that_validates_it)
+{
+    const int kProbes[] = {0, 19, 20, 49, 50, 59, 60, 61, kNotScheduled};
+
+    for (const Consensus::DeploymentPos pos : REPORTED_ACTIVATION_HEIGHTS) {
+        // The root tier stores 50, or no height, and the upper tier, which
+        // validates from height 20, stores 60: 60 is enforced and reported.
+        for (const int nRootHeight : {50, kNotScheduled}) {
+            const TwoTierParams params(pos, nRootHeight, 60, 20);
+            BOOST_CHECK_EQUAL(ReportedActivationHeight(params, pos), 60);
+            for (const int nHeight : kProbes) {
+                BOOST_CHECK_MESSAGE(
+                    Consensus::DeploymentActiveAtHeight(nHeight, params.GetConsensus(nHeight), pos) == (nHeight >= 60),
+                    "root tier " << nRootHeight << ": " << VersionBitsDeploymentInfo[pos].name << " at height " << nHeight);
+            }
+        }
+        // The root tier stores 5, a height it validates itself: 5 is the
+        // first height the deployment is active at, and is reported.
+        {
+            const TwoTierParams params(pos, 5, 60, 20);
+            BOOST_CHECK_EQUAL(ReportedActivationHeight(params, pos), 5);
+            BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(4, params.GetConsensus(4), pos));
+            BOOST_CHECK(Consensus::DeploymentActiveAtHeight(5, params.GetConsensus(5), pos));
+        }
+    }
 }
 
 // The object getblockchaininfo returns on each network, from a chain state

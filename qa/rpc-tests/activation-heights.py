@@ -14,14 +14,14 @@
 # holds for the three reported here and which the JSON prints as it is.
 #
 # Covered: the number and the startup line for a height, for 2147483647, for
-# regtest's default of 0 and for three different heights on one node; the
-# first block the rule is enforced in, with a witness v6 output whose witness
-# script is not the committed one, spent in a block at the height minus one
-# and refused in a block at the height, by the block check and by the mempool,
-# which judges for the next block; the same block accepted by a node that
-# holds no height; and the argument's refusals: a name the node does not
-# report, a malformed value, a height out of range, one deployment named
-# twice, and any network other than regtest.
+# regtest's default of 0, for a given 0 and for three different heights on one
+# node; the first block the rule is enforced in, with a witness v6 output
+# whose witness script is not the committed one, spent in a block at the
+# height minus one and refused in a block at the height, by the block check
+# and by the mempool, which judges for the next block; the same block accepted
+# by a node that holds no height; and the argument's refusals: a name the node
+# does not report, a malformed value, a height out of range, one deployment
+# named twice, and any network other than regtest.
 #
 
 import hashlib
@@ -131,15 +131,18 @@ class ActivationHeightsTest(BitcoinTestFramework):
             stop_node(node, i)
         return reported, self.debug_log(i)
 
-    def refused(self, i, args):
-        """Starts a further node with args, which soqucoind must refuse during
+    def refused(self, i, args, conf=()):
+        """Starts a further node with args, and with the lines of conf added
+        to its configuration file, which soqucoind must refuse during
         initialization, and returns what it printed. The refusal is printed
         on the daemon's stderr before its log opens, so stderr is captured to
         a file for the call (the test runner fails any test whose own stderr
         is not empty). No process of the node outlives the call: its entry
         leaves the process map, which the framework's teardown expects to be
         empty, and a process still alive is ended."""
-        initialize_datadir(self.options.tmpdir, i)
+        datadir = initialize_datadir(self.options.tmpdir, i)
+        with open(os.path.join(datadir, "soqucoin.conf"), "a", encoding="utf8") as f:
+            f.writelines(line + "\n" for line in conf)
         stderr_path = os.path.join(self.options.tmpdir, "node%d-stderr.txt" % i)
         started = False
         saved_stderr = os.dup(2)
@@ -254,6 +257,12 @@ class ActivationHeightsTest(BitcoinTestFramework):
         assert_equal(reported, heights(11, NOT_SCHEDULED, 13))
         for line in startup_lines(11, NOT_SCHEDULED, 13):
             assert_equal(log.count(line), 1)
+        #    0 is the lowest height the argument takes: a node given 0 for
+        #    the three starts and reports 0.
+        reported, log = self.started_then_stopped(5, arguments(0, 0, 0))
+        assert_equal(reported, heights(0, 0, 0))
+        for line in startup_lines(0, 0, 0):
+            assert_equal(log.count(line), 1)
 
         # 7. The argument's refusals on regtest. A name must be one the node
         #    reports: "usdsoq" and "segwit" are deployments, and are refused
@@ -268,9 +277,13 @@ class ActivationHeightsTest(BitcoinTestFramework):
                       "p2wsh_dilithium:-1", "p2wsh_dilithium:-2147483648", "p2wsh_dilithium:2147483648", ""):
             assert "Invalid -activationheight (%s): expected <deployment>:<height>" % value in self.refused(4, ["-activationheight=" + value])
         assert "Invalid -activationheight (0): expected <deployment>:<height>" in self.refused(4, ["-noactivationheight"])
-        #    One deployment is named once.
+        #    One deployment is named once, on the command line and in the
+        #    configuration file together. The file's values are read after
+        #    the command line's, so the refusal names the file's.
         assert ("Invalid -activationheight (p2wsh_dilithium:6): the deployment is named more than once"
                 in self.refused(4, ["-activationheight=p2wsh_dilithium:5", "-activationheight=p2wsh_dilithium:6"]))
+        assert ("Invalid -activationheight (p2wsh_dilithium:5): the deployment is named more than once"
+                in self.refused(4, ["-activationheight=p2wsh_dilithium:6"], conf=["activationheight=p2wsh_dilithium:5"]))
 
         # 8. The argument is refused on every other network, before any value
         #    is read. Each of these processes also carries
