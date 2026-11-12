@@ -173,9 +173,12 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
 
         // Witness versions 1 to 5 cost one signature operation per input.
         BOOST_CHECK(scriptPubKey[0] == 0x00);
-        scriptPubKey[0] = 0x51;
-        BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
-        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 1);
+        for (int version = 1; version <= 5; version++) {
+            scriptPubKey[0] = 0x50 + version;
+            BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
+            const int64_t cost = GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags);
+            BOOST_CHECK_MESSAGE(cost == 1, "witness version " << version << " costs " << cost << " signature operations, expected 1");
+        }
 
         // The sig op cost for an unallocated witness version is zero.
         scriptPubKey[0] = 0x60;
@@ -205,7 +208,13 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
         BOOST_CHECK_EQUAL(VerifyWithFlag(creationTx, spendingTx, flags), SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
-    // Witness v0 program of 32 bytes
+    // Witness v0 program of 32 bytes. The count of 2 below pins how the counter
+    // reads this output form: it takes the last witness item as a script and
+    // counts its signature opcodes (script/interpreter.cpp:1206-1218).
+    // VerifyScript reads the same form as a single-key output whose last
+    // witness item is the public key (script/interpreter.cpp:2056-2083), and
+    // refuses this three-item witness. The count is unrelated to what
+    // verification runs. Tracked as bead gbc4f.
     {
         CScript witnessScript = CScript() << 1 << ToByteVector(pubkey) << ToByteVector(pubkey) << 2 << OP_CHECKMULTISIGVERIFY;
         CScript scriptPubKey = GetScriptForWitness(witnessScript);

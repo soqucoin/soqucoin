@@ -4,11 +4,12 @@
 // dilithium_chain_setup.h — a regtest chain fixture that drives REAL blocks
 // through ConnectBlock, shared by the consensus reject-path suites.
 //
-// Four near-identical copies of this fixture already exist
-// (usdsoq_v7_conservation_harness, freeze_registry_harness,
-// btcsoq_lifecycle_harness, and one inside usdsoq_v10_reject_path). This header
-// exists so the count stops growing; the pre-existing three are deliberately
-// left alone rather than churned.
+// Five built test files hold a near-identical copy of this fixture, each with
+// its own CreateAndProcessBlock (usdsoq_v7_conservation_harness,
+// freeze_registry_harness, btcsoq_lifecycle_harness, authority_skip_gate and
+// the first suite of keyhash_broadcast_tests); the copy that was inside
+// usdsoq_v10_reject_path moved here. This header exists so the count stops
+// growing; the five are left as they are rather than churned.
 //
 // Two capabilities here are load-bearing and are the reason several consensus
 // rules went untested for so long:
