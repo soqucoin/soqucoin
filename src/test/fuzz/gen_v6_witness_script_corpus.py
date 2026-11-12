@@ -288,6 +288,13 @@ SEEDS = [
     # Sizes.
     ("script_10000_bytes", seed(ALL, R, ops(op(1), OP_DROP) * 4998 + ops(OP_0, OP_NOTIF, op(1), OP_ENDIF))),
     ("script_10001_bytes", seed(ALL, R, ops(op(1), OP_DROP) * 5000 + ops(op(1)))),
+    # A satisfaction item is MAX_V6_SATISFACTION_ITEM_SIZE bytes at most, 2,421
+    # (script/script.h): the first item below is at the bound, the two after it
+    # are above it, and their witnesses are refused before the script runs. The
+    # layout counts the items in one byte, so the bound on their number,
+    # MAX_V6_SATISFACTION_ITEMS, 1,000, is outside what an input can state.
+    ("witness_item_2421_bytes", seed(ALL, R, ops(OP_DROP, op(1)), [bytes([0x5a]) * 2421])),
+    ("witness_item_2422_bytes", seed(ALL, R, ops(OP_DROP, op(1)), [bytes([0x5a]) * 2422])),
     ("witness_item_3000_bytes", seed(ALL, R, ops(OP_DROP, op(1)), [bytes([0x5a]) * 3000])),
     ("witness_64_items", seed(ALL, R, bytes([OP_DROP]) * 64 + ops(op(1)), [bytes([i]) for i in range(64)])),
 ]
