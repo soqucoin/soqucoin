@@ -133,12 +133,13 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
         // Legacy counting only includes signature operations in scriptSigs and scriptPubKeys
         // of a transaction and does not take the actual executed sig operations into account.
         // spendingTx in itself does not contain a signature operation.
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 0);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 0);
         // creationTx contains two signature operations in its scriptPubKey, but legacy counting
         // is not accurate.
-        assert(GetTransactionSigOpCost(CTransaction(creationTx), coins, flags) == MAX_PUBKEYS_PER_MULTISIG * WITNESS_SCALE_FACTOR);
-        // Sanity check: script verification fails because of an invalid signature.
-        assert(VerifyWithFlag(creationTx, spendingTx, flags) == SCRIPT_ERR_CHECKMULTISIGVERIFY);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(creationTx), coins, flags), MAX_PUBKEYS_PER_MULTISIG * WITNESS_SCALE_FACTOR);
+        // VerifyScript accepts witness programs and OP_RETURN outputs only; a bare
+        // multisig output is refused before any script runs.
+        BOOST_CHECK_EQUAL(VerifyWithFlag(creationTx, spendingTx, flags), SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
     // Multisig nested in P2SH
@@ -148,43 +149,54 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
         CScript scriptSig = CScript() << OP_0 << OP_0 << ToByteVector(redeemScript);
 
         BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, CScriptWitness());
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 2 * WITNESS_SCALE_FACTOR);
-        assert(VerifyWithFlag(creationTx, spendingTx, flags) == SCRIPT_ERR_CHECKMULTISIGVERIFY);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 2 * WITNESS_SCALE_FACTOR);
+        // A P2SH output is refused the same way.
+        BOOST_CHECK_EQUAL(VerifyWithFlag(creationTx, spendingTx, flags), SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
-    // P2WPKH witness program
+    // Witness v0 program of 20 bytes. GetScriptForWitness derives one from a
+    // pay-to-pubkey script with a key of 33 to 65 bytes only, so the program is
+    // written out here.
     {
-        CScript p2pk = CScript() << ToByteVector(pubkey) << OP_CHECKSIG;
-        CScript scriptPubKey = GetScriptForWitness(p2pk);
+        CScript scriptPubKey = CScript() << OP_0 << ToByteVector(uint160());
         CScript scriptSig = CScript();
         CScriptWitness scriptWitness;
         scriptWitness.stack.push_back(std::vector<unsigned char>(0));
         scriptWitness.stack.push_back(std::vector<unsigned char>(0));
 
-
         BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 1);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 1);
         // No signature operations if we don't verify the witness.
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags & ~SCRIPT_VERIFY_WITNESS) == 0);
-        assert(VerifyWithFlag(creationTx, spendingTx, flags) == SCRIPT_ERR_EQUALVERIFY);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags & ~SCRIPT_VERIFY_WITNESS), 0);
+        // VerifyScript accepts witness programs of 32 bytes only.
+        BOOST_CHECK_EQUAL(VerifyWithFlag(creationTx, spendingTx, flags), SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
 
-        // The sig op cost for witness version != 0 is zero.
-        assert(scriptPubKey[0] == 0x00);
-        scriptPubKey[0] = 0x51;
+        // Witness versions 1 to 5 cost one signature operation per input.
+        BOOST_CHECK(scriptPubKey[0] == 0x00);
+        for (int version = 1; version <= 5; version++) {
+            scriptPubKey[0] = 0x50 + version;
+            BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
+            const int64_t cost = GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags);
+            BOOST_CHECK_MESSAGE(cost == 1, "witness version " << version << " costs " << cost << " signature operations, expected 1");
+        }
+
+        // The sig op cost for an unallocated witness version is zero.
+        scriptPubKey[0] = 0x60;
         BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 0);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 0);
         scriptPubKey[0] = 0x00;
         BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
 
         // The witness of a coinbase transaction is not taken into account.
         spendingTx.vin[0].prevout.SetNull();
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 0);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 0);
     }
 
-    // P2WPKH nested in P2SH
+    // Witness v0 program of 20 bytes nested in P2SH. CountWitnessSigOps reads a
+    // witness program in the scriptPubKey only, and the redeem script holds no
+    // signature operation.
     {
-        CScript p2pk = CScript() << ToByteVector(pubkey) << OP_CHECKSIG;
-        CScript scriptSig = GetScriptForWitness(p2pk);
+        CScript scriptSig = CScript() << OP_0 << ToByteVector(uint160());
         CScript scriptPubKey = GetScriptForDestination(CScriptID(scriptSig));
         scriptSig = CScript() << ToByteVector(scriptSig);
         CScriptWitness scriptWitness;
@@ -192,11 +204,16 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
         scriptWitness.stack.push_back(std::vector<unsigned char>(0));
 
         BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 1);
-        assert(VerifyWithFlag(creationTx, spendingTx, flags) == SCRIPT_ERR_EQUALVERIFY);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 0);
+        BOOST_CHECK_EQUAL(VerifyWithFlag(creationTx, spendingTx, flags), SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
-    // P2WSH witness program
+    // Witness v0 program of 32 bytes. The count of 2 below pins how the counter
+    // reads this output form: CountWitnessSigOps takes the last witness item as
+    // a script and counts its signature opcodes. VerifyScript reads the same
+    // form as a single-key output whose last witness item is the public key,
+    // and refuses this three-item witness. The count is unrelated to what
+    // verification runs. Tracked as bead gbc4f.
     {
         CScript witnessScript = CScript() << 1 << ToByteVector(pubkey) << ToByteVector(pubkey) << 2 << OP_CHECKMULTISIGVERIFY;
         CScript scriptPubKey = GetScriptForWitness(witnessScript);
@@ -207,12 +224,13 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
         scriptWitness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));
 
         BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 2);
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags & ~SCRIPT_VERIFY_WITNESS) == 0);
-        assert(VerifyWithFlag(creationTx, spendingTx, flags) == SCRIPT_ERR_CHECKMULTISIGVERIFY);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 2);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags & ~SCRIPT_VERIFY_WITNESS), 0);
+        // A witness of three items does not match a v0 program of 32 bytes.
+        BOOST_CHECK_EQUAL(VerifyWithFlag(creationTx, spendingTx, flags), SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
     }
 
-    // P2WSH nested in P2SH
+    // Witness v0 program of 32 bytes nested in P2SH
     {
         CScript witnessScript = CScript() << 1 << ToByteVector(pubkey) << ToByteVector(pubkey) << 2 << OP_CHECKMULTISIGVERIFY;
         CScript redeemScript = GetScriptForWitness(witnessScript);
@@ -224,8 +242,8 @@ BOOST_AUTO_TEST_CASE(GetTxSigOpCost)
         scriptWitness.stack.push_back(std::vector<unsigned char>(witnessScript.begin(), witnessScript.end()));
 
         BuildTxs(spendingTx, coins, creationTx, scriptPubKey, scriptSig, scriptWitness);
-        assert(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags) == 2);
-        assert(VerifyWithFlag(creationTx, spendingTx, flags) == SCRIPT_ERR_CHECKMULTISIGVERIFY);
+        BOOST_CHECK_EQUAL(GetTransactionSigOpCost(CTransaction(spendingTx), coins, flags), 0);
+        BOOST_CHECK_EQUAL(VerifyWithFlag(creationTx, spendingTx, flags), SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 }
 
