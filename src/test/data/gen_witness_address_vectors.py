@@ -258,14 +258,14 @@ def main():
     description = [
         "Witness address vectors: bech32m (BIP-350), one witness version character, a 32-byte program.",
         "networks maps each network name to its address prefix.",
-        "valid: on a network with this prefix, the program at this witness version encodes to this address, "
-        "and the address decodes to the program. program is hex in the order the bytes sit in the output "
-        "script; the script is the version opcode (OP_1 = 0x51, OP_6 = 0x56), the push 0x20, the program.",
+        ("valid: on a network with this prefix, the program at this witness version encodes to this address, " +
+         "and the address decodes to the program. program is hex in the order the bytes sit in the output " +
+         "script; the script is the version opcode (OP_1 = 0x51, OP_6 = 0x56), the push 0x20, the program."),
         "The encoder writes lower case. A decoder also accepts a valid address written entirely in upper case.",
-        "invalid: a decoder for this witness version on a network with this prefix refuses the address. "
-        "reason names the first check the string fails, in this order: empty, whitespace, mixed_case, "
-        "length_over_90, separator_missing, prefix_empty, checksum_short, character, checksum_bech32, "
-        "checksum, prefix, version, padding, program_length.",
+        ("invalid: a decoder for this witness version on a network with this prefix refuses the address. " +
+         "reason names the first check the string fails, in this order: empty, whitespace, mixed_case, " +
+         "length_over_90, separator_missing, prefix_empty, checksum_short, character, checksum_bech32, " +
+         "checksum, prefix, version, padding, program_length."),
     ]
 
     lines = ["{"]
