@@ -17,11 +17,17 @@
 //     rebuilt with bech32::Encode and a bit conversion written here, every
 //     invalid string's reason recomputed here;
 //   * version 1: EncodeDestination and DecodeDestination on every vector, and
-//     DecodeDestination, validateaddress and createrawtransaction refusing
-//     every version 6 address;
+//     DecodeDestination and validateaddress refusing every version 6 address;
 //   * version 6: EncodeWitnessV6Address and DecodeWitnessV6Address;
 //   * createrawtransaction: the bytes it builds without the version argument,
 //     and the version argument;
+//   * createrawtransaction and a version 6 address: refused with an error of
+//     its own while the version 6 deployment is dormant at the next block
+//     height, built as OP_6 and the program once it is active there; the
+//     boundary on a mined chain, where the mempool gives the same answer for
+//     the same output at every tip; the shipped parameters of each network;
+//     every other string of the vector file refused as no address in either
+//     state;
 //   * decodescript, decoderawtransaction and gettxout printing the address of
 //     a version 6 output, the last two for an output mined in a regtest block,
 //     and the shape of that JSON: the type name, exactly one address, no
@@ -32,7 +38,10 @@
 #include "base58.h"
 #include "bech32.h"
 #include "chainparams.h"
+#include "consensus/params.h"
+#include "consensus/validation.h"
 #include "core_io.h"
+#include "crypto/sha256.h"
 #include "primitives/transaction.h"
 #include "rpc/client.h"
 #include "rpc/protocol.h"
@@ -41,8 +50,10 @@
 #include "script/standard.h"
 #include "test/dilithium_chain_setup.h"
 #include "test/test_bitcoin.h"
+#include "test/testutil.h"
 #include "utiladdress.h"
 #include "utilstrencodings.h"
+#include "validation.h"
 
 #include "data/witness_address_vectors.json.h"
 
@@ -285,15 +296,28 @@ UniValue Params1(const std::string& only)
     return params;
 }
 
-//! Parameters of createrawtransaction paying 1 coin to `address` from no input.
-UniValue PayTo(const std::string& address)
+//! Parameters of createrawtransaction spending output 0 of `txid` to `address`.
+UniValue SpendTo(const std::string& txid, const std::string& address, CAmount amount)
 {
+    UniValue input(UniValue::VOBJ);
+    input.pushKV("txid", txid);
+    input.pushKV("vout", 0);
+    UniValue inputs(UniValue::VARR);
+    inputs.push_back(input);
     UniValue outputs(UniValue::VOBJ);
-    outputs.pushKV(address, 1);
+    outputs.pushKV(address, ValueFromAmount(amount));
     UniValue params(UniValue::VARR);
-    params.push_back(UniValue(UniValue::VARR));
+    params.push_back(inputs);
     params.push_back(outputs);
     return params;
+}
+
+//! The error createrawtransaction gives for a version 6 address while the
+//! version 6 deployment is dormant at `next_height`.
+std::string DormantMessage(int next_height, const std::string& address)
+{
+    return "Invalid parameter, witness version 6 is not active at the next block height (" +
+           std::to_string(next_height) + "): " + address;
 }
 
 //! The "addresses" a decoded script shows, or an empty list when it shows none.
@@ -333,6 +357,63 @@ std::string SequentialV1Address(const VectorFile& file, const std::string& prefi
         if (v.prefix == prefix && v.version == 1 && v.program == program) return v.address;
     BOOST_FAIL("the vector file has no version 1 vector for the program 00..1f on " + prefix);
     return std::string();
+}
+
+//! Whether `str` is an address of `version` on a network with `prefix`, by the
+//! checks written in this file; its program when it is.
+bool IsAddressOf(const std::string& str, const std::string& prefix, int version, std::vector<unsigned char>& program)
+{
+    return FirstFailedCheck(str, prefix, version).empty() && FromGroups(bech32::Decode(str).data, 1, program);
+}
+
+//! Every string of the vector file, the valid ones in both cases, as the one
+//! output of createrawtransaction on the selected network, whose next block
+//! height is `next_height`. A version 1 address of the network builds its
+//! output. A version 6 address of the network builds its output when
+//! `v6_active` and is refused with the dormant error otherwise. Every other
+//! string is refused as no address.
+void CheckEveryVectorString(const VectorFile& file, const std::string& where, bool v6_active, int next_height)
+{
+    const std::string hrp = Params().Bech32HRP();
+    std::vector<std::string> strings;
+    for (const ValidVector& v : file.valid) {
+        strings.push_back(v.address);
+        strings.push_back(Upper(v.address));
+    }
+    for (const InvalidVector& v : file.invalid)
+        strings.push_back(v.address);
+
+    int built_v1 = 0, seen_v6 = 0, no_address = 0;
+    for (const std::string& str : strings) {
+        std::vector<unsigned char> program;
+        const int version = IsAddressOf(str, hrp, 1, program) ? 1 : IsAddressOf(str, hrp, 6, program) ? 6 : 0;
+        const RpcResult result = CallRpc("createrawtransaction", SpendTo(TXID_A, str, COIN));
+
+        if (version == 0) {
+            ++no_address;
+            BOOST_CHECK_MESSAGE(!result.ok, where + " builds an output for " + str);
+            BOOST_CHECK_EQUAL(result.code, (int)RPC_INVALID_ADDRESS_OR_KEY);
+            BOOST_CHECK_EQUAL(result.message, "Invalid Soqucoin address: " + str);
+            continue;
+        }
+        if (version == 6) ++seen_v6; else ++built_v1;
+        if (version == 6 && !v6_active) {
+            BOOST_CHECK_MESSAGE(!result.ok, where + " builds a version 6 output while the deployment is dormant: " + str);
+            BOOST_CHECK_EQUAL(result.code, (int)RPC_INVALID_PARAMETER);
+            BOOST_CHECK_EQUAL(result.message, DormantMessage(next_height, str));
+            continue;
+        }
+        BOOST_CHECK_MESSAGE(result.ok, where + " refuses " + str + ": " + result.message);
+        if (!result.ok) continue;
+        CMutableTransaction tx;
+        BOOST_REQUIRE(DecodeHexTx(tx, result.value.get_str(), true));
+        BOOST_REQUIRE_EQUAL(tx.vout.size(), 1u);
+        BOOST_CHECK_EQUAL(tx.vout[0].nValue, COIN);
+        BOOST_CHECK_EQUAL(ScriptHex(tx.vout[0].scriptPubKey), HexStr(WitnessScriptBytes(version, program)));
+    }
+    BOOST_CHECK_MESSAGE(built_v1 > 0 && seen_v6 > 0 && no_address > 0,
+        where + ": " + std::to_string(built_v1) + " version 1 strings, " + std::to_string(seen_v6) +
+        " version 6 strings and " + std::to_string(no_address) + " other strings ran");
 }
 
 } // namespace
@@ -760,31 +841,215 @@ BOOST_FIXTURE_TEST_CASE(createrawtransaction_version_conversion_and_name, Testin
     BOOST_CHECK(command->argNames == names);
 }
 
-// createrawtransaction refuses a version 6 address on every network, in
-// either case, with the error it gives any string that is no address.
-BOOST_FIXTURE_TEST_CASE(createrawtransaction_refuses_v6_address, TestingSetup)
+// createrawtransaction and a version 6 address. It builds the output only when
+// the version 6 deployment is active at the next block height, which is what
+// the relay mask of AcceptToMemoryPoolWorker asks of the same output. The tip
+// here is the fixture's genesis block, so the next height is 1. Every other
+// deployment of regtest stays active throughout, so only this one decides.
+BOOST_FIXTURE_TEST_CASE(createrawtransaction_refuses_v6_address_while_dormant, TestingSetup)
 {
     const VectorFile file = LoadVectors();
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), 0);
+    {
+        ScopedRegtestActivation withdrawn(Consensus::DEPLOYMENT_P2WSH_DILITHIUM, Consensus::BIP9Deployment::NOT_SCHEDULED);
+        CheckEveryVectorString(file, "regtest with version 6 withdrawn", false, 1);
+    }
+    {
+        // The height is one above the next block.
+        ScopedRegtestActivation later(Consensus::DEPLOYMENT_P2WSH_DILITHIUM, 2);
+        CheckEveryVectorString(file, "regtest with version 6 from height 2", false, 1);
+    }
+    {
+        // The height is the next block.
+        ScopedRegtestActivation next(Consensus::DEPLOYMENT_P2WSH_DILITHIUM, 1);
+        CheckEveryVectorString(file, "regtest with version 6 from height 1", true, 1);
+    }
+    // The height regtest ships.
+    CheckEveryVectorString(file, "regtest", true, 1);
+}
+
+// The parameters each network ships (chainparams.cpp, the activation height of
+// DEPLOYMENT_P2WSH_DILITHIUM): mainnet has not scheduled version 6 and refuses;
+// testnet, stagenet and regtest run it from height 0 and build. Strings of
+// another network's prefix are no address on any of them.
+BOOST_FIXTURE_TEST_CASE(createrawtransaction_v6_address_on_each_network, TestingSetup)
+{
+    const VectorFile file = LoadVectors();
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), 0);
     for (const std::string& network : NodeNetworks()) {
         NetworkScope scope(network);
-        const std::string hrp = Params().Bech32HRP();
-        int run = 0;
-        for (const ValidVector& v : file.valid) {
-            if (v.version != 6) continue;
-            ++run;
-            for (const std::string& form : {v.address, Upper(v.address)}) {
-                RpcResult refused = CallRpc("createrawtransaction", PayTo(form));
-                BOOST_CHECK_MESSAGE(!refused.ok, network + " builds an output for " + form);
-                BOOST_CHECK_EQUAL(refused.code, (int)RPC_INVALID_ADDRESS_OR_KEY);
-                BOOST_CHECK_EQUAL(refused.message, "Invalid Soqucoin address: " + form);
-            }
-        }
-        BOOST_CHECK_MESSAGE(run > 0, "no version 6 vector ran on " + network);
-
-        // Control: the version 1 address of the network's prefix builds.
-        RpcResult built = CallRpc("createrawtransaction", PayTo(SequentialV1Address(file, hrp)));
-        BOOST_CHECK_MESSAGE(built.ok, network + ": " + built.message);
+        CheckEveryVectorString(file, network, network != CBaseChainParams::MAIN, 1);
     }
+}
+
+// Active: the output is OP_6, the push and the program, with the amount given;
+// the outputs beside it keep their bytes; decoderawtransaction shows the
+// address that was given, and that address decodes to the program.
+BOOST_FIXTURE_TEST_CASE(createrawtransaction_builds_the_v6_output, TestingSetup)
+{
+    const VectorFile file = LoadVectors();
+    const std::string hrp = Params().Bech32HRP();
+    const std::string v1 = SequentialV1Address(file, hrp);
+    const std::string input = std::string("[{\"txid\":\"") + TXID_A + "\",\"vout\":0}]";
+
+    int run = 0;
+    for (const ValidVector& v : file.valid) {
+        if (v.version != 6 || v.prefix != hrp) continue;
+        ++run;
+        RpcResult built = CallRpc("createrawtransaction", Json("[" + input + ", {\"" + v1 + "\":12.5,\"" +
+            v.address + "\":\"0.00000001\",\"data\":\"00010203\"}]"));
+        BOOST_REQUIRE_MESSAGE(built.ok, v.address + ": " + built.message);
+
+        CMutableTransaction tx;
+        BOOST_REQUIRE(DecodeHexTx(tx, built.value.get_str(), true));
+        BOOST_REQUIRE_EQUAL(tx.vout.size(), 3u);
+        BOOST_CHECK_EQUAL(ScriptHex(tx.vout[0].scriptPubKey),
+            "5120000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        BOOST_CHECK_EQUAL(tx.vout[0].nValue, 12 * COIN + COIN / 2);
+        BOOST_CHECK_EQUAL(ScriptHex(tx.vout[1].scriptPubKey), HexStr(WitnessScriptBytes(6, v.program)));
+        BOOST_CHECK(tx.vout[1].scriptPubKey == WitnessScript(6, v.program));
+        BOOST_CHECK_EQUAL(tx.vout[1].nValue, (CAmount)1);
+        BOOST_CHECK_EQUAL(ScriptHex(tx.vout[2].scriptPubKey), "6a0400010203");
+        BOOST_CHECK_EQUAL(tx.vout[2].nValue, (CAmount)0);
+
+        RpcResult decoded = CallRpc("decoderawtransaction", Params1(built.value.get_str()));
+        BOOST_REQUIRE_MESSAGE(decoded.ok, decoded.message);
+        const UniValue& spk = find_value(find_value(decoded.value, "vout")[1], "scriptPubKey");
+        const std::vector<std::string> shown = ShownAddresses(spk);
+        BOOST_REQUIRE_MESSAGE(shown.size() == 1 && shown[0] == v.address,
+            "the output built for " + v.address + " shows " + (shown.empty() ? std::string("no address") : shown[0]));
+        CheckV6Shape(spk, "the output built for " + v.address);
+        std::vector<unsigned char> program;
+        BOOST_CHECK(DecodeWitnessV6Address(shown[0], hrp, program));
+        BOOST_CHECK(program == v.program);
+    }
+    BOOST_CHECK_MESSAGE(run > 0, "no version 6 vector ran");
+
+    // The whole transaction for the program 00 01 .. 1f: the bytes of the
+    // version 1 case of createrawtransaction_bytes_without_version with the
+    // version opcode 56 in place of 51.
+    std::vector<unsigned char> sequential;
+    for (int i = 0; i < 32; ++i) sequential.push_back(i);
+    const std::string v6 = EncodeWitnessV6Address(sequential, hrp);
+    RpcResult simple = CallRpc("createrawtransaction", SpendTo(TXID_A, v6, COIN));
+    BOOST_REQUIRE_MESSAGE(simple.ok, simple.message);
+    BOOST_CHECK_EQUAL(simple.value.get_str(),
+        "0100000001201f1e1d1c1b1a191817161514131211100f0e0d0c0b0a0908070605040302010000000000ffffffff"
+        "0100e1f50500000000225620000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000000");
+
+    // The same address twice in one call.
+    const UniValue twice = Json("[" + input + ", {\"" + v6 + "\":1,\"" + v6 + "\":2}]");
+    BOOST_REQUIRE_EQUAL(twice[1].getKeys().size(), 2u);
+    RpcResult duplicated = CallRpc("createrawtransaction", twice);
+    BOOST_CHECK(!duplicated.ok);
+    BOOST_CHECK_EQUAL(duplicated.code, (int)RPC_INVALID_PARAMETER);
+    BOOST_CHECK_EQUAL(duplicated.message, "Invalid parameter, duplicated address: " + v6);
+}
+
+// The boundary, on a mined chain. With the activation height H two above the
+// tip, createrawtransaction refuses at the tip H-2, builds at H-1, where the
+// next block is H, and at H, and refuses again once the tip is invalidated
+// back to H-2. At each tip the mempool, which applies the relay mask, gives
+// the same answer for a transaction paying the same output. The transaction
+// the RPC built is mined in block H and gettxout shows the address.
+BOOST_FIXTURE_TEST_CASE(createrawtransaction_v6_boundary_follows_relay, DilithiumChainSetup)
+{
+    BOOST_REQUIRE_MESSAGE(fRequireStandard, "the unit fixture applies standardness, as mainnet and stagenet do");
+    const std::string hrp = Params().Bech32HRP();
+
+    // The address of a witnessScript: the program is the script's SHA-256.
+    const CScript witness_script = CScript() << OP_TRUE;
+    const std::vector<unsigned char> script_bytes(witness_script.begin(), witness_script.end());
+    std::vector<unsigned char> program(CSHA256::OUTPUT_SIZE);
+    CSHA256().Write(script_bytes.data(), script_bytes.size()).Finalize(program.data());
+    const std::string address = EncodeWitnessV6Address(program, hrp);
+    BOOST_REQUIRE(!address.empty());
+    const CScript v6_script = WitnessScript(6, program);
+
+    const CAmount fee = 1000000;
+    const int H = chainActive.Height() + 2;
+    ScopedRegtestActivation at_h(Consensus::DEPLOYMENT_P2WSH_DILITHIUM, H);
+
+    auto mempool_verdict = [](const CMutableTransaction& tx) {
+        CValidationState state;
+        LOCK(cs_main);
+        if (AcceptToMemoryPool(mempool, state, MakeTransactionRef(tx), false, nullptr, nullptr, false, 0))
+            return std::string("accepted");
+        return state.GetRejectReason();
+    };
+    // createrawtransaction spending output 0 of a fixture coinbase to the address.
+    auto from_rpc = [&](const CTransaction& cb) {
+        return CallRpc("createrawtransaction", SpendTo(cb.GetHash().GetHex(), address, cb.vout[0].nValue - fee));
+    };
+    // The RPC's transaction, checked and signed with the fixture's key.
+    auto checked_and_signed = [&](const RpcResult& built, const CTransaction& cb) {
+        CMutableTransaction tx;
+        BOOST_REQUIRE(DecodeHexTx(tx, built.value.get_str(), true));
+        BOOST_REQUIRE_EQUAL(tx.vout.size(), 1u);
+        BOOST_CHECK(tx.vout[0].scriptPubKey == v6_script);
+        BOOST_CHECK_EQUAL(tx.vout[0].nValue, cb.vout[0].nValue - fee);
+        SignInput(tx, 0, coinbaseSpk, cb.vout[0].nValue);
+        return tx;
+    };
+    auto invalidate_tip = [] {
+        LOCK(cs_main);
+        CValidationState state;
+        BOOST_REQUIRE(InvalidateBlock(state, Params(), chainActive.Tip()));
+    };
+
+    // The same payment built by hand, for the mempool where the RPC refuses.
+    const CTransaction& cb0 = coinbaseTxns[0];
+    CMutableTransaction by_hand;
+    by_hand.nVersion = 2;
+    by_hand.vin.push_back(CTxIn(COutPoint(cb0.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    by_hand.vout.push_back(CTxOut(cb0.vout[0].nValue - fee, v6_script));
+    SignInput(by_hand, 0, coinbaseSpk, cb0.vout[0].nValue);
+
+    // Tip H-2: the next block is H-1.
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), H - 2);
+    RpcResult refused = from_rpc(cb0);
+    BOOST_CHECK_MESSAGE(!refused.ok, "the RPC builds a version 6 output two blocks below the height");
+    BOOST_CHECK_EQUAL(refused.code, (int)RPC_INVALID_PARAMETER);
+    BOOST_CHECK_EQUAL(refused.message, DormantMessage(H - 1, address));
+    BOOST_CHECK_EQUAL(mempool_verdict(by_hand), "scriptpubkey");
+
+    // Tip H-1: the next block is H.
+    CreateAndProcessBlock({}, coinbaseSpk);
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), H - 1);
+    RpcResult built = from_rpc(cb0);
+    BOOST_REQUIRE_MESSAGE(built.ok, "the RPC refuses when the next block is the height: " + built.message);
+    const CMutableTransaction funding = checked_and_signed(built, cb0);
+    BOOST_CHECK_EQUAL(mempool_verdict(funding), "accepted");
+
+    // Tip H: block H holds the transaction the RPC built.
+    CreateAndProcessBlock({funding}, coinbaseSpk);
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), H);
+    UniValue outpoint(UniValue::VARR);
+    outpoint.push_back(funding.GetHash().GetHex());
+    outpoint.push_back(0);
+    RpcResult coin = CallRpc("gettxout", outpoint);
+    BOOST_REQUIRE_MESSAGE(coin.ok && coin.value.isObject(), "the output the RPC built is not in the UTXO set");
+    BOOST_CHECK_EQUAL(find_value(coin.value, "confirmations").get_int(), 1);
+    const UniValue& coin_spk = find_value(coin.value, "scriptPubKey");
+    BOOST_CHECK_EQUAL(find_value(coin_spk, "hex").get_str(), ScriptHex(v6_script));
+    const std::vector<std::string> shown = ShownAddresses(coin_spk);
+    BOOST_CHECK_MESSAGE(shown.size() == 1 && shown[0] == address,
+        "gettxout shows " + (shown.empty() ? std::string("no address") : shown[0]) + ", expected " + address);
+
+    const CTransaction& cb1 = coinbaseTxns[1];
+    RpcResult built_at_h = from_rpc(cb1);
+    BOOST_REQUIRE_MESSAGE(built_at_h.ok, "the RPC refuses at the height: " + built_at_h.message);
+    BOOST_CHECK_EQUAL(mempool_verdict(checked_and_signed(built_at_h, cb1)), "accepted");
+
+    // The tip goes back to H-2.
+    invalidate_tip();
+    invalidate_tip();
+    BOOST_REQUIRE_EQUAL(chainActive.Height(), H - 2);
+    RpcResult refused_again = from_rpc(cb0);
+    BOOST_CHECK_MESSAGE(!refused_again.ok, "the RPC builds a version 6 output after the tip went back below the height");
+    BOOST_CHECK_EQUAL(refused_again.code, (int)RPC_INVALID_PARAMETER);
+    BOOST_CHECK_EQUAL(refused_again.message, DormantMessage(H - 1, address));
+    BOOST_CHECK_EQUAL(mempool_verdict(by_hand), "scriptpubkey");
 }
 
 // validateaddress: a version 6 address is not valid, a version 1 address is.
