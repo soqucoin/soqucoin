@@ -55,9 +55,20 @@ is a hard fork, and until 2026-09 the genesis candidate carried exactly that
 doc/specifications/WITNESS_VERSION_FORK_CLASS.md). What bounds the window is that
 such outputs are NON-STANDARD until their deployment is active
 (src/policy/policy.cpp `IsStandard`, mask from `AcceptToMemoryPoolWorker`)
-and that `DecodeDestination` decodes witness v1 only (src/utiladdress.cpp),
-so no wallet or RPC path builds an output from an address of another witness
-version. The decoded-script output of the RPCs shows an address for a witness
+and that no wallet or RPC path builds an output from an address of a dormant
+witness version: `DecodeDestination` decodes witness v1 only
+(src/utiladdress.cpp) and is the only Bech32m decoder the wallet's send paths
+and the mining payout address call, and `createrawtransaction` builds an
+output from a witness v6 address only when the v6 deployment is active at the
+next block height, the condition under which the relay mask accepts it
+(src/rpc/rawtransaction.cpp). The mask and the RPC read the tip once, and the
+mempool does not apply the mask again when the tip moves back
+(src/txmempool.cpp `removeForReorg`), so a v6 output accepted that way can be
+confirmed below the activation height once the next block is below that
+height again. The height of the tip and the reorganisation depth limit
+(`nMaxReorgDepth`, src/validation.cpp `ContextualCheckBlockHeader`) bound
+that state, as section 5 of the fork-class document states. The
+decoded-script output of the RPCs shows an address for a witness
 v6 output (src/rpc/rawtransaction.cpp `ScriptPubKeyToJSON`);
 `DecodeDestination` refuses that string. Only witness v2 (PAT) is
 consensus-unfundable, because its spend path binds nothing.
