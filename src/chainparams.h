@@ -170,10 +170,20 @@ static const Consensus::DeploymentPos REPORTED_ACTIVATION_HEIGHTS[] = {
 };
 
 /**
- * The activation height the given parameters enforce for a deployment of
- * REPORTED_ACTIVATION_HEIGHTS, read through the tier that validates that
- * height, the struct ConnectBlock consults there, as the chain id rule's
- * height is read.
+ * The number a node reports for a deployment of REPORTED_ACTIVATION_HEIGHTS.
+ * It is read in two steps, as the chain id rule's height is read: the number
+ * the genesis tier (the tier that validates height 0) stores for the
+ * deployment, then the number stored in the tier that validates that height
+ * (height 0 when the first number is below 0), the struct ConnectBlock
+ * consults there.
+ *
+ * Precondition: every tier holds the same height for the deployment, as on
+ * every network (genesis_chainparams_tests,
+ * f8_deployment_posture_is_uniform_across_consensus_tiers). The number is
+ * then that height, the activation height the given parameters enforce. When
+ * tiers hold different heights it is only the number stored in the tier that
+ * validates the genesis tier's stored height, and comparing a block height
+ * with it need not give the answer of Consensus::DeploymentActiveAtHeight.
  */
 inline int ReportedActivationHeight(const CChainParams& params, Consensus::DeploymentPos pos)
 {

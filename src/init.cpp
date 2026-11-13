@@ -453,7 +453,7 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-migrationtotal=<n>", "Override the armed nMigrationTotal in sats (regtest-only; default: the sum of -migrationoutputs, override exists to test the mismatch reject)");
         strUsage += HelpMessageOpt("-minblock1time=<n>", "Minimum nTime of the block at height 1, a unix time (regtest-only; 0 = no gate; mainnet carries 1791903600)");
         strUsage += HelpMessageOpt("-chainidrequiredheight=<n>", "Height from which every non-legacy block must carry the chain id in its version (regtest-only; 0 = no rule)");
-        strUsage += HelpMessageOpt("-activationheight=<deployment>:<height>", "Height from which the named height-gated deployment is active, for a deployment listed under activation_heights in getblockchaininfo (regtest-only; once per deployment; 0 = from genesis, 2147483647 = not scheduled; each value sets that deployment alone, where every network gives the deployments of one witness version one height)");
+        strUsage += HelpMessageOpt("-activationheight=<deployment>:<height>", "Height from which the named height-gated deployment is active, for a deployment listed under activation_heights in getblockchaininfo (regtest-only; once per deployment; 0 = from genesis, 2147483647 = not scheduled; each value sets that deployment alone, where every network gives the deployments of witness version 6 one height)");
     }
     std::string debugCategories = "addrman, alert, bench, cmpctblock, coindb, db, http, libevent, lock, mempool, mempoolrej, net, proxy, prune, rand, reindex, rpc, selectcoins, tor, zmq"; // Don't translate these and qt below
     if (mode == HMM_BITCOIN_QT)
@@ -1193,8 +1193,8 @@ bool AppInitParameterInteraction()
         // The activation height of a height-gated deployment for testing.
         // Regtest only: on real networks the height is consensus. A value
         // names one deployment the node reports (REPORTED_ACTIVATION_HEIGHTS)
-        // and sets that deployment alone, so the deployments of one witness
-        // version, which every network gives one height, can be set apart
+        // and sets that deployment alone, so the deployments of witness
+        // version 6, which every network gives one height, can be set apart
         // here. The height is 0 to 2147483647: a negative one is refused,
         // and -1 with it, the stored number of a deployment that has no
         // height gate. A deployment named twice is refused: the later value
@@ -1365,7 +1365,8 @@ bool AppInitParameterInteraction()
         // The activation height this binary enforces for each height-gated
         // deployment it reports, the read getblockchaininfo prints under
         // activation_heights: the lines an operator checks against the
-        // published height before the node reaches it.
+        // published height before the node reaches it. The number applies to
+        // the blocks this process validates.
         for (const Consensus::DeploymentPos pos : REPORTED_ACTIVATION_HEIGHTS) {
             const int nActivationHeight = ReportedActivationHeight(chainparams, pos);
             if (nActivationHeight == Consensus::BIP9Deployment::NOT_SCHEDULED) {

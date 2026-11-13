@@ -150,8 +150,14 @@ BOOST_AUTO_TEST_CASE(reported_height_is_read_in_the_tier_that_validates_it)
                     "root tier " << nRootHeight << ": " << VersionBitsDeploymentInfo[pos].name << " at height " << nHeight);
             }
         }
-        // The root tier stores 5, a height it validates itself: 5 is the
-        // first height the deployment is active at, and is reported.
+        // The root tier stores 5, a height it validates itself, so the number
+        // reported is the root tier's own 5. As in the two states above the
+        // tiers hold different heights, so the precondition of
+        // ReportedActivationHeight does not hold, and here 5 is only the
+        // number stored in the tier that validates the root tier's stored
+        // height: the deployment is inactive at 4 and active at 5, which the
+        // last two checks pin, and inactive again from 20 to 59, the heights
+        // the upper tier validates below its 60.
         {
             const TwoTierParams params(pos, 5, 60, 20);
             BOOST_CHECK_EQUAL(ReportedActivationHeight(params, pos), 5);
