@@ -155,14 +155,18 @@ BOOST_AUTO_TEST_CASE(reported_height_is_read_in_the_tier_that_validates_it)
         // tiers hold different heights, so the precondition of
         // ReportedActivationHeight does not hold, and here 5 is only the
         // number stored in the tier that validates the root tier's stored
-        // height: the deployment is inactive at 4 and active at 5, which the
-        // last two checks pin, and inactive again from 20 to 59, the heights
-        // the upper tier validates below its 60.
+        // height: the deployment is inactive at 4, active from 5 to 19,
+        // inactive again from 20 to 59, the heights the upper tier validates
+        // below its 60, and active from 60. The checks pin each edge.
         {
             const TwoTierParams params(pos, 5, 60, 20);
             BOOST_CHECK_EQUAL(ReportedActivationHeight(params, pos), 5);
             BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(4, params.GetConsensus(4), pos));
             BOOST_CHECK(Consensus::DeploymentActiveAtHeight(5, params.GetConsensus(5), pos));
+            BOOST_CHECK(Consensus::DeploymentActiveAtHeight(19, params.GetConsensus(19), pos));
+            BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(20, params.GetConsensus(20), pos));
+            BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(59, params.GetConsensus(59), pos));
+            BOOST_CHECK(Consensus::DeploymentActiveAtHeight(60, params.GetConsensus(60), pos));
         }
     }
 }
