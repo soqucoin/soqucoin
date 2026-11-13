@@ -192,6 +192,8 @@ BOOST_AUTO_TEST_CASE(getblockchaininfo_on_every_network)
                                 net << ": " << kNames[i] << " prints " << heights.getValues()[i].getValStr());
         }
     }
+    // The last setup leaves regtest selected.
+    SelectParams(CBaseChainParams::MAIN);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
