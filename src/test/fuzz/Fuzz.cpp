@@ -27,6 +27,9 @@ void dilithium_verify(fuzzer::FuzzBuffer& buffer) noexcept;
 void binius_commit(fuzzer::FuzzBuffer& buffer) noexcept;
 void pat_aggregate(fuzzer::FuzzBuffer& buffer) noexcept;
 
+// Witness v6 through VerifyScript and EvalScript (test/fuzz/v6_witness_script.cpp).
+void v6_witness_script(fuzzer::FuzzBuffer& buffer) noexcept;
+
 // Forward declarations for wallet fuzz targets
 void pqaddress_validate(fuzzer::FuzzBuffer& buffer) noexcept;
 void pqaddress_decode(fuzzer::FuzzBuffer& buffer) noexcept;
@@ -40,6 +43,7 @@ static const std::map<std::string, FuzzTarget> g_fuzz_targets = {
     {"dilithium_verify", dilithium_verify},
     {"binius_commit", binius_commit},
     {"pat_aggregate", pat_aggregate},
+    {"v6_witness_script", v6_witness_script},
     // Wallet fuzz targets
     {"pqaddress_validate", pqaddress_validate},
     {"pqaddress_decode", pqaddress_decode},

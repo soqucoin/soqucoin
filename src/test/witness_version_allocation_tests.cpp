@@ -363,9 +363,9 @@ BOOST_AUTO_TEST_CASE(free_witness_versions_are_v11_through_v16)
 //
 // IsStandard accepted both with an empty mask until bead trp6, so a v0 output
 // relayed, confirmed and could never be spent. utiladdress.cpp has no v0 form:
-// it encodes witness v1 and v6, DecodeDestination decodes v1 only, and no
-// wallet or RPC path builds an output from an address of another witness
-// version. But a generic Bitcoin library produces v0 P2WPKH by default, and
+// it encodes and decodes witness v1 and v6 and no other version, so no wallet
+// or RPC path builds a v0 output from an address. But a generic Bitcoin library
+// produces v0 P2WPKH by default, and
 // soqucoin-tx builds v0 with its W flag. Policy now refuses v0 whatever the mask
 // says; unspendable_output_policy_tests drives the refusal through the mempool.
 // The script-layer half below is unchanged and keeps the v0/v1 aliasing visible.
