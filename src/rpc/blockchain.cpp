@@ -1186,7 +1186,10 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
             "     \"hash_migration_outputs\": \"xxxx\",  (string) the committed output vector hash (all zero = inert)\n"
             "     \"total_sats\": xx          (numeric) the committed total in sats\n"
             "  },\n"
-            "  \"chainid_required_height\": xx  (numeric) the height from which this node requires the chain id 0x5351 in every block's version (0 = no such rule)\n"
+            "  \"chainid_required_height\": xx, (numeric) the height from which this node requires the chain id 0x5351 in every block's version (0 = no such rule)\n"
+            "  \"activation_heights\": {     (object) the height-gated deployments this node reports, each with its activation height\n"
+            "     \"xxxx\": xx               (numeric) name of the deployment : the first height it is active at (0 = from genesis, 2147483647 = not scheduled)\n"
+            "  }\n"
             "}\n"
             "\nExamples:\n" +
             HelpExampleCli("getblockchaininfo", "") + HelpExampleRpc("getblockchaininfo", ""));
@@ -1264,6 +1267,20 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
         const int32_t nChainIdHeight = consensusParams.nChainIdRequiredHeight;
         obj.pushKV("chainid_required_height",
                    (int64_t)Params().GetConsensus(nChainIdHeight > 0 ? nChainIdHeight : 0).nChainIdRequiredHeight);
+    }
+    // The height-gated deployments this node reports (chainparams.h), each
+    // with the stored height it is active from: a deployment is active for a
+    // block iff the block's height is at or above the number
+    // (Consensus::DeploymentActiveAtHeight), so comparing a height with the
+    // number gives the node's own answer. A deployment with no height prints
+    // BIP9Deployment::NOT_SCHEDULED, 2147483647, a height no chain reaches.
+    // The startup lines print the same read.
+    {
+        UniValue heights(UniValue::VOBJ);
+        for (const Consensus::DeploymentPos pos : REPORTED_ACTIVATION_HEIGHTS) {
+            heights.pushKV(VersionBitsDeploymentInfo[pos].name, ReportedActivationHeight(Params(), pos));
+        }
+        obj.pushKV("activation_heights", heights);
     }
     obj.pushKV("warnings", GetWarnings("statusbar"));
     return obj;

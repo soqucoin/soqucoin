@@ -116,6 +116,7 @@ testScripts = [
     'genesis-migration.py',
     'block1-time-gate.py',
     'chainid-required-height.py',
+    'activation-heights.py',
     'block-version-mark.py',
     'fixed-seed-fallback.py',
     'maxconnections-addnode.py',

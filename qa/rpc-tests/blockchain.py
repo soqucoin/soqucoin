@@ -59,6 +59,7 @@ class BlockchainTest(BitcoinTestFramework):
     def _test_getblockchaininfo(self):
 
         keys = [
+            'activation_heights',
             'bestblockhash',
             'bip9_softforks',
             'blocks',
