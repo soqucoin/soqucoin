@@ -200,8 +200,8 @@ enum SigVersion {
 };
 
 //! Witness version 11 runs when any of its three deployments is active, and is
-//! dormant with the three flags clear. Read by VerifyScript and by
-//! CountWitnessSigOps.
+//! dormant with the three flags clear. Read by VerifyScript, by
+//! CountWitnessSigOps and, for bit 11 of the relay mask, by the mempool.
 inline bool IsWitnessV11Active(unsigned int flags)
 {
     return (flags & (SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS)) != 0;

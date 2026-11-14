@@ -135,7 +135,7 @@ const Row TABLE[] = {
     // v11 runs when ANY of its three deployments is active (IsWitnessV11Active
     // in script/interpreter.h); the gate column holds the three.
     { 11, "is_witness_v11",
-          SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS,  true,         false },
+          SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS,  true,         true  },
     { 12, "is_future_witness",      0,                                true,         false },
     { 13, "is_future_witness",      0,                                true,         false },
     { 14, "is_future_witness",      0,                                true,         false },

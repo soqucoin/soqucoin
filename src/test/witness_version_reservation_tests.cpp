@@ -346,6 +346,8 @@ BOOST_AUTO_TEST_CASE(dormant_output_is_anyone_can_spend_nonstandard_and_activati
             std::string reason;
             BOOST_CHECK_MESSAGE(!IsStandardTx(CTransaction(fund), reason, 0) && reason == "scriptpubkey",
                 "a v11 funding tx must be non-standard while dormant (got '" << reason << "')");
+            BOOST_CHECK_MESSAGE(IsStandardTx(CTransaction(fund), reason, WitnessVersionBit(11)),
+                "a v11 funding tx must be standard once its version bit is active");
             Connect(fund);
             sweep = GarbageSweep(CTransaction(fund));
             BOOST_CHECK_MESSAGE(BlockIsValid({sweep}),
