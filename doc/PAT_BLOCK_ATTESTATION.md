@@ -54,7 +54,8 @@ specification today and diverge from it at a future activation height.
 | v8 (BTCSOQ holding) | Yes, once `BTCSOQ` activates. Same fall-through | **Yes, always** (Decision 1 as amended 2026-09-07) | Same basis as v7 |
 | v9 (BTCSOQ authority marker) | Not per-input. Same whole-transaction M-of-N model as v5 | No — see the authority-signature note below | Same basis as v5 |
 | v10 (confidential USDSOQ) | No. Same payload shape as v4; compound gate; fails closed if activated | No | Same basis as v4 |
-| v11–v16 | Unallocated; creatable and anyone-can-spend while unallocated (additive-asset genesis door) | No | No defined tuple |
+| v11 (key-hash and covenant script) | Sometimes. As for v6, a script may perform zero, one, or many signature checks at positions the block structure does not expose | No | Same basis as v6 |
+| v12–v16 | Unallocated; creatable and anyone-can-spend while unallocated (additive-asset genesis door) | No | No defined tuple |
 
 ### The rule, as ruled (Decision 1, 2026-09-01)
 

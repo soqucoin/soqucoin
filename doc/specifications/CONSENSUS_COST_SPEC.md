@@ -94,9 +94,9 @@ There is no BIP9 miner-signaling activation.
 | **LatticeFold** (`OP_CHECKFOLDPROOF`) | 28 | v3 (`OP_3`) | ALWAYS_ACTIVE | ALWAYS_ACTIVE |
 | **Lattice-BP++** (`OP_LATTICEBP_RANGEPROOF`) | 5 | v4 (`OP_4`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **USDSOQ** (`OP_USDSOQ_*`) | 6 | v5 (`OP_5`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
-| **CTV** (`OP_CHECKTEMPLATEVERIFY`) | 7 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
-| **APO** (`SIGHASH_ANYPREVOUT`) | 8 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
-| **CSFS** (`OP_CHECKSIGFROMSTACK`) | 9 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **CTV** (`OP_CHECKTEMPLATEVERIFY`) | 7 | v11 (`OP_11`); also read inside v6 | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **APO** (`SIGHASH_ANYPREVOUT`) | 8 | v11 (`OP_11`); also read inside v6 | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **CSFS** (`OP_CHECKSIGFROMSTACK`) | 9 | v11 (`OP_11`); also read inside v6 | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **P2WSH-Dilithium / L2SOQ** | 10 | v6 (`OP_6`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **UTXO Cost** | 11 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **Dilithium Keyhash** (`OP_CHECKDILITHIUMKEYHASH`) | 12 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
@@ -106,7 +106,8 @@ There is no BIP9 miner-signaling activation.
 > **Witness version routing** in `VerifyScript()`: v0/v1 = Dilithium, v2 = PAT, v3 = LatticeFold
 > (retired, can never activate), v4 = SoquObscura confidential, v5 = USDSOQ authority,
 > v6 = P2WSH-Dilithium, v7 = USDSOQ holding, v8/v9 = BTCSOQ, v10 = confidential USDSOQ,
-> v11-v16 = unallocated. Each handler pushes the witness stack into `EvalScript()` with the
+> v11 = key-hash and covenant script (runs when any of CTV, APO and CSFS is active),
+> v12-v16 = unallocated. Each handler pushes the witness stack into `EvalScript()` with the
 > corresponding opcode. Flag gating ensures soft fork safety. Creating an output of any witness
 > version except v2 is consensus-valid at every height; v2 (PAT) is permanently unfundable
 > because its spend path binds nothing (`bad-txns-witness-version-not-active`).
@@ -569,7 +570,8 @@ Witness v6 → P2WSH-Dilithium script hash                             [NOT_SCHE
 Witness v7 → USDSOQ holding                                          [NOT_SCHEDULED on mainnet]
 Witness v8/v9 → BTCSOQ holding / authority marker                    [NOT_SCHEDULED on mainnet]
 Witness v10 → Confidential USDSOQ (requires USDSOQ + SOQUOBSCURA)    [NOT_SCHEDULED]
-Witness v11-v16 → Unallocated: anyone-can-spend, non-standard, creatable (BIP141 posture)
+Witness v11 → Key-hash and covenant script: a committed sub-version byte and script  [NOT_SCHEDULED on mainnet]
+Witness v12-v16 → Unallocated: anyone-can-spend, non-standard, creatable (BIP141 posture)
 ```
 
 Each handler pushes the witness stack into `EvalScript()` with the corresponding opcode. Flag gating
