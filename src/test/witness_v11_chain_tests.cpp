@@ -36,11 +36,15 @@
 #include "txmempool.h"
 
 #include <boost/test/unit_test.hpp>
+#include <univalue.h>
 
 #include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
+// Defined in rpc/rawtransaction.cpp: the decoded-script JSON of an output.
+void ScriptPubKeyToJSON(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex);
 
 namespace {
 
@@ -400,6 +404,27 @@ BOOST_AUTO_TEST_CASE(an_output_is_standard_to_create_exactly_where_the_version_r
         BOOST_CHECK_MESSAGE(BlockIsValid(std::vector<CMutableTransaction>(1, toV11)),
             "combination " << mask << ": a block that creates an output of the version must be valid");
     }
+}
+
+// The decoded-script JSON of an output of the version names its type and shows
+// no address and no signature count: the version has no address form. OP_11
+// over a program of another length is not the form.
+BOOST_AUTO_TEST_CASE(the_decoded_script_names_the_type_and_shows_no_address)
+{
+    UniValue decoded(UniValue::VOBJ);
+    ScriptPubKeyToJSON(OutputFor(CommittedItem(CScript() << OP_1)), decoded, true);
+    const UniValue& type = find_value(decoded, "type");
+    BOOST_REQUIRE(type.isStr());
+    BOOST_CHECK_EQUAL(type.get_str(), "witness_v11_scripthash");
+    BOOST_CHECK(!decoded.exists("addresses"));
+    BOOST_CHECK(!decoded.exists("reqSigs"));
+    BOOST_CHECK_EQUAL(std::string(GetTxnOutputType(TX_WITNESS_V11_SCRIPTHASH)), "witness_v11_scripthash");
+
+    UniValue other(UniValue::VOBJ);
+    ScriptPubKeyToJSON(CScript() << OP_11 << valtype(20, 0x01), other, true);
+    const UniValue& otherType = find_value(other, "type");
+    BOOST_REQUIRE(otherType.isStr());
+    BOOST_CHECK_EQUAL(otherType.get_str(), "nonstandard");
 }
 
 // With the three deployments withdrawn, the state mainnet ships in, an output
