@@ -10,7 +10,8 @@
 // combinations of the version's three deployments (ctv, apo, csfs), which the
 // cases set on regtest for their own scope.
 //
-// An input of the version has one of four outcomes under a combination:
+// With a block's flags an input of the version has one of four outcomes under
+// a combination:
 //
 //   dormant    none of the three is active. The input succeeds in a block with
 //              nothing read. Relay refuses it.
@@ -18,7 +19,10 @@
 //              (a sub-version or a reserved byte) or passes a key-hash check on
 //              a key of an undefined type. It succeeds in a block. Relay
 //              refuses it.
-//   evaluated  the script runs and passes. Relay and a block accept it.
+//   evaluated  the script runs and passes. A block accepts it. Relay accepts
+//              it unless a flag that relay alone sets refuses it, such as
+//              the one that holds a number operand to its shortest
+//              encoding; no spend of this file is of that kind.
 //   failed     the script runs and fails. Relay and a block refuse it.
 //
 // While the version runs, relay first refuses an input whose witness is

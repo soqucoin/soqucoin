@@ -1090,8 +1090,9 @@ BOOST_AUTO_TEST_CASE(the_rules_of_the_script_language_bind_an_evaluated_script_o
 
 // OP_MUL takes operands of up to eight bytes and fails when the product is
 // outside the range a script number of eight bytes holds. That range has no
-// INT64_MIN: the version refuses the one pair of magnitudes that multiplies to
-// it, as it refuses an overflow, and accepts the products beside it.
+// INT64_MIN: the version refuses every pair of operands that multiplies to it,
+// as it refuses an overflow, and accepts the products beside it. The case
+// takes one such pair of magnitudes in its four arrangements.
 BOOST_AUTO_TEST_CASE(op_mul_refuses_a_product_outside_the_eight_byte_range)
 {
     const CTransaction tx(SpendingTx());
@@ -1420,6 +1421,7 @@ BOOST_AUTO_TEST_CASE(a_spend_valid_with_a_deployment_more_is_valid_with_one_fewe
     }
     // The set holds a spend of each outcome with the three active.
     BOOST_CHECK_EQUAL(Verdict(spends[0], ACTIVE, tx), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(Verdict(spends[1], ACTIVE, tx), SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
     BOOST_CHECK_EQUAL(Verdict(spends[3], ACTIVE, tx), SCRIPT_ERR_OK);
     BOOST_CHECK_EQUAL(SigOps(spends[3], ACTIVE), 2u);
     BOOST_CHECK_EQUAL(Verdict(spends[4], ACTIVE, tx), SCRIPT_ERR_CHECKSIGFROMSTACK);

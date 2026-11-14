@@ -1109,7 +1109,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // These opcodes were in the original Bitcoin script but
                         // disabled by Satoshi in July 2010 due to missing size limits.
                         // On Soqucoin, the DoS risk is eliminated by:
-                        //   - CScriptNum 4-byte bound for arithmetic operands
+                        //   - CScriptNum bounds on number operands (eight bytes for
+                        //     OP_MUL, OP_DIV and OP_MOD, four elsewhere)
                         //   - 520-byte MAX_SCRIPT_ELEMENT_SIZE for all stack elements
                         //   - Explicit div-by-zero and bounds guards below
                         //
@@ -1150,13 +1151,16 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         } else if (opcode == OP_MUL || opcode == OP_DIV || opcode == OP_MOD) {
                             // =======================================================
                             // OP_MUL (0x95), OP_DIV (0x96), OP_MOD (0x97)
-                            // Integer arithmetic using CScriptNum (4-byte bounded int).
+                            // Integer arithmetic on CScriptNum operands of up to eight
+                            // bytes.
                             // Stack: <bn1> <bn2> → <result>
                             //
                             // Uses int64_t for intermediate results to detect overflow.
-                            // Result must fit in 8 bytes (int64_t). If MUL overflows
-                            // int64_t, script fails with SCRIPT_ERR_PUSH_SIZE (value
-                            // would exceed script number representable range).
+                            // If MUL overflows int64_t, script fails with
+                            // SCRIPT_ERR_PUSH_SIZE. The product INT64_MIN does not
+                            // overflow int64_t and needs nine bytes as a script
+                            // number: witness version 11 fails it the same way, and
+                            // the other signature versions push the nine bytes.
                             //
                             // OP_DIV and OP_MOD fail with SCRIPT_ERR_DIV_BY_ZERO if
                             // denominator is zero.
@@ -1173,7 +1177,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             CScriptNum result(0);
                             if (opcode == OP_MUL) {
                                 // Overflow check: if either operand is 0, result is 0 (safe).
-                                // Otherwise ensure |bn1 * bn2| ≤ INT64_MAX.
+                                // Otherwise ensure the product is within int64_t.
                                 int64_t a = bn1.getint64();
                                 int64_t b = bn2.getint64();
                                 // Detect overflow before multiplying
@@ -1327,8 +1331,10 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 //       signature verification per input (PAT = aggregated, not per-key).
 //
 //   Witness v6 and v11 (a script the witness commits):
-//     → 1 sigop for each signature check the script holds, while the
-//       version runs; 0 while it is dormant. The two branches in
+//     → 1 sigop for each signature-check opcode of a script the version
+//       evaluates. 0 while the version is dormant, and 0 for a v11 input
+//       that is not evaluated: a script that holds a reserved byte, or a
+//       committed item of another sub-version. The two branches in
 //       CountWitnessSigOps below state each rule.
 //
 //   Witness v7 to v10 and v12 to v16:
@@ -2102,9 +2108,10 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // spend verify. Outputs of a dormant version are consensus-valid to create
     // (ConnectBlock reserves only v2, whose spend path binds nothing) but
     // NON-STANDARD (policy/policy.cpp gates v2-v16 on the live activation
-    // mask), and no wallet path can construct one. The anyone-can-spend
-    // window is reached by raw construction plus a miner running modified
-    // policy, or by a transaction that relay accepted while the version ran
+    // mask), and no wallet path can construct one. Where relay requires
+    // standard transactions, the anyone-can-spend window is reached by raw
+    // construction plus a miner running modified policy, or by a
+    // transaction that relay accepted while the version ran
     // at the next block and that confirms below the activation height after
     // the tip has moved back (doc/specifications/WITNESS_VERSION_FORK_CLASS.md
     // section 5). In both, only the funds paid into the output are at risk.

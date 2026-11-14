@@ -251,14 +251,18 @@ private:
     //! CheckTemplateVerify. A checker serves one transaction and one input
     //! for its whole life, so the value is the same at every call, and a
     //! script that executes OP_CHECKTEMPLATEVERIFY many times hashes the
-    //! transaction once. A checker is used by one thread.
+    //! transaction once. The two members are written without a lock: no
+    //! caller shares a checker between threads, and one that did would
+    //! have to guard them.
     mutable bool fTemplateHashKnown;
     mutable unsigned char templateHash[32];
 
 protected:
     virtual bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const;
-    //! Writes the BIP 119 template hash of txTo at nIn to the 32 bytes at
-    //! hashOut. CheckTemplateVerify calls it once for a checker.
+    //! Writes the template hash of txTo at nIn to the 32 bytes at hashOut:
+    //! the fields BIP 119 names, with each script length written as four
+    //! bytes, so the value is this chain's own and not the one a BIP 119
+    //! library computes. CheckTemplateVerify calls it once for a checker.
     virtual void ComputeTemplateHash(unsigned char* hashOut) const;
 
 public:
