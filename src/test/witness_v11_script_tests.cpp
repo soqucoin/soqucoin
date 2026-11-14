@@ -1086,6 +1086,44 @@ BOOST_AUTO_TEST_CASE(the_rules_of_the_script_language_bind_an_evaluated_script_o
     }
 }
 
+// OP_MUL takes operands of up to eight bytes and fails when the product is
+// outside the range a script number of eight bytes holds. That range has no
+// INT64_MIN: the version refuses the one pair of magnitudes that multiplies to
+// it, as it refuses an overflow, and accepts the products beside it.
+BOOST_AUTO_TEST_CASE(op_mul_refuses_a_product_outside_the_eight_byte_range)
+{
+    const CTransaction tx(SpendingTx());
+    const int64_t two32 = 4294967296LL;
+    const int64_t two31 = 2147483648LL;
+    auto product = [&](int64_t a, int64_t b) {
+        return Verdict(SpendOf(CScript() << CScriptNum(a) << CScriptNum(b) << OP_MUL << OP_DROP << OP_1), ACTIVE, tx);
+    };
+
+    // -2^32 * 2^31 = -2^63, in either order and with either sign negative.
+    BOOST_CHECK_EQUAL(product(-two32, two31), SCRIPT_ERR_PUSH_SIZE);
+    BOOST_CHECK_EQUAL(product(two31, -two32), SCRIPT_ERR_PUSH_SIZE);
+    BOOST_CHECK_EQUAL(product(two32, -two31), SCRIPT_ERR_PUSH_SIZE);
+    BOOST_CHECK_EQUAL(product(-two31, two32), SCRIPT_ERR_PUSH_SIZE);
+    // 2^63 and above overflow, as before.
+    BOOST_CHECK_EQUAL(product(two32, two31), SCRIPT_ERR_PUSH_SIZE);
+    BOOST_CHECK_EQUAL(product(-two32, -two31), SCRIPT_ERR_PUSH_SIZE);
+    // The products beside the refused one are accepted: -(2^63 - 2^32) and
+    // its mirror, and the largest and smallest values an operand can hold
+    // multiplied by one.
+    BOOST_CHECK_EQUAL(product(-two32, two31 - 1), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(product(two32, two31 - 1), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(product(INT64_MAX, 1), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(product(INT64_MAX, -1), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(product(-INT64_MAX, -1), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(product(0, -two32), SCRIPT_ERR_OK);
+
+    // The accepted product is the number it should be: -(2^63 - 2^32)
+    // divided by -2^32 is 2^31 - 1.
+    const CScript check = CScript() << CScriptNum(-two32) << CScriptNum(two31 - 1) << OP_MUL
+                                    << CScriptNum(-two32) << OP_DIV << CScriptNum(two31 - 1) << OP_EQUAL;
+    BOOST_CHECK_EQUAL(Verdict(SpendOf(check), ACTIVE, tx), SCRIPT_ERR_OK);
+}
+
 // The argument of OP_IF and OP_NOTIF is the empty item or the one byte 0x01,
 // as a rule of the version, with a block's flags.
 BOOST_AUTO_TEST_CASE(the_argument_of_a_branch_is_the_empty_item_or_the_byte_one)

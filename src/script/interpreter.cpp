@@ -1180,6 +1180,14 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                         (a < 0 && b > 0 && a < INT64_MIN / b) ||
                                         (a < 0 && b < 0 && a < INT64_MAX / b))
                                         return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+                                    // The checks above admit one product whose
+                                    // magnitude is above INT64_MAX: INT64_MIN,
+                                    // which no script number of eight bytes
+                                    // holds. Witness version 11 refuses it as
+                                    // it refuses an overflow, before the
+                                    // product is encoded.
+                                    if (fV11 && a * b == INT64_MIN)
+                                        return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
                                     result = CScriptNum(a * b);
                                 } else {
                                     result = CScriptNum(0);
