@@ -278,8 +278,10 @@ struct StrangerAttempts {
         // The committed item, which the spender reads from the output's
         // funding, and no satisfaction item.
         noSatisfaction = {committed, TRAILER};
-        // The stranger's own key and a signature made with it.
-        strangersKey = {SignV6Message(stranger, script, tx, SIGHASH_ALL), strangerItem, committed, TRAILER};
+        // The stranger's own key and a signature made with it over the
+        // version's message: valid for that key, so only the key-hash
+        // comparison stands between it and the output.
+        strangersKey = {SignV11(stranger, script, tx), strangerItem, committed, TRAILER};
         // The owner's key item, which is public once the owner has spent, and
         // a signature the owner made over the message of witness version 6.
         ownersKeyV6Message = {SignV6Message(owner, script, tx, SIGHASH_ALL), ownerItem, committed, TRAILER};
@@ -1124,6 +1126,53 @@ BOOST_AUTO_TEST_CASE(op_mul_refuses_a_product_outside_the_eight_byte_range)
     BOOST_CHECK_EQUAL(Verdict(SpendOf(check), ACTIVE, tx), SCRIPT_ERR_OK);
 }
 
+// The hash operand of the key-hash check is exactly 32 bytes, an empty key
+// item fails, and the count reads an empty committed item as no script.
+// OP_CHECKSEQUENCEVERIFY compares its operand with the input's sequence.
+BOOST_AUTO_TEST_CASE(the_key_hash_operand_is_32_bytes_and_an_empty_key_item_fails)
+{
+    const CTransaction tx(SpendingTx());
+    CKey owner;
+    owner.MakeNewKey(true);
+    const valtype ownerItem = KeyItem(owner);
+
+    // The hash of the key item with one byte after it, and without its last
+    // byte. The signature is valid for the script that holds the operand.
+    valtype longer = Sha256(ownerItem);
+    longer.push_back(0x00);
+    valtype shorter = Sha256(ownerItem);
+    shorter.pop_back();
+    for (const valtype& operand : {longer, shorter}) {
+        const CScript script = CScript() << operand << OP_CHECKDILITHIUMKEYHASH << OP_1;
+        const ScriptError got = Verdict(SpendOf(script, {SignV11(owner, script, tx), ownerItem}), ACTIVE, tx);
+        BOOST_CHECK_MESSAGE(got == SCRIPT_ERR_CHECKDILITHIUMKEYHASH,
+            "a hash operand of " << operand.size() << " bytes must fail; got " << Name(got));
+    }
+
+    // An empty key item has no type byte. It fails under a script that
+    // commits the hash of the empty item, with a block's flags and at relay,
+    // whatever the signature item holds.
+    const CScript emptyKeyScript = SingleKeyScript(valtype());
+    BOOST_CHECK_EQUAL(Verdict(SpendOf(emptyKeyScript, {valtype(), valtype()}), ACTIVE, tx), SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+    BOOST_CHECK_EQUAL(Verdict(SpendOf(emptyKeyScript, {valtype(1, 0x01), valtype()}), ACTIVE | RELAY, tx), SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+
+    // A committed item that is empty: the program can commit it, the input
+    // fails, and the count is zero.
+    Spend emptyCommitted;
+    emptyCommitted.output = OutputFor(valtype());
+    emptyCommitted.witness = {valtype(), TRAILER};
+    BOOST_CHECK_EQUAL(Verdict(emptyCommitted, ACTIVE, tx), SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
+    BOOST_CHECK_EQUAL(SigOps(emptyCommitted, ACTIVE), 0u);
+
+    // The relative lock: an input whose sequence is 5 satisfies an operand of
+    // 5 and not one of 6.
+    CMutableTransaction mtx = SpendingTx();
+    mtx.vin[0].nSequence = 5;
+    const CTransaction relative(mtx);
+    BOOST_CHECK_EQUAL(Verdict(SpendOf(CScript() << CScriptNum(5) << OP_CHECKSEQUENCEVERIFY << OP_DROP << OP_1), ACTIVE, relative), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(Verdict(SpendOf(CScript() << CScriptNum(6) << OP_CHECKSEQUENCEVERIFY << OP_DROP << OP_1), ACTIVE, relative), SCRIPT_ERR_UNSATISFIED_LOCKTIME);
+}
+
 // The argument of OP_IF and OP_NOTIF is the empty item or the one byte 0x01,
 // as a rule of the version, with a block's flags.
 BOOST_AUTO_TEST_CASE(the_argument_of_a_branch_is_the_empty_item_or_the_byte_one)
@@ -1336,7 +1385,7 @@ BOOST_AUTO_TEST_CASE(a_spend_valid_with_a_deployment_more_is_valid_with_one_fewe
 
     const Spend spends[] = {
         SpendOf(keyScript, {SignV11(owner, keyScript, tx), ownerItem}),
-        SpendOf(keyScript, {SignV6Message(stranger, keyScript, tx, SIGHASH_ALL), KeyItem(stranger)}),
+        SpendOf(keyScript, {SignV11(stranger, keyScript, tx), KeyItem(stranger)}),
         SpendOf(keyScript, {}),
         SpendOf(csfsScript, {SignV11(owner, csfsScript, tx), ownerItem, csfsSig, message, ownerItem}),
         SpendOf(csfsScript, {SignV11(owner, csfsScript, tx), ownerItem, csfsSig, valtype(8, 0x45), ownerItem}),
