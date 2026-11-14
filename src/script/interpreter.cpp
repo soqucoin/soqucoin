@@ -202,7 +202,8 @@ static bool IsWitnessV11Mldsa44HashType(unsigned char nHashType)
 //             refused under SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM.
 //             A later release can give such a byte a handler and a deployment,
 //             which only refuses spends that succeeded before it.
-//   refused   a script that holds one fails before evaluation.
+//   refused   a script that holds one, and no reserved byte, fails before
+//             evaluation.
 //
 // The defined set is the pushes (0x00 to OP_PUSHDATA4, OP_1 to OP_16) and the
 // opcodes listed below. None of them leaves a second copy of a stack item, and
@@ -921,9 +922,11 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 
                             // The hash covers the whole key item, type byte
                             // included, and is compared before the type byte
-                            // or the length is read. The type is therefore
-                            // the one the script committed, never one the
-                            // spender picks for a key it has seen.
+                            // is read or the length is held to a figure (an
+                            // empty item, which has no type byte, has failed
+                            // above). The type is therefore the one the script
+                            // committed, never one the spender picks for a key
+                            // it has seen.
                             unsigned char computed_hash[32];
                             CSHA256().Write(vchKeyItem.data(), vchKeyItem.size())
                                      .Finalize(computed_hash);
@@ -1323,9 +1326,13 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
 //     → 1 sigop per input. These programs perform at most one aggregate
 //       signature verification per input (PAT = aggregated, not per-key).
 //
-//   Witness v6+ (unknown/future programs):
-//     → 0 sigops. Soft-fork safe: unknown programs do not contribute.
-//       This matches Bitcoin Core's precedent for unknown witness versions.
+//   Witness v6 and v11 (a script the witness commits):
+//     → 1 sigop for each signature check the script holds, while the
+//       version runs; 0 while it is dormant. The two branches in
+//       CountWitnessSigOps below state each rule.
+//
+//   Witness v7 to v10 and v12 to v16:
+//     → 0 sigops (the comment at the end of CountWitnessSigOps).
 //
 // CTV (OP_NOP4) contribution: 0 sigops.
 //   CTV is a hash comparison, not a signature verification. Hash operations
@@ -1617,9 +1624,10 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
         // signatures for eltoo/LN-Symmetry channel updates.
         //
         // SECURITY: The Dilithium CPubKey::Verify() call is UNCHANGED.
-        // Only the message being signed is different. The existing
-        // SIGHASH_ALL/NONE/SINGLE/ANYONECANPAY paths below are
-        // COMPLETELY UNTOUCHED — this is a new, separate code path.
+        // Only the message being signed is different. Under
+        // SIGVERSION_WITNESS_V0 the SIGHASH_ALL/NONE/SINGLE/ANYONECANPAY
+        // paths below return what they returned before this branch
+        // existed: it is a separate code path.
         // ============================================================
         // The branch belongs to SIGVERSION_WITNESS_V0. Witness version 11
         // defines no anyprevout message: its key-hash check admits six values
@@ -1709,8 +1717,10 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
         }
 
         // ============================================================
-        // STANDARD SIGHASH PATHS (UNCHANGED — audited Dilithium pipeline)
-        // The code below is IDENTICAL to the pre-APO implementation.
+        // STANDARD SIGHASH PATHS (audited Dilithium pipeline)
+        // Under SIGVERSION_WITNESS_V0 the code below returns what the
+        // pre-APO implementation returned. Witness version 11 runs the
+        // same code and appends three bytes to the preimage at its end.
         // ============================================================
 
         // Step 2: hashPrevouts
@@ -2092,9 +2102,12 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // spend verify. Outputs of a dormant version are consensus-valid to create
     // (ConnectBlock reserves only v2, whose spend path binds nothing) but
     // NON-STANDARD (policy/policy.cpp gates v2-v16 on the live activation
-    // mask), and no wallet path can construct one, so the anyone-can-spend
-    // window is reachable only by raw construction plus a miner running
-    // modified policy, with only the constructor's own funds at risk.
+    // mask), and no wallet path can construct one. The anyone-can-spend
+    // window is reached by raw construction plus a miner running modified
+    // policy, or by a transaction that relay accepted while the version ran
+    // at the next block and that confirms below the activation height after
+    // the tip has moved back (doc/specifications/WITNESS_VERSION_FORK_CLASS.md
+    // section 5). In both, only the funds paid into the output are at risk.
     if (is_latticebp_witness) {
         if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
             return set_success(serror);  // Not active yet — anyone-can-spend

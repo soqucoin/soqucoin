@@ -21,10 +21,12 @@
 //   evaluated  the script runs and passes. Relay and a block accept it.
 //   failed     the script runs and fails. Relay and a block refuse it.
 //
-// Relay refuses a dormant or hooked input with the reason
-// "non-mandatory-script-verify-flag", naming the script error, and does not
-// score the peer that sent it. It refuses a failed input with
-// "mandatory-script-verify-flag-failed" and scores the peer.
+// While the version runs, relay first refuses an input whose witness is
+// outside its figures, whatever the outcome, as "bad-witness-nonstandard" with
+// no score for the peer. Inside the figures it refuses a dormant or hooked
+// input with the reason "non-mandatory-script-verify-flag", naming the script
+// error, and does not score the peer that sent it, and it refuses a failed
+// input with "mandatory-script-verify-flag-failed" and scores the peer.
 
 #include "test/dilithium_chain_setup.h"
 
@@ -539,9 +541,9 @@ BOOST_AUTO_TEST_CASE(each_hook_is_refused_at_relay_and_connects_in_a_block)
 // Over a set of spends and the eight combinations of the three deployments:
 // relay accepts a spend only where a block accepts it, the figure the mempool
 // records is the figure the block charges, a spend valid with a set of
-// deployments active is valid with every subset, and the count of an input is
-// zero exactly where it is dormant or leaves through a sub-version or a
-// reserved byte.
+// deployments active is valid with every subset, and an input that is dormant
+// or leaves through a sub-version or a reserved byte counts nothing, whatever
+// checks its script holds.
 BOOST_AUTO_TEST_CASE(relay_accepts_only_what_a_block_accepts_under_every_combination)
 {
     const valtype ownerHash = Sha256(ownerItem);

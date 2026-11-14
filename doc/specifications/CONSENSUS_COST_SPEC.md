@@ -95,7 +95,7 @@ There is no BIP9 miner-signaling activation.
 | **Lattice-BP++** (`OP_LATTICEBP_RANGEPROOF`) | 5 | v4 (`OP_4`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **USDSOQ** (`OP_USDSOQ_*`) | 6 | v5 (`OP_5`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **CTV** (`OP_CHECKTEMPLATEVERIFY`) | 7 | v11 (`OP_11`); also read inside v6 | Dormant (NOT_SCHEDULED) | Active (height 0) |
-| **APO** (`SIGHASH_ANYPREVOUT`) | 8 | v11 (`OP_11`); also read inside v6 | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **APO** (`SIGHASH_ANYPREVOUT`) | 8 | one of the three that start v11 (`OP_11`), which has no anyprevout hash type; the hash types are read inside v6 | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **CSFS** (`OP_CHECKSIGFROMSTACK`) | 9 | v11 (`OP_11`); also read inside v6 | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **P2WSH-Dilithium / L2SOQ** | 10 | v6 (`OP_6`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **UTXO Cost** | 11 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
@@ -107,8 +107,8 @@ There is no BIP9 miner-signaling activation.
 > (retired, can never activate), v4 = SoquObscura confidential, v5 = USDSOQ authority,
 > v6 = P2WSH-Dilithium, v7 = USDSOQ holding, v8/v9 = BTCSOQ, v10 = confidential USDSOQ,
 > v11 = key-hash and covenant script (runs when any of CTV, APO and CSFS is active),
-> v12-v16 = unallocated. Each handler pushes the witness stack into `EvalScript()` with the
-> corresponding opcode. Flag gating ensures soft fork safety. Creating an output of any witness
+> v12-v16 = unallocated. The handlers of v2 to v5 push the witness stack into `EvalScript()` with the
+> corresponding opcode; v6 and v11 evaluate the script their witness commits. Flag gating ensures soft fork safety. Creating an output of any witness
 > version except v2 is consensus-valid at every height; v2 (PAT) is permanently unfundable
 > because its spend path binds nothing (`bad-txns-witness-version-not-active`).
 >
@@ -574,7 +574,7 @@ Witness v11 → Key-hash and covenant script: a committed sub-version byte and s
 Witness v12-v16 → Unallocated: anyone-can-spend, non-standard, creatable (BIP141 posture)
 ```
 
-Each handler pushes the witness stack into `EvalScript()` with the corresponding opcode. Flag gating
+The handlers of v2 to v5 push the witness stack into `EvalScript()` with the corresponding opcode; v6 and v11 evaluate the script their witness commits. Flag gating
 via `SCRIPT_VERIFY_*` constants ensures soft fork safety.
 
 ### LatticeFold+ Batch Verification

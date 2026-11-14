@@ -90,8 +90,8 @@ This exclusion is a deliberate scope decision, recorded with its costs:
 If the design contract "every Dilithium signature in a block is committed" is
 read to include authority signatures, it overstates what is attested. The
 accurate statement of the ruled scope is: every single-key Dilithium spend
-signature is committed; authority M-of-N signatures and v6 witnessScript checks
-are not. The public documentation must state the contract in that form
+signature is committed; authority M-of-N signatures and the checks of a v6 or
+v11 script are not. The public documentation must state the contract in that form
 (tracked under `pat-public-claims-correction-pq03`).
 
 ### The v6 note
