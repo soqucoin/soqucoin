@@ -58,6 +58,7 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, WitnessVersi
     case TX_WITNESS_V7_USDSOQ:
     case TX_WITNESS_V8_BTCSOQ:
     case TX_WITNESS_V9_BTCSOQ_AUTHORITY:
+    case TX_WITNESS_V11_SCRIPTHASH:
         break;
     default:
         return false;
@@ -289,6 +290,31 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
                 if (itemSize > MAX_STANDARD_V6_ITEM_SIZE &&
                     itemSize != STANDARD_V6_SIGNATURE_SIZE && itemSize != STANDARD_V6_SIGNATURE_SIZE + 1 &&
                     itemSize != STANDARD_V6_PUBKEY_SIZE && itemSize != STANDARD_V6_PUBKEY_SIZE + 1)
+                    return false;
+            }
+        }
+
+        // Check witness v11 standard limits while the version's rules are active.
+        // The witness is [satisfaction items...] [committed item] [trailer].
+        if (witnessversion == WITNESS_V11_VERSION && witnessprogram.size() == 32 &&
+            (activeWitnessVersions & WitnessVersionBit(WITNESS_V11_VERSION))) {
+            const std::vector<std::vector<unsigned char> >& stack = tx.vin[i].scriptWitness.stack;
+            if (stack.size() < 2)
+                return false;
+            // The satisfaction items come first, so their number is the committed item's index
+            const size_t nSatisfactionItems = stack.size() - 2;
+            if (stack[nSatisfactionItems].size() > MAX_STANDARD_V11_COMMITTED_ITEM_SIZE)
+                return false;
+            if (nSatisfactionItems > MAX_STANDARD_V11_SATISFACTION_ITEMS)
+                return false;
+            // Every item other than the committed item, the trailer included
+            for (size_t j = 0; j < stack.size(); j++) {
+                if (j == nSatisfactionItems)
+                    continue;
+                const size_t itemSize = stack[j].size();
+                if (itemSize > MAX_STANDARD_V11_ITEM_SIZE &&
+                    itemSize != STANDARD_V11_SIGNATURE_SIZE && itemSize != STANDARD_V11_SIGNATURE_SIZE + 1 &&
+                    itemSize != STANDARD_V11_KEY_ITEM_SIZE)
                     return false;
             }
         }

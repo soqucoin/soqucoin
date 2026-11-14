@@ -65,6 +65,7 @@ enum txnouttype {
     TX_WITNESS_V7_USDSOQ,      // CTxOut Phase 4: USDSOQ holding (OP_7 + 32-byte hash), spent via v1 path
     TX_WITNESS_V8_BTCSOQ,      // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ holding (OP_8 + 32-byte hash), spent via v1 path
     TX_WITNESS_V9_BTCSOQ_AUTHORITY, // DL-BTCSOQ-CONSENSUS-NATIVE: BTCSOQ authority marker (OP_9 + 32-byte hash)
+    TX_WITNESS_V11_SCRIPTHASH, // witness version 11: OP_11 + the SHA-256 of a sub-version byte and a script
 };
 
 class CNoDestination

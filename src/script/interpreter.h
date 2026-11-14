@@ -194,9 +194,22 @@ struct PrecomputedTransactionData {
 enum SigVersion {
     SIGVERSION_BASE = 0,
     SIGVERSION_WITNESS_V0 = 1,
+    //! A script of witness version 11. VerifyScript's version 11 branch is the
+    //! one caller that passes it.
+    SIGVERSION_WITNESS_V11 = 2,
 };
 
-uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = NULL);
+//! Witness version 11 runs when any of its three deployments is active, and is
+//! dormant with the three flags clear. Read by VerifyScript, by
+//! CountWitnessSigOps and, for bit 11 of the relay mask, by the mempool.
+inline bool IsWitnessV11Active(unsigned int flags)
+{
+    return (flags & (SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS)) != 0;
+}
+
+//! nKeyType is read under SIGVERSION_WITNESS_V11 alone: the type byte of the
+//! key item the signature is checked against, which is part of the message.
+uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = NULL, unsigned char nKeyType = 0);
 
 class BaseSignatureChecker
 {
@@ -234,13 +247,27 @@ private:
     unsigned int nIn;
     const CAmount amount;
     const PrecomputedTransactionData* txdata;
+    //! The template hash of txTo at nIn, kept from the first call of
+    //! CheckTemplateVerify. A checker serves one transaction and one input
+    //! for its whole life, so the value is the same at every call, and a
+    //! script that executes OP_CHECKTEMPLATEVERIFY many times hashes the
+    //! transaction once. The two members are written without a lock: no
+    //! caller shares a checker between threads, and one that did would
+    //! have to guard them.
+    mutable bool fTemplateHashKnown;
+    mutable unsigned char templateHash[32];
 
 protected:
     virtual bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const;
+    //! Writes the template hash of txTo at nIn to the 32 bytes at hashOut:
+    //! the fields BIP 119 names, with each script length written as four
+    //! bytes, so the value is this chain's own and not the one a BIP 119
+    //! library computes. CheckTemplateVerify calls it once for a checker.
+    virtual void ComputeTemplateHash(unsigned char* hashOut) const;
 
 public:
-    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(NULL) {}
-    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn) {}
+    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(NULL), fTemplateHashKnown(false) {}
+    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn), fTemplateHashKnown(false) {}
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const;
     bool CheckLockTime(const CScriptNum& nLockTime) const;
     bool CheckSequence(const CScriptNum& nSequence) const;

@@ -211,7 +211,6 @@ BOOST_AUTO_TEST_CASE(every_version_but_v2_is_creatable_while_dormant)
         { OP_5,  "v5 USDSOQ authority marker",   Consensus::DEPLOYMENT_USDSOQ },
         { OP_6,  "v6 P2WSH-Dilithium",           Consensus::DEPLOYMENT_P2WSH_DILITHIUM },
         { OP_9,  "v9 BTCSOQ authority marker",   Consensus::DEPLOYMENT_BTCSOQ },
-        { OP_11, "v11 unallocated",              -1 },
         { OP_12, "v12 unallocated",              -1 },
         { OP_13, "v13 unallocated",              -1 },
         { OP_14, "v14 unallocated",              -1 },
@@ -231,6 +230,20 @@ BOOST_AUTO_TEST_CASE(every_version_but_v2_is_creatable_while_dormant)
         CMutableTransaction tx = SpendTo(coinbaseTxns[cbIdx++], Spk(r.op));
         BOOST_CHECK_MESSAGE(RejectReasonFor({tx}).empty(),
             r.name << " output must be consensus-valid to create while dormant; a rejection "
+            "keyed on this shape makes the version's activation a hard fork");
+    }
+    // Witness version 11 runs while any of its three deployments is active, so
+    // the three are withdrawn together.
+    {
+        ScopedRegtestWithdrawal ctv(Consensus::DEPLOYMENT_CTV, 0), apo(Consensus::DEPLOYMENT_APO, 0),
+                                csfs(Consensus::DEPLOYMENT_CSFS, 0);
+        const int h11 = chainActive.Height() + 1;
+        const Consensus::Params& cons11 = Params().GetConsensus(h11);
+        for (Consensus::DeploymentPos d : {Consensus::DEPLOYMENT_CTV, Consensus::DEPLOYMENT_APO, Consensus::DEPLOYMENT_CSFS})
+            BOOST_REQUIRE(!Consensus::DeploymentActiveAtHeight(h11, cons11, d));
+        CMutableTransaction tx = SpendTo(coinbaseTxns[cbIdx++], Spk(OP_11));
+        BOOST_CHECK_MESSAGE(RejectReasonFor({tx}).empty(),
+            "a v11 output must be consensus-valid to create while dormant; a rejection "
             "keyed on this shape makes the version's activation a hard fork");
     }
     // Sanity: LatticeFold and SoquObscura really are dormant on regtest, so the
@@ -275,7 +288,6 @@ BOOST_AUTO_TEST_CASE(dormant_output_is_anyone_can_spend_nonstandard_and_activati
         { OP_5,  5,  "v5 USDSOQ authority marker", Consensus::DEPLOYMENT_USDSOQ,           true  },
         { OP_6,  6,  "v6 P2WSH-Dilithium",         Consensus::DEPLOYMENT_P2WSH_DILITHIUM,  true  },
         { OP_9,  9,  "v9 BTCSOQ authority marker", Consensus::DEPLOYMENT_BTCSOQ,           true  },
-        { OP_11, 11, "v11 unallocated",            -1,                                     false },
     };
     int cbIdx = 20;
     for (const Row& r : rows) {
@@ -319,6 +331,36 @@ BOOST_AUTO_TEST_CASE(dormant_output_is_anyone_can_spend_nonstandard_and_activati
             BOOST_CHECK_MESSAGE(!BlockIsValid({sweep}),
                 r.name << ": the garbage sweep must be REJECTED once the deployment is active. "
                 "If it still connects, activating the deployment enforces nothing on this version.");
+        }
+    }
+
+    // Witness version 11 has three deployments and runs while any of them is
+    // active. Funded and swept with the three withdrawn; the same sweep is
+    // refused with the three active and with each one alone.
+    {
+        const Consensus::DeploymentPos three[] = {Consensus::DEPLOYMENT_CTV, Consensus::DEPLOYMENT_APO, Consensus::DEPLOYMENT_CSFS};
+        CMutableTransaction sweep;
+        {
+            ScopedRegtestWithdrawal ctv(three[0], 0), apo(three[1], 0), csfs(three[2], 0);
+            CMutableTransaction fund = SpendTo(coinbaseTxns[cbIdx++], Spk(OP_11));
+            std::string reason;
+            BOOST_CHECK_MESSAGE(!IsStandardTx(CTransaction(fund), reason, 0) && reason == "scriptpubkey",
+                "a v11 funding tx must be non-standard while dormant (got '" << reason << "')");
+            BOOST_CHECK_MESSAGE(IsStandardTx(CTransaction(fund), reason, WitnessVersionBit(11)),
+                "a v11 funding tx must be standard once its version bit is active");
+            Connect(fund);
+            sweep = GarbageSweep(CTransaction(fund));
+            BOOST_CHECK_MESSAGE(BlockIsValid({sweep}),
+                "v11: a garbage-witness sweep must connect while its three deployments are withdrawn");
+        }
+        BOOST_CHECK_MESSAGE(!BlockIsValid({sweep}),
+            "v11: the garbage sweep must be refused with its three deployments active");
+        for (int alone = 0; alone < 3; ++alone) {
+            ScopedRegtestWithdrawal a(three[(alone + 1) % 3], 0), b(three[(alone + 2) % 3], 0);
+            const int h = chainActive.Height() + 1;
+            BOOST_REQUIRE(Consensus::DeploymentActiveAtHeight(h, Params().GetConsensus(h), three[alone]));
+            BOOST_CHECK_MESSAGE(!BlockIsValid({sweep}),
+                "v11: the garbage sweep must be refused with one of its deployments alone active");
         }
     }
 }

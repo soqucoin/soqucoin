@@ -159,11 +159,13 @@ public:
  * (covenant script execution: CTV vaults, CSFS oracles, L2SOQ Lightning), see
  * interpreter.cpp is_p2wsh_dilithium and consensus/params.h
  * DEPLOYMENT_P2WSH_DILITHIUM ("Witness v6"). An earlier revision of this change
- * used v6 and collided with it byte-for-byte. The occupied versions are
- * v1 (Dilithium), v2 (PAT), v3 (LatticeFold+), v4 (confidential SOQ),
- * v5 (USDSOQ authority), v6 (P2WSH-Dilithium), v7 (USDSOQ holding),
- * v8/v9 (BTCSOQ holding/authority) — so v10-v16 is the only free range.
- * ⛔ Derive that list from interpreter.cpp, never from a design document.
+ * used v6 and collided with it byte-for-byte. When v10 was allocated the
+ * occupied versions were v1 (Dilithium), v2 (PAT), v3 (LatticeFold+),
+ * v4 (confidential SOQ), v5 (USDSOQ authority), v6 (P2WSH-Dilithium),
+ * v7 (USDSOQ holding) and v8/v9 (BTCSOQ holding/authority), so v10 was the
+ * lowest free version. Versions allocated since are not listed here.
+ * ⛔ Derive the list from interpreter.cpp, never from a design document;
+ * witness_version_allocation_tests derives the free range from the code.
  *
  * SoquObscura tiers map onto these versions:
  *   - Tier A (institutional USDSOQ) = v10, MANDATORY consensus-enforced issuer
@@ -242,7 +244,8 @@ public:
     //!
     //! ⛔ v10 and NOT v6: v6 is already P2WSH-Dilithium (interpreter.cpp
     //! is_p2wsh_dilithium, consensus/params.h DEPLOYMENT_P2WSH_DILITHIUM).
-    //! v10-v16 is the only free range. See the class comment above.
+    //! v10 was the lowest free version when it was allocated. See the class
+    //! comment above.
     //!
     //! Keeping the asset and the confidentiality in the SAME byte is deliberate:
     //! it means the disclosure rule and the asset-type determination are one

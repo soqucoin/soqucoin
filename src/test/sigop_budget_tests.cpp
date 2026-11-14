@@ -108,6 +108,7 @@ BOOST_AUTO_TEST_CASE(witness_sigop_charges_are_pinned)
         { 9, 0, "BTCSOQ authority marker: default-deny at the script layer, but authority "
                 "txs skip per-input verification and are checked M-of-N in ConnectBlock" },
         { 10, 0, "unallocated at the script layer (Tier A confidential USDSOQ elsewhere)" },
+        { 11, 0, "key-hash and covenant script, charged 0 while its three flags are clear (no script runs)" },
         { 16, 0, "unallocated" },
     };
 
@@ -287,6 +288,87 @@ BOOST_AUTO_TEST_CASE(v6_keyhash_checks_are_bound_by_weight_before_the_sigop_budg
     // re-derive a validation-time budget from.
     BOOST_CHECK_MESSAGE(checksPerBlock < 2000,
         "more than 2000 executed key-hash checks now fit in a block; re-derive the "
+        "validation-time budget");
+}
+
+// ---------------------------------------------------------------------------
+// THE SAME QUESTION FOR WITNESS v11. Its script language has two opcodes that
+// verify a signature, OP_CHECKDILITHIUMKEYHASH and OP_CHECKSIGFROMSTACK, and
+// each pops the signature item and the key item it verified. Both items can
+// only come from the witness: a push and an OP_CAT result stop at
+// MAX_SCRIPT_ELEMENT_SIZE, and no opcode of the language copies a stack item.
+// So every executed verification is paid for in witness bytes, and block
+// weight caps the work before the sigop budget does. That is why the version
+// carries no budget of its own on its first day. The case fails if a
+// signature or key size changes, if a weight limit moves far enough to change
+// the number of verifications a block or a standard transaction holds, if a
+// sigop limit falls far enough to lose a margin asserted here, or if the
+// counter stops charging one unit for each of the two opcodes.
+//
+// OP_CHECKTEMPLATEVERIFY verifies no signature and is charged nothing; what an
+// executed one costs is outside this case.
+// ---------------------------------------------------------------------------
+BOOST_AUTO_TEST_CASE(v11_signature_checks_are_bound_by_weight_before_the_sigop_budget)
+{
+    const int64_t sigBytes = pqcrystals_dilithium2_BYTES;
+    const int64_t keyItemBytes = 1 + pqcrystals_dilithium2_PUBLICKEYBYTES;   // the type byte and the key
+    BOOST_CHECK_EQUAL(sigBytes, 2420);
+    BOOST_CHECK_EQUAL(keyItemBytes, 1313);
+    BOOST_CHECK_EQUAL(keyItemBytes, (int64_t)WITNESS_V11_MLDSA44_KEY_ITEM_SIZE);
+    BOOST_CHECK_MESSAGE(sigBytes > MAX_SCRIPT_ELEMENT_SIZE && keyItemBytes > MAX_SCRIPT_ELEMENT_SIZE,
+        "a signature or a key item now fits in a script push, so a script could supply one "
+        "without a witness item of its own; re-derive the bound");
+
+    // A key-hash check: the signature item and the key item in the witness,
+    // and in the script the 32-byte hash with its push opcode and the check
+    // opcode. The hashtype byte and the length prefixes are left out, so the
+    // figure is a floor.
+    const int64_t weightPerKeyHashCheck = sigBytes + keyItemBytes + 1 + 32 + 1;
+    BOOST_CHECK_EQUAL(weightPerKeyHashCheck, 3767);
+    // A check of a signature from the stack: the signature item, the key item
+    // and the opcode. The message can be the empty item.
+    const int64_t weightPerStackCheck = sigBytes + keyItemBytes + 1;
+    BOOST_CHECK_EQUAL(weightPerStackCheck, 3734);
+
+    const int64_t cheapest = weightPerStackCheck;
+    const int64_t checksPerBlock      = MAX_BLOCK_WEIGHT / cheapest;
+    const int64_t checksPerStandardTx = MAX_STANDARD_TX_WEIGHT / cheapest;
+    BOOST_CHECK_EQUAL(checksPerBlock, 1071);
+    BOOST_CHECK_EQUAL(checksPerStandardTx, 214);
+
+    // The counter charges one unit for each of the two opcodes in the script,
+    // which is the committed item less its first byte, while the version runs
+    // and nothing while it is dormant.
+    const unsigned int running = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS;
+    const std::vector<unsigned char> keyHash(32, 0x02);
+    CScript both;
+    both << OP_CHECKSIGFROMSTACK << keyHash << OP_CHECKDILITHIUMKEYHASH << OP_1;
+    std::vector<unsigned char> committed(1, 0xc0);
+    committed.insert(committed.end(), both.begin(), both.end());
+    CScriptWitness w;
+    w.stack.push_back(std::vector<unsigned char>(sigBytes + 1, 0x01));   // signature + hashtype
+    w.stack.push_back(std::vector<unsigned char>(keyItemBytes, 0x00));   // key item
+    w.stack.push_back(std::vector<unsigned char>(sigBytes, 0x01));       // signature of the message
+    w.stack.push_back(std::vector<unsigned char>());                     // the message
+    w.stack.push_back(std::vector<unsigned char>(keyItemBytes, 0x00));   // key item
+    w.stack.push_back(committed);
+    w.stack.push_back(std::vector<unsigned char>(1, 0x00));              // trailer
+    BOOST_CHECK_EQUAL(Charge(11, running, w), 2u);
+    BOOST_CHECK_EQUAL(Charge(11, SCRIPT_VERIFY_WITNESS, w), 0u);
+    // The static overcharge is priced as it is for v6.
+    BOOST_CHECK(2 * (int64_t)DEFAULT_BYTES_PER_SIGOP < cheapest);
+
+    // Weight binds first, with the margins the v6 case asserts.
+    BOOST_CHECK_MESSAGE(checksPerBlock * 50 < MAX_BLOCK_SIGOPS_COST,
+        "a weight-full block of executed v11 signature checks would now use more than a fiftieth "
+        "of the sigop budget (" + std::to_string(checksPerBlock) + " of " +
+        std::to_string(MAX_BLOCK_SIGOPS_COST) + "); re-derive whether v11 needs a budget of its own");
+    BOOST_CHECK_MESSAGE(checksPerStandardTx * 50 < (int64_t)MAX_STANDARD_TX_SIGOPS_COST,
+        "a weight-full standard transaction of executed v11 signature checks would now use more "
+        "than a fiftieth of the standard sigop limit (" + std::to_string(checksPerStandardTx) +
+        " of " + std::to_string(MAX_STANDARD_TX_SIGOPS_COST) + ")");
+    BOOST_CHECK_MESSAGE(checksPerBlock < 2000,
+        "more than 2000 executed v11 signature checks now fit in a block; re-derive the "
         "validation-time budget");
 }
 
