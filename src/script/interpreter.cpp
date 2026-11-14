@@ -175,6 +175,91 @@ bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int fl
     return true;
 }
 
+// The hash types a signature of an ML-DSA-44 key of witness version 11 may
+// carry: ALL, NONE and SINGLE, each alone or with ANYONECANPAY. The list is
+// closed. A signature with any other last byte fails before a message is
+// computed.
+static bool IsWitnessV11Mldsa44HashType(unsigned char nHashType)
+{
+    switch (nHashType) {
+    case SIGHASH_ALL:
+    case SIGHASH_NONE:
+    case SIGHASH_SINGLE:
+    case SIGHASH_ALL | SIGHASH_ANYONECANPAY:
+    case SIGHASH_NONE | SIGHASH_ANYONECANPAY:
+    case SIGHASH_SINGLE | SIGHASH_ANYONECANPAY:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Witness version 11: the class of each byte of a script.
+//
+//   defined   a push, or an opcode with a handler in EvalScript. It runs.
+//   reserved  a byte with no meaning in this release. A script that holds one,
+//             in any branch, is not evaluated: its input succeeds, and is
+//             refused under SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM.
+//             A later release can give such a byte a handler and a deployment,
+//             which only refuses spends that succeeded before it.
+//   refused   a script that holds one fails before evaluation.
+//
+// The defined set is the pushes (0x00 to OP_PUSHDATA4, OP_1 to OP_16) and the
+// opcodes listed below. None of them leaves a second copy of a stack item, and
+// the two that verify a signature pop it. OP_CHECKTEMPLATEVERIFY and
+// OP_CHECKSIGFROMSTACK are defined while their deployment is active and
+// reserved while it is not, so neither has a state in which it is skipped.
+// The reserved range is 0xbb to 0xef. Every other byte is refused.
+//
+// EvalScript and ScanWitnessV11Script read this one function, and VerifyScript
+// and the sigop count read the scan.
+enum WitnessV11OpcodeClass {
+    WITNESS_V11_OPCODE_DEFINED,
+    WITNESS_V11_OPCODE_RESERVED,
+    WITNESS_V11_OPCODE_REFUSED,
+};
+
+static WitnessV11OpcodeClass ClassifyWitnessV11Opcode(opcodetype op, unsigned int flags)
+{
+    if (op <= OP_PUSHDATA4)
+        return WITNESS_V11_OPCODE_DEFINED;
+    if (op >= OP_1 && op <= OP_16)
+        return WITNESS_V11_OPCODE_DEFINED;
+    switch (op) {
+    case OP_IF:
+    case OP_NOTIF:
+    case OP_ELSE:
+    case OP_ENDIF:
+    case OP_DROP:
+    case OP_SIZE:
+    case OP_EQUAL:
+    case OP_EQUALVERIFY:
+    case OP_SHA256:
+    case OP_CHECKLOCKTIMEVERIFY:
+    case OP_CHECKSEQUENCEVERIFY:
+    case OP_CHECKDILITHIUMKEYHASH:
+    case OP_CAT:
+    case OP_SUBSTR:
+    case OP_LEFT:
+    case OP_RIGHT:
+    case OP_AND:
+    case OP_OR:
+    case OP_XOR:
+    case OP_MUL:
+    case OP_DIV:
+    case OP_MOD:
+        return WITNESS_V11_OPCODE_DEFINED;
+    case OP_CHECKTEMPLATEVERIFY:
+        return (flags & SCRIPT_VERIFY_CTV) ? WITNESS_V11_OPCODE_DEFINED : WITNESS_V11_OPCODE_RESERVED;
+    case OP_CHECKSIGFROMSTACK:
+        return (flags & SCRIPT_VERIFY_CSFS) ? WITNESS_V11_OPCODE_DEFINED : WITNESS_V11_OPCODE_RESERVED;
+    default:
+        break;
+    }
+    if (op >= 0xbb && op <= 0xef)
+        return WITNESS_V11_OPCODE_RESERVED;
+    return WITNESS_V11_OPCODE_REFUSED;
+}
 
 bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
@@ -199,6 +284,13 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     std::vector<bool> vfExec;
     set_success(serror);
 
+    // A script of witness version 11 runs the control-flow set, the restored
+    // set and the key-hash check with no flag of their own: inside a running
+    // version a defined opcode has one behaviour. For every other signature
+    // version fControlFlow is the flag.
+    const bool fV11 = (sigversion == SIGVERSION_WITNESS_V11);
+    const bool fControlFlow = fV11 || (flags & SCRIPT_VERIFY_V6_CONTROLFLOW) != 0;
+
     try {
         while (pc < pend) {
             // Executing iff no enclosing conditional branch is currently false.
@@ -213,6 +305,13 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
             if (vchPushValue.size() > MAX_SCRIPT_ELEMENT_SIZE)
                 return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
 
+            // Witness version 11: a byte that is not defined neither runs nor
+            // is skipped, in a branch not taken included. VerifyScript returns
+            // on such a script before it calls here; the guard holds the same
+            // for a caller that does not go through it.
+            if (fV11 && ClassifyWitnessV11Opcode(opcode, flags) != WITNESS_V11_OPCODE_DEFINED)
+                return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+
             if (opcode > OP_16) {
                 //
                 // Execution
@@ -220,7 +319,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                 // DL-V6-CONTROLFLOW-RESTORE: conditional opcodes run even inside a
                 // non-taken branch (they manage the vfExec nesting). Gated by the flag;
                 // when clear they fall through to the no-op behaviour below.
-                if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) &&
+                if (fControlFlow &&
                     (opcode == OP_IF || opcode == OP_NOTIF || opcode == OP_ELSE || opcode == OP_ENDIF)) {
                     if (opcode == OP_IF || opcode == OP_NOTIF) {
                         // <expression> IF/NOTIF [statements] [ELSE [statements]] ENDIF
@@ -229,7 +328,10 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             if (stack.size() < 1)
                                 return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
                             valtype& vch = stacktop(-1);
-                            if (flags & SCRIPT_VERIFY_MINIMALIF) {
+                            // Witness version 11 holds the argument to the
+                            // empty item or the one byte 0x01 as a rule of the
+                            // version; every other caller does under the flag.
+                            if (fV11 || (flags & SCRIPT_VERIFY_MINIMALIF)) {
                                 if (vch.size() > 1)
                                     return set_error(serror, SCRIPT_ERR_MINIMALIF);
                                 if (vch.size() == 1 && vch[0] != 1)
@@ -640,6 +742,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // When flag is NOT set, behaves as OP_NOP4 (soft-fork safe).
                         // =========================================================
 
+                        // A script of witness version 11 reaches this byte
+                        // with the flag set and never without it: while the
+                        // flag is clear the byte is reserved there.
                         if (flags & SCRIPT_VERIFY_CTV) {
                             // CTV is active — enforce template verification
                             if (stack.size() < 1)
@@ -694,6 +799,18 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             const valtype& vchPubKey = stacktop(-1);
                             const valtype& vchMsg    = stacktop(-2);
                             const valtype& vchSig    = stacktop(-3);
+
+                            // Witness version 11 takes the key in one form, the
+                            // ML-DSA-44 key item: the type byte and the key.
+                            // The key is an operand the spender supplies, with
+                            // no hash operand beside it, so a key item of any
+                            // other type or length fails here and the opcode
+                            // has no state in which it passes unverified. As
+                            // for OP_CHECKTEMPLATEVERIFY, such a script reaches
+                            // this byte with the flag set and never without.
+                            if (fV11 && (vchPubKey.size() != WITNESS_V11_MLDSA44_KEY_ITEM_SIZE ||
+                                         vchPubKey[0] != WITNESS_V11_KEY_TYPE_MLDSA44))
+                                return set_error(serror, SCRIPT_ERR_CHECKSIGFROMSTACK);
 
                             // Validate pubkey: must be Dilithium ML-DSA-44
                             // Accepts 1312 bytes (raw) or 1313 bytes (0x00 prefix per FIPS 204)
@@ -784,7 +901,68 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // own keyhash because that would change the program hash.
                         // =========================================================
 
-                        if (flags & SCRIPT_VERIFY_DILITHIUM_KEYHASH) {
+                        if (fV11) {
+                            // Witness version 11. The operands are those of
+                            // the layout above: the hash from the script on
+                            // top, then the key item and the signature item
+                            // from the witness. A key item is a type byte and
+                            // a key.
+                            if (stack.size() < 3)
+                                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                            const valtype& vchKeyHash = stacktop(-1);
+                            const valtype& vchKeyItem = stacktop(-2);
+                            const valtype& vchSig     = stacktop(-3);
+
+                            if (vchKeyHash.size() != 32)
+                                return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+                            if (vchKeyItem.empty())
+                                return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+
+                            // The hash covers the whole key item, type byte
+                            // included, and is compared before the type byte
+                            // or the length is read. The type is therefore
+                            // the one the script committed, never one the
+                            // spender picks for a key it has seen.
+                            unsigned char computed_hash[32];
+                            CSHA256().Write(vchKeyItem.data(), vchKeyItem.size())
+                                     .Finalize(computed_hash);
+                            unsigned char diff = 0;
+                            for (int i = 0; i < 32; ++i) {
+                                diff |= computed_hash[i] ^ vchKeyHash[i];
+                            }
+                            if (diff != 0)
+                                return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+
+                            if (vchKeyItem[0] == WITNESS_V11_KEY_TYPE_MLDSA44) {
+                                if (vchKeyItem.size() != WITNESS_V11_MLDSA44_KEY_ITEM_SIZE)
+                                    return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+                                if (vchSig.empty())
+                                    return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+                                if (!IsWitnessV11Mldsa44HashType(vchSig.back()))
+                                    return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
+                                if (!checker.CheckSig(vchSig, vchKeyItem, script, sigversion))
+                                    return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
+                            } else {
+                                // A key of a type this release does not
+                                // define. Nothing is verified, whatever the
+                                // length of the key item and the content of
+                                // the signature item, and the check succeeds;
+                                // under the relay flag it is refused. A later
+                                // release that defines the type states its
+                                // rules for the same three items, which only
+                                // refuses spends that succeeded before it.
+                                if (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM)
+                                    return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_KEYTYPE);
+                            }
+
+                            // The three operands are popped and nothing is
+                            // pushed, after a verified check and after a key
+                            // of an undefined type alike.
+                            popstack(stack); // keyhash
+                            popstack(stack); // key item
+                            popstack(stack); // signature item
+                        } else if (flags & SCRIPT_VERIFY_DILITHIUM_KEYHASH) {
                             // Active — enforce key-committed Dilithium verification
                             if (stack.size() < 3)
                                 return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
@@ -854,13 +1032,13 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                 return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_NOPS);
                         }
 
-                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_DROP) {
+                    } else if (fControlFlow && opcode == OP_DROP) {
                         // DL-V6-CONTROLFLOW-RESTORE: pop one item (needed after CLTV/CSV).
                         if (stack.size() < 1)
                             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
                         popstack(stack);
 
-                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_SIZE) {
+                    } else if (fControlFlow && opcode == OP_SIZE) {
                         // DL-V6-CONTROLFLOW-RESTORE: push the byte length of the top item
                         // as a script number; the item stays (HTLC preimage length). No
                         // stack item is copied and nothing is verified.
@@ -869,7 +1047,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         CScriptNum bnSize(stacktop(-1).size());
                         stack.push_back(bnSize.getvch());
 
-                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) &&
+                    } else if (fControlFlow &&
                                (opcode == OP_EQUAL || opcode == OP_EQUALVERIFY)) {
                         // DL-V6-CONTROLFLOW-RESTORE: byte-equality (HTLC hashlock).
                         if (stack.size() < 2)
@@ -887,7 +1065,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                 return set_error(serror, SCRIPT_ERR_EQUALVERIFY);
                         }
 
-                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_SHA256) {
+                    } else if (fControlFlow && opcode == OP_SHA256) {
                         // DL-V6-CONTROLFLOW-RESTORE: SHA256 (HTLC preimage hashlock).
                         if (stack.size() < 1)
                             return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
@@ -897,7 +1075,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         popstack(stack);
                         stack.push_back(vchHash);
 
-                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_CHECKLOCKTIMEVERIFY) {
+                    } else if (fControlFlow && opcode == OP_CHECKLOCKTIMEVERIFY) {
                         // DL-V6-CONTROLFLOW-RESTORE: BIP65 absolute locktime. Arg stays on
                         // stack (caller DROPs). eLTOO state ratchet + HTLC timeout.
                         if (stack.size() < 1)
@@ -908,7 +1086,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         if (!checker.CheckLockTime(nLockTime))
                             return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
 
-                    } else if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && opcode == OP_CHECKSEQUENCEVERIFY) {
+                    } else if (fControlFlow && opcode == OP_CHECKSEQUENCEVERIFY) {
                         // DL-V6-CONTROLFLOW-RESTORE: BIP112 relative locktime. Arg stays on
                         // stack (caller DROPs). eLTOO settlement-branch CSV delay.
                         if (stack.size() < 1)
@@ -921,7 +1099,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             if (!checker.CheckSequence(nSequence))
                                 return set_error(serror, SCRIPT_ERR_UNSATISFIED_LOCKTIME);
 
-                    } else if (flags & SCRIPT_VERIFY_SCRIPT_RESTORE) {
+                    } else if (fV11 || (flags & SCRIPT_VERIFY_SCRIPT_RESTORE)) {
                         // =========================================================
                         // SATOSHI SCRIPT RESTORATION (Soqucoin genesis-active)
                         //
@@ -1099,7 +1277,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
         }
 
         // DL-V6-CONTROLFLOW-RESTORE: every OP_IF/NOTIF must be closed by an OP_ENDIF.
-        if ((flags & SCRIPT_VERIFY_V6_CONTROLFLOW) && !vfExec.empty())
+        if (fControlFlow && !vfExec.empty())
             return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
     } catch (...) {
         return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
@@ -1192,6 +1370,58 @@ static size_t CountWitnessScriptSigOps(const CScript& script, unsigned int flags
     return n;
 }
 
+// What one walk over a script of witness version 11 finds.
+struct WitnessV11Scan {
+    bool fDecodeFailed;   //!< a push ran past the end of the script before any reserved byte
+    bool fReserved;       //!< a reserved byte was decoded
+    ScriptError refusal;  //!< the error of the first refused byte, or SCRIPT_ERR_OK
+    size_t nSigOps;       //!< the key-hash checks and the OP_CHECKSIGFROMSTACK bytes decoded
+};
+
+// Walks a script of witness version 11 from its first byte, decoding as
+// EvalScript does, so a value inside push data is data. The walk ends at the
+// first reserved byte and at a push that fails to decode: nothing after either
+// is read. A refused byte does not end it, since a reserved byte further on
+// still decides the script.
+//
+// VerifyScript reads the result in this order: a failed decode fails the
+// input, a reserved byte passes it unevaluated, a refused byte fails it, and
+// otherwise the script is evaluated. CountWitnessSigOps reads the same result
+// under the same flags.
+static WitnessV11Scan ScanWitnessV11Script(const CScript& script, unsigned int flags)
+{
+    WitnessV11Scan scan = {false, false, SCRIPT_ERR_OK, 0};
+    CScript::const_iterator pc = script.begin();
+    opcodetype op;
+    while (pc < script.end()) {
+        if (!script.GetOp(pc, op)) {
+            scan.fDecodeFailed = true;
+            return scan;
+        }
+        switch (ClassifyWitnessV11Opcode(op, flags)) {
+        case WITNESS_V11_OPCODE_RESERVED:
+            scan.fReserved = true;
+            return scan;
+        case WITNESS_V11_OPCODE_REFUSED:
+            if (scan.refusal == SCRIPT_ERR_OK) {
+                // The asset and attestation opcodes keep the error witness
+                // version 6 gives them; every other refused byte has one error.
+                const bool fAsset = (op == OP_USDSOQ_MINT || op == OP_USDSOQ_BURN ||
+                                     op == OP_USDSOQ_FREEZE || op == OP_USDSOQ_ROTATE ||
+                                     op == OP_SOQUOBSCURA_RANGEPROOF || op == OP_CHECKFOLDPROOF ||
+                                     op == OP_CHECKPATAGG);
+                scan.refusal = fAsset ? SCRIPT_ERR_BAD_OPCODE : SCRIPT_ERR_DISALLOWED_OPCODE;
+            }
+            break;
+        case WITNESS_V11_OPCODE_DEFINED:
+            if (op == OP_CHECKDILITHIUMKEYHASH || op == OP_CHECKSIGFROMSTACK)
+                ++scan.nSigOps;
+            break;
+        }
+    }
+    return scan;
+}
+
 size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness* witness, unsigned int flags)
 {
     static const size_t SIGOPS_PER_CHECKSIG = 1;
@@ -1253,6 +1483,29 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
             return 0;
         }
 
+        // Witness version 11: one for each key-hash check and each
+        // OP_CHECKSIGFROMSTACK of the script, which is the committed item
+        // (the second to last) less its sub-version byte. Zero while the
+        // version is dormant, for a committed item of another sub-version and
+        // for a script that holds a reserved byte: VerifyScript passes each of
+        // the three unevaluated, and it reads the same walk, so given the same
+        // flags an input that is not evaluated is charged nothing and an input
+        // whose script runs is charged for every check in it. A key-hash
+        // check counts one whatever the type of its key: the type is in a
+        // witness item and the count reads the script. OP_CHECKTEMPLATEVERIFY
+        // counts nothing.
+        if (witnessversion == WITNESS_V11_VERSION && witnessprogram.size() == 32 &&
+            witness != nullptr && witness->stack.size() >= 2) {
+            if (!IsWitnessV11Active(flags))
+                return 0;
+            const std::vector<unsigned char>& committed = witness->stack[witness->stack.size() - 2];
+            if (committed.empty() || committed[0] != WITNESS_V11_SUBVERSION_SCRIPT)
+                return 0;
+            const CScript script(committed.begin() + 1, committed.end());
+            const WitnessV11Scan scan = ScanWitnessV11Script(script, flags);
+            return scan.fReserved ? 0 : scan.nSigOps;
+        }
+
         // ⚠️ v7, v8 and v9 ARE ALLOCATED and are charged nothing. This comment used
         // to read "witness v7+: unknown future program", which stopped being true
         // when USDSOQ and BTCSOQ took those versions. v7 (USDSOQ holding) and v8
@@ -1271,7 +1524,7 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
         // drive-by. The arithmetic is asserted in test/sigop_budget_tests.cpp so it
         // fails if weight ever stops being the binding constraint.
         //
-        // v10-v16 genuinely are unallocated at this layer, and 0 is soft-fork safe
+        // v10 and v12 to v16 have no rule at this layer, and 0 is soft-fork safe
         // for them. Bead v7xm F6.
         return 0;
     }
@@ -1334,7 +1587,7 @@ PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& tx)
 // Implements the witness program signature hash algorithm as specified in BIP143
 // This ensures signatures commit to: version, prevouts, sequences, outpoint, scriptCode,
 // amount, sequence, outputs, locktime, and hashtype
-uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache)
+uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache, unsigned char nKeyType)
 {
     // Validate input index
     if (nIn >= txTo.vin.size()) {
@@ -1342,8 +1595,9 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
         return uint256::ONE;
     }
 
-    if (sigversion == SIGVERSION_WITNESS_V0) {
-        // BIP143 signature hash algorithm for witness v0
+    if (sigversion == SIGVERSION_WITNESS_V0 || sigversion == SIGVERSION_WITNESS_V11) {
+        // BIP143 signature hash algorithm for witness v0. Witness version 11
+        // signs the standard preimage below followed by three bytes of its own.
         uint256 hashPrevouts;
         uint256 hashSequence;
         uint256 hashOutputs;
@@ -1359,9 +1613,13 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
         // SIGHASH_ALL/NONE/SINGLE/ANYONECANPAY paths below are
         // COMPLETELY UNTOUCHED — this is a new, separate code path.
         // ============================================================
+        // The branch belongs to SIGVERSION_WITNESS_V0. Witness version 11
+        // defines no anyprevout message: its key-hash check admits six values
+        // of the hash type byte and neither of these two is among them.
         int baseHashType = nHashType & 0x7f; // strip ANYONECANPAY bit
-        if (baseHashType == SIGHASH_ANYPREVOUT ||
-            baseHashType == SIGHASH_ANYPREVOUTANYSCRIPT) {
+        if (sigversion == SIGVERSION_WITNESS_V0 &&
+            (baseHashType == SIGHASH_ANYPREVOUT ||
+             baseHashType == SIGHASH_ANYPREVOUTANYSCRIPT)) {
 
             // SECURITY NOTE (SOQ-COV-003): Reject ANYONECANPAY combined with APO.
             // SIGHASH_ANYONECANPAY (0x80) + SIGHASH_ANYPREVOUT (0x41) = 0xC1.
@@ -1521,6 +1779,15 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
         ss << hashOutputs;
         ss << txTo.nLockTime;
         ss << nHashType;
+
+        // Witness version 11: the message ends with the witness version, the
+        // sub-version of the script and the type byte of the key, so that a
+        // signature verifies under one of each.
+        if (sigversion == SIGVERSION_WITNESS_V11) {
+            ss << static_cast<unsigned char>(WITNESS_V11_VERSION);
+            ss << WITNESS_V11_SUBVERSION_SCRIPT;
+            ss << nKeyType;
+        }
 
         return ss.GetHash();
     }
@@ -1717,7 +1984,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                                 scriptPubKey[0] == OP_9 &&
                                 scriptPubKey[1] == 32);
 
-    // Future witness versions (v10-v16): anyone-can-spend until soft fork.
+    // Future witness versions (v12-v16): anyone-can-spend until soft fork.
     // NOTE: v6 (P2WSH-Dilithium), v7 (USDSOQ holding), v8 (BTCSOQ holding)
     // and v9 (BTCSOQ authority marker) are carved out above.
     // Witness v10 is ALLOCATED: confidential USDSOQ (SOQ-ARCH-004), gated on
@@ -1726,12 +1993,19 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     bool is_confidential_usdsoq_witness = (scriptPubKey.size() == 34 &&
                                            scriptPubKey[0] == OP_10 &&
                                            scriptPubKey[1] == 32);
+    // Witness version 11: the program is the SHA-256 of one committed witness
+    // item, a sub-version byte and a script. It runs when any of its three
+    // deployments is active (IsWitnessV11Active) and is anyone-can-spend
+    // while none is.
+    bool is_witness_v11 = (scriptPubKey.size() == 34 &&
+                           scriptPubKey[0] == OP_11 &&
+                           scriptPubKey[1] == 32);
     bool is_future_witness = (scriptPubKey.size() == 34 &&
-                              scriptPubKey[0] >= OP_11 &&
+                              scriptPubKey[0] >= OP_12 &&
                               scriptPubKey[0] <= OP_16 &&
                               scriptPubKey[1] == 32);
 
-    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium && !is_usdsoq_holding && !is_btcsoq_holding && !is_btcsoq_authority && !is_confidential_usdsoq_witness) {
+    if (!is_dilithium && !is_op_return && !is_future_witness && !is_pat && !is_latticefold && !is_latticebp_witness && !is_usdsoq_witness && !is_p2wsh_dilithium && !is_usdsoq_holding && !is_btcsoq_holding && !is_btcsoq_authority && !is_confidential_usdsoq_witness && !is_witness_v11) {
         return set_error(serror, SCRIPT_ERR_DISALLOWED_CLASSICAL_CRYPTO);
     }
 
@@ -2070,6 +2344,114 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         return set_error(serror, SCRIPT_ERR_CONFIDENTIAL_USDSOQ_UNVERIFIED);
     }
 
+    // =========================================================================
+    // Witness version 11.
+    //
+    // Witness layout:
+    //   [0..n-3] = satisfaction items
+    //   [n-2]    = the committed item: a sub-version byte and a script
+    //   [n-1]    = the trailer
+    //
+    // The order below is the rule. The program commits every byte a later
+    // step reads from the committed item, and each of the three places where
+    // an input succeeds without evaluation (the dormant version, a sub-version
+    // this release does not define, a script with a reserved byte) comes after
+    // the commitment where there is one and before the rules of the script
+    // language, which bind nothing that leaves there. A later release can
+    // define what passes at one of those places and so only refuses spends
+    // that succeeded before it. Each of the three, and a key-hash check on a
+    // key of an undefined type inside EvalScript, is refused under
+    // SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM, a flag no block
+    // sets.
+    // =========================================================================
+    if (is_witness_v11) {
+        const bool fDiscourage = (flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM) != 0;
+
+        // Dormant: nothing is read.
+        if (!IsWitnessV11Active(flags)) {
+            if (fDiscourage)
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM);
+            return set_success(serror);
+        }
+
+        if (!witness || witness->stack.size() < 2) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        }
+
+        const size_t stackSize = witness->stack.size();
+        const std::vector<unsigned char>& committed = witness->stack[stackSize - 2];
+
+        // The program is the SHA-256 of the whole committed item, sub-version
+        // byte included.
+        uint256 committedHash;
+        CSHA256().Write(committed.data(), committed.size()).Finalize(committedHash.begin());
+        if (memcmp(committedHash.begin(), scriptPubKey.data() + 2, 32) != 0) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+        }
+
+        if (committed.empty()) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
+        }
+
+        // A sub-version this release does not define: the committed bytes are
+        // not parsed and no other witness item is read.
+        if (committed[0] != WITNESS_V11_SUBVERSION_SCRIPT) {
+            if (fDiscourage)
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_UNKNOWN_SUBVERSION);
+            return set_success(serror);
+        }
+
+        const CScript v11Script(committed.begin() + 1, committed.end());
+
+        // The walk over every byte of the script, in every branch
+        // (ScanWitnessV11Script above).
+        const WitnessV11Scan scan = ScanWitnessV11Script(v11Script, flags);
+        if (scan.fDecodeFailed) {
+            return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+        }
+        if (scan.fReserved) {
+            if (fDiscourage)
+                return set_error(serror, SCRIPT_ERR_DISCOURAGE_RESERVED_OPCODE);
+            return set_success(serror);
+        }
+        if (scan.refusal != SCRIPT_ERR_OK) {
+            return set_error(serror, scan.refusal);
+        }
+
+        // From here the script is one this release evaluates, and the rules
+        // of its language apply: the size of the script, the number and size
+        // of the satisfaction items, an empty scriptSig and a trailer of the
+        // one byte 0x00. The last two hold the scriptSig and the trailer,
+        // which no signature covers, to one value each.
+        if (v11Script.size() > static_cast<size_t>(MAX_SCRIPT_SIZE)) {
+            return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
+        }
+        if (!CheckWitnessItemBounds(witness->stack.begin(), witness->stack.begin() + (stackSize - 2),
+                                    MAX_V11_SATISFACTION_ITEMS, MAX_V11_SATISFACTION_ITEM_SIZE, serror)) {
+            return false;  // serror already set by CheckWitnessItemBounds
+        }
+        if (!scriptSig.empty()) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_MALLEATED);
+        }
+        const std::vector<unsigned char>& trailer = witness->stack[stackSize - 1];
+        if (trailer.size() != 1 || trailer[0] != 0x00) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_V11_TRAILER);
+        }
+
+        std::vector<std::vector<unsigned char> > evalStack(witness->stack.begin(),
+                                                           witness->stack.begin() + (stackSize - 2));
+        if (!EvalScript(evalStack, v11Script, flags, checker, SIGVERSION_WITNESS_V11, serror)) {
+            return false;  // serror already set by EvalScript
+        }
+
+        // Exactly one item is left and it is true.
+        if (evalStack.size() != 1 || !CastToBool(evalStack.back())) {
+            return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+
+        return set_success(serror);
+    }
+
     if (is_future_witness) {
         return set_success(serror);
     }
@@ -2162,9 +2544,19 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
     // is prefixed with 0x00 (NIST FIPS 204 Table 3 requirement).
     // We need to strip this prefix before creating the CPubKey object.
     std::vector<unsigned char> vchPubKeyActual = vchPubKey;
+    unsigned char nKeyType = 0;
 
-    // Check if this is a Dilithium pubkey (prefixed with 0x00 and size is 1313)
-    if (vchPubKey.size() == 1313 && vchPubKey[0] == 0x00) {
+    if (sigversion == SIGVERSION_WITNESS_V11) {
+        // The key argument is a key item of witness version 11: a type byte,
+        // which is part of the message, and the key. ML-DSA-44 is the one
+        // type this function verifies.
+        if (vchPubKey.size() != WITNESS_V11_MLDSA44_KEY_ITEM_SIZE || vchPubKey[0] != WITNESS_V11_KEY_TYPE_MLDSA44) {
+            return false;
+        }
+        nKeyType = vchPubKey[0];
+        vchPubKeyActual = std::vector<unsigned char>(vchPubKey.begin() + 1, vchPubKey.end());
+    } else if (vchPubKey.size() == 1313 && vchPubKey[0] == 0x00) {
+        // Check if this is a Dilithium pubkey (prefixed with 0x00 and size is 1313)
         // Strip the 0x00 prefix to get the actual 1312-byte Dilithium pubkey
         vchPubKeyActual = std::vector<unsigned char>(vchPubKey.begin() + 1, vchPubKey.end());
     }
@@ -2226,7 +2618,21 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
     //
     // Related: SOQ-COV-003 (SignatureHash) still rejects ANYONECANPAY+APO.
 
-    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, txdata);
+    if (sigversion == SIGVERSION_WITNESS_V11) {
+        // Witness version 11 has no message for an input index outside the
+        // transaction, and none for a hash type that signs one output when
+        // the transaction has no output at the input's index. SignatureHash
+        // answers the first with a constant and the second with a hash over
+        // no output; here the check fails before either is computed.
+        if (nIn >= txTo->vin.size()) {
+            return false;
+        }
+        if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn >= txTo->vout.size()) {
+            return false;
+        }
+    }
+
+    uint256 sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, txdata, nKeyType);
 
     if (!VerifySignature(vchSig, pubkey, sighash)) {
         return false;

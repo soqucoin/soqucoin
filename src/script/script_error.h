@@ -119,6 +119,19 @@ typedef enum ScriptError_t {
      * a reason unrelated to any rule change. New errors go here. */
     SCRIPT_ERR_SOQUOBSCURA_RANGEPROOF_UNVERIFIED,
 
+    /* Witness version 11. The first three are returned only under
+     * SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM, in the three places
+     * where the same spend succeeds without that flag: a committed item of a
+     * sub-version this release does not define, a script that holds a reserved
+     * opcode, a key-hash check on a key of a type this release does not define.
+     * The fourth is a rule of the version: the last witness item of an input
+     * whose script is evaluated is the one byte 0x00. Appended at the end, for
+     * the reason given above. */
+    SCRIPT_ERR_DISCOURAGE_UNKNOWN_SUBVERSION,
+    SCRIPT_ERR_DISCOURAGE_RESERVED_OPCODE,
+    SCRIPT_ERR_DISCOURAGE_UNKNOWN_KEYTYPE,
+    SCRIPT_ERR_WITNESS_V11_TRAILER,
+
     SCRIPT_ERR_ERROR_COUNT
 } ScriptError;
 
