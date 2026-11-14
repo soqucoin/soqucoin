@@ -664,12 +664,14 @@ BOOST_AUTO_TEST_CASE(relay_accepts_only_what_a_block_accepts_under_every_combina
     }
 }
 
-// The mempool prices and checks for the block a transaction can next enter.
-// With the three deployments beginning at the next block, the tip's flags
-// charge a spend of two key-hash checks nothing and the next block charges
-// two; relay accepts the spend and an output of the version, and the template
-// carries the block's figure. With the three beginning one block later, the
-// next block is still dormant: relay refuses both.
+// The mempool prices and checks for the block a transaction can next enter,
+// and a block reads the deployments at its own height. With the three
+// deployments beginning at the next block, the tip's flags charge a spend of
+// two key-hash checks nothing and the next block charges two; relay accepts
+// the spend and an output of the version, the template carries the block's
+// figure, and that block refuses a spend by someone who holds no key. With
+// the three beginning one block later, the next block is still dormant: relay
+// refuses the spend and the output, and the block accepts the stranger's spend.
 BOOST_AUTO_TEST_CASE(relay_reads_the_deployments_at_the_next_block_and_not_at_the_tip)
 {
     const valtype ownerHash = Sha256(ownerItem);
@@ -679,6 +681,9 @@ BOOST_AUTO_TEST_CASE(relay_reads_the_deployments_at_the_next_block_and_not_at_th
     const Coin& coin = coins[0];
     const CMutableTransaction S =
         Spend(coin, {Sign(coinbaseKey, script, coin), ownerItem, Sign(coinbaseKey, script, coin), ownerItem}, committed);
+    // The same coin spent by someone who holds no key of it.
+    const CMutableTransaction stolen =
+        Spend(coin, {Sign(stranger, script, coin), strangerItem, Sign(stranger, script, coin), strangerItem}, committed);
     const CMutableTransaction creates = FundingTx(std::vector<CScript>(1, OutputFor(committed)));
     const int nTip = NextHeight() - 1;
 
@@ -686,6 +691,14 @@ BOOST_AUTO_TEST_CASE(relay_reads_the_deployments_at_the_next_block_and_not_at_th
         // One block below the first block of the version.
         ScopedV11Deployments later(ALL_THREE, nTip + 2);
         BOOST_CHECK_EQUAL(BlockCharge(S, nTip + 1), 0);
+        // The next block is the last in which the version is dormant: it
+        // accepts the stranger's spend.
+        BOOST_CHECK_MESSAGE(BlockIsValid(std::vector<CMutableTransaction>(1, stolen)),
+            "one block below the version's height a block must accept any spend of the output");
+        const RelayResult theft = Relay(stolen);
+        BOOST_CHECK_MESSAGE(!theft.accepted && theft.reason == NonMandatory(SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM),
+            "one block below the version's height relay must refuse the stranger's spend as dormant; accepted "
+            << theft.accepted << ", reason '" << theft.reason << "'");
         const RelayResult spend = Relay(S);
         BOOST_CHECK_MESSAGE(!spend.accepted && spend.reason == NonMandatory(SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM),
             "one block below the version's height a spend must be refused as dormant; accepted " << spend.accepted
@@ -702,6 +715,16 @@ BOOST_AUTO_TEST_CASE(relay_reads_the_deployments_at_the_next_block_and_not_at_th
         BOOST_REQUIRE_EQUAL(BlockCharge(S, nTip), 0);
         const int64_t blockCharge = BlockCharge(S, nTip + 1);
         BOOST_CHECK_EQUAL(blockCharge, 2);
+
+        // A block reads the deployments at its own height: the first block of
+        // the version refuses the stranger's spend, and so does relay, with a
+        // score for the peer.
+        BOOST_CHECK_MESSAGE(!BlockIsValid(std::vector<CMutableTransaction>(1, stolen)),
+            "the first block of the version must refuse the stranger's spend");
+        const RelayResult theft = Relay(stolen);
+        BOOST_CHECK_MESSAGE(!theft.accepted && theft.reason == Mandatory(SCRIPT_ERR_CHECKDILITHIUMKEYHASH) && theft.nDoS == 100,
+            "where the next block runs the version relay must refuse the stranger's spend and score the peer; accepted "
+            << theft.accepted << ", reason '" << theft.reason << "', score " << theft.nDoS);
 
         const RelayResult output = Relay(creates);
         BOOST_CHECK_MESSAGE(output.accepted,
