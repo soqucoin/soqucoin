@@ -2077,7 +2077,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         return set_success(serror);
     }
 
-    // Dormant witness versions (v4-v10 allocated, v11-v16 unallocated):
+    // Dormant witness versions (v4-v11 allocated, v12-v16 unallocated):
     // spends are anyone-can-spend at the script layer until each version's
     // deployment activates. That is BIP141's posture and it is what makes each
     // activation a soft fork: the activation only ADDS the requirement that the
