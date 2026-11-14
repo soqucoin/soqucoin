@@ -1233,6 +1233,11 @@ BOOST_AUTO_TEST_CASE(a_checker_computes_the_template_hash_once)
         CountingChecker checker(&tx, 0);
         BOOST_CHECK_EQUAL(verdict(SpendOf(CScript() << valtype(31, 0x01) << OP_CHECKTEMPLATEVERIFY), checker), SCRIPT_ERR_CHECKTEMPLATEVERIFY);
         BOOST_CHECK_EQUAL(checker.computations, 0);
+        // The checker holds the same rule for a caller that is not the
+        // opcode's handler.
+        BOOST_CHECK(!checker.CheckTemplateVerify(valtype(33, 0x01)));
+        BOOST_CHECK(!checker.CheckTemplateVerify(valtype(31, 0x01)));
+        BOOST_CHECK_EQUAL(checker.computations, 0);
     }
 }
 
