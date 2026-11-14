@@ -247,13 +247,23 @@ private:
     unsigned int nIn;
     const CAmount amount;
     const PrecomputedTransactionData* txdata;
+    //! The template hash of txTo at nIn, kept from the first call of
+    //! CheckTemplateVerify. A checker serves one transaction and one input
+    //! for its whole life, so the value is the same at every call, and a
+    //! script that executes OP_CHECKTEMPLATEVERIFY many times hashes the
+    //! transaction once. A checker is used by one thread.
+    mutable bool fTemplateHashKnown;
+    mutable unsigned char templateHash[32];
 
 protected:
     virtual bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const;
+    //! Writes the BIP 119 template hash of txTo at nIn to the 32 bytes at
+    //! hashOut. CheckTemplateVerify calls it once for a checker.
+    virtual void ComputeTemplateHash(unsigned char* hashOut) const;
 
 public:
-    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(NULL) {}
-    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn) {}
+    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(NULL), fTemplateHashKnown(false) {}
+    TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& txdataIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), txdata(&txdataIn), fTemplateHashKnown(false) {}
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const;
     bool CheckLockTime(const CScriptNum& nLockTime) const;
     bool CheckSequence(const CScriptNum& nSequence) const;

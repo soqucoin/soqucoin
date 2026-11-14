@@ -370,6 +370,62 @@ CMutableTransaction VectorTx()
     return tx;
 }
 
+//! The template hash OP_CHECKTEMPLATEVERIFY compares, written out from its
+//! fields for a transaction whose scriptSigs are empty: the version, the lock
+//! time, the number of inputs, the hash of the sequences, the number of
+//! outputs, the hash of the outputs and the input's index.
+valtype TemplateHash(const CTransaction& tx, uint32_t nIn)
+{
+    auto le32 = [](CSHA256& h, uint32_t v) {
+        const unsigned char b[4] = {(unsigned char)v, (unsigned char)(v >> 8), (unsigned char)(v >> 16), (unsigned char)(v >> 24)};
+        h.Write(b, 4);
+    };
+    auto le64 = [](CSHA256& h, uint64_t v) {
+        unsigned char b[8];
+        for (int i = 0; i < 8; ++i)
+            b[i] = (unsigned char)(v >> (8 * i));
+        h.Write(b, 8);
+    };
+    CSHA256 sequences;
+    for (const CTxIn& in : tx.vin) {
+        BOOST_REQUIRE(in.scriptSig.empty());
+        le32(sequences, in.nSequence);
+    }
+    unsigned char sequencesHash[32];
+    sequences.Finalize(sequencesHash);
+    CSHA256 outputs;
+    for (const CTxOut& out : tx.vout) {
+        le64(outputs, (uint64_t)out.nValue);
+        le32(outputs, (uint32_t)out.scriptPubKey.size());
+        outputs.Write(out.scriptPubKey.data(), out.scriptPubKey.size());
+    }
+    unsigned char outputsHash[32];
+    outputs.Finalize(outputsHash);
+
+    CSHA256 h;
+    le32(h, (uint32_t)tx.nVersion);
+    le32(h, tx.nLockTime);
+    le32(h, (uint32_t)tx.vin.size());
+    h.Write(sequencesHash, 32);
+    le32(h, (uint32_t)tx.vout.size());
+    h.Write(outputsHash, 32);
+    le32(h, nIn);
+    valtype result(32);
+    h.Finalize(result.data());
+    return result;
+}
+
+//! A checker that counts how many times it computes the template hash.
+struct CountingChecker : public TransactionSignatureChecker {
+    mutable int computations;
+    CountingChecker(const CTransaction* tx, unsigned int nIn) : TransactionSignatureChecker(tx, nIn, AMOUNT), computations(0) {}
+    void ComputeTemplateHash(unsigned char* hashOut) const override
+    {
+        ++computations;
+        TransactionSignatureChecker::ComputeTemplateHash(hashOut);
+    }
+};
+
 const unsigned int VECTOR_INPUT = 1;
 const CAmount VECTOR_AMOUNT = 5000000000LL;
 
@@ -1115,6 +1171,68 @@ BOOST_AUTO_TEST_CASE(each_check_leaves_the_stack_three_items_shorter)
         const CScript script = CScript() << op;
         BOOST_CHECK(!EvalScript(stack, script, BLOCK | SCRIPT_VERIFY_APO, checker, SIGVERSION_WITNESS_V11, &serr));
         BOOST_CHECK_EQUAL(serr, SCRIPT_ERR_BAD_OPCODE);
+    }
+}
+
+// A checker computes the template hash of its transaction and input once,
+// however many times a script executes OP_CHECKTEMPLATEVERIFY, and every
+// execution compares the hash it is given with that value.
+BOOST_AUTO_TEST_CASE(a_checker_computes_the_template_hash_once)
+{
+    auto verdict = [](const Spend& s, const CountingChecker& checker) {
+        CScriptWitness w;
+        w.stack = s.witness;
+        ScriptError serr = SCRIPT_ERR_OK;
+        VerifyScript(CScript(), s.output, &w, ACTIVE, checker, &serr);
+        return serr;
+    };
+
+    const CTransaction tx(VectorTx());
+    const valtype right0 = TemplateHash(tx, 0);
+    const valtype right1 = TemplateHash(tx, 1);
+    BOOST_REQUIRE(right0 != right1);
+    valtype wrong = right0;
+    wrong[31] ^= 0x80;
+
+    // The longest script the version evaluates: one push of the hash and
+    // 9,967 executions of the opcode.
+    CScript many;
+    many << right0;
+    for (int i = 0; i < 9967; ++i)
+        many << OP_CHECKTEMPLATEVERIFY;
+    BOOST_REQUIRE_EQUAL(many.size(), 10000u);
+    {
+        CountingChecker checker(&tx, 0);
+        BOOST_CHECK_EQUAL(verdict(SpendOf(many), checker), SCRIPT_ERR_OK);
+        BOOST_CHECK_EQUAL(checker.computations, 1);
+    }
+    // A wrong hash after a right one fails against the kept value.
+    {
+        CountingChecker checker(&tx, 0);
+        const CScript script = CScript() << right0 << OP_CHECKTEMPLATEVERIFY << OP_DROP << wrong << OP_CHECKTEMPLATEVERIFY;
+        BOOST_CHECK_EQUAL(verdict(SpendOf(script), checker), SCRIPT_ERR_CHECKTEMPLATEVERIFY);
+        BOOST_CHECK_EQUAL(checker.computations, 1);
+    }
+    // A wrong hash first fails, and a right one after it passes.
+    {
+        CountingChecker checker(&tx, 0);
+        BOOST_CHECK_EQUAL(verdict(SpendOf(CScript() << wrong << OP_CHECKTEMPLATEVERIFY), checker), SCRIPT_ERR_CHECKTEMPLATEVERIFY);
+        BOOST_CHECK_EQUAL(verdict(SpendOf(CScript() << right0 << OP_CHECKTEMPLATEVERIFY), checker), SCRIPT_ERR_OK);
+        BOOST_CHECK_EQUAL(checker.computations, 1);
+    }
+    // A checker for another input of the same transaction keeps its own
+    // value: the hash of input 0 fails at input 1.
+    {
+        CountingChecker checker(&tx, 1);
+        BOOST_CHECK_EQUAL(verdict(SpendOf(CScript() << right0 << OP_CHECKTEMPLATEVERIFY), checker), SCRIPT_ERR_CHECKTEMPLATEVERIFY);
+        BOOST_CHECK_EQUAL(verdict(SpendOf(CScript() << right1 << OP_CHECKTEMPLATEVERIFY), checker), SCRIPT_ERR_OK);
+        BOOST_CHECK_EQUAL(checker.computations, 1);
+    }
+    // An operand that is not 32 bytes fails before anything is computed.
+    {
+        CountingChecker checker(&tx, 0);
+        BOOST_CHECK_EQUAL(verdict(SpendOf(CScript() << valtype(31, 0x01) << OP_CHECKTEMPLATEVERIFY), checker), SCRIPT_ERR_CHECKTEMPLATEVERIFY);
+        BOOST_CHECK_EQUAL(checker.computations, 0);
     }
 }
 

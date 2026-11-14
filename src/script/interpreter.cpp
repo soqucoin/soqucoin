@@ -2719,6 +2719,29 @@ bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) con
 
 bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned char>& hash) const
 {
+    if (hash.size() != 32)
+        return false;
+
+    // The template hash depends on the transaction and on the input index and
+    // on nothing else, and both are fixed for this checker. It is computed at
+    // the first call and kept, and every call compares against the kept value,
+    // so the result of each call is what computing it again would give.
+    if (!fTemplateHashKnown) {
+        ComputeTemplateHash(templateHash);
+        fTemplateHashKnown = true;
+    }
+
+    // SECURITY NOTE (SOQ-COV-002): the comparison is XOR-accumulate
+    // (constant-time). memcmp short-circuits on first mismatch, enabling a
+    // timing oracle attack to recover the expected template hash byte-by-byte.
+    // diff==0 iff all bytes match.
+    uint8_t diff = 0;
+    for (int i = 0; i < 32; i++) diff |= templateHash[i] ^ hash.data()[i];
+    return diff == 0;
+}
+
+void TransactionSignatureChecker::ComputeTemplateHash(unsigned char* hashOut) const
+{
     // BIP 119: Compute DefaultCheckTemplateVerifyHash
     // Hash commits to: nVersion, nLockTime, scriptSigs hash (if any non-empty),
     // number of inputs, sequences hash, number of outputs, outputs hash, input index.
@@ -2731,13 +2754,6 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
     // little-endian byte order, NOT via reinterpret_cast. This ensures identical
     // hash output on all architectures (x86 LE, ARM, MIPS BE) and prevents
     // consensus splits in mixed-hardware deployments.
-    //
-    // SECURITY NOTE (SOQ-COV-002): Final comparison uses XOR-accumulate
-    // (constant-time). memcmp short-circuits on first mismatch, enabling a
-    // timing oracle attack to recover the expected template hash byte-by-byte.
-
-    if (hash.size() != 32)
-        return false;
 
     // Helper: write a uint32_t in canonical little-endian
     auto writeLE32 = [](CSHA256& h, uint32_t v) {
@@ -2833,12 +2849,5 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
     // 8. Input index being spent (4 bytes LE)
     writeLE32(ss, (uint32_t)nIn);
 
-    // Finalize and compare — CONSTANT TIME (SOQ-COV-002)
-    uint8_t computed[32];
-    ss.Finalize(computed);
-
-    // XOR-accumulate: diff==0 iff all bytes match. Short-circuit resistant.
-    uint8_t diff = 0;
-    for (int i = 0; i < 32; i++) diff |= computed[i] ^ hash.data()[i];
-    return diff == 0;
+    ss.Finalize(hashOut);
 }
