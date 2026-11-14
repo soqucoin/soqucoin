@@ -174,6 +174,8 @@ void AbsorbScriptVerdicts(DigestBuilder& d)
         SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_SOQUOBSCURA,
         SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM,
         SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_PAT,
+        // The three deployments of witness v11, under which its branch runs.
+        SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS,
     };
 
     for (int version = 0; version <= 16; ++version) {
@@ -790,8 +792,19 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // stagenet and regtest keep 0 and no other Consensus::Params field moves
     // (the release diff touches the two chainparams.cpp lines and nothing else
     // AbsorbConsensus reads).
+    //
+    // Moved from 1b6c7b79... on 2026-11-14 when AbsorbScriptVerdicts gained a
+    // seventh flag set: SCRIPT_VERIFY_CTV, SCRIPT_VERIFY_APO and
+    // SCRIPT_VERIFY_CSFS with SCRIPT_VERIFY_WITNESS, the three deployments of
+    // witness version 11. A COVERAGE change only: the matrix absorbs 34 more
+    // verdicts, one for each of the seventeen versions and two program lengths
+    // under that set, so that the digest reaches the branch of VerifyScript
+    // that runs witness version 11. No Consensus::Params field moved and no
+    // deployment was scheduled on any network. The value did not move in the
+    // commit that added the version's script rules: under the six earlier
+    // flag sets the version is dormant and its verdicts are what they were.
     const std::string expected =
-        "1b6c7b79659312c45ebc6e55a28d28ce046635e8a8b92de5a92ef2275ba5a16f";
+        "dcebc6c5a1df01f477f1f997659e1bec831baa5473a3cba76cf5e38aae2338fa";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +
