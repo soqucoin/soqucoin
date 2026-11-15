@@ -24,7 +24,9 @@
 #include <script/script.h>
 #include <uint256.h>
 
+#include <cassert>
 #include <cstring>
+#include <limits>
 
 using namespace std;
 
@@ -262,6 +264,73 @@ static WitnessV11OpcodeClass ClassifyWitnessV11Opcode(opcodetype op, unsigned in
     return WITNESS_V11_OPCODE_REFUSED;
 }
 
+namespace
+{
+/**
+ * The nesting of conditionals while a script runs.
+ *
+ * It behaves as a stack of booleans, one for each OP_IF or OP_NOTIF that is
+ * open: the value its argument selected, or false when it was opened while
+ * the script was not executing, flipped by each OP_ELSE of its own. The loop
+ * never reads one element. It asks whether the stack is empty and whether
+ * every element is true, and OP_ELSE flips the top. So the elements are not
+ * kept: the size of the stack and the position of its first false element
+ * answer both questions, and each question and each change takes the same
+ * time at any depth. The form is that of Bitcoin Core pull request 16902.
+ */
+class ConditionStack
+{
+private:
+    //! The value of m_first_false_pos when every element is true.
+    static constexpr uint32_t NO_FALSE = std::numeric_limits<uint32_t>::max();
+
+    //! The size of the stack.
+    uint32_t m_stack_size;
+    //! The position of the first false element, or NO_FALSE.
+    uint32_t m_first_false_pos;
+
+public:
+    ConditionStack() : m_stack_size(0), m_first_false_pos(NO_FALSE) {}
+
+    bool empty() const { return m_stack_size == 0; }
+    bool all_true() const { return m_first_false_pos == NO_FALSE; }
+    void push_back(bool f)
+    {
+        if (m_first_false_pos == NO_FALSE && !f) {
+            // Every element is true and a false one is added: it is the
+            // first, at the position the size names.
+            m_first_false_pos = m_stack_size;
+        }
+        ++m_stack_size;
+    }
+    void pop_back()
+    {
+        assert(m_stack_size > 0);
+        --m_stack_size;
+        if (m_first_false_pos == m_stack_size) {
+            // The element removed is the first false one: every element
+            // left is true.
+            m_first_false_pos = NO_FALSE;
+        }
+    }
+    void toggle_top()
+    {
+        assert(m_stack_size > 0);
+        if (m_first_false_pos == NO_FALSE) {
+            // Every element is true: the top becomes the first false one.
+            m_first_false_pos = m_stack_size - 1;
+        } else if (m_first_false_pos == m_stack_size - 1) {
+            // The top is the first false element: every element is true.
+            m_first_false_pos = NO_FALSE;
+        } else {
+            // A false element lies below the top. Nothing reads what the top
+            // holds while that element is on the stack, and the top is
+            // removed before it.
+        }
+    }
+};
+} // namespace
+
 bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
     if (serror) *serror = SCRIPT_ERR_OK;
@@ -281,8 +350,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     CScriptNum bn(0);
     vector<valtype> altstack;
     // DL-V6-CONTROLFLOW-RESTORE: OP_IF/NOTIF/ELSE/ENDIF condition stack. Empty unless
-    // SCRIPT_VERIFY_V6_CONTROLFLOW restores real branching; fExec is recomputed from it.
-    std::vector<bool> vfExec;
+    // fControlFlow restores real branching; fExec is read from it at each opcode.
+    ConditionStack vfExec;
     set_success(serror);
 
     // A script of witness version 11 runs the control-flow set, the restored
@@ -295,10 +364,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     try {
         while (pc < pend) {
             // Executing iff no enclosing conditional branch is currently false.
-            bool fExec = true;
-            for (size_t i = 0; i < vfExec.size(); ++i) {
-                if (!vfExec[i]) { fExec = false; break; }
-            }
+            const bool fExec = vfExec.all_true();
 
             if (!script.GetOp(pc, opcode, vchPushValue))
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
@@ -347,7 +413,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     } else if (opcode == OP_ELSE) {
                         if (vfExec.empty())
                             return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
-                        vfExec.back() = !vfExec.back();
+                        vfExec.toggle_top();
                     } else { // OP_ENDIF
                         if (vfExec.empty())
                             return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
@@ -1571,7 +1637,94 @@ static bool CheckWitnessItemBounds(std::vector<valtype>::const_iterator itemsBeg
     return true;
 }
 
-PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& tx)
+namespace
+{
+// SECURITY NOTE (SOQ-COV-001): the integer fields of the template hash are
+// written in explicit little-endian byte order, NOT via reinterpret_cast. The
+// hash is then the same on every architecture (x86 LE, ARM, MIPS BE), which
+// prevents consensus splits in mixed-hardware deployments.
+
+//! Writes a uint32_t to the hash in canonical little-endian.
+void WriteLE32(CSHA256& h, uint32_t v)
+{
+    uint8_t buf[4];
+    buf[0] = v & 0xff;
+    buf[1] = (v >> 8) & 0xff;
+    buf[2] = (v >> 16) & 0xff;
+    buf[3] = (v >> 24) & 0xff;
+    h.Write(buf, 4);
+}
+
+//! Writes a uint64_t (int64_t cast) to the hash in canonical little-endian.
+void WriteLE64(CSHA256& h, int64_t v)
+{
+    uint64_t u = (uint64_t)v;
+    uint8_t buf[8];
+    buf[0] = u & 0xff;
+    buf[1] = (u >> 8) & 0xff;
+    buf[2] = (u >> 16) & 0xff;
+    buf[3] = (u >> 24) & 0xff;
+    buf[4] = (u >> 32) & 0xff;
+    buf[5] = (u >> 40) & 0xff;
+    buf[6] = (u >> 48) & 0xff;
+    buf[7] = (u >> 56) & 0xff;
+    h.Write(buf, 8);
+}
+} // namespace
+
+TemplateHashParts::TemplateHashParts(const CTransaction& tx)
+{
+    // The scriptSigs are part of the template when one of them is not empty,
+    // whichever input carries it and whether or not that input is evaluated.
+    fHasScriptSigs = false;
+    for (const auto& txin : tx.vin) {
+        if (!txin.scriptSig.empty()) {
+            fHasScriptSigs = true;
+            break;
+        }
+    }
+    memset(scriptSigs, 0, sizeof(scriptSigs));
+    if (fHasScriptSigs) {
+        CSHA256 ssSigs;
+        for (const auto& txin : tx.vin) {
+            // Serialize length (LE) + data for each scriptSig
+            WriteLE32(ssSigs, (uint32_t)txin.scriptSig.size());
+            if (!txin.scriptSig.empty()) {
+                ssSigs.Write(txin.scriptSig.data(), txin.scriptSig.size());
+            }
+        }
+        ssSigs.Finalize(scriptSigs);
+    }
+
+    // Hash of all input sequences
+    {
+        CSHA256 ssSeq;
+        for (const auto& txin : tx.vin) {
+            WriteLE32(ssSeq, txin.nSequence);
+        }
+        ssSeq.Finalize(sequences);
+    }
+
+    // Hash of all outputs (amount + scriptPubKey), all LE
+    {
+        CSHA256 ssOut;
+        for (const auto& txout : tx.vout) {
+            WriteLE64(ssOut, txout.nValue);
+            // CTxOut migration Phase 4: the nVisibility/nAssetType bytes were removed from the
+            // CTV output commitment. SOQ-COV-012's asset-substitution protection is preserved by
+            // the scriptPubKey itself being committed below — asset is now the witness version
+            // (SOQ=v1, USDSOQ=v7, confidential=v4), so a different asset = a different script =
+            // a different hash. (Must match the byte-less reimpl serTxOutCtv.)
+            WriteLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
+            if (!txout.scriptPubKey.empty()) {
+                ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());
+            }
+        }
+        ssOut.Finalize(outputs);
+    }
+}
+
+PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& tx) : templateParts(tx)
 {
     // Precompute hashPrevouts (BIP143 step 2)
     // Double SHA256 of the serialization of all input outpoints
@@ -2768,6 +2921,41 @@ bool TransactionSignatureChecker::CheckTemplateVerify(const std::vector<unsigned
     return diff == 0;
 }
 
+//! Writes the template hash of `tx` at input `nIn` from the three parts that
+//! are the same for every input: 84 bytes hashed, or 116 with the scriptSigs.
+static void WriteTemplateHash(const CTransaction& tx, unsigned int nIn, const TemplateHashParts& parts, unsigned char* hashOut)
+{
+    CSHA256 ss;
+
+    // 1. nVersion (4 bytes LE)
+    WriteLE32(ss, (uint32_t)tx.nVersion);
+
+    // 2. nLockTime (4 bytes LE)
+    WriteLE32(ss, tx.nLockTime);
+
+    // 3. If any scriptSig is non-empty, the hash of all scriptSigs
+    if (parts.fHasScriptSigs) {
+        ss.Write(parts.scriptSigs, 32);
+    }
+
+    // 4. Number of inputs (4 bytes LE)
+    WriteLE32(ss, (uint32_t)tx.vin.size());
+
+    // 5. Hash of all input sequences
+    ss.Write(parts.sequences, 32);
+
+    // 6. Number of outputs (4 bytes LE)
+    WriteLE32(ss, (uint32_t)tx.vout.size());
+
+    // 7. Hash of all outputs (amount + scriptPubKey)
+    ss.Write(parts.outputs, 32);
+
+    // 8. Input index being spent (4 bytes LE)
+    WriteLE32(ss, (uint32_t)nIn);
+
+    ss.Finalize(hashOut);
+}
+
 void TransactionSignatureChecker::ComputeTemplateHash(unsigned char* hashOut) const
 {
     // BIP 119: Compute DefaultCheckTemplateVerifyHash
@@ -2778,104 +2966,14 @@ void TransactionSignatureChecker::ComputeTemplateHash(unsigned char* hashOut) co
     // across different UTXOs. But it commits to outputs, making the spending
     // pattern deterministic (vault/covenant semantics).
     //
-    // SECURITY NOTE (SOQ-COV-001): All integer fields are serialized in explicit
-    // little-endian byte order, NOT via reinterpret_cast. This ensures identical
-    // hash output on all architectures (x86 LE, ARM, MIPS BE) and prevents
-    // consensus splits in mixed-hardware deployments.
-
-    // Helper: write a uint32_t in canonical little-endian
-    auto writeLE32 = [](CSHA256& h, uint32_t v) {
-        uint8_t buf[4];
-        buf[0] = v & 0xff;
-        buf[1] = (v >> 8) & 0xff;
-        buf[2] = (v >> 16) & 0xff;
-        buf[3] = (v >> 24) & 0xff;
-        h.Write(buf, 4);
-    };
-    // Helper: write a uint64_t (int64_t cast) in canonical little-endian
-    auto writeLE64 = [](CSHA256& h, int64_t v) {
-        uint64_t u = (uint64_t)v;
-        uint8_t buf[8];
-        buf[0] = u & 0xff;
-        buf[1] = (u >> 8) & 0xff;
-        buf[2] = (u >> 16) & 0xff;
-        buf[3] = (u >> 24) & 0xff;
-        buf[4] = (u >> 32) & 0xff;
-        buf[5] = (u >> 40) & 0xff;
-        buf[6] = (u >> 48) & 0xff;
-        buf[7] = (u >> 56) & 0xff;
-        h.Write(buf, 8);
-    };
-
-    CSHA256 ss;
-
-    // 1. nVersion (4 bytes LE)
-    writeLE32(ss, (uint32_t)txTo->nVersion);
-
-    // 2. nLockTime (4 bytes LE)
-    writeLE32(ss, txTo->nLockTime);
-
-    // 3. If any scriptSig is non-empty, hash all scriptSigs
-    bool hasScriptSigs = false;
-    for (const auto& txin : txTo->vin) {
-        if (!txin.scriptSig.empty()) {
-            hasScriptSigs = true;
-            break;
-        }
+    // The scriptSigs, the sequences and the outputs are the same for every
+    // input of the transaction. A checker that holds the transaction's
+    // precomputed data reads their three hashes from it and hashes no script
+    // of the transaction here. A checker that does not computes the three
+    // from the transaction, by the function that fills the precomputed data.
+    if (txdata) {
+        WriteTemplateHash(*txTo, nIn, txdata->templateParts, hashOut);
+    } else {
+        WriteTemplateHash(*txTo, nIn, TemplateHashParts(*txTo), hashOut);
     }
-    if (hasScriptSigs) {
-        CSHA256 ssSigs;
-        for (const auto& txin : txTo->vin) {
-            // Serialize length (LE) + data for each scriptSig
-            writeLE32(ssSigs, (uint32_t)txin.scriptSig.size());
-            if (!txin.scriptSig.empty()) {
-                ssSigs.Write(txin.scriptSig.data(), txin.scriptSig.size());
-            }
-        }
-        uint8_t scriptSigsHash[32];
-        ssSigs.Finalize(scriptSigsHash);
-        ss.Write(scriptSigsHash, 32);
-    }
-
-    // 4. Number of inputs (4 bytes LE)
-    writeLE32(ss, (uint32_t)txTo->vin.size());
-
-    // 5. Hash of all input sequences
-    {
-        CSHA256 ssSeq;
-        for (const auto& txin : txTo->vin) {
-            writeLE32(ssSeq, txin.nSequence);
-        }
-        uint8_t seqHash[32];
-        ssSeq.Finalize(seqHash);
-        ss.Write(seqHash, 32);
-    }
-
-    // 6. Number of outputs (4 bytes LE)
-    writeLE32(ss, (uint32_t)txTo->vout.size());
-
-    // 7. Hash of all outputs (amount + scriptPubKey) — all LE
-    {
-        CSHA256 ssOut;
-        for (const auto& txout : txTo->vout) {
-            writeLE64(ssOut, txout.nValue);
-            // CTxOut migration Phase 4: the nVisibility/nAssetType bytes were removed from the
-            // CTV output commitment. SOQ-COV-012's asset-substitution protection is preserved by
-            // the scriptPubKey itself being committed below — asset is now the witness version
-            // (SOQ=v1, USDSOQ=v7, confidential=v4), so a different asset = a different script =
-            // a different hash. (Must match the byte-less reimpl serTxOutCtv.)
-            writeLE32(ssOut, (uint32_t)txout.scriptPubKey.size());
-            if (!txout.scriptPubKey.empty()) {
-                ssOut.Write(txout.scriptPubKey.data(), txout.scriptPubKey.size());
-            }
-        }
-        uint8_t outHash[32];
-        ssOut.Finalize(outHash);
-        ss.Write(outHash, 32);
-    }
-
-    // 8. Input index being spent (4 bytes LE)
-    writeLE32(ss, (uint32_t)nIn);
-
-    ss.Finalize(hashOut);
 }

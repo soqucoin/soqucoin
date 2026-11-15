@@ -24,6 +24,7 @@ bench_bench_soqucoin_SOURCES = \
   bench/lockedpool.cpp \
   bench/perf.cpp \
   bench/perf.h \
+  bench/script_loop.cpp \
   bench/scrypt.cpp \
   bench/dilithium.cpp \
   bench/bench_soqucoin_blocks.cpp \

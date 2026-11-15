@@ -185,8 +185,28 @@ enum {
 
 bool CheckSignatureEncoding(const std::vector<unsigned char>& vchSig, unsigned int flags, ScriptError* serror);
 
+//! The parts of the template hash of OP_CHECKTEMPLATEVERIFY that are the same
+//! for every input of a transaction: the SHA-256 of its scriptSigs, of its
+//! sequences and of its outputs, each script written after its length as four
+//! bytes. The scriptSigs are part of the template when one of them is not
+//! empty.
+struct TemplateHashParts {
+    //! Whether the scriptSig of an input is not empty.
+    bool fHasScriptSigs;
+    //! Read when fHasScriptSigs is set; 32 zero bytes when it is not.
+    unsigned char scriptSigs[32];
+    unsigned char sequences[32];
+    unsigned char outputs[32];
+
+    explicit TemplateHashParts(const CTransaction& tx);
+};
+
 struct PrecomputedTransactionData {
     uint256 hashPrevouts, hashSequence, hashOutputs;
+    //! Built with the data. A checker that holds the data takes the parts
+    //! of the template hash from here, and its template check hashes none
+    //! of the transaction's scriptSigs, sequences or outputs.
+    TemplateHashParts templateParts;
 
     PrecomputedTransactionData(const CTransaction& tx);
 };
@@ -246,6 +266,10 @@ private:
     const CTransaction* txTo;
     unsigned int nIn;
     const CAmount amount;
+    //! The precomputed data of txTo, or NULL. SignatureHash and
+    //! ComputeTemplateHash read it in place of hashing the inputs and the
+    //! outputs of txTo, so a caller passes the data of that transaction and
+    //! of no other.
     const PrecomputedTransactionData* txdata;
     //! The template hash of txTo at nIn, kept from the first call of
     //! CheckTemplateVerify. A checker serves one transaction and one input
@@ -263,6 +287,9 @@ protected:
     //! the fields BIP 119 names, with each script length written as four
     //! bytes, so the value is this chain's own and not the one a BIP 119
     //! library computes. CheckTemplateVerify calls it once for a checker.
+    //! The three parts that are the same for every input are read from
+    //! txdata when the checker holds it and computed from txTo when it does
+    //! not.
     virtual void ComputeTemplateHash(unsigned char* hashOut) const;
 
 public:
