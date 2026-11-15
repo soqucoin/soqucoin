@@ -129,6 +129,14 @@ const char* ScriptErrorString(const ScriptError serror)
         return "Witness provided for non-witness script";
     case SCRIPT_ERR_WITNESS_PUBKEYTYPE:
         return "Using non-compressed keys in segwit";
+    case SCRIPT_ERR_DISCOURAGE_UNKNOWN_SUBVERSION:
+        return "Witness v11 sub-version reserved for soft-fork upgrades";
+    case SCRIPT_ERR_DISCOURAGE_RESERVED_OPCODE:
+        return "Witness v11 opcode reserved for soft-fork upgrades";
+    case SCRIPT_ERR_DISCOURAGE_UNKNOWN_KEYTYPE:
+        return "Witness v11 key type reserved for soft-fork upgrades";
+    case SCRIPT_ERR_WITNESS_V11_TRAILER:
+        return "Witness v11 requires a last witness item of the one byte 0x00";
     case SCRIPT_ERR_UNKNOWN_ERROR:
     case SCRIPT_ERR_ERROR_COUNT:
     default:

@@ -132,7 +132,10 @@ const Row TABLE[] = {
     // deployments must be active (bead jzg0; interpreter.cpp is_confidential_usdsoq_witness).
     { 10, "is_confidential_usdsoq_witness",
           SCRIPT_VERIFY_USDSOQ | SCRIPT_VERIFY_SOQUOBSCURA,           true,         false },
-    { 11, "is_future_witness",      0,                                true,         false },
+    // v11 runs when ANY of its three deployments is active (IsWitnessV11Active
+    // in script/interpreter.h); the gate column holds the three.
+    { 11, "is_witness_v11",
+          SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS,  true,         true  },
     { 12, "is_future_witness",      0,                                true,         false },
     { 13, "is_future_witness",      0,                                true,         false },
     { 14, "is_future_witness",      0,                                true,         false },
@@ -294,7 +297,8 @@ BOOST_AUTO_TEST_CASE(asset_predicates_agree_with_the_script_layer)
         {   7,   true,     false,    false,          false },   // transparent USDSOQ
         {   8,   false,    true,     false,          false },   // BTCSOQ holding
         {  10,   false,    false,    true,           false },   // confidential USDSOQ, Tier A
-        {  11,   false,    false,    false,          true  },   // unallocated: must claim nothing
+        {  11,   false,    false,    false,          true  },   // key-hash and covenant script: holds SOQ, claims no asset
+        {  12,   false,    false,    false,          true  },   // unallocated: must claim nothing
     };
 
     for (const Case& c : cases) {
@@ -327,23 +331,28 @@ BOOST_AUTO_TEST_CASE(asset_predicates_agree_with_the_script_layer)
 // allocation touches at ANY layer is taken; the remainder is what a future
 // feature may use. Deriving it is the point: the v6 collision happened because
 // someone consulted a document.
-BOOST_AUTO_TEST_CASE(free_witness_versions_are_v11_through_v16)
+BOOST_AUTO_TEST_CASE(free_witness_versions_are_v12_through_v16)
 {
+    // Every flag that starts a witness version's rules. A version the script
+    // layer has claimed stops verifying a meaningless witness under them.
+    const unsigned int everyGate = SCRIPT_VERIFY_PAT | SCRIPT_VERIFY_LATTICEFOLD | SCRIPT_VERIFY_SOQUOBSCURA |
+                                   SCRIPT_VERIFY_USDSOQ | SCRIPT_VERIFY_P2WSH_DILITHIUM | SCRIPT_VERIFY_BTCSOQ |
+                                   SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS;
     std::vector<int> free_;
     for (int v = 2; v <= 16; ++v) {
         CTxOut o; o.scriptPubKey = Program(v);
         txnouttype t;
-        const bool claimedByScript  = ScriptVerdict(Program(v), SCRIPT_VERIFY_WITNESS) == SCRIPT_ERR_OK &&
-                                      v <= 9;   // v10-v16 are anyone-can-spend by default, not claimed
+        const bool claimedByScript  = ScriptVerdict(Program(v), SCRIPT_VERIFY_WITNESS | everyGate) != SCRIPT_ERR_OK;
         const bool claimedBySolver  = SolverNames(Program(v), t);
         const bool claimedByAsset   = o.IsUSDSOQ() || o.IsBTCSOQ() || o.IsConfidential() ||
                                       o.IsV10ConfidentialUSDSOQ() || o.IsV4ConfidentialSOQ();
         if (!claimedByScript && !claimedBySolver && !claimedByAsset) free_.push_back(v);
     }
 
-    const std::vector<int> expected = {11, 12, 13, 14, 15, 16};
+    const std::vector<int> expected = {12, 13, 14, 15, 16};
     BOOST_CHECK_MESSAGE(free_ == expected,
-        "the free witness-version range has moved. v10 is TAKEN (confidential USDSOQ, Tier A) "
+        "the free witness-version range has moved. v11 is TAKEN (the key-hash and covenant "
+        "script version, in the interpreter's is_witness_v11 dispatch). v10 is TAKEN (confidential USDSOQ, Tier A) "
         "in every layer: transaction.h, the activation mask in validation.cpp, and since FC4 the "
         "interpreter's own is_confidential_usdsoq_witness dispatch (bead jzg0 closed the "
         "half-allocation). Derive this list from the code before allocating anything, never "
@@ -417,10 +426,10 @@ BOOST_AUTO_TEST_CASE(witness_v0_is_unspendable_and_not_standard)
 // soft-fork posture rather than turned into a hard script error, which keeps
 // both future options open: burning it later is a tightening (a soft fork, still
 // available), whereas un-burning it would be a hard fork. Reuse is nonetheless
-// the wrong move — v11-v16 are free, so there is no scarcity pressure, and a
+// the wrong move — v12-v16 are free, so there is no scarcity pressure, and a
 // number that meant "LatticeFold+ batch proof" for a year will stay wrong in
 // somebody's explorer, SDK or document. That is the confusion class that produced
-// the v6 collision. Allocate upward from v11.
+// the v6 collision. Allocate upward from v12.
 // ---------------------------------------------------------------------------
 // ⛔⛔ SOQ-I011 TRIPWIRE. SoquObscura must stay NOT_SCHEDULED on every network
 // until the range-proof verifier is made sound. Setting an activation height

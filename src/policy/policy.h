@@ -79,6 +79,16 @@ static const unsigned int STANDARD_V6_SIGNATURE_SIZE = 2420;
 static const unsigned int STANDARD_V6_PUBKEY_SIZE = 1312;
 /** The maximum size of a standard witness v6 witnessScript */
 static const unsigned int MAX_STANDARD_V6_SCRIPT_SIZE = 3600;
+/** The maximum number of satisfaction items (the items before the committed item) in a standard witness v11 witness */
+static const unsigned int MAX_STANDARD_V11_SATISFACTION_ITEMS = 100;
+/** The maximum size of a standard witness v11 item, the committed item aside, that has none of the lengths below */
+static const unsigned int MAX_STANDARD_V11_ITEM_SIZE = 80;
+/** The length of an ML-DSA-44 signature as a standard witness v11 item; one byte more with its hashtype byte */
+static const unsigned int STANDARD_V11_SIGNATURE_SIZE = 2420;
+/** The length of an ML-DSA-44 key item as a standard witness v11 item: the type byte and the key */
+static const unsigned int STANDARD_V11_KEY_ITEM_SIZE = 1313;
+/** The maximum size of a standard witness v11 committed item: the sub-version byte and a script of 3600 bytes */
+static const unsigned int MAX_STANDARD_V11_COMMITTED_ITEM_SIZE = 3601;
 /**
  * Soqucoin: Default dust limit that is evaluated when considering whether a
  * transaction output is required to pay additional fee for relay and inclusion
@@ -224,6 +234,13 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
      * satisfaction items. Every item other than the witnessScript is MAX_STANDARD_V6_ITEM_SIZE bytes
      * at most, or has the length of a signature or of a public key. With the bit clear no v6 limit
      * applies.
+     *
+     * A witness v11 input is held to the MAX_STANDARD_V11_* limits while bit 11 of
+     * activeWitnessVersions is set. They bound the size of the committed item and the number of
+     * satisfaction items. Every item other than the committed item is MAX_STANDARD_V11_ITEM_SIZE
+     * bytes at most, or has the length of a signature or of a key item. With the bit clear no v11
+     * limit applies, and the script check refuses the spend of a dormant version under
+     * SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM.
      */
 bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions);
 

@@ -52,6 +52,8 @@ const char* GetTxnOutputType(txnouttype t)
         return "witness_v8_btcsoq";
     case TX_WITNESS_V9_BTCSOQ_AUTHORITY:
         return "witness_v9_btcsoq_authority";
+    case TX_WITNESS_V11_SCRIPTHASH:
+        return "witness_v11_scripthash";
     }
     return NULL;
 }
@@ -130,6 +132,13 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, vector<vector<unsi
         // DL-BTCSOQ-CONSENSUS-NATIVE: witness v9 = BTCSOQ authority marker
         if (witnessversion == 9 && witnessprogram.size() == 32) {
             typeRet = TX_WITNESS_V9_BTCSOQ_AUTHORITY;
+            vSolutionsRet.push_back(witnessprogram);
+            return true;
+        }
+        // Witness version 11: OP_11 and the SHA-256 of the committed witness
+        // item, a sub-version byte and a script
+        if (witnessversion == WITNESS_V11_VERSION && witnessprogram.size() == 32) {
+            typeRet = TX_WITNESS_V11_SCRIPTHASH;
             vSolutionsRet.push_back(witnessprogram);
             return true;
         }

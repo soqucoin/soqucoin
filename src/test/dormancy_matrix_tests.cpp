@@ -101,9 +101,10 @@ const std::vector<Row> MAINNET_TABLE = {
     { Consensus::DEPLOYMENT_LATTICEFOLD,       "LATTICEFOLD",       DORMANT_BIP9_NEVER,   3 },
     { Consensus::DEPLOYMENT_SOQUOBSCURA,       "SOQUOBSCURA",       DORMANT_WITHDRAWN,    4 },
     { Consensus::DEPLOYMENT_USDSOQ,            "USDSOQ",            DORMANT_WITHDRAWN,    5 },
-    { Consensus::DEPLOYMENT_CTV,               "CTV",               DORMANT_WITHDRAWN,   -1 },
-    { Consensus::DEPLOYMENT_APO,               "APO",               DORMANT_WITHDRAWN,   -1 },
-    { Consensus::DEPLOYMENT_CSFS,              "CSFS",              DORMANT_WITHDRAWN,   -1 },
+    // The three deployments of witness v11, which runs when any one is active.
+    { Consensus::DEPLOYMENT_CTV,               "CTV",               DORMANT_WITHDRAWN,   11 },
+    { Consensus::DEPLOYMENT_APO,               "APO",               DORMANT_WITHDRAWN,   11 },
+    { Consensus::DEPLOYMENT_CSFS,              "CSFS",              DORMANT_WITHDRAWN,   11 },
     { Consensus::DEPLOYMENT_P2WSH_DILITHIUM,   "P2WSH_DILITHIUM",   DORMANT_WITHDRAWN,    6 },
     { Consensus::DEPLOYMENT_UTXO_COST,         "UTXO_COST",         DORMANT_WITHDRAWN,   -1 },
     { Consensus::DEPLOYMENT_DILITHIUM_KEYHASH, "DILITHIUM_KEYHASH", DORMANT_WITHDRAWN,   -1 },
@@ -260,6 +261,39 @@ BOOST_AUTO_TEST_CASE(testnets_run_the_asset_deployments_active)
         }
     }
     SelectParams(CBaseChainParams::MAIN);
+}
+
+// Witness v11 runs when any of CTV, APO and CSFS is active. On the test nets
+// each of the three is active from genesis, so the version's rules apply there
+// from the first block; on mainnet the three are withdrawn (the table above).
+BOOST_AUTO_TEST_CASE(testnets_run_the_three_deployments_of_witness_v11_active)
+{
+    const Consensus::DeploymentPos three[] = {
+        Consensus::DEPLOYMENT_CTV,
+        Consensus::DEPLOYMENT_APO,
+        Consensus::DEPLOYMENT_CSFS,
+    };
+    for (const std::string& net : {CBaseChainParams::TESTNET, CBaseChainParams::REGTEST,
+                                   CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        const Consensus::Params& c = Params().GetConsensus(0);
+        for (Consensus::DeploymentPos pos : three) {
+            BOOST_CHECK_MESSAGE(ActualPosture(c, pos) == ACTIVE_FROM_GENESIS,
+                net + ": a deployment of witness v11 is not active from genesis");
+        }
+    }
+    SelectParams(CBaseChainParams::MAIN);
+    // The table's rows for the version are these three, each withdrawn.
+    int rows = 0;
+    for (const Row& r : MAINNET_TABLE) {
+        if (r.witnessVersion != 11) continue;
+        ++rows;
+        BOOST_CHECK_MESSAGE(r.pos == three[0] || r.pos == three[1] || r.pos == three[2],
+            std::string(r.name) + " is declared a deployment of witness v11 and is not one of the three");
+        BOOST_CHECK_MESSAGE(r.main == DORMANT_WITHDRAWN,
+            std::string(r.name) + " gates witness v11 and the table does not declare it withdrawn on mainnet");
+    }
+    BOOST_CHECK_EQUAL(rows, 3);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

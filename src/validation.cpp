@@ -687,6 +687,22 @@ static bool IsCurrentForFeeEstimation()
     return true;
 }
 
+// The one place that turns the ctv, apo and csfs deployments into script flags.
+// Its callers are ConnectBlock, for the block it connects, and the mempool, for
+// the next block: NextBlockDeploymentScriptFlags for the flags it checks and
+// prices with, and the relay mask for bit 11.
+unsigned int WitnessV11DeploymentFlags(int nHeight, const Consensus::Params& consensusParams)
+{
+    unsigned int flags = 0;
+    if (Consensus::DeploymentActiveAtHeight(nHeight, consensusParams, Consensus::DEPLOYMENT_CTV))
+        flags |= SCRIPT_VERIFY_CTV;
+    if (Consensus::DeploymentActiveAtHeight(nHeight, consensusParams, Consensus::DEPLOYMENT_APO))
+        flags |= SCRIPT_VERIFY_APO;
+    if (Consensus::DeploymentActiveAtHeight(nHeight, consensusParams, Consensus::DEPLOYMENT_CSFS))
+        flags |= SCRIPT_VERIFY_CSFS;
+    return flags;
+}
+
 /**
  * The script flags that deployments switch on for the next block (tip height
  * plus one), from the predicates ConnectBlock reads at that height. The mempool
@@ -711,9 +727,9 @@ static unsigned int NextBlockDeploymentScriptFlags()
     auto v6active = [&](Consensus::DeploymentPos pos) {
         return Consensus::DeploymentActiveAtHeight(nNextHeight, cons, pos);
     };
-    if (v6active(Consensus::DEPLOYMENT_CTV))               flags |= SCRIPT_VERIFY_CTV;
-    if (v6active(Consensus::DEPLOYMENT_APO))               flags |= SCRIPT_VERIFY_APO;
-    if (v6active(Consensus::DEPLOYMENT_CSFS))              flags |= SCRIPT_VERIFY_CSFS;
+    // The three flags of witness version 11, which the covenant opcodes and
+    // the anyprevout hash types of witness version 6 read as well.
+    flags |= WitnessV11DeploymentFlags(nNextHeight, cons);
     if (v6active(Consensus::DEPLOYMENT_P2WSH_DILITHIUM))   flags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
     if (v6active(Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
     if (v6active(Consensus::DEPLOYMENT_V6_CONTROLFLOW))    flags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
@@ -804,8 +820,14 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // v10 is ALLOCATED (confidential USDSOQ, gated on SOQUOBSCURA + USDSOQ
         // together) but deliberately stays out of this mask: its Solver form and
         // verifier ship with the activation release, and nothing is standard
-        // that Solver cannot name. v11-v16 are unallocated: never standard
-        // until one is assigned a deployment.
+        // that Solver cannot name.
+        // v11 runs when any of its three deployments is active. The bit is set
+        // from the flags the script checks below read for the same height, so
+        // an output of the version is standard exactly where a spend of it is
+        // verified.
+        if (IsWitnessV11Active(WitnessV11DeploymentFlags(nNextHeight, cons))) activeWitnessVersions |= WitnessVersionBit(11);
+        // v12-v16 are unallocated: never standard until one is assigned a
+        // deployment.
     }
 
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
@@ -1207,7 +1229,8 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
 
         // Priced with the deployment flags of the next block, as ConnectBlock
         // prices it: the witness count of a v6 input reads three of them (the
-        // program, CHECKDILITHIUMKEYHASH and CHECKSIGFROMSTACK), and the miner
+        // program, CHECKDILITHIUMKEYHASH and CHECKSIGFROMSTACK), that of a
+        // v11 input reads the three of its own deployments, and the miner
         // sums this figure against MAX_BLOCK_SIGOPS_COST. The script checks
         // below read the same flags.
         const unsigned int nextBlockFlags = NextBlockDeploymentScriptFlags();
@@ -3585,24 +3608,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
     }
 
-    // BIP 119: Start enforcing OP_CHECKTEMPLATEVERIFY (vault/covenant opcodes)
-    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_CTV)) {
-        flags |= SCRIPT_VERIFY_CTV;
-    }
-
-    // BIP 118: Start enforcing SIGHASH_ANYPREVOUT (eltoo Lightning channels)
-    // NOTE: This does NOT modify Dilithium signature verification. It adds
-    // new sighash types (0x41, 0x42) that produce alternate sighash values.
-    // The existing SIGHASH_ALL (0x01) path is completely untouched.
-    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_APO)) {
-        flags |= SCRIPT_VERIFY_APO;
-    }
-
-    // BIP 348: Start enforcing OP_CHECKSIGFROMSTACK (oracle contracts, bridge attestation)
-    // Strict ML-DSA-44 only. Message is SHA256'd before Dilithium verify.
-    if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_CSFS)) {
-        flags |= SCRIPT_VERIFY_CSFS;
-    }
+    // The ctv, apo and csfs deployments: SCRIPT_VERIFY_CTV, SCRIPT_VERIFY_APO
+    // and SCRIPT_VERIFY_CSFS, each from its deployment at this block's height.
+    // Witness version 11 runs when any of the three is set; inside it the
+    // first defines OP_CHECKTEMPLATEVERIFY and the third OP_CHECKSIGFROMSTACK.
+    // Witness version 6 reads the same three for its covenant opcodes and its
+    // anyprevout hash types. The mempool takes the same value for the next
+    // block (NextBlockDeploymentScriptFlags and the relay mask).
+    flags |= WitnessV11DeploymentFlags(pindex->nHeight, consensus);
 
     // SOQ-AUD2-009: Start enforcing P2WSH-Dilithium (witness v6) — covenant script execution
     // When active, witness v6 programs execute arbitrary scripts via EvalScript,

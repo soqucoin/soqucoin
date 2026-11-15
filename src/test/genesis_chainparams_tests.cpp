@@ -13,8 +13,10 @@
 #include "netaddress.h"
 #include "soqucoin.h"
 #include "primitives/block.h"
+#include "script/interpreter.h"
 #include "uint256.h"
 #include "utiltime.h"
+#include "validation.h"
 
 #include "test/test_bitcoin.h"
 
@@ -561,6 +563,51 @@ BOOST_AUTO_TEST_CASE(p96_mainnet_ships_dormant)
         BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(0, consensus, pos));
         BOOST_CHECK(!Consensus::DeploymentActiveAtHeight(1000000, consensus, pos));
     }
+}
+
+// Witness version 11 runs when any of the ctv, apo and csfs flags is set, and
+// one function turns the three deployments into those flags for a block and
+// for the mempool (WitnessV11DeploymentFlags). On mainnet it returns no flag at
+// any height of any consensus tier, so the version is dormant there and its
+// bit of the relay mask is clear. On the test networks it returns the three at
+// every height.
+BOOST_AUTO_TEST_CASE(witness_v11_is_dormant_on_every_mainnet_tier)
+{
+    const int kHeights[] = {0, 1, 2, 9, 10, 11, 19, 20, 21, 99, 100, 101, 1000, 66999, 67000, 100000, 1000000, 100000000};
+    const unsigned int three = SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS;
+
+    SelectParams(CBaseChainParams::MAIN);
+    for (int h : kHeights) {
+        const unsigned int flags = WitnessV11DeploymentFlags(h, Params().GetConsensus(h));
+        BOOST_CHECK_MESSAGE(flags == 0, "mainnet, height " + std::to_string(h) + ": the writer returns " + std::to_string(flags));
+        BOOST_CHECK_MESSAGE(!IsWitnessV11Active(flags), "mainnet, height " + std::to_string(h) + ": witness version 11 runs");
+    }
+    for (const std::string& net : {CBaseChainParams::TESTNET, CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
+        SelectParams(net);
+        for (int h : kHeights) {
+            const unsigned int flags = WitnessV11DeploymentFlags(h, Params().GetConsensus(h));
+            BOOST_CHECK_MESSAGE(flags == three, net + ", height " + std::to_string(h) + ": the writer returns " + std::to_string(flags));
+        }
+    }
+    // The writer returns the three flags and no other bit, each from its own
+    // deployment.
+    SelectParams(CBaseChainParams::REGTEST);
+    const struct { Consensus::DeploymentPos pos; unsigned int flag; } each[] = {
+        {Consensus::DEPLOYMENT_CTV, SCRIPT_VERIFY_CTV},
+        {Consensus::DEPLOYMENT_APO, SCRIPT_VERIFY_APO},
+        {Consensus::DEPLOYMENT_CSFS, SCRIPT_VERIFY_CSFS},
+    };
+    for (const auto& one : each) {
+        Consensus::Params p = Params().GetConsensus(0);
+        for (const auto& other : each)
+            p.vDeployments[other.pos].nActivationHeight = Consensus::BIP9Deployment::NOT_SCHEDULED;
+        BOOST_CHECK_EQUAL(WitnessV11DeploymentFlags(500, p), 0u);
+        p.vDeployments[one.pos].nActivationHeight = 500;
+        BOOST_CHECK_EQUAL(WitnessV11DeploymentFlags(499, p), 0u);
+        BOOST_CHECK_EQUAL(WitnessV11DeploymentFlags(500, p), one.flag);
+        BOOST_CHECK(IsWitnessV11Active(WitnessV11DeploymentFlags(500, p)));
+    }
+    SelectParams(CBaseChainParams::MAIN);  // restore default for later tests
 }
 
 BOOST_AUTO_TEST_CASE(p96_testnets_active_from_genesis)

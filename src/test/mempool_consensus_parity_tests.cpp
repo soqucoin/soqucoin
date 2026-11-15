@@ -149,6 +149,18 @@ BOOST_AUTO_TEST_CASE(deployment_gated_flags_are_paired)
         "a deployment-gated flag has been baked into STANDARD_SCRIPT_VERIFY_FLAGS. Those must "
         "be OR-ed in per height on both paths, or the mempool enforces a rule consensus has "
         "not activated and rejects transactions that are perfectly valid in a block");
+
+    // The flag under which relay refuses a spend of a dormant witness v11
+    // output and each of the version's upgrade hooks is the other kind: relay
+    // always carries it, no deployment gates it, and it is not mandatory, so a
+    // refusal under it scores no peer. The interpreter gives it readers in
+    // witness v11 alone (witness_v11_script_tests; witness_v11_chain_tests
+    // drives it through the mempool and through blocks).
+    const unsigned int discourage = SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM;
+    BOOST_CHECK((STANDARD_SCRIPT_VERIFY_FLAGS & discourage) != 0);
+    BOOST_CHECK((STANDARD_NOT_MANDATORY_VERIFY_FLAGS & discourage) != 0);
+    BOOST_CHECK((MANDATORY_SCRIPT_VERIFY_FLAGS & discourage) == 0);
+    BOOST_CHECK((deploymentGated & discourage) == 0);
 }
 
 // ---------------------------------------------------------------------------

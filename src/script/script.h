@@ -41,6 +41,30 @@ static const unsigned int MAX_V6_SATISFACTION_ITEMS = 1000;
 // active, a later release can lower either figure and can never raise it: a
 // higher figure accepts a witness that this release refuses.
 
+// Witness version 11. An output is OP_11 and the SHA-256 of one committed
+// witness item: a sub-version byte and a script.
+static const int WITNESS_V11_VERSION = 11;
+
+// The sub-version byte of the script language this release defines. A
+// committed item that begins with any other byte is not evaluated.
+static const unsigned char WITNESS_V11_SUBVERSION_SCRIPT = 0xc0;
+
+// A key item of witness version 11 is a type byte and a key. The one type this
+// release defines is ML-DSA-44: the byte below and the 1312-byte key.
+static const unsigned char WITNESS_V11_KEY_TYPE_MLDSA44 = 0x00;
+static const unsigned int WITNESS_V11_MLDSA44_KEY_ITEM_SIZE = 1313;
+
+// Maximum size in bytes of a satisfaction item of a witness v11 witness (an
+// item before the committed item): an ML-DSA-44 signature with its hashtype byte
+static const unsigned int MAX_V11_SATISFACTION_ITEM_SIZE = 2421;
+
+// Maximum number of satisfaction items in a witness v11 witness
+static const unsigned int MAX_V11_SATISFACTION_ITEMS = 1000;
+
+// The two figures above are consensus rules of witness version 11 alone and
+// bind a witness whose script is evaluated. On a network where the version is
+// active, a later release can lower either figure and can never raise it.
+
 // Threshold for nLockTime: below this value it is interpreted as block number,
 // otherwise as UNIX timestamp.
 static const unsigned int LOCKTIME_THRESHOLD = 500000000; // Tue Nov  5 00:53:20 1985 UTC

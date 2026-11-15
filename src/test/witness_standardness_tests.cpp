@@ -68,13 +68,33 @@ BOOST_AUTO_TEST_CASE(v5_through_v9_were_the_carve_outs)
     }
 }
 
-// The gated set is exactly {v5..v9} — the versions Solver() recognises as named
-// output types. Everything else in v2-v16 is rejected earlier, by Solver itself,
-// and the mask never gets a say. That second layer is why only v5-v9 were ever
-// reachable, and therefore why only v5-v9 were ever the fund-loss path.
+// Witness v11 joined the named set with its own bit: non-standard with every
+// other bit set and its own clear, standard with its own alone. The bit is set
+// while any of the version's three deployments is active at the next block
+// (validation.cpp; witness_v11_chain_tests drives it through the mempool).
+BOOST_AUTO_TEST_CASE(v11_is_standard_only_with_its_own_bit)
+{
+    BOOST_CHECK(!StandardWith(WitnessProgram(11), 0));
+    BOOST_CHECK(StandardWith(WitnessProgram(11), WitnessVersionBit(11)));
+
+    WitnessVersionMask everythingElse = 0;
+    for (int v = 0; v <= 16; ++v)
+        if (v != 11) everythingElse |= WitnessVersionBit(v);
+    BOOST_CHECK(!StandardWith(WitnessProgram(11), everythingElse));
+
+    // OP_11 with a program of another length is a form Solver does not name.
+    CScript shortProgram;
+    shortProgram << OP_11 << std::vector<unsigned char>(20, 0x01);
+    BOOST_CHECK(!StandardWith(shortProgram, WitnessVersionBit(11)));
+}
+
+// The gated set is exactly {v5..v9, v11} — the versions Solver() recognises as
+// named output types. Everything else in v2-v16 is rejected earlier, by Solver
+// itself, and the mask never gets a say. That second layer is why only v5-v9
+// were ever reachable, and therefore why only v5-v9 were ever the fund-loss path.
 BOOST_AUTO_TEST_CASE(activation_does_not_leak_across_versions)
 {
-    const int gated[] = {5, 6, 7, 8, 9};
+    const int gated[] = {5, 6, 7, 8, 9, 11};
     for (int active : gated) {
         const WitnessVersionMask mask = WitnessVersionBit(active);
         for (int v : gated) {
@@ -95,7 +115,7 @@ BOOST_AUTO_TEST_CASE(unrecognised_versions_ignore_the_mask_entirely)
     WitnessVersionMask everything = 0;
     for (int v = 2; v <= 16; ++v) everything |= WitnessVersionBit(v);
 
-    const int notNamedBySolver[] = {2, 3, 4, 10, 11, 12, 13, 14, 15, 16};
+    const int notNamedBySolver[] = {2, 3, 4, 10, 12, 13, 14, 15, 16};
     for (int v : notNamedBySolver) {
         BOOST_CHECK_MESSAGE(!StandardWith(WitnessProgram(v), everything),
                             "witness v" << v << " became standard despite Solver not naming it");

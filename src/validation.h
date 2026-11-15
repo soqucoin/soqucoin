@@ -399,6 +399,18 @@ unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& ma
 int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& inputs, int flags);
 
 /**
+ * The script flags of the ctv, apo and csfs deployments at a height:
+ * SCRIPT_VERIFY_CTV, SCRIPT_VERIFY_APO and SCRIPT_VERIFY_CSFS, each set when
+ * its deployment is active there. ConnectBlock adds the value to a block's
+ * flags and the mempool adds it, for the next block, to the flags it checks
+ * and prices with. Witness version 11 runs when the value is not zero
+ * (IsWitnessV11Active), which is also what sets its bit of the relay mask.
+ * @param[in] nHeight         The height of the block the flags are for
+ * @param[in] consensusParams The consensus parameters of that height
+ */
+unsigned int WitnessV11DeploymentFlags(int nHeight, const Consensus::Params& consensusParams);
+
+/**
  * Check whether all inputs of this transaction are valid (no double spends, scripts & sigs, amounts)
  * This does not modify the UTXO set. If pvChecks is not NULL, script checks are pushed onto it
  * instead of being performed inline.
