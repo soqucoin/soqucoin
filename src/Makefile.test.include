@@ -143,6 +143,7 @@ BITCOIN_TESTS =\
   test/sanity_tests.cpp \
   test/scheduler_tests.cpp \
   test/script_tests.cpp \
+  test/script_loop_parity_tests.cpp \
   test/scriptnum_tests.cpp \
   test/scrypt_tests.cpp \
   test/serialize_tests.cpp \
