@@ -17,6 +17,11 @@
 //                                            its outputs in the scriptSig of
 //                                            one more input, which is not
 //                                            evaluated.
+//   ScriptLoopPrecomputedData                the precomputed data of the block
+//                                            shape's transaction, built once,
+//                                            as every transaction's is.
+//   ScriptLoopTemplateParts                  the part of that work that the
+//                                            template hash adds.
 //
 // A template check is timed as validation runs it: the transaction's
 // precomputed data is built once, and each input gets a checker of its own
@@ -120,7 +125,27 @@ static void ScriptLoopTemplateChecksBlockScriptSig(benchmark::State& state)
     TemplateChecks(state, 10600, 1, 459670);
 }
 
+static void ScriptLoopPrecomputedData(benchmark::State& state)
+{
+    const CTransaction tx = TemplateTx(10600, 10690, 0);
+    while (state.KeepRunning()) {
+        const PrecomputedTransactionData txdata(tx);
+        assert(!txdata.templateParts.fHasScriptSigs);
+    }
+}
+
+static void ScriptLoopTemplateParts(benchmark::State& state)
+{
+    const CTransaction tx = TemplateTx(10600, 10690, 0);
+    while (state.KeepRunning()) {
+        const TemplateHashParts parts(tx);
+        assert(!parts.fHasScriptSigs);
+    }
+}
+
 BENCHMARK(ScriptLoopNestedConditionals);
+BENCHMARK(ScriptLoopPrecomputedData);
+BENCHMARK(ScriptLoopTemplateParts);
 BENCHMARK(ScriptLoopTemplateChecksRelay);
 BENCHMARK(ScriptLoopTemplateChecksBlock);
 BENCHMARK(ScriptLoopTemplateChecksBlockScriptSig);
