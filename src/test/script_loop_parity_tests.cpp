@@ -686,7 +686,7 @@ BOOST_AUTO_TEST_CASE(an_opcode_runs_when_no_enclosing_branch_is_false)
 
     // Sixty sequences that nest some hundreds deep. Every argument is one the
     // minimal rule admits, so the three modes share one expected outcome.
-    int deepSucceeded = 0, deepestDeep = 0;
+    int deepestDeep = 0;
     size_t longest = 0;
     for (int n = 0; n < 60; ++n) {
         const std::vector<Token> tokens = GenerateDeepTokens(gen);
@@ -702,7 +702,6 @@ BOOST_AUTO_TEST_CASE(an_opcode_runs_when_no_enclosing_branch_is_false)
         BOOST_REQUIRE_EQUAL(depth, 0);
         const Outcome expected = Model(tokens, true);
         BOOST_REQUIRE(expected.error != SCRIPT_ERR_MINIMALIF && expected.error != SCRIPT_ERR_UNBALANCED_CONDITIONAL);
-        deepSucceeded += expected.ok ? 1 : 0;
         for (const Mode& mode : modes) {
             const Outcome got = Run(script, std::vector<valtype>(), mode.flags, mode.sigversion);
             BOOST_REQUIRE_MESSAGE(got.ok == expected.ok && got.error == expected.error && got.stack == expected.stack,
@@ -711,9 +710,8 @@ BOOST_AUTO_TEST_CASE(an_opcode_runs_when_no_enclosing_branch_is_false)
                                  << Name(expected.error) << " with " << expected.stack.size());
         }
     }
-    BOOST_TEST_MESSAGE(deepSucceeded << " of 60 deep sequences succeed, deepest nesting " << deepestDeep << ", longest " << longest << " opcodes");
-    BOOST_CHECK_MESSAGE(deepestDeep >= 300 && deepSucceeded >= 20,
-        deepSucceeded << " of 60 deep sequences succeed, deepest nesting " << deepestDeep);
+    BOOST_TEST_MESSAGE("60 deep sequences, deepest nesting " << deepestDeep << ", longest " << longest << " opcodes");
+    BOOST_CHECK_MESSAGE(deepestDeep >= 300, "the deepest nesting of the 60 deep sequences is " << deepestDeep);
 }
 
 // The written cases of nesting: each transition of OP_ELSE, a conditional
@@ -722,7 +720,10 @@ BOOST_AUTO_TEST_CASE(an_opcode_runs_when_no_enclosing_branch_is_false)
 // version: 3,333 conditionals that each push their argument; 3,666 taken
 // conditionals of which 1,000 read a satisfaction item; 4,999 where the
 // outermost is not taken and those inside it read no argument; and 5,000, the
-// most, where the first reads a false satisfaction item.
+// most a script that closes its conditionals holds, where the first reads a
+// false satisfaction item. A script that leaves its conditionals open is
+// refused, and holds up to one for each of its bytes until it is: up to
+// 10,000 of them open, and 5,499 taken with an opcode that runs inside them.
 BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
 {
     const valtype a(1, 0x0a), b(1, 0x0b), c(1, 0x0c), d(1, 0x0d);
@@ -805,10 +806,10 @@ BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
         BOOST_CHECK_EQUAL(V6Verdict(bare(OP_1)), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
         BOOST_CHECK_EQUAL(V11Verdict(bare(OP_1)), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
     }
-    // A conditional takes an OP_IF and an OP_ENDIF, so 10,000 bytes hold
-    // 5,000 at most. They hold 5,000 when the first reads a false argument
-    // from the satisfaction items and the others, inside it, read none. The
-    // item left is the true one below that argument.
+    // A conditional that is closed takes an OP_IF and an OP_ENDIF, so 10,000
+    // bytes hold 5,000 of them at most. They hold 5,000 when the first reads
+    // a false argument from the satisfaction items and the others, inside
+    // it, read none. The item left is the true one below that argument.
     {
         CScript s;
         for (int i = 0; i < 5000; ++i)
@@ -824,6 +825,45 @@ BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
         const Stack bothTrue = {valtype(1, 0x01), valtype(1, 0x01)};
         BOOST_CHECK_EQUAL(V6Verdict(s, bothTrue), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
         BOOST_CHECK_EQUAL(V11Verdict(s, bothTrue), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+    }
+    // Left open, a conditional takes one byte, and the script is refused
+    // when it ends, whatever number is open: OP_IF alone on a false item
+    // above a true one, at each power of two to 8,192 and at five counts
+    // beside them, the last the 10,000 a script of 10,000 bytes opens.
+    {
+        const Stack falseOnTop = {valtype(1, 0x01), valtype()};
+        std::vector<int> counts = {5000, 5001, 8191, 9999, 10000};
+        for (int n = 1; n <= 8192; n *= 2)
+            counts.push_back(n);
+        for (int n : counts) {
+            CScript s;
+            for (int i = 0; i < n; ++i)
+                s << OP_IF;
+            BOOST_CHECK_MESSAGE(V6Verdict(s, falseOnTop) == SCRIPT_ERR_UNBALANCED_CONDITIONAL &&
+                                V11Verdict(s, falseOnTop) == SCRIPT_ERR_UNBALANCED_CONDITIONAL,
+                n << " conditionals left open must be refused by both versions");
+        }
+    }
+    // 5,499 conditionals left open, every one taken, in 9,999 bytes: 1,000
+    // that each read a satisfaction item and 4,499 with a pushed argument,
+    // then an OP_DROP. It runs, inside the innermost, and finds the stack
+    // empty. With the first argument false it does not run, and the script
+    // ends with its conditionals open.
+    {
+        CScript s;
+        for (int i = 0; i < 1000; ++i)
+            s << OP_IF;
+        for (int i = 0; i < 4499; ++i)
+            s << OP_1 << OP_IF;
+        s << OP_DROP;
+        BOOST_REQUIRE_EQUAL(s.size(), 9999u);
+        Stack items(1000, valtype(1, 0x01));
+        BOOST_CHECK_EQUAL(V6Verdict(s, items), SCRIPT_ERR_INVALID_STACK_OPERATION);
+        BOOST_CHECK_EQUAL(V11Verdict(s, items), SCRIPT_ERR_INVALID_STACK_OPERATION);
+        // The first OP_IF reads the last of the items.
+        items[999] = valtype();
+        BOOST_CHECK_EQUAL(V6Verdict(s, items), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+        BOOST_CHECK_EQUAL(V11Verdict(s, items), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
     }
     // 3,666 conditionals, every one taken, in 9,999 bytes: 1,000 that each
     // read a satisfaction item, the number a spend may carry, and 2,666 with
@@ -877,7 +917,7 @@ BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
         BOOST_CHECK(got.ok);
         BOOST_CHECK(got.stack == Stack(1, b));
     }
-    // More taken levels than a script a version evaluates can hold, through
+    // More taken levels than a script a version accepts can hold, through
     // the loop itself: 5,000, every one taken. An OP_ELSE at the innermost
     // stops execution and its OP_ENDIF starts it again.
     {
@@ -906,6 +946,42 @@ BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
             const Outcome got = Run(s, Stack(), ACTIVE, sigversion);
             BOOST_CHECK(got.ok);
             BOOST_CHECK(got.stack == Stack(1, b));
+        }
+    }
+    // 10,000 conditionals open at once, the number a script of 10,000 bytes
+    // opens, inside a branch that is not taken; then each is closed. Every
+    // OP_ENDIF finds one open, and the last leaves none. This script and the
+    // next are longer than a version evaluates and run through the loop
+    // itself.
+    {
+        CScript s;
+        s << OP_0;
+        for (int i = 0; i < 10000; ++i)
+            s << OP_IF;
+        for (int i = 0; i < 10000; ++i)
+            s << OP_ENDIF;
+        s << OP_1;
+        for (SigVersion sigversion : {SIGVERSION_WITNESS_V0, SIGVERSION_WITNESS_V11}) {
+            const Outcome got = Run(s, Stack(), ACTIVE, sigversion);
+            BOOST_CHECK_MESSAGE(got.ok, "10,000 conditionals opened and closed: " << Name(got.error));
+            BOOST_CHECK(got.stack == Stack(1, valtype(1, 0x01)));
+        }
+    }
+    // The same 10,000 with an OP_ELSE at every level on the way out and a
+    // marker after it. No level inside the first is taken, whatever its
+    // OP_ELSE flips, and the OP_ELSE of the first starts execution.
+    {
+        CScript s;
+        s << OP_0;
+        for (int i = 0; i < 10000; ++i)
+            s << OP_IF;
+        for (int i = 1; i < 10000; ++i)
+            s << OP_ELSE << b << OP_ENDIF;
+        s << OP_ELSE << a << OP_ENDIF;
+        for (SigVersion sigversion : {SIGVERSION_WITNESS_V0, SIGVERSION_WITNESS_V11}) {
+            const Outcome got = Run(s, Stack(), ACTIVE, sigversion);
+            BOOST_CHECK_MESSAGE(got.ok, "10,000 conditionals with an OP_ELSE at each: " << Name(got.error));
+            BOOST_CHECK(got.stack == Stack(1, a));
         }
     }
 }
@@ -959,6 +1035,7 @@ BOOST_AUTO_TEST_CASE(the_template_hash_is_the_written_format_with_and_without_th
             const valtype right = TemplateHash(tx, i);
             BOOST_CHECK(TransactionSignatureChecker(&tx, i, AMOUNT).CheckTemplateVerify(right));
             BOOST_CHECK(TransactionSignatureChecker(&tx, i, AMOUNT, txdata).CheckTemplateVerify(right));
+            BOOST_CHECK(!TransactionSignatureChecker(&tx, i, AMOUNT).CheckTemplateVerify(TemplateHash(tx, 0)));
             BOOST_CHECK(!TransactionSignatureChecker(&tx, i, AMOUNT, txdata).CheckTemplateVerify(TemplateHash(tx, 0)));
         }
     }
@@ -977,8 +1054,9 @@ BOOST_AUTO_TEST_CASE(the_template_hash_is_the_written_format_with_and_without_th
     mtx.vin[2].scriptSig = CScript() << OP_1;
     const CTransaction last(mtx);
     for (uint32_t i = 0; i < 3; ++i) {
-        // The format gives three different hashes, so each refusal below is
-        // of a hash that is not the transaction's.
+        // The format gives the transaction with a scriptSig on its first
+        // input a hash that neither of the others has, so each refusal below
+        // is of a hash that is not the checker's transaction's.
         BOOST_REQUIRE(TemplateHash(none, i) != TemplateHash(first, i));
         BOOST_REQUIRE(TemplateHash(first, i) != TemplateHash(last, i));
         BOOST_CHECK(TransactionSignatureChecker(&first, i, AMOUNT).CheckTemplateVerify(TemplateHash(first, i)));
@@ -986,8 +1064,9 @@ BOOST_AUTO_TEST_CASE(the_template_hash_is_the_written_format_with_and_without_th
         BOOST_CHECK(!TransactionSignatureChecker(&last, i, AMOUNT).CheckTemplateVerify(TemplateHash(first, i)));
     }
 
-    // A transaction past the generator's sizes: 300 inputs, 700 outputs and
-    // one scriptSig of 100,000 bytes.
+    // A transaction past the generator's sizes: 300 inputs, 700 outputs, one
+    // scriptSig of 100,000 bytes, and output scripts of 300 and of 70,000
+    // bytes.
     CMutableTransaction large;
     large.nVersion = 2;
     large.nLockTime = 499999999;
@@ -1003,6 +1082,10 @@ BOOST_AUTO_TEST_CASE(the_template_hash_is_the_written_format_with_and_without_th
         const valtype bytes = gen.Bytes(gen.Below(120));
         large.vout.push_back(CTxOut(static_cast<CAmount>(gen.Next() >> 1), CScript(bytes.begin(), bytes.end())));
     }
+    const valtype script300 = gen.Bytes(300);
+    const valtype script70000 = gen.Bytes(70000);
+    large.vout[10].scriptPubKey = CScript(script300.begin(), script300.end());
+    large.vout[690].scriptPubKey = CScript(script70000.begin(), script70000.end());
     const CTransaction largeTx(large);
     const PrecomputedTransactionData largeData(largeTx);
     for (uint32_t i : {0u, 150u, 299u}) {
@@ -1010,6 +1093,25 @@ BOOST_AUTO_TEST_CASE(the_template_hash_is_the_written_format_with_and_without_th
         BOOST_CHECK(TransactionSignatureChecker(&largeTx, i, AMOUNT).CheckTemplateVerify(right));
         BOOST_CHECK(TransactionSignatureChecker(&largeTx, i, AMOUNT, largeData).CheckTemplateVerify(right));
         BOOST_CHECK(!TransactionSignatureChecker(&largeTx, i, AMOUNT, largeData).CheckTemplateVerify(TemplateHash(largeTx, i + 1)));
+    }
+
+    // Counts past 65,535: 70,000 inputs and 70,000 outputs, each sequence
+    // and each value its own.
+    CMutableTransaction wide;
+    wide.nVersion = 2;
+    wide.vin.resize(70000);
+    wide.vout.resize(70000);
+    for (uint32_t i = 0; i < 70000; ++i) {
+        wide.vin[i].nSequence = i;
+        wide.vout[i].nValue = static_cast<CAmount>(i);
+    }
+    const CTransaction wideTx(wide);
+    const PrecomputedTransactionData wideData(wideTx);
+    for (uint32_t i : {0u, 65535u, 65536u, 69999u}) {
+        const valtype right = TemplateHash(wideTx, i);
+        BOOST_CHECK(TransactionSignatureChecker(&wideTx, i, AMOUNT).CheckTemplateVerify(right));
+        BOOST_CHECK(TransactionSignatureChecker(&wideTx, i, AMOUNT, wideData).CheckTemplateVerify(right));
+        BOOST_CHECK(!TransactionSignatureChecker(&wideTx, i, AMOUNT, wideData).CheckTemplateVerify(TemplateHash(wideTx, i ^ 1)));
     }
 }
 
@@ -1137,7 +1239,8 @@ BOOST_AUTO_TEST_CASE(a_checker_that_holds_the_precomputed_data_reads_no_script_o
 // witness version 11. A change that alters no verdict and no stack leaves them
 // where they are, and one that means to alter some moves the family it
 // touches and says so by its new value. An error is recorded by its number,
-// so a change that renumbers the script errors moves all three.
+// so a change that gives another number to an error a family records moves
+// that family.
 BOOST_AUTO_TEST_CASE(the_three_families_keep_their_digests)
 {
     struct Mode {

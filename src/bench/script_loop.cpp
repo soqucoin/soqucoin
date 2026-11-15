@@ -4,10 +4,11 @@
 // script_loop.cpp — the time the script loop of witness versions 6 and 11
 // takes on four shapes, and the time of a transaction's precomputed data.
 // At the merge of witness version 11 the time of each of the four grew with
-// the square of its size: the loop read the nesting of conditionals from end
-// to end at every opcode, and each input that executed
-// OP_CHECKTEMPLATEVERIFY hashed the sequences and the outputs of its
-// transaction, and its scriptSigs where one was present.
+// the square of its size: at every opcode the loop read the nesting of
+// conditionals up to its first level that is not taken, which is all of it
+// in the first shape, and each input that executed OP_CHECKTEMPLATEVERIFY
+// hashed the sequences and the outputs of its transaction, and its
+// scriptSigs where one was present.
 //
 //   ScriptLoopNestedConditionals             one script of 10,000 bytes that
 //                                            nests 3,333 conditionals, each
@@ -18,8 +19,9 @@
 //                                            witness version 11, each input
 //                                            with a committed item of 35
 //                                            bytes and its trailer, it weighs
-//                                            799,716 units of the 800,000 a
-//                                            standard transaction may.
+//                                            799,716 units, under the 800,000
+//                                            at which a transaction stops
+//                                            being standard.
 //   ScriptLoopTemplateChecksBlock            the same shape at 10,600 inputs
 //                                            and 10,690 outputs: 3,990,538
 //                                            units of the 4,000,000 a block
