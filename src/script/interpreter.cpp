@@ -24,7 +24,9 @@
 #include <script/script.h>
 #include <uint256.h>
 
+#include <cassert>
 #include <cstring>
+#include <limits>
 
 using namespace std;
 
@@ -262,6 +264,73 @@ static WitnessV11OpcodeClass ClassifyWitnessV11Opcode(opcodetype op, unsigned in
     return WITNESS_V11_OPCODE_REFUSED;
 }
 
+namespace
+{
+/**
+ * The nesting of conditionals while a script runs.
+ *
+ * It behaves as a stack of booleans, one for each OP_IF or OP_NOTIF that is
+ * open: the value its argument selected, or false when it was opened while
+ * the script was not executing, flipped by each OP_ELSE of its own. The loop
+ * never reads one element. It asks whether the stack is empty and whether
+ * every element is true, and OP_ELSE flips the top. So the elements are not
+ * kept: the size of the stack and the position of its first false element
+ * answer both questions, and each question and each change takes the same
+ * time at any depth. The form is that of Bitcoin Core pull request 16902.
+ */
+class ConditionStack
+{
+private:
+    //! The value of m_first_false_pos when every element is true.
+    static constexpr uint32_t NO_FALSE = std::numeric_limits<uint32_t>::max();
+
+    //! The size of the stack.
+    uint32_t m_stack_size;
+    //! The position of the first false element, or NO_FALSE.
+    uint32_t m_first_false_pos;
+
+public:
+    ConditionStack() : m_stack_size(0), m_first_false_pos(NO_FALSE) {}
+
+    bool empty() const { return m_stack_size == 0; }
+    bool all_true() const { return m_first_false_pos == NO_FALSE; }
+    void push_back(bool f)
+    {
+        if (m_first_false_pos == NO_FALSE && !f) {
+            // Every element is true and a false one is added: it is the
+            // first, at the position the size names.
+            m_first_false_pos = m_stack_size;
+        }
+        ++m_stack_size;
+    }
+    void pop_back()
+    {
+        assert(m_stack_size > 0);
+        --m_stack_size;
+        if (m_first_false_pos == m_stack_size) {
+            // The element removed is the first false one: every element
+            // left is true.
+            m_first_false_pos = NO_FALSE;
+        }
+    }
+    void toggle_top()
+    {
+        assert(m_stack_size > 0);
+        if (m_first_false_pos == NO_FALSE) {
+            // Every element is true: the top becomes the first false one.
+            m_first_false_pos = m_stack_size - 1;
+        } else if (m_first_false_pos == m_stack_size - 1) {
+            // The top is the first false element: every element is true.
+            m_first_false_pos = NO_FALSE;
+        } else {
+            // A false element lies below the top. Nothing reads what the top
+            // holds while that element is on the stack, and the top is
+            // removed before it.
+        }
+    }
+};
+} // namespace
+
 bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
 {
     if (serror) *serror = SCRIPT_ERR_OK;
@@ -281,8 +350,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     CScriptNum bn(0);
     vector<valtype> altstack;
     // DL-V6-CONTROLFLOW-RESTORE: OP_IF/NOTIF/ELSE/ENDIF condition stack. Empty unless
-    // SCRIPT_VERIFY_V6_CONTROLFLOW restores real branching; fExec is recomputed from it.
-    std::vector<bool> vfExec;
+    // fControlFlow restores real branching; fExec is read from it at each opcode.
+    ConditionStack vfExec;
     set_success(serror);
 
     // A script of witness version 11 runs the control-flow set, the restored
@@ -295,10 +364,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
     try {
         while (pc < pend) {
             // Executing iff no enclosing conditional branch is currently false.
-            bool fExec = true;
-            for (size_t i = 0; i < vfExec.size(); ++i) {
-                if (!vfExec[i]) { fExec = false; break; }
-            }
+            const bool fExec = vfExec.all_true();
 
             if (!script.GetOp(pc, opcode, vchPushValue))
                 return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
@@ -347,7 +413,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                     } else if (opcode == OP_ELSE) {
                         if (vfExec.empty())
                             return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
-                        vfExec.back() = !vfExec.back();
+                        vfExec.toggle_top();
                     } else { // OP_ENDIF
                         if (vfExec.empty())
                             return set_error(serror, SCRIPT_ERR_UNBALANCED_CONDITIONAL);
