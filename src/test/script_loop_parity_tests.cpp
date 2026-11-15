@@ -35,7 +35,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
-#include <cstring>
 #include <limits>
 #include <string>
 #include <utility>
@@ -45,8 +44,9 @@ namespace {
 
 typedef std::vector<unsigned char> valtype;
 
-//! The flags of a block on a network where the deployments of witness
-//! versions 6 and 11 are active.
+//! The flags a block carries for witness versions 6 and 11 on a network where
+//! their deployments are active. A block carries other flags as well, which
+//! no case here reads.
 const unsigned int ACTIVE = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY |
                             SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_SCRIPT_RESTORE |
                             SCRIPT_VERIFY_P2WSH_DILITHIUM | SCRIPT_VERIFY_DILITHIUM_KEYHASH |
@@ -279,7 +279,7 @@ Outcome Model(const std::vector<Token>& tokens, bool minimalArgument)
 }
 
 //! The arguments a generated branch is given: the two the minimal rule
-//! admits, and six it does not, three of them false.
+//! admits, and six it does not, four of them false.
 const char* const ARGUMENTS[] = {"", "01", "02", "00", "80", "0100", "0000", "0080"};
 
 //! A generated sequence. While no conditional is open it mostly opens one;
@@ -299,7 +299,8 @@ std::vector<Token> GenerateTokens(Generator& gen)
             t.kind = r < 25 ? TOKEN_IF : r < 40 ? TOKEN_NOTIF : r < 70 ? TOKEN_ELSE : TOKEN_ENDIF;
         if (t.kind == TOKEN_IF || t.kind == TOKEN_NOTIF) {
             t.hasArgument = gen.Below(10) != 0;
-            // Three in four arguments are one of the two the minimal rule admits.
+            // Three in four arguments are drawn from the two the minimal rule
+            // admits, and the fourth from all eight.
             const size_t pick = gen.Below(4) != 0 ? gen.Below(2) : gen.Below(sizeof(ARGUMENTS) / sizeof(ARGUMENTS[0]));
             t.argument = ParseHex(ARGUMENTS[pick]);
             ++depth;
@@ -315,6 +316,55 @@ std::vector<Token> GenerateTokens(Generator& gen)
             t.hasArgument = false;
             tokens.push_back(t);
         }
+    }
+    return tokens;
+}
+
+//! A generated sequence that nests deep: a descent of 100 to 400 conditionals,
+//! every one of them taken in half of the sequences and all but one in the
+//! other half; then a walk of 100 to 400 opcodes at that depth, which opens,
+//! flips and closes with equal weight, and opens when nothing is open; then
+//! the way out, with an OP_ELSE before the OP_ENDIF of one level in three.
+//! Each branch has one of the two arguments the minimal rule admits.
+std::vector<Token> GenerateDeepTokens(Generator& gen)
+{
+    std::vector<Token> tokens;
+    size_t depth = 0;
+    auto open = [&](bool taken) {
+        Token t;
+        t.kind = gen.Below(4) == 0 ? TOKEN_NOTIF : TOKEN_IF;
+        t.hasArgument = true;
+        // OP_NOTIF takes its branch on the empty item.
+        t.argument = ParseHex((t.kind == TOKEN_IF) == taken ? "01" : "");
+        tokens.push_back(t);
+        ++depth;
+    };
+    auto plain = [&](TokenKind kind) {
+        Token t;
+        t.kind = kind;
+        t.hasArgument = false;
+        tokens.push_back(t);
+    };
+    const size_t descent = 100 + gen.Below(301);
+    const size_t notTaken = gen.Below(2) == 0 ? descent : gen.Below(descent);
+    for (size_t i = 0; i < descent; ++i)
+        open(i != notTaken);
+    const size_t walk = 100 + gen.Below(301);
+    for (size_t i = 0; i < walk; ++i) {
+        const uint64_t r = gen.Below(3);
+        if (r == 0 || depth == 0) {
+            open(gen.Below(2) != 0);
+        } else if (r == 1) {
+            plain(TOKEN_ELSE);
+        } else {
+            plain(TOKEN_ENDIF);
+            --depth;
+        }
+    }
+    for (; depth > 0; --depth) {
+        if (gen.Below(3) == 0)
+            plain(TOKEN_ELSE);
+        plain(TOKEN_ENDIF);
     }
     return tokens;
 }
@@ -633,12 +683,46 @@ BOOST_AUTO_TEST_CASE(an_opcode_runs_when_no_enclosing_branch_is_false)
     // The generated set holds each kind of sequence in number.
     BOOST_CHECK_MESSAGE(succeeded > 1000 && unbalanced > 1000 && minimal > 500 && deepest >= 10,
         succeeded << " succeeded, " << unbalanced << " unbalanced, " << minimal << " refused arguments, deepest nesting " << deepest);
+
+    // Sixty sequences that nest some hundreds deep. Every argument is one the
+    // minimal rule admits, so the three modes share one expected outcome.
+    int deepSucceeded = 0, deepestDeep = 0;
+    size_t longest = 0;
+    for (int n = 0; n < 60; ++n) {
+        const std::vector<Token> tokens = GenerateDeepTokens(gen);
+        const CScript script = ScriptOf(tokens);
+        longest = std::max(longest, tokens.size());
+        int depth = 0;
+        for (const Token& t : tokens) {
+            if (t.kind == TOKEN_IF || t.kind == TOKEN_NOTIF)
+                deepestDeep = std::max(deepestDeep, ++depth);
+            else if (t.kind == TOKEN_ENDIF)
+                --depth;
+        }
+        BOOST_REQUIRE_EQUAL(depth, 0);
+        const Outcome expected = Model(tokens, true);
+        BOOST_REQUIRE(expected.error != SCRIPT_ERR_MINIMALIF && expected.error != SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+        deepSucceeded += expected.ok ? 1 : 0;
+        for (const Mode& mode : modes) {
+            const Outcome got = Run(script, std::vector<valtype>(), mode.flags, mode.sigversion);
+            BOOST_REQUIRE_MESSAGE(got.ok == expected.ok && got.error == expected.error && got.stack == expected.stack,
+                "deep sequence " << n << " of " << tokens.size() << " opcodes under " << mode.name << ": the loop gives "
+                                 << Name(got.error) << " with " << got.stack.size() << " items, the rule gives "
+                                 << Name(expected.error) << " with " << expected.stack.size());
+        }
+    }
+    BOOST_TEST_MESSAGE(deepSucceeded << " of 60 deep sequences succeed, deepest nesting " << deepestDeep << ", longest " << longest << " opcodes");
+    BOOST_CHECK_MESSAGE(deepestDeep >= 300 && deepSucceeded >= 20,
+        deepSucceeded << " of 60 deep sequences succeed, deepest nesting " << deepestDeep);
 }
 
 // The written cases of nesting: each transition of OP_ELSE, a conditional
-// opened in a branch that is not taken, the four unbalanced forms, and the
-// deepest nesting a script of 10,000 bytes holds, through VerifyScript as a
-// spend of each version.
+// opened in a branch that is not taken, the unbalanced forms, and the nesting
+// a script of 10,000 bytes holds, through VerifyScript as a spend of each
+// version: 3,333 conditionals that each push their argument; 3,666 taken
+// conditionals of which 1,000 read a satisfaction item; 4,999 where the
+// outermost is not taken and those inside it read no argument; and 5,000, the
+// most, where the first reads a false satisfaction item.
 BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
 {
     const valtype a(1, 0x0a), b(1, 0x0b), c(1, 0x0c), d(1, 0x0d);
@@ -680,7 +764,8 @@ BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
         }
     }
 
-    // The deepest nesting: 3,333 conditionals in 10,000 bytes.
+    // 3,333 conditionals, each with its argument pushed before it, fill
+    // 10,000 bytes.
     const int depth = 3333;
     auto nested = [&](opcodetype outermost, opcodetype inner) {
         CScript s;
@@ -699,7 +784,72 @@ BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
         BOOST_CHECK_EQUAL(V6Verdict(script), SCRIPT_ERR_OK);
         BOOST_CHECK_EQUAL(V11Verdict(script), SCRIPT_ERR_OK);
     }
-    // The same nesting with a marker inside the innermost level and an
+    // Inside a branch that is not taken a conditional reads no argument, so
+    // the nesting goes deeper: one conditional that is not taken and 4,998
+    // inside it, in 10,000 bytes. With the outermost taken, the second finds
+    // no argument on the stack.
+    {
+        auto bare = [](opcodetype outermost) {
+            CScript s;
+            s << outermost << OP_IF;
+            for (int i = 0; i < 4998; ++i)
+                s << OP_IF;
+            for (int i = 0; i < 4999; ++i)
+                s << OP_ENDIF;
+            s << OP_1;
+            BOOST_REQUIRE_EQUAL(s.size(), 10000u);
+            return s;
+        };
+        BOOST_CHECK_EQUAL(V6Verdict(bare(OP_0)), SCRIPT_ERR_OK);
+        BOOST_CHECK_EQUAL(V11Verdict(bare(OP_0)), SCRIPT_ERR_OK);
+        BOOST_CHECK_EQUAL(V6Verdict(bare(OP_1)), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+        BOOST_CHECK_EQUAL(V11Verdict(bare(OP_1)), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+    }
+    // A conditional takes an OP_IF and an OP_ENDIF, so 10,000 bytes hold
+    // 5,000 at most. They hold 5,000 when the first reads a false argument
+    // from the satisfaction items and the others, inside it, read none. The
+    // item left is the true one below that argument.
+    {
+        CScript s;
+        for (int i = 0; i < 5000; ++i)
+            s << OP_IF;
+        for (int i = 0; i < 5000; ++i)
+            s << OP_ENDIF;
+        BOOST_REQUIRE_EQUAL(s.size(), 10000u);
+        const Stack falseOnTop = {valtype(1, 0x01), valtype()};
+        BOOST_CHECK_EQUAL(V6Verdict(s, falseOnTop), SCRIPT_ERR_OK);
+        BOOST_CHECK_EQUAL(V11Verdict(s, falseOnTop), SCRIPT_ERR_OK);
+        // With two true items the second conditional reads the second and
+        // the third finds the stack empty.
+        const Stack bothTrue = {valtype(1, 0x01), valtype(1, 0x01)};
+        BOOST_CHECK_EQUAL(V6Verdict(s, bothTrue), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+        BOOST_CHECK_EQUAL(V11Verdict(s, bothTrue), SCRIPT_ERR_UNBALANCED_CONDITIONAL);
+    }
+    // 3,666 conditionals, every one taken, in 9,999 bytes: 1,000 that each
+    // read a satisfaction item, the number a spend may carry, and 2,666 with
+    // a pushed argument.
+    {
+        CScript s;
+        for (int i = 0; i < 1000; ++i)
+            s << OP_IF;
+        for (int i = 0; i < 2666; ++i)
+            s << OP_1 << OP_IF;
+        for (int i = 0; i < 3666; ++i)
+            s << OP_ENDIF;
+        s << OP_1;
+        BOOST_REQUIRE_EQUAL(s.size(), 9999u);
+        const Stack items(1000, valtype(1, 0x01));
+        BOOST_CHECK_EQUAL(V6Verdict(s, items), SCRIPT_ERR_OK);
+        BOOST_CHECK_EQUAL(V11Verdict(s, items), SCRIPT_ERR_OK);
+        // One of the 1,000 false: the conditionals inside that one are not
+        // taken and read no item, so 500 items are left under the one the
+        // script pushes, and the spend fails the rule that one item is left.
+        Stack oneFalse = items;
+        oneFalse[500] = valtype();
+        BOOST_CHECK_EQUAL(V6Verdict(s, oneFalse), SCRIPT_ERR_EVAL_FALSE);
+        BOOST_CHECK_EQUAL(V11Verdict(s, oneFalse), SCRIPT_ERR_EVAL_FALSE);
+    }
+    // A nesting of 1,000 with a marker inside the innermost level and an
     // OP_ELSE at each level on the way out: which markers are left says which
     // levels ran.
     {
@@ -726,6 +876,37 @@ BOOST_AUTO_TEST_CASE(the_written_cases_of_nesting)
         const Outcome got = Run(s, Stack(), ACTIVE, SIGVERSION_WITNESS_V11);
         BOOST_CHECK(got.ok);
         BOOST_CHECK(got.stack == Stack(1, b));
+    }
+    // More taken levels than a script a version evaluates can hold, through
+    // the loop itself: 5,000, every one taken. An OP_ELSE at the innermost
+    // stops execution and its OP_ENDIF starts it again.
+    {
+        CScript s;
+        for (int i = 0; i < 5000; ++i)
+            s << OP_1 << OP_IF;
+        s << a << OP_ELSE << b << OP_ENDIF << c;
+        for (int i = 1; i < 5000; ++i)
+            s << OP_ENDIF;
+        for (SigVersion sigversion : {SIGVERSION_WITNESS_V0, SIGVERSION_WITNESS_V11}) {
+            const Outcome got = Run(s, Stack(), ACTIVE, sigversion);
+            BOOST_CHECK(got.ok);
+            BOOST_CHECK(got.stack == Stack({a, c}));
+        }
+    }
+    // 4,500 levels taken and one inside them that is not: nothing runs
+    // inside it, and execution starts again at its OP_ENDIF.
+    {
+        CScript s;
+        for (int i = 0; i < 4500; ++i)
+            s << OP_1 << OP_IF;
+        s << OP_0 << OP_IF << a << OP_ENDIF << b;
+        for (int i = 0; i < 4500; ++i)
+            s << OP_ENDIF;
+        for (SigVersion sigversion : {SIGVERSION_WITNESS_V0, SIGVERSION_WITNESS_V11}) {
+            const Outcome got = Run(s, Stack(), ACTIVE, sigversion);
+            BOOST_CHECK(got.ok);
+            BOOST_CHECK(got.stack == Stack(1, b));
+        }
     }
 }
 
@@ -771,6 +952,15 @@ BOOST_AUTO_TEST_CASE(the_template_hash_is_the_written_format_with_and_without_th
             }
             ++checked;
         }
+        // An index at and past the number of inputs: the format hashes the
+        // index as it is given.
+        const uint32_t count = static_cast<uint32_t>(tx.vin.size());
+        for (uint32_t i : {count, count + 7, std::numeric_limits<uint32_t>::max()}) {
+            const valtype right = TemplateHash(tx, i);
+            BOOST_CHECK(TransactionSignatureChecker(&tx, i, AMOUNT).CheckTemplateVerify(right));
+            BOOST_CHECK(TransactionSignatureChecker(&tx, i, AMOUNT, txdata).CheckTemplateVerify(right));
+            BOOST_CHECK(!TransactionSignatureChecker(&tx, i, AMOUNT, txdata).CheckTemplateVerify(TemplateHash(tx, 0)));
+        }
     }
     BOOST_CHECK(checked > 1000);
     BOOST_CHECK_MESSAGE(withScriptSig > 200 && withScriptSig < 400, withScriptSig << " of 400 transactions carry a scriptSig");
@@ -787,11 +977,39 @@ BOOST_AUTO_TEST_CASE(the_template_hash_is_the_written_format_with_and_without_th
     mtx.vin[2].scriptSig = CScript() << OP_1;
     const CTransaction last(mtx);
     for (uint32_t i = 0; i < 3; ++i) {
-        BOOST_CHECK(TemplateHash(none, i) != TemplateHash(first, i));
-        BOOST_CHECK(TemplateHash(first, i) != TemplateHash(last, i));
+        // The format gives three different hashes, so each refusal below is
+        // of a hash that is not the transaction's.
+        BOOST_REQUIRE(TemplateHash(none, i) != TemplateHash(first, i));
+        BOOST_REQUIRE(TemplateHash(first, i) != TemplateHash(last, i));
         BOOST_CHECK(TransactionSignatureChecker(&first, i, AMOUNT).CheckTemplateVerify(TemplateHash(first, i)));
         BOOST_CHECK(!TransactionSignatureChecker(&first, i, AMOUNT).CheckTemplateVerify(TemplateHash(none, i)));
         BOOST_CHECK(!TransactionSignatureChecker(&last, i, AMOUNT).CheckTemplateVerify(TemplateHash(first, i)));
+    }
+
+    // A transaction past the generator's sizes: 300 inputs, 700 outputs and
+    // one scriptSig of 100,000 bytes.
+    CMutableTransaction large;
+    large.nVersion = 2;
+    large.nLockTime = 499999999;
+    for (uint32_t i = 0; i < 300; ++i) {
+        CTxIn in;
+        in.prevout = COutPoint(uint256(gen.Bytes(32)), i);
+        in.nSequence = static_cast<uint32_t>(gen.Next());
+        large.vin.push_back(in);
+    }
+    const valtype longScriptSig = gen.Bytes(100000);
+    large.vin[150].scriptSig = CScript(longScriptSig.begin(), longScriptSig.end());
+    for (int i = 0; i < 700; ++i) {
+        const valtype bytes = gen.Bytes(gen.Below(120));
+        large.vout.push_back(CTxOut(static_cast<CAmount>(gen.Next() >> 1), CScript(bytes.begin(), bytes.end())));
+    }
+    const CTransaction largeTx(large);
+    const PrecomputedTransactionData largeData(largeTx);
+    for (uint32_t i : {0u, 150u, 299u}) {
+        const valtype right = TemplateHash(largeTx, i);
+        BOOST_CHECK(TransactionSignatureChecker(&largeTx, i, AMOUNT).CheckTemplateVerify(right));
+        BOOST_CHECK(TransactionSignatureChecker(&largeTx, i, AMOUNT, largeData).CheckTemplateVerify(right));
+        BOOST_CHECK(!TransactionSignatureChecker(&largeTx, i, AMOUNT, largeData).CheckTemplateVerify(TemplateHash(largeTx, i + 1)));
     }
 }
 
@@ -813,13 +1031,6 @@ BOOST_AUTO_TEST_CASE(the_precomputed_data_holds_the_three_parts_of_the_template)
         BOOST_CHECK(valtype(parts.scriptSigs, parts.scriptSigs + 32) == (any ? ScriptSigsPart(tx) : valtype(32, 0x00)));
         BOOST_CHECK(valtype(parts.sequences, parts.sequences + 32) == SequencesPart(tx));
         BOOST_CHECK(valtype(parts.outputs, parts.outputs + 32) == OutputsPart(tx));
-
-        // Built on its own, as a checker without the data builds it.
-        const TemplateHashParts alone(tx);
-        BOOST_CHECK_EQUAL(alone.fHasScriptSigs, parts.fHasScriptSigs);
-        BOOST_CHECK(memcmp(alone.scriptSigs, parts.scriptSigs, 32) == 0);
-        BOOST_CHECK(memcmp(alone.sequences, parts.sequences, 32) == 0);
-        BOOST_CHECK(memcmp(alone.outputs, parts.outputs, 32) == 0);
     }
     // One pattern in five carries no scriptSig.
     BOOST_CHECK_MESSAGE(with > 250 && without >= 80, with << " transactions with a scriptSig and " << without << " without");
@@ -833,9 +1044,8 @@ BOOST_AUTO_TEST_CASE(the_precomputed_data_holds_the_three_parts_of_the_template)
     BOOST_CHECK(valtype(none.sequences, none.sequences + 32) == nothing);
     BOOST_CHECK(valtype(none.outputs, none.outputs + 32) == nothing);
 
-    // A scriptSig on an input that is not the one checked, and of a kind no
-    // script evaluates, is part of the template of every input: a coinbase
-    // input beside two others.
+    // A scriptSig on an input that is not the one checked is part of the
+    // template of every input: the second of three inputs carries one.
     CMutableTransaction mtx;
     mtx.nVersion = 2;
     mtx.vin.resize(3);
@@ -849,13 +1059,15 @@ BOOST_AUTO_TEST_CASE(the_precomputed_data_holds_the_three_parts_of_the_template)
 }
 
 // A checker that holds the precomputed data takes the scriptSigs, the
-// sequences and the outputs of the template from it and reads none of them
-// from its transaction. The case shows it by giving a checker over one
-// transaction the data of another, which no caller does: the two agree on the
-// fields the checker reads from the transaction (the version, the lock time
-// and the two counts) and differ in every scriptSig, sequence and output. The
-// hash the checker accepts is the one the data gives. A checker without the
-// data accepts the hash of its own transaction.
+// sequences and the outputs of the template from it, with the answer whether
+// a scriptSig is present, and reads none of them from its transaction. The
+// case shows it by giving a checker over one transaction the data of another,
+// which no caller does: the two agree on the fields the checker reads from the
+// transaction (the version, the lock time and the two counts) and differ in
+// the scriptSigs, in every sequence and in every output. In two of the four
+// pairings a scriptSig is present in one transaction alone. The hash the
+// checker accepts is the one the data gives. A checker without the data
+// accepts the hash of its own transaction.
 BOOST_AUTO_TEST_CASE(a_checker_that_holds_the_precomputed_data_reads_no_script_of_its_transaction)
 {
     CMutableTransaction a;
@@ -879,24 +1091,43 @@ BOOST_AUTO_TEST_CASE(a_checker_that_holds_the_precomputed_data_reads_no_script_o
     b.vout[0] = CTxOut(5 * COIN, CScript() << OP_1 << valtype(32, 0x0b));
     b.vout[1] = CTxOut(6 * COIN, CScript() << OP_6 << valtype(32, 0x1b));
 
-    const CTransaction txA(a), txB(b);
-    const PrecomputedTransactionData dataA(txA), dataB(txB);
-    for (uint32_t i = 0; i < 3; ++i) {
-        const valtype hashA = TemplateHash(txA, i);
-        const valtype hashB = TemplateHash(txB, i);
-        BOOST_REQUIRE(hashA != hashB);
+    // The first of them with no scriptSig on any input.
+    CMutableTransaction bare = a;
+    bare.vin[2].scriptSig = CScript();
 
-        // The pairing every caller makes.
-        BOOST_CHECK(TransactionSignatureChecker(&txA, i, AMOUNT, dataA).CheckTemplateVerify(hashA));
-        BOOST_CHECK(TransactionSignatureChecker(&txB, i, AMOUNT, dataB).CheckTemplateVerify(hashB));
-        BOOST_CHECK(TransactionSignatureChecker(&txB, i, AMOUNT).CheckTemplateVerify(hashB));
-        BOOST_CHECK(!TransactionSignatureChecker(&txB, i, AMOUNT).CheckTemplateVerify(hashA));
+    const CTransaction txA(a), txB(b), txBare(bare);
+    BOOST_REQUIRE(AnyScriptSig(txA) && AnyScriptSig(txB) && !AnyScriptSig(txBare));
 
-        // A checker over B that holds the data of A.
-        const TransactionSignatureChecker crossed(&txB, i, AMOUNT, dataA);
-        BOOST_CHECK_MESSAGE(crossed.CheckTemplateVerify(hashA),
-            "input " << i << ": a checker that holds the precomputed data hashed a script, a sequence or an output of its transaction");
-        BOOST_CHECK(!crossed.CheckTemplateVerify(hashB));
+    struct Pairing {
+        const char* what;
+        const CTransaction* own;    //!< the transaction the checker is over
+        const CTransaction* other;  //!< the transaction whose data it holds
+    };
+    const Pairing pairings[] = {
+        {"a scriptSig in both, on different inputs", &txB, &txA},
+        {"the same two the other way round", &txA, &txB},
+        {"a scriptSig in the checker's transaction and none in the data's", &txB, &txBare},
+        {"no scriptSig in the checker's transaction and one in the data's", &txBare, &txB},
+    };
+    for (const Pairing& p : pairings) {
+        const PrecomputedTransactionData ownData(*p.own), otherData(*p.other);
+        for (uint32_t i = 0; i < 3; ++i) {
+            const valtype ownHash = TemplateHash(*p.own, i);
+            const valtype otherHash = TemplateHash(*p.other, i);
+            BOOST_REQUIRE(ownHash != otherHash);
+
+            // The pairing every caller makes.
+            BOOST_CHECK(TransactionSignatureChecker(p.own, i, AMOUNT, ownData).CheckTemplateVerify(ownHash));
+            BOOST_CHECK(TransactionSignatureChecker(p.own, i, AMOUNT).CheckTemplateVerify(ownHash));
+            BOOST_CHECK(!TransactionSignatureChecker(p.own, i, AMOUNT).CheckTemplateVerify(otherHash));
+
+            // A checker over one transaction that holds the data of the other.
+            const TransactionSignatureChecker crossed(p.own, i, AMOUNT, otherData);
+            BOOST_CHECK_MESSAGE(crossed.CheckTemplateVerify(otherHash),
+                p.what << ", input " << i << ": a checker that holds the precomputed data read a scriptSig, a sequence or an output of its transaction");
+            BOOST_CHECK_MESSAGE(!crossed.CheckTemplateVerify(ownHash),
+                p.what << ", input " << i << ": a checker that holds the precomputed data accepted the hash of its own transaction");
+        }
     }
 }
 
@@ -905,7 +1136,8 @@ BOOST_AUTO_TEST_CASE(a_checker_that_holds_the_precomputed_data_reads_no_script_o
 // The three values were computed on the loop as it stood at the merge of
 // witness version 11. A change that alters no verdict and no stack leaves them
 // where they are, and one that means to alter some moves the family it
-// touches and says so by its new value.
+// touches and says so by its new value. An error is recorded by its number,
+// so a change that renumbers the script errors moves all three.
 BOOST_AUTO_TEST_CASE(the_three_families_keep_their_digests)
 {
     struct Mode {
@@ -922,8 +1154,8 @@ BOOST_AUTO_TEST_CASE(the_three_families_keep_their_digests)
 
     // The numbers: the three arithmetic opcodes over every pair of the
     // operands above and over generated pairs, items that are not minimal
-    // numbers or are over eight bytes, the length OP_SIZE pushes, and the
-    // sixteen small numbers.
+    // numbers or sit at and past the edge of a number of eight bytes, the
+    // length OP_SIZE pushes, and the sixteen small numbers.
     CSHA256 numbers;
     size_t numberRuns = 0, numberOk = 0;
     {
@@ -945,7 +1177,8 @@ BOOST_AUTO_TEST_CASE(the_three_families_keep_their_digests)
                 y = -y;
             pairs.push_back(std::make_pair(NumberEncoding(x), NumberEncoding(y)));
         }
-        // Items that are not the encoding of a number of eight bytes.
+        // Items that are not minimal numbers, and items at and past the edge
+        // of a number of eight bytes.
         const char* const odd[] = {"80", "00", "0100", "0080", "ffffffffffffffff", "ffffffffffffffff00",
                                    "000000000000008080", "010000000000000000", "0000000000000080"};
         for (const char* x : odd)

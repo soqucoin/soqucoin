@@ -203,9 +203,10 @@ struct TemplateHashParts {
 
 struct PrecomputedTransactionData {
     uint256 hashPrevouts, hashSequence, hashOutputs;
-    //! Computed here once a transaction, so that an input that executes
-    //! OP_CHECKTEMPLATEVERIFY hashes none of the transaction's scriptSigs,
-    //! sequences or outputs again.
+    //! Built with the data. A checker that holds the data reads the three
+    //! hashes from here and, for an input that executes
+    //! OP_CHECKTEMPLATEVERIFY, hashes none of the transaction's scriptSigs,
+    //! sequences or outputs.
     TemplateHashParts templateParts;
 
     PrecomputedTransactionData(const CTransaction& tx);

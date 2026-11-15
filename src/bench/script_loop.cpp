@@ -1,25 +1,41 @@
 // Copyright (c) 2026 Soqucoin Labs Inc.
 // Distributed under the MIT software license.
 //
-// script_loop.cpp — the time of the shapes that cost the script loop of
-// witness versions 6 and 11 the most for their size.
+// script_loop.cpp — the time the script loop of witness versions 6 and 11
+// takes on four shapes, and the time of a transaction's precomputed data.
+// At the merge of witness version 11 the time of each of the four grew with
+// the square of its size: the loop read the nesting of conditionals from end
+// to end at every opcode, and each input that executed
+// OP_CHECKTEMPLATEVERIFY hashed the sequences and the outputs of its
+// transaction, and its scriptSigs where one was present.
 //
 //   ScriptLoopNestedConditionals             one script of 10,000 bytes that
-//                                            nests 3,333 conditionals.
+//                                            nests 3,333 conditionals, each
+//                                            of them taken.
 //   ScriptLoopTemplateChecksRelay            a transaction of 2,126 inputs and
 //                                            2,140 outputs, each input one
-//                                            OP_CHECKTEMPLATEVERIFY: the most
-//                                            a standard transaction holds.
+//                                            OP_CHECKTEMPLATEVERIFY. Spent as
+//                                            witness version 11, each input
+//                                            with a committed item of 35
+//                                            bytes and its trailer, it weighs
+//                                            799,716 units of the 800,000 a
+//                                            standard transaction may.
 //   ScriptLoopTemplateChecksBlock            the same shape at 10,600 inputs
-//                                            and 10,690 outputs: the most a
-//                                            block holds.
-//   ScriptLoopTemplateChecksBlockScriptSig   the block shape with the bytes of
-//                                            its outputs in the scriptSig of
-//                                            one more input, which is not
+//                                            and 10,690 outputs: 3,990,538
+//                                            units of the 4,000,000 a block
+//                                            may.
+//   ScriptLoopTemplateChecksBlockScriptSig   the block shape's inputs with one
+//                                            output, and the bytes of its
+//                                            outputs in the scriptSig of one
+//                                            more input, which is not
 //                                            evaluated.
 //   ScriptLoopPrecomputedData                the precomputed data of the block
-//                                            shape's transaction, built once,
-//                                            as every transaction's is.
+//                                            shape's transaction, built once.
+//                                            A node builds the data at relay
+//                                            and in a block, and in a block
+//                                            whose scripts it checks at least
+//                                            twice for a transaction other
+//                                            than the coinbase.
 //   ScriptLoopTemplateParts                  the part of that work that the
 //                                            template hash adds.
 //
@@ -29,7 +45,7 @@
 // check fails after the hash is computed and compared, which is the work of
 // a check that passes.
 //
-// Run one with: bench_soqucoin ScriptLoop
+// Run them with: bench_soqucoin ScriptLoop
 
 #include "bench.h"
 
