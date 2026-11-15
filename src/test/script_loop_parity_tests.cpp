@@ -13,7 +13,10 @@
 //   - an opcode runs when no enclosing branch is false, with the nesting kept
 //     as a list of booleans that is read from end to end;
 //   - the template hash of a transaction at an input is the written format,
-//     whether or not the checker holds the transaction's precomputed data.
+//     whether or not the checker holds the transaction's precomputed data,
+//     which keeps the three parts of the hash that are the same for every
+//     input, so that a checker that holds it reads no script of the
+//     transaction.
 //
 // The last case pins a digest for each of three families of generated
 // scripts: every verdict, error and final stack, hashed. A change to the loop
@@ -32,6 +35,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <string>
 #include <utility>
@@ -341,6 +345,51 @@ void WriteScript(CSHA256& h, const CScript& script)
         h.Write(script.data(), script.size());
 }
 
+//! Whether the scriptSig of an input of `tx` is not empty.
+bool AnyScriptSig(const CTransaction& tx)
+{
+    for (const CTxIn& in : tx.vin)
+        if (!in.scriptSig.empty())
+            return true;
+    return false;
+}
+
+//! The SHA-256 of the scriptSigs of `tx`, each written after its length.
+valtype ScriptSigsPart(const CTransaction& tx)
+{
+    CSHA256 h;
+    for (const CTxIn& in : tx.vin)
+        WriteScript(h, in.scriptSig);
+    valtype out(32);
+    h.Finalize(out.data());
+    return out;
+}
+
+//! The SHA-256 of the sequences of `tx`, four bytes each.
+valtype SequencesPart(const CTransaction& tx)
+{
+    CSHA256 h;
+    for (const CTxIn& in : tx.vin)
+        WriteLE32(h, in.nSequence);
+    valtype out(32);
+    h.Finalize(out.data());
+    return out;
+}
+
+//! The SHA-256 of the outputs of `tx`: the value as eight bytes, then the
+//! script after its length.
+valtype OutputsPart(const CTransaction& tx)
+{
+    CSHA256 h;
+    for (const CTxOut& out : tx.vout) {
+        WriteLE64(h, static_cast<uint64_t>(out.nValue));
+        WriteScript(h, out.scriptPubKey);
+    }
+    valtype out(32);
+    h.Finalize(out.data());
+    return out;
+}
+
 //! The template hash of `tx` at input `nIn`: the version, the lock time, the
 //! hash of the scriptSigs when one of them is not empty, the number of
 //! inputs, the hash of the sequences, the number of outputs, the hash of the
@@ -348,38 +397,15 @@ void WriteScript(CSHA256& h, const CScript& script)
 //! four bytes.
 valtype TemplateHash(const CTransaction& tx, uint32_t nIn)
 {
-    bool anyScriptSig = false;
-    for (const CTxIn& in : tx.vin)
-        if (!in.scriptSig.empty())
-            anyScriptSig = true;
-
     CSHA256 h;
     WriteLE32(h, static_cast<uint32_t>(tx.nVersion));
     WriteLE32(h, tx.nLockTime);
-    if (anyScriptSig) {
-        CSHA256 scriptSigs;
-        for (const CTxIn& in : tx.vin)
-            WriteScript(scriptSigs, in.scriptSig);
-        unsigned char scriptSigsHash[32];
-        scriptSigs.Finalize(scriptSigsHash);
-        h.Write(scriptSigsHash, 32);
-    }
+    if (AnyScriptSig(tx))
+        h.Write(ScriptSigsPart(tx).data(), 32);
     WriteLE32(h, static_cast<uint32_t>(tx.vin.size()));
-    CSHA256 sequences;
-    for (const CTxIn& in : tx.vin)
-        WriteLE32(sequences, in.nSequence);
-    unsigned char sequencesHash[32];
-    sequences.Finalize(sequencesHash);
-    h.Write(sequencesHash, 32);
+    h.Write(SequencesPart(tx).data(), 32);
     WriteLE32(h, static_cast<uint32_t>(tx.vout.size()));
-    CSHA256 outputs;
-    for (const CTxOut& out : tx.vout) {
-        WriteLE64(outputs, static_cast<uint64_t>(out.nValue));
-        WriteScript(outputs, out.scriptPubKey);
-    }
-    unsigned char outputsHash[32];
-    outputs.Finalize(outputsHash);
-    h.Write(outputsHash, 32);
+    h.Write(OutputsPart(tx).data(), 32);
     WriteLE32(h, nIn);
     valtype result(32);
     h.Finalize(result.data());
@@ -766,6 +792,111 @@ BOOST_AUTO_TEST_CASE(the_template_hash_is_the_written_format_with_and_without_th
         BOOST_CHECK(TransactionSignatureChecker(&first, i, AMOUNT).CheckTemplateVerify(TemplateHash(first, i)));
         BOOST_CHECK(!TransactionSignatureChecker(&first, i, AMOUNT).CheckTemplateVerify(TemplateHash(none, i)));
         BOOST_CHECK(!TransactionSignatureChecker(&last, i, AMOUNT).CheckTemplateVerify(TemplateHash(first, i)));
+    }
+}
+
+// The precomputed data of a transaction holds the three parts of the template
+// hash that are the same for every input: whether a scriptSig is present, and
+// the hashes of the scriptSigs, the sequences and the outputs, as the format
+// writes them. Without a scriptSig the first hash is 32 zero bytes.
+BOOST_AUTO_TEST_CASE(the_precomputed_data_holds_the_three_parts_of_the_template)
+{
+    Generator gen(0x7061727473ULL);
+    int with = 0, without = 0;
+    for (int n = 0; n < 400; ++n) {
+        const CTransaction tx(GenerateTx(gen, static_cast<ScriptSigPattern>(n % SCRIPTSIG_PATTERNS)));
+        const PrecomputedTransactionData txdata(tx);
+        const TemplateHashParts& parts = txdata.templateParts;
+        const bool any = AnyScriptSig(tx);
+        (any ? with : without) += 1;
+        BOOST_REQUIRE_EQUAL(parts.fHasScriptSigs, any);
+        BOOST_CHECK(valtype(parts.scriptSigs, parts.scriptSigs + 32) == (any ? ScriptSigsPart(tx) : valtype(32, 0x00)));
+        BOOST_CHECK(valtype(parts.sequences, parts.sequences + 32) == SequencesPart(tx));
+        BOOST_CHECK(valtype(parts.outputs, parts.outputs + 32) == OutputsPart(tx));
+
+        // Built on its own, as a checker without the data builds it.
+        const TemplateHashParts alone(tx);
+        BOOST_CHECK_EQUAL(alone.fHasScriptSigs, parts.fHasScriptSigs);
+        BOOST_CHECK(memcmp(alone.scriptSigs, parts.scriptSigs, 32) == 0);
+        BOOST_CHECK(memcmp(alone.sequences, parts.sequences, 32) == 0);
+        BOOST_CHECK(memcmp(alone.outputs, parts.outputs, 32) == 0);
+    }
+    // One pattern in five carries no scriptSig.
+    BOOST_CHECK_MESSAGE(with > 250 && without >= 80, with << " transactions with a scriptSig and " << without << " without");
+
+    // A transaction with no input and no output: each hash is that of no
+    // bytes.
+    const CTransaction empty{CMutableTransaction()};
+    const TemplateHashParts none(empty);
+    const valtype nothing = Sha256(valtype());
+    BOOST_CHECK(!none.fHasScriptSigs);
+    BOOST_CHECK(valtype(none.sequences, none.sequences + 32) == nothing);
+    BOOST_CHECK(valtype(none.outputs, none.outputs + 32) == nothing);
+
+    // A scriptSig on an input that is not the one checked, and of a kind no
+    // script evaluates, is part of the template of every input: a coinbase
+    // input beside two others.
+    CMutableTransaction mtx;
+    mtx.nVersion = 2;
+    mtx.vin.resize(3);
+    mtx.vin[1].scriptSig = CScript() << 500 << valtype(40, 0x33);
+    mtx.vout.push_back(CTxOut(COIN, CScript() << OP_1 << valtype(32, 0x22)));
+    const CTransaction carrying(mtx);
+    const PrecomputedTransactionData carryingData(carrying);
+    BOOST_CHECK(carryingData.templateParts.fHasScriptSigs);
+    for (uint32_t i = 0; i < 3; ++i)
+        BOOST_CHECK(TransactionSignatureChecker(&carrying, i, AMOUNT, carryingData).CheckTemplateVerify(TemplateHash(carrying, i)));
+}
+
+// A checker that holds the precomputed data takes the scriptSigs, the
+// sequences and the outputs of the template from it and reads none of them
+// from its transaction. The case shows it by giving a checker over one
+// transaction the data of another, which no caller does: the two agree on the
+// fields the checker reads from the transaction (the version, the lock time
+// and the two counts) and differ in every scriptSig, sequence and output. The
+// hash the checker accepts is the one the data gives. A checker without the
+// data accepts the hash of its own transaction.
+BOOST_AUTO_TEST_CASE(a_checker_that_holds_the_precomputed_data_reads_no_script_of_its_transaction)
+{
+    CMutableTransaction a;
+    a.nVersion = 2;
+    a.nLockTime = 700000;
+    a.vin.resize(3);
+    for (size_t i = 0; i < 3; ++i) {
+        a.vin[i].prevout = COutPoint(uint256S("0x1111111111111111111111111111111111111111111111111111111111111111"), static_cast<uint32_t>(i));
+        a.vin[i].nSequence = 10 + static_cast<uint32_t>(i);
+    }
+    a.vin[2].scriptSig = CScript() << valtype(20, 0x61);
+    a.vout.push_back(CTxOut(3 * COIN, CScript() << OP_1 << valtype(32, 0x0a)));
+    a.vout.push_back(CTxOut(4 * COIN, CScript() << OP_1 << valtype(32, 0x1a)));
+
+    // The same version, lock time, number of inputs and number of outputs.
+    CMutableTransaction b = a;
+    for (size_t i = 0; i < 3; ++i)
+        b.vin[i].nSequence = 900 + static_cast<uint32_t>(i);
+    b.vin[2].scriptSig = CScript();
+    b.vin[0].scriptSig = CScript() << valtype(33, 0x62);
+    b.vout[0] = CTxOut(5 * COIN, CScript() << OP_1 << valtype(32, 0x0b));
+    b.vout[1] = CTxOut(6 * COIN, CScript() << OP_6 << valtype(32, 0x1b));
+
+    const CTransaction txA(a), txB(b);
+    const PrecomputedTransactionData dataA(txA), dataB(txB);
+    for (uint32_t i = 0; i < 3; ++i) {
+        const valtype hashA = TemplateHash(txA, i);
+        const valtype hashB = TemplateHash(txB, i);
+        BOOST_REQUIRE(hashA != hashB);
+
+        // The pairing every caller makes.
+        BOOST_CHECK(TransactionSignatureChecker(&txA, i, AMOUNT, dataA).CheckTemplateVerify(hashA));
+        BOOST_CHECK(TransactionSignatureChecker(&txB, i, AMOUNT, dataB).CheckTemplateVerify(hashB));
+        BOOST_CHECK(TransactionSignatureChecker(&txB, i, AMOUNT).CheckTemplateVerify(hashB));
+        BOOST_CHECK(!TransactionSignatureChecker(&txB, i, AMOUNT).CheckTemplateVerify(hashA));
+
+        // A checker over B that holds the data of A.
+        const TransactionSignatureChecker crossed(&txB, i, AMOUNT, dataA);
+        BOOST_CHECK_MESSAGE(crossed.CheckTemplateVerify(hashA),
+            "input " << i << ": a checker that holds the precomputed data hashed a script, a sequence or an output of its transaction");
+        BOOST_CHECK(!crossed.CheckTemplateVerify(hashB));
     }
 }
 
