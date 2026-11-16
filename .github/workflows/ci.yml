@@ -37,7 +37,10 @@ jobs:
           fetch-depth: 2  # a pull request's merge commit and its first parent, the base
           persist-credentials: false
       - name: The scripts and the shape of this workflow
-        run: python3 .github/scripts/ci-selftest.py
+        run: |
+          python3 .github/scripts/ci-selftest.py
+          sh src/test/run_unit_cases_selftest.sh
+          sh src/test/fuzz/run_seed_corpus_selftest.sh
       - name: Does the change touch anything but documentation
         id: classify
         env:

@@ -24,7 +24,8 @@
 # 2 on a usage or setup error.
 #
 # GUARDS, so that a run which covered nothing cannot pass:
-#   1. the case list comes from the binary's own --list_content;
+#   1. the case list comes from the binary's own --list_content, and a listing
+#      that exits non-zero or carries a sanitizer report is a failure;
 #   2. an empty case list is a failure;
 #   3. the number of cases that reported an exit status must equal the number
 #      of cases started;
@@ -69,8 +70,23 @@ ALL="$LOG_DIR/cases-listed.txt"
 RUN="$LOG_DIR/cases-run.txt"
 CODES="$LOG_DIR/exit-codes.txt"
 
-"$TEST_BIN" --list_content 2>&1 \
-    | awk '/^[^ ]/{s=$1} /^    [^ ]/{print s"/"$1}' | tr -d '*' > "$ALL"
+# The listing is kept whole and judged before a case list is made from it: a
+# listing that stopped part way would give a list that passes while covering
+# a part of the suite.
+LISTING="$LOG_DIR/list-content.txt"
+"$TEST_BIN" --list_content > "$LISTING" 2>&1
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    echo "FAIL: '$TEST_BIN --list_content' exit=$rc, so the case list may be partial." >&2
+    tail -n 5 "$LISTING" >&2
+    exit 1
+fi
+if grep -q -E "$SANITIZER_REPORT" "$LISTING"; then
+    echo "FAIL: '$TEST_BIN --list_content' carried a sanitizer report." >&2
+    grep -E "$SANITIZER_REPORT" "$LISTING" | head -n 3 >&2
+    exit 1
+fi
+awk '/^[^ ]/{s=$1} /^    [^ ]/{print s"/"$1}' "$LISTING" | tr -d '*' > "$ALL"
 n_all=$(wc -l < "$ALL" | tr -d ' ')
 if [ "$n_all" -eq 0 ]; then
     echo "FAIL: '$TEST_BIN --list_content' listed no case, so this run would cover nothing." >&2
