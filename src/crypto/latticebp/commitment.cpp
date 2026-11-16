@@ -155,9 +155,11 @@ static const int64_t zetas[256] = {
 // CRITICAL: t MUST be int32_t (truncated to low 32 bits) — this is how
 // the Montgomery algorithm cancels the low-order bits. Using int64_t for t
 // breaks the reduction and produces wrong results.
+// The product is taken in 64 bits, as the reference takes it, and then
+// truncated: a product taken in 32 bits overflows int32_t for most inputs.
 inline int64_t montgomery_reduce(int64_t a)
 {
-    int32_t t = (int32_t)a * (int32_t)QINV;
+    int32_t t = (int32_t)((int64_t)(int32_t)a * QINV);
     return (a - (int64_t)t * LatticeParams::Q) >> 32;
 }
 
