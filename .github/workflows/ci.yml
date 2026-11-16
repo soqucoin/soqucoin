@@ -8,11 +8,13 @@ on:
 
 # The trigger carries no filter on what changed. The job `changes` decides whether a
 # change touches anything but documentation, the build and test jobs read its answer,
-# and the job `gate` reports on every pull request. Branch protection requires the
-# check `CI gate`, and a required check that a filter skipped would never report.
+# and the job `gate` reports on every pull request. `CI gate` is the check for branch
+# protection to require, and a required check that a filter skipped would never report.
 
+# A pull request's runs replace one another. A push keeps a run of its own, named by
+# its commit, so that a later push never cancels the one run of the tree a merge made.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -58,7 +60,8 @@ jobs:
           fi
           files=""
           if [ -n "$base" ]; then
-            files=$(git diff --name-only --no-renames "$base" HEAD || true)
+            # A comparison that fails gives no list, and no list means every job runs.
+            if ! files=$(git diff --name-only --no-renames "$base" HEAD); then files=""; fi
           fi
           answer=$(printf '%s\n' "$files" | python3 .github/scripts/ci-changes.py)
           echo "$answer"
@@ -123,7 +126,7 @@ jobs:
       - name: CCache
         uses: actions/cache@v5
         with:
-          path: ~/.ccache
+          path: ~/.cache/ccache
           key: linux-x64-ccache-${{ hashFiles('**/configure.ac') }}
           restore-keys: linux-x64-ccache-
 
@@ -339,9 +342,9 @@ jobs:
             clang llvm
 
       - name: CCache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
-          path: ~/.ccache
+          path: ~/.cache/ccache
           key: linux-x64-sanitizers-ccache-${{ hashFiles('**/configure.ac') }}
           restore-keys: linux-x64-sanitizers-ccache-
 
@@ -349,12 +352,25 @@ jobs:
         run: |
           ./autogen.sh
           SAN="-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer"
-          ./configure --without-gui \
+          # --disable-hardening: _FORTIFY_SOURCE is not supported with the address sanitizer.
+          ./configure --without-gui --disable-hardening \
             --enable-zmq --enable-module-rangeproof \
             --enable-module-generator --enable-experimental \
             CC=clang CXX=clang++ \
             CFLAGS="$SAN" CXXFLAGS="$SAN" LDFLAGS="-fsanitize=address,undefined"
           make $MAKEFLAGS
+
+      - name: The binaries under test carry both sanitizers
+        run: |
+          # A build that lost its flags would pass every step below with nothing to report.
+          for bin in src/test/test_soqucoin src/test/fuzz/fuzz; do
+            for symbol in __asan_init __ubsan_handle; do
+              if ! nm "$bin" | grep -q "$symbol"; then
+                echo "::error::$bin carries no $symbol, so it is not instrumented"
+                exit 1
+              fi
+            done
+          done
 
       - name: Unit suite, one case per process
         run: |
@@ -366,9 +382,9 @@ jobs:
           cd src
           test/fuzz/run_seed_corpus.sh
 
-      - name: Keep the output of each case when the run fails
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - name: Keep the output of each case when the run fails or is cut short
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sanitizer-unit-cases
           path: ${{ runner.temp }}/unit-cases

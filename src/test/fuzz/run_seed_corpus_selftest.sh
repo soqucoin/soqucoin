@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fixtures for run_seed_corpus.sh: one for each of its four guards and one for a
+# Fixtures for run_seed_corpus.sh: its guards, each way a report can show, and a
 # healthy run. Each runs the script against a stand-in for the fuzz binary and a
 # corpus made here, and names the exit status it expects.
 #
@@ -16,7 +16,9 @@ cat > "$WORK/stub" <<'EOF'
 if [ "${1:-}" = "--list" ]; then
     if [ "$FAULT" = "no-targets" ]; then exit 0; fi
     echo "target_one"
+    if [ "$FAULT" = "listing-stops" ]; then exit 134; fi
     echo "target_two"
+    if [ "$FAULT" = "listing-reports" ]; then echo "l.cpp:1:1: runtime error: signed integer overflow" >&2; fi
     exit 0
 fi
 cat > /dev/null
@@ -25,6 +27,9 @@ if [ "$FAULT" = "run-reports" ] && [ "$FUZZ" = "target_one" ]; then
     echo "z.cpp:3:3: runtime error: applying non-zero offset 64 to null pointer" >&2
     exit 0
 fi
+if [ "$FAULT" = "run-warns" ] && [ "$FUZZ" = "target_two" ]; then echo "WARNING: ThreadSanitizer: data race (pid=1)" >&2; exit 0; fi
+if [ "$FAULT" = "run-errors" ] && [ "$FUZZ" = "target_two" ]; then echo "==1==ERROR: LeakSanitizer: detected memory leaks" >&2; exit 0; fi
+if [ "$FAULT" = "run-summary" ] && [ "$FUZZ" = "target_two" ]; then echo "SUMMARY: MemorySanitizer: use-of-uninitialized-value z.cpp:3" >&2; exit 0; fi
 if [ "$FAULT" = "run-chatters" ]; then echo "an ordinary line on standard error" >&2; fi
 exit 0
 EOF
@@ -53,6 +58,11 @@ check "every run passes"                                0 none          "$WORK/c
 check "an ordinary line on standard error is no report" 0 run-chatters  "$WORK/corpus"
 check "a run exits non-zero"                            1 run-fails     "$WORK/corpus"
 check "a run exits 0 with a sanitizer report"           1 run-reports   "$WORK/corpus"
+check "a run exits 0 with a thread sanitizer warning"   1 run-warns     "$WORK/corpus"
+check "a run exits 0 with a leak sanitizer error"       1 run-errors    "$WORK/corpus"
+check "a run exits 0 with a summary line alone"         1 run-summary   "$WORK/corpus"
+check "the listing stops part way with a status"        1 listing-stops   "$WORK/corpus"
+check "the listing carries a sanitizer report"          1 listing-reports "$WORK/corpus"
 check "the binary lists no target"                      1 no-targets    "$WORK/corpus"
 check "the corpus is empty"                             1 none          "$WORK/corpus-empty"
 check "the corpus holds no large input"                 1 none          "$WORK/corpus-small"

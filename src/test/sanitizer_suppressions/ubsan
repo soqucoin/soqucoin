@@ -1,11 +1,11 @@
 # Reports of the undefined-behaviour sanitizer that are known and tracked.
-# One line a site: <check>:<source file>. A line leaves this file with the change
+# One line a site: <check>:<function>. A line leaves this file with the change
 # that fixes its site. The file holds no line when no site is known.
 #
 # Used by the sanitizer job of .github/workflows/ci.yml and by hand:
 #   UBSAN_OPTIONS=halt_on_error=1:suppressions=$PWD/test/sanitizer_suppressions/ubsan
 #
-# src/crypto/latticebp/commitment.cpp, montgomery_reduce: a product taken in 32 bits.
-signed-integer-overflow:crypto/latticebp/commitment.cpp
-# src/crypto/sha256.cpp, CSHA256::Write: an offset added to a null pointer on a write of nothing.
-pointer-overflow:crypto/sha256.cpp
+# src/crypto/latticebp/commitment.cpp: a product taken in 32 bits.
+signed-integer-overflow:montgomery_reduce
+# src/crypto/sha256.cpp: an offset added to a null pointer on a write of nothing.
+pointer-overflow:CSHA256::Write

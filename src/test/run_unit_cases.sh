@@ -1,5 +1,5 @@
 #!/bin/sh
-# Run every case of the unit test binary in a process of its own.
+# Run every enabled case of the unit test binary in a process of its own.
 #
 # WHY: the address sanitizer stops a process at its first report. One run of the
 # whole binary therefore shows one report and never reaches the cases after it,
@@ -23,17 +23,26 @@
 # Exit status: 0 when every case exits 0 with no sanitizer report, 1 otherwise,
 # 2 on a usage or setup error.
 #
-# GUARDS, so that a run which covered nothing cannot pass:
+# WHICH CASES: the ones `make check` runs. The binary's --list_content marks an
+# enabled test unit with a star. A case without the star is disabled in the
+# source; it is printed and not run, since --run_test would enable it.
+#
+# GUARDS, so that a run which covered less than the suite cannot pass:
 #   1. the case list comes from the binary's own --list_content, and a listing
 #      that exits non-zero or carries a sanitizer report is a failure;
-#   2. an empty case list is a failure;
-#   3. the number of cases that reported an exit status must equal the number
+#   2. a listing line this script cannot place is a failure, and a test unit at
+#      the top level with nothing under it is run by its own name, so a case
+#      outside every suite is not passed over;
+#   3. an empty case list is a failure;
+#   4. the number of cases that reported an exit status must equal the number
 #      of cases started;
-#   4. a name in the -x file that the binary does not list is a failure, so a
-#      renamed case cannot stay left out by accident.
+#   5. each case writes to a log named by its number in the list, so two names
+#      cannot share a log, and a log that is missing or unreadable is a failure;
+#   6. a name in the -x file that the binary does not list as enabled is a
+#      failure, so a renamed case cannot stay left out by accident.
 #
-# A suite nested inside a suite is run as one process for the inner suite. The
-# tree has none today.
+# A suite nested inside a suite is refused by guard 2: its cases sit at a depth
+# this script does not read. The tree has none today.
 set -u
 
 JOBS=4
@@ -61,19 +70,23 @@ if [ -n "$(ls -A "$LOG_DIR" 2>/dev/null)" ]; then
     echo "FAIL: the log directory is not empty: $LOG_DIR" >&2
     exit 2
 fi
+LOG_DIR=$(cd "$LOG_DIR" && pwd) || exit 2
 
-# What a sanitizer writes when it reports: the undefined-behaviour line, and the
-# header and summary lines of the address, leak, memory and thread sanitizers.
-SANITIZER_REPORT='runtime error:|ERROR: [A-Za-z]+Sanitizer|SUMMARY: [A-Za-z]+Sanitizer'
+# What a sanitizer writes when it reports: the undefined-behaviour line, the
+# line that opens a report of the address and leak sanitizers (ERROR:) and of
+# the memory and thread sanitizers (WARNING:), and the summary line of each.
+SANITIZER_REPORT='runtime error:|(ERROR|WARNING): [A-Za-z]+Sanitizer|SUMMARY: [A-Za-z]+Sanitizer'
 
-ALL="$LOG_DIR/cases-listed.txt"
+LISTING="$LOG_DIR/list-content.txt"
+ENABLED="$LOG_DIR/cases-enabled.txt"
+DISABLED="$LOG_DIR/cases-disabled.txt"
 RUN="$LOG_DIR/cases-run.txt"
+NUMBERED="$LOG_DIR/cases-numbered.txt"
 CODES="$LOG_DIR/exit-codes.txt"
 
 # The listing is kept whole and judged before a case list is made from it: a
 # listing that stopped part way would give a list that passes while covering
 # a part of the suite.
-LISTING="$LOG_DIR/list-content.txt"
 "$TEST_BIN" --list_content > "$LISTING" 2>&1
 rc=$?
 if [ "$rc" -ne 0 ]; then
@@ -86,11 +99,42 @@ if grep -q -E "$SANITIZER_REPORT" "$LISTING"; then
     grep -E "$SANITIZER_REPORT" "$LISTING" | head -n 3 >&2
     exit 1
 fi
-awk '/^[^ ]/{s=$1} /^    [^ ]/{print s"/"$1}' "$LISTING" | tr -d '*' > "$ALL"
-n_all=$(wc -l < "$ALL" | tr -d ' ')
-if [ "$n_all" -eq 0 ]; then
-    echo "FAIL: '$TEST_BIN --list_content' listed no case, so this run would cover nothing." >&2
+
+# One line a test unit: no indent for a unit at the top level, four spaces for
+# a unit inside it. A top-level unit followed by indented lines is a suite and
+# those lines are its cases. A top-level unit with nothing under it is run by
+# its own name. Output: "E name" for an enabled case, "D name" for a disabled
+# one, "? line" for a line that fits neither shape.
+awk '
+function flush() { if (top != "" && kids == 0) print (topstar ? "E " : "D ") top }
+/^[^ ]/ {
+    flush()
+    top = $1; topstar = (top ~ /\*$/); sub(/\*$/, "", top); kids = 0
+    next
+}
+/^    [^ ]/ {
+    if (top == "") { print "? " $0; next }
+    name = $1; star = (name ~ /\*$/); sub(/\*$/, "", name); kids++
+    print ((star && topstar) ? "E " : "D ") top "/" name
+    next
+}
+/^[ \t]*$/ { next }
+{ print "? " $0 }
+END { flush() }
+' "$LISTING" > "$LOG_DIR/cases-parsed.txt"
+
+if grep -q '^? ' "$LOG_DIR/cases-parsed.txt"; then
+    echo "FAIL: the listing holds lines this script cannot place, so the case list may be partial:" >&2
+    grep '^? ' "$LOG_DIR/cases-parsed.txt" | head -n 5 >&2
     exit 1
+fi
+sed -n 's/^E //p' "$LOG_DIR/cases-parsed.txt" > "$ENABLED"
+sed -n 's/^D //p' "$LOG_DIR/cases-parsed.txt" > "$DISABLED"
+n_enabled=$(wc -l < "$ENABLED" | tr -d ' ')
+n_disabled=$(wc -l < "$DISABLED" | tr -d ' ')
+if [ "$n_disabled" -gt 0 ]; then
+    echo "disabled in the source, not run:"
+    sed 's/^/  /' "$DISABLED"
 fi
 
 n_skip=0
@@ -101,9 +145,9 @@ if [ -n "$SKIP_FILE" ]; then
     fi
     SKIP="$LOG_DIR/cases-left-out.txt"
     grep -v -E '^[[:space:]]*(#|$)' "$SKIP_FILE" > "$SKIP"
-    unknown=$(grep -v -x -F -f "$ALL" "$SKIP")
+    unknown=$(grep -v -x -F -f "$ENABLED" "$SKIP")
     if [ -n "$unknown" ]; then
-        echo "FAIL: the -x file names a case the binary does not list:" >&2
+        echo "FAIL: the -x file names a case the binary does not list as enabled:" >&2
         printf '%s\n' "$unknown" >&2
         exit 1
     fi
@@ -111,27 +155,33 @@ if [ -n "$SKIP_FILE" ]; then
     if [ "$n_skip" -gt 0 ]; then
         echo "left out by $SKIP_FILE:"
         sed 's/^/  /' "$SKIP"
-        grep -v -x -F -f "$SKIP" "$ALL" > "$RUN"
+        grep -v -x -F -f "$SKIP" "$ENABLED" > "$RUN"
     else
-        cp "$ALL" "$RUN"
+        cp "$ENABLED" "$RUN"
     fi
 else
-    cp "$ALL" "$RUN"
+    cp "$ENABLED" "$RUN"
 fi
 n_run=$(wc -l < "$RUN" | tr -d ' ')
 if [ "$n_run" -eq 0 ]; then
-    echo "FAIL: every case is left out, so this run would cover nothing." >&2
+    echo "FAIL: no case to run: the listing holds no enabled case, or every one is left out." >&2
     exit 1
 fi
 
+# Each case gets its number in the list. The log and the temporary directory
+# are named by the number, so no two cases share either.
+awk '{ printf "%05d %s\n", NR, $0 }' "$RUN" > "$NUMBERED"
 : > "$CODES"
+mkdir "$LOG_DIR/tmp" || exit 2
 export TEST_BIN LOG_DIR
 # One process a case. The status is written by the same shell that ran the case.
-RUN_ONE='c="$1"
-f="$LOG_DIR/$(printf "%s" "$c" | sed "s|/|__|g; s|[^A-Za-z0-9_.-]|_|g").log"
-"$TEST_BIN" --run_test="$c" > "$f" 2>&1
-echo "$? $c" >> "$LOG_DIR/exit-codes.txt"'
-xargs -P "$JOBS" -I{} sh -c "$RUN_ONE" _ {} < "$RUN"
+RUN_ONE='n=${1%% *}
+c=${1#* }
+mkdir "$LOG_DIR/tmp/$n" || exit 1
+TMPDIR="$LOG_DIR/tmp/$n" "$TEST_BIN" --run_test="$c" > "$LOG_DIR/$n.log" 2>&1
+echo "$? $n $c" >> "$LOG_DIR/exit-codes.txt"
+rmdir "$LOG_DIR/tmp/$n" 2>/dev/null'
+xargs -P "$JOBS" -I{} sh -c "$RUN_ONE" _ {} < "$NUMBERED"
 
 n_done=$(wc -l < "$CODES" | tr -d ' ')
 if [ "$n_done" -ne "$n_run" ]; then
@@ -140,14 +190,19 @@ if [ "$n_done" -ne "$n_run" ]; then
 fi
 
 failures=0
-while read -r code name; do
-    f="$LOG_DIR/$(printf '%s' "$name" | sed 's|/|__|g; s|[^A-Za-z0-9_.-]|_|g').log"
-    if [ "$code" -ne 0 ]; then
-        echo "FAIL: $name exit=$code" >&2
+while read -r code n name; do
+    f="$LOG_DIR/$n.log"
+    grep -q -E "$SANITIZER_REPORT" "$f" 2>/dev/null
+    reported=$?
+    if [ "$reported" -gt 1 ]; then
+        echo "FAIL: $name: its log is missing or cannot be read ($f), so its output cannot be judged" >&2
+        failures=$((failures + 1))
+    elif [ "$code" -ne 0 ]; then
+        echo "FAIL: $name exit=$code ($f)" >&2
         grep -E "$SANITIZER_REPORT|error: in \"|fatal error" "$f" | head -n 4 >&2
         failures=$((failures + 1))
-    elif grep -q -E "$SANITIZER_REPORT" "$f"; then
-        echo "FAIL: $name exit=0 with a sanitizer report" >&2
+    elif [ "$reported" -eq 0 ]; then
+        echo "FAIL: $name exit=0 with a sanitizer report ($f)" >&2
         grep -E "$SANITIZER_REPORT" "$f" | head -n 3 >&2
         failures=$((failures + 1))
     fi
@@ -157,5 +212,5 @@ if [ "$failures" -ne 0 ]; then
     echo "FAIL: $failures of $n_run cases failed or carried a sanitizer report. Logs: $LOG_DIR" >&2
     exit 1
 fi
-echo "PASS: $n_run cases, each in its own process, no failure and no sanitizer report ($n_all listed, $n_skip left out). Logs: $LOG_DIR"
+echo "PASS: $n_run cases, each in its own process, no failure and no sanitizer report ($n_enabled enabled, $n_disabled disabled in the source, $n_skip left out). Logs: $LOG_DIR"
 exit 0

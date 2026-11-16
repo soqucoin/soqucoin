@@ -10,9 +10,10 @@ Soqucoin is a post-quantum cryptocurrency. Its mainnet has run since 13 October 
 
 1. **Fork and branch**: create a feature branch from `main`, the default branch. Pull requests target `main`.
 2. **Code style**: Bitcoin Core's conventions, written up in [doc/developer-notes.md](doc/developer-notes.md). A C++14 compiler is required (`configure` checks for it); C++17 is optional with `--enable-c++17`. 4-space indentation, no trailing whitespace.
-3. **Testing**: the CI workflow runs on every pull request. Run the same checks first:
-   * `make check` for the unit tests;
-   * `qa/pull-tester/rpc-tests.py` for the functional tests. CI runs the Soqucoin-specific set: `auxpow.py`, `pat_basic.py`, `unspendable-outputs.py`, `witness-prune-serving.py`, `witness-prune-ibd.py`, `wallet-encryption.py`, `pq-address-rpcs.py`, `pq-wallet-key-handling.py`, `block1-time-gate.py`, `chainid-required-height.py` and `latticefold_basic.py`;
+3. **Testing**: the CI workflow runs on every pull request, and its check `CI gate` gives one verdict for the build and test jobs. Run the same checks first:
+   * `make check` for the unit tests and the fuzz seed pass;
+   * `qa/pull-tester/rpc-tests.py` for the functional tests. CI runs the tests named in the functional step of [.github/workflows/ci.yml](.github/workflows/ci.yml);
+   * CI also runs the unit suite under the address and undefined-behaviour sanitizers, one case per process, with `src/test/run_unit_cases.sh`;
    * a change to behaviour comes with a test that fails without it.
 4. **Post-quantum cryptography**:
    * **No ECDSA**: a pull request that reintroduces `secp256k1` or the legacy opcodes is rejected.

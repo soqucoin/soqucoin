@@ -59,7 +59,27 @@ if [ ! -d "$CORPUS" ]; then
     exit 1
 fi
 
-TARGETS=$("$FUZZ_BIN" --list 2>/dev/null)
+# What a sanitizer writes when it reports: the undefined-behaviour line, the
+# line that opens a report of the address and leak sanitizers (ERROR:) and of
+# the memory and thread sanitizers (WARNING:), and the summary line of each.
+SANITIZER_REPORT='runtime error:|(ERROR|WARNING): [A-Za-z]+Sanitizer|SUMMARY: [A-Za-z]+Sanitizer'
+
+# The listing is judged before the targets are read from it. A listing that
+# stopped part way would give a target list that passes while covering a part.
+LIST_ERR=$(mktemp "${TMPDIR:-/tmp}/fuzz-list.XXXXXX") || exit 1
+TARGETS=$("$FUZZ_BIN" --list 2>"$LIST_ERR")
+list_rc=$?
+list_err=$(cat "$LIST_ERR")
+rm -f "$LIST_ERR"
+if [ "$list_rc" -ne 0 ]; then
+    echo "FAIL: '$FUZZ_BIN --list' exit=$list_rc, so the target list may be partial." >&2
+    exit 1
+fi
+if printf '%s\n' "$list_err" | grep -q -E "$SANITIZER_REPORT"; then
+    echo "FAIL: '$FUZZ_BIN --list' carried a sanitizer report." >&2
+    printf '%s\n' "$list_err" | grep -E "$SANITIZER_REPORT" | head -n 3 >&2
+    exit 1
+fi
 if [ -z "$TARGETS" ]; then
     echo "FAIL: '$FUZZ_BIN --list' returned no targets. Either --list is broken or" >&2
     echo "      g_fuzz_targets is empty; both mean this gate covers nothing." >&2
@@ -95,9 +115,6 @@ echo "fuzz seed-corpus gate: $n_targets targets x $n_seeds seeds (largest ${larg
 
 failures=0
 runs=0
-# What a sanitizer writes when it reports: the undefined-behaviour line, and the
-# header and summary lines of the address, leak, memory and thread sanitizers.
-SANITIZER_REPORT='runtime error:|ERROR: [A-Za-z]+Sanitizer|SUMMARY: [A-Za-z]+Sanitizer'
 for target in $TARGETS; do
     for seed in $(find "$CORPUS" -type f); do
         runs=$((runs + 1))

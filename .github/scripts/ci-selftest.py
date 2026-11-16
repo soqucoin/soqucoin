@@ -37,6 +37,11 @@ CHANGE_FIXTURES = [
     (["doc/release-notes/release-notes-2.6.1.md"], False),
     (["doc/fuzzing.md", "INSTALL.md", "src/test/README.md"], False),
     (["doc/img/logo.png"], False),                       # under doc/, as `doc/**` was
+    (["doc/man/Makefile.am"], True),                     # an automake input: make reads it
+    (["doc/release-notes.md", "doc/man/Makefile.am"], True),
+    (["doc/Makefile"], True),
+    (["doc/build.mk"], True),
+    (["doc/man/soqucoind.1"], False),                    # a manual page
     (["src/validation.cpp"], True),
     (["README.md", "src/validation.cpp"], True),         # one code path among documentation
     ([".github/workflows/ci.yml"], True),                # a workflow change is a code change
@@ -84,6 +89,9 @@ GATE_FIXTURES = [
 
 # ---------------------------------------------------------- the shape of ci.yml
 CODE_IF = "needs.changes.outputs.code == 'true'"
+PUSH_GROUP = "github.event_name == 'pull_request' && github.ref || github.sha"
+DIFF = "git diff --name-only --no-renames"
+GATE_RUN = "run: python3 .github/scripts/ci-gate.py"
 
 
 def workflow_findings(text):
@@ -92,8 +100,15 @@ def workflow_findings(text):
     head, _, body = text.partition("\njobs:\n")
     if not body:
         return ["no jobs: section"]
-    if re.search(r"^\s+paths(-ignore)?:", head, re.M):
+    uncommented = "\n".join(line for line in head.splitlines() if not line.lstrip().startswith("#"))
+    if re.search(r"\bpaths(-ignore)?\b", uncommented):
         findings.append("a path filter on the trigger: the gate would not report for a filtered change")
+    if PUSH_GROUP not in uncommented:
+        findings.append("the concurrency group does not give a push a run of its own: "
+                        "a later push would cancel the one run of a merged tree")
+    if DIFF not in body:
+        findings.append("the changed paths are not listed with --no-renames: "
+                        "a source file moved into doc/ would show its new path alone")
     blocks = {}
     current = None
     for line in body.splitlines():
@@ -101,6 +116,11 @@ def workflow_findings(text):
         if m:
             current = m.group(1)
             blocks[current] = []
+        elif re.match(r"^  [^ #]", line):
+            # Two spaces of indent is where a job's key sits. A key written any other way
+            # (quoted, with a comment after it, as a flow mapping) is a job this check would
+            # not see, so it is refused here.
+            findings.append("a job-level line this check cannot read: %r" % line.strip())
         elif current is not None:
             blocks[current].append(line)
     for required in ("changes", "gate"):
@@ -133,9 +153,14 @@ def workflow_findings(text):
         findings.append("the gate's needs do not equal the other jobs (missing %s, unknown %s)" % (missing, extra))
     if job_if("gate") != "always()":
         findings.append("the gate's condition is %r; with anything but always() a failed job skips the gate" % job_if("gate"))
+    gate_runs = [line.strip() for line in blocks["gate"] if "ci-gate.py" in line]
+    if gate_runs != [GATE_RUN]:
+        findings.append("the gate's verdict step is %r, expected the one line %r" % (gate_runs, GATE_RUN))
     for name in blocks:
         if not any(re.match(r"^    timeout-minutes:\s*\d+\s*$", line) for line in blocks[name]):
             findings.append("%s: no timeout-minutes" % name)
+        if any(re.match(r"^    continue-on-error:", line) for line in blocks[name]):
+            findings.append("%s: continue-on-error, under which a failed job can read as a success" % name)
         if name in ("changes", "gate"):
             continue
         if "changes" not in job_needs(name):
@@ -152,10 +177,17 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
+
 jobs:
+  # a comment between jobs is read as a comment
   changes:
     timeout-minutes: 10
     runs-on: ubuntu-22.04
+    steps:
+      - run: files=$(git diff --name-only --no-renames "$base" HEAD)
   lint:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -168,6 +200,9 @@ jobs:
     if: always()
     needs: [changes, lint, build]
     timeout-minutes: 5
+    steps:
+      - name: verdict
+        run: python3 .github/scripts/ci-gate.py
 """
 
 # (label, the text that replaces a part of GOOD, the part it replaces, a word of the finding it must raise)
@@ -179,7 +214,15 @@ WORKFLOW_ATTACKS = [
     ("a job that runs whatever the change is", "  build:\n    needs: changes\n    timeout-minutes: 60", "  build:\n    needs: changes\n    if: needs.changes.outputs.code == 'true'\n    timeout-minutes: 60", "condition"),
     ("a job that does not wait for the answer", "  build:\n    if: needs.changes.outputs.code == 'true'\n    timeout-minutes: 60", "  build:\n    needs: changes\n    if: needs.changes.outputs.code == 'true'\n    timeout-minutes: 60", "does not need"),
     ("a job with no time limit", "  lint:\n    needs: changes\n    if: needs.changes.outputs.code == 'true'\n  build:", "  lint:\n    needs: changes\n    if: needs.changes.outputs.code == 'true'\n    timeout-minutes: 10\n  build:", "timeout-minutes"),
-    ("no gate at all", "", "  gate:\n    if: always()\n    needs: [changes, lint, build]\n    timeout-minutes: 5\n", "no `gate` job"),
+    ("no gate at all", "", "  gate:\n    if: always()\n    needs: [changes, lint, build]\n    timeout-minutes: 5\n    steps:\n      - name: verdict\n        run: python3 .github/scripts/ci-gate.py\n", "no `gate` job"),
+    ("a job whose key carries a comment", "  build:  # the main build\n    needs: changes", "  build:\n    needs: changes", "cannot read"),
+    ("a job whose key is quoted", '  "build":\n    needs: changes', "  build:\n    needs: changes", "cannot read"),
+    ("a job written as a flow mapping", "  extra: {runs-on: ubuntu-22.04}\n  gate:", "  gate:", "cannot read"),
+    ("a job that may fail and read as a success", "  build:\n    needs: changes\n    continue-on-error: true", "  build:\n    needs: changes", "continue-on-error"),
+    ("a gate whose verdict is thrown away", "        run: python3 .github/scripts/ci-gate.py || true", "        run: python3 .github/scripts/ci-gate.py", "verdict step"),
+    ("a path filter written as a flow mapping", "  pull_request: {branches: [main], paths-ignore: ['doc/**']}", "  pull_request:\n    branches: [main]", "path filter"),
+    ("a push that shares its run group with the next push", "group: ${{ github.workflow }}-${{ github.ref }}", "group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}", "run of its own"),
+    ("a comparison that follows renames", "git diff --name-only \"$base\" HEAD", "git diff --name-only --no-renames \"$base\" HEAD", "--no-renames"),
 ]
 
 

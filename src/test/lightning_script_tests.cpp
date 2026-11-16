@@ -540,7 +540,7 @@ BOOST_AUTO_TEST_CASE(funding_2of2_signed_spend)
     BOOST_CHECK_MESSAGE(checker.CheckSig(bobSig, bobPkBytes, funding2of2, SIGVERSION_WITNESS_V0),
                         "Bob's Dilithium sig on 2-of-2 funding accepted");
 
-    // A third key cannot fill either slot of the 2-of-2.
+    // A third key's signature does not verify under either key the script names.
     CKey mallory;
     mallory.MakeNewKey(true);
     std::vector<unsigned char> mallorySig;
@@ -555,9 +555,9 @@ BOOST_AUTO_TEST_CASE(funding_2of2_signed_spend)
     BOOST_CHECK_MESSAGE(checker.CheckSig(mallorySig, malloryPkBytes, funding2of2, SIGVERSION_WITNESS_V0),
                         "Mallory's sig verifies under Mallory's own key");
     BOOST_CHECK_MESSAGE(!checker.CheckSig(mallorySig, alicePkBytes, funding2of2, SIGVERSION_WITNESS_V0),
-                        "Mallory's sig rejected in Alice's slot of the 2-of-2");
+                        "Mallory's sig does not verify under Alice's key");
     BOOST_CHECK_MESSAGE(!checker.CheckSig(mallorySig, bobPkBytes, funding2of2, SIGVERSION_WITNESS_V0),
-                        "Mallory's sig rejected in Bob's slot of the 2-of-2");
+                        "Mallory's sig does not verify under Bob's key");
 }
 
 // ============================================================================
