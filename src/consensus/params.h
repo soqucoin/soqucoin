@@ -12,6 +12,7 @@
 #include <array>
 #include <limits>
 #include <map>
+#include <set>
 #include <string>
 
 namespace Consensus
@@ -242,6 +243,15 @@ struct Params {
     uint256 hashMigrationOutputs;   // null = inert
     CAmount nMigrationTotal = 0;    // exact sum of the committed outputs, in sats
     int nMigrationHeight = 0;       // 0 = inert; the one height the rule applies at
+
+    /** The blocks in which the key-hash check of witness version 6 accepts an
+     *  anyprevout hash type. The check refuses such a signature on every
+     *  network. A test network that ran the earlier rule holds blocks with one,
+     *  and they are named here by hash so that its chain validates from
+     *  genesis. Stagenet: the blocks at heights 1057 and 1064. Empty on every
+     *  other network. Read by WitnessV6HistoryFlags for ConnectBlock; a block
+     *  with any other hash, at any height, gets no exemption. */
+    std::set<uint256> witnessV6AnyprevoutHistoryBlocks;
 
     /** Block-1 launch time gate (bead w3y1). The block at height 1 must carry
      *  nTime >= nMinBlock1Time; 0 = no gate. Mainnet: 1791903600

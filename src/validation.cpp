@@ -703,6 +703,16 @@ unsigned int WitnessV11DeploymentFlags(int nHeight, const Consensus::Params& con
     return flags;
 }
 
+// The one place that sets SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY. Its one caller
+// is ConnectBlock, with the hash of the block it connects. The mempool does not
+// call it, so no relayed transaction is checked under the flag.
+unsigned int WitnessV6HistoryFlags(const uint256& hashBlock, const Consensus::Params& consensusParams)
+{
+    if (consensusParams.witnessV6AnyprevoutHistoryBlocks.count(hashBlock))
+        return SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY;
+    return 0;
+}
+
 /**
  * The script flags that deployments switch on for the next block (tip height
  * plus one), from the predicates ConnectBlock reads at that height. The mempool
@@ -3612,10 +3622,15 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // and SCRIPT_VERIFY_CSFS, each from its deployment at this block's height.
     // Witness version 11 runs when any of the three is set; inside it the
     // first defines OP_CHECKTEMPLATEVERIFY and the third OP_CHECKSIGFROMSTACK.
-    // Witness version 6 reads the same three for its covenant opcodes and its
-    // anyprevout hash types. The mempool takes the same value for the next
-    // block (NextBlockDeploymentScriptFlags and the relay mask).
+    // Witness version 6 reads none of the three. The mempool takes the same
+    // value for the next block (NextBlockDeploymentScriptFlags and the relay
+    // mask).
     flags |= WitnessV11DeploymentFlags(pindex->nHeight, consensus);
+
+    // A block on the network's history list, by its hash: in it the key-hash
+    // check of witness version 6 accepts an anyprevout hash type. Two blocks
+    // of stagenet are on the list and no block of another network.
+    flags |= WitnessV6HistoryFlags(block.GetHash(), consensus);
 
     // SOQ-AUD2-009: Start enforcing P2WSH-Dilithium (witness v6) — covenant script execution
     // When active, witness v6 programs execute arbitrary scripts via EvalScript,

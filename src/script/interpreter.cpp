@@ -104,52 +104,23 @@ static inline void popstack(vector<valtype>& stack)
 // in STANDARD_SCRIPT_VERIFY_FLAGS for historical reasons (they were set
 // before the Dilithium migration). They do NOT gate this function in the
 // active Dilithium execution paths. See policy.h for the full flags comment.
-// SOQ-I010: SIGHASH_ANYPREVOUT (0x41) / ANYPREVOUTANYSCRIPT (0x42) must not be
-// honoured until DEPLOYMENT_APO activates.
+// Whether a signature item carries an anyprevout hash type: the low seven bits
+// of its last byte are SIGHASH_ANYPREVOUT (0x41) or SIGHASH_ANYPREVOUTANYSCRIPT
+// (0x42), so 0xc1 and 0xc2 are among them.
 //
-// SignatureHash() has computed BIP 118 sighashes since June 2026 regardless of
-// SCRIPT_VERIFY_APO, and TransactionSignatureChecker::CheckSig() never sees
-// `flags`, so the deployment gated NOTHING at consensus — only relay policy
-// held the line. The argument recorded at CheckSig ("no funds at risk, a
-// non-APO signature simply will not match") is true as far as it goes: only the
-// key holder can produce an APO signature. What it misses is that the flag was
-// advertised as the gate, so activating APO would have been a no-op and the
-// Halborn Phase 2 sighash audit would have been gating an already-live feature.
-// It also leaves APO's rebindable-signature semantics — an APO signature is
-// replayable across any UTXO with the same scriptPubKey, and address reuse is
-// ordinary — reachable before anyone has reviewed them.
-//
-// Enforced at the call sites that actually hold `flags`, which avoids the
-// three-class interface change that was the stated reason for not gating it.
+// No witness version accepts one. The single-key path refuses it in
+// VerifyScript, and the key-hash check of witness version 6 refuses it in
+// EvalScript, each before a message is computed and in every state of the apo
+// deployment; witness version 11 has a closed list of its own
+// (IsWitnessV11Mldsa44HashType). The one exception is the version 6 key-hash
+// check in a block for which ConnectBlock sets
+// SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY.
 static bool IsAPOSigHashType(const std::vector<unsigned char>& vchSig)
 {
     if (vchSig.empty()) return false;  // let the normal path raise its own error
     const int baseHashType = vchSig.back() & 0x7f;
     return baseHashType == SIGHASH_ANYPREVOUT ||
            baseHashType == SIGHASH_ANYPREVOUTANYSCRIPT;
-}
-
-//! v6 / OP_CHECKDILITHIUMKEYHASH path: gated on DEPLOYMENT_APO.
-//!
-//! Safe to gate, because the only caller sits INSIDE the
-//! `flags & SCRIPT_VERIFY_DILITHIUM_KEYHASH` branch and OP_CDKH is
-//! NOP-when-clear. While that flag is clear the opcode succeeds without
-//! looking at any signature, so the genesis binary REJECTS NOTHING here.
-//! Activating v6 + CDKH + APO together therefore only ADDS a requirement:
-//! a soft fork measured against the genesis binary, which is the test in
-//! doc/specifications/WITNESS_VERSION_FORK_CLASS.md §1.
-//!
-//! ⛔ SEQUENCING IS PART OF THE FORK CLASS. DEPLOYMENT_APO must activate in
-//! the SAME flag-day as DEPLOYMENT_P2WSH_DILITHIUM and
-//! DEPLOYMENT_DILITHIUM_KEYHASH. Activating APO LATER is a loosening measured
-//! against the intermediate release — a v6 script spending with an APO
-//! signature is rejected between the two heights and accepted after — which
-//! splits every node running the v6-without-APO release. Ruled 2026-09-08;
-//! spec §3a.
-static bool APOSigHashTypeAllowed(const std::vector<unsigned char>& vchSig, unsigned int flags)
-{
-    if (flags & SCRIPT_VERIFY_APO) return true;
-    return !IsAPOSigHashType(vchSig);
 }
 
 bool CheckSignatureEncoding(const vector<unsigned char>& vchSig, unsigned int flags, ScriptError* serror)
@@ -1079,8 +1050,12 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             if (!pubkey.IsValid())
                                 return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
 
-                            // SOQ-I010: APO sighash types are inert until DEPLOYMENT_APO activates.
-                            if (!APOSigHashTypeAllowed(vchSig, flags))
+                            // An anyprevout hash type is refused before a
+                            // message is computed, in every state of the apo
+                            // deployment. The exception is a block on the
+                            // network's history list, for which ConnectBlock
+                            // sets the flag read here.
+                            if (IsAPOSigHashType(vchSig) && !(flags & SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY))
                                 return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
                             if (!checker.CheckSig(vchSig, vchPubKeyActual, script, sigversion))
                                 return set_error(serror, SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
@@ -1225,8 +1200,7 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                             // If MUL overflows int64_t, script fails with
                             // SCRIPT_ERR_PUSH_SIZE. The product INT64_MIN does not
                             // overflow int64_t and needs nine bytes as a script
-                            // number: witness version 11 fails it the same way, and
-                            // the other signature versions push the nine bytes.
+                            // number: it fails the same way.
                             //
                             // OP_DIV and OP_MOD fail with SCRIPT_ERR_DIV_BY_ZERO if
                             // denominator is zero.
@@ -1256,10 +1230,9 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                                     // The checks above admit one product whose
                                     // magnitude is above INT64_MAX: INT64_MIN,
                                     // which no script number of eight bytes
-                                    // holds. Witness version 11 refuses it as
-                                    // it refuses an overflow, before the
-                                    // product is encoded.
-                                    if (fV11 && a * b == INT64_MIN)
+                                    // holds. It is refused as an overflow is,
+                                    // before the product is encoded.
+                                    if (a * b == INT64_MIN)
                                         return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
                                     result = CScriptNum(a * b);
                                 } else {
@@ -2050,12 +2023,12 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
 //   * the restored control flow, length, hashlock and timelock set under
 //     SCRIPT_VERIFY_V6_CONTROLFLOW, and OP_CHECKDILITHIUMKEYHASH under
 //     SCRIPT_VERIFY_DILITHIUM_KEYHASH.
-//   * OP_CHECKTEMPLATEVERIFY and OP_CHECKSIGFROMSTACK, flag-gated NOPs when
-//     their deployment is inactive.
 //   * OP_CAT, which has no gate, and the restored byte and arithmetic set,
 //     which consensus runs with SCRIPT_VERIFY_SCRIPT_RESTORE in every block.
-// The asset and attestation opcodes stay refused with BAD_OPCODE by the ban
-// that precedes this check.
+// OP_CHECKTEMPLATEVERIFY and OP_CHECKSIGFROMSTACK are outside the set in every
+// state of their deployments: they belong to witness version 11
+// (ClassifyWitnessV11Opcode). The asset and attestation opcodes stay refused
+// with BAD_OPCODE by the ban that precedes this check.
 static bool IsWitnessV6ScriptOpcode(opcodetype op)
 {
     if (op <= OP_PUSHDATA4)
@@ -2075,8 +2048,6 @@ static bool IsWitnessV6ScriptOpcode(opcodetype op)
     case OP_CHECKLOCKTIMEVERIFY:
     case OP_CHECKSEQUENCEVERIFY:
     case OP_CHECKDILITHIUMKEYHASH:
-    case OP_CHECKTEMPLATEVERIFY:
-    case OP_CHECKSIGFROMSTACK:
     case OP_CAT:
     case OP_SUBSTR:
     case OP_LEFT:
@@ -2694,14 +2665,11 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // an acceptance — a loosening, i.e. a HARD FORK — however it is scheduled.
     // Flag-day activation does not change fork class; only direction does.
     //
-    // eLTOO does not need APO here. Its channel outputs are witness v6
-    // (src/stagenet-eltoo.cpp MakeV6Spk) and its ANYPREVOUT signatures are
-    // verified inside the v6 witnessScript by OP_CHECKDILITHIUMKEYHASH, which
-    // is NOP-when-clear and therefore soft-fork activatable. APO reaches the
-    // chain through v6 and nowhere else.
+    // No witness version takes an APO signature: the key-hash check of
+    // witness version 6 refuses one as this path does, in every state of the
+    // deployment, and witness version 11 defines no key type for it.
     //
-    // Do not "restore symmetry" by re-gating this on the flag. The asymmetry is
-    // the point: v6 is dormant at genesis and this path is not.
+    // Do not gate this on the flag.
     if (IsAPOSigHashType(sig)) {
         return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
     }
@@ -2781,21 +2749,21 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
     //      no-op and the Halborn Phase 2 sighash review would have been gating
     //      an already-enforced feature.
     //   ✅ "CheckSig() does not receive `flags`."  Still true, and still not
-    //      worth an interface change across three classes. The two call sites
-    //      that DO hold `flags` carry the rule, and since 2026-09-08 they carry
-    //      DIFFERENT rules, because they have different fork classes (bead
-    //      mpu9):
+    //      worth an interface change across three classes. The call sites
+    //      that DO hold `flags` carry the rule:
     //        - VerifyScript's v0/v1 single-key Dilithium path rejects APO
     //          UNCONDITIONALLY (IsAPOSigHashType). v1 is active from genesis, so
     //          a deployment-gated rejection there would loosen at activation.
-    //        - EvalScript's OP_CHECKDILITHIUMKEYHASH handler stays gated on
-    //          SCRIPT_VERIFY_APO (APOSigHashTypeAllowed), because the opcode is
-    //          NOP-when-clear, so the genesis binary rejects nothing there.
-    //      Mempool and consensus derive SCRIPT_VERIFY_APO from the same
-    //      DeploymentActiveAtHeight call, so the v6 path agrees at off/off and
-    //      on/on (no accept-then-reject split).
+    //        - EvalScript's OP_CHECKDILITHIUMKEYHASH handler rejects APO under
+    //          witness version 6 in every state of the deployment, except in a
+    //          block of the network's history list
+    //          (SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, set by ConnectBlock alone),
+    //          and holds witness version 11 to a closed list of hash types.
+    //      The mempool never sets the history flag, so relay refuses what a
+    //      new block refuses.
     //
-    // Pinned by src/test/apo_hashtype_gate_tests.cpp.
+    // Pinned by src/test/apo_hashtype_gate_tests.cpp and
+    // src/test/witness_v6_narrowing_tests.cpp.
     //
     // Related: SOQ-COV-003 (SignatureHash) still rejects ANYONECANPAY+APO.
 

@@ -18,24 +18,40 @@
 // so it holds on every tier of every network, and the verdict of a version 6
 // spend does not depend on the ctv, apo and csfs deployments.
 //
-// Two suites. The first drives VerifyScript with stated flags. The second
+// One exception is in the code: on stagenet two blocks hold a version 6 spend
+// signed with an anyprevout type from before the refusal. ConnectBlock sets a
+// flag for a block whose hash is on the network's list, and under it the
+// key-hash check accepts such a signature.
+//
+// Three suites. The first drives VerifyScript with stated flags. The second
 // spends a version 6 output on a regtest chain through the mempool and through
-// a block.
+// a block. The third covers the list, its one writer and the two stagenet
+// transactions as they are on that chain.
 
 #include "amount.h"
+#include "chainparams.h"
+#include "chainparamsbase.h"
+#include "consensus/params.h"
 #include "consensus/validation.h"
 #include "crypto/sha256.h"
 #include "hash.h"
 #include "key.h"
+#include "policy/policy.h"
 #include "primitives/transaction.h"
 #include "pubkey.h"
 #include "script/interpreter.h"
 #include "script/script.h"
 #include "script/script_error.h"
+#include "script/standard.h"
+#include "streams.h"
 #include "test/dilithium_chain_setup.h"
 #include "test/test_bitcoin.h"
+#include "test/witness_v6_history_data.h"
 #include "txmempool.h"
+#include "uint256.h"
+#include "utilstrencodings.h"
 #include "validation.h"
+#include "version.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -579,6 +595,217 @@ BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
         BOOST_CHECK(BlockIsValid(std::vector<CMutableTransaction>(1, tx)));
         BOOST_CHECK_EQUAL(RelayRefusal(tx), std::string());
         BOOST_CHECK_EQUAL(mempool.size(), 1u);
+    }
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+// ---------------------------------------------------------------------------
+// The history list: the blocks in which the version 6 key-hash check accepts
+// an anyprevout hash type.
+// ---------------------------------------------------------------------------
+BOOST_FIXTURE_TEST_SUITE(witness_v6_history_tests, BasicTestingSetup)
+
+namespace {
+
+//! Selects a network for one case and returns to the fixture's.
+struct Network {
+    explicit Network(const std::string& name) { SelectParams(name); }
+    ~Network() { SelectParams(CBaseChainParams::MAIN); }
+};
+
+const char* const NETWORKS[] = {"main", "test", "regtest", "stagenet"};
+
+//! Heights on both sides of every tier boundary of every network.
+const int HEIGHTS[] = {0, 1, 9, 10, 11, 19, 20, 21, 99, 100, 101, 1056, 1057, 1058, 1063, 1064, 1065,
+                       99999, 100000, 100001, 1000000};
+
+const uint256 BLOCK_1057 = uint256S("0xb6eceab13b813a7f4600b92d86df852cb86222fe574582e280a777f5a84c6c5e");
+const uint256 BLOCK_1064 = uint256S("0x39c7a32ab8447f2d15711181ad9c03ae1cb34593813f67e97ef7d6e2746d5e7e");
+
+//! One of the two stagenet spends: the transaction, the output it spends and
+//! the block that holds it.
+struct Historic {
+    const char* hex;
+    const char* txid;
+    const char* spk;
+    int height;
+    uint256 block;
+};
+
+std::vector<Historic> TheTwoSpends()
+{
+    std::vector<Historic> v;
+    v.push_back({STAGENET_BLOCK_1057_SPEND, "e188cd62c2d37f43fcb22747f5c872f8a0d025b3611c489d76827b7f5126653b",
+                 "562024c63134743e8a2c1ff053176c6a1b11e5a84f9db64155d0dd14f2b442535e5d", 1057, BLOCK_1057});
+    v.push_back({STAGENET_BLOCK_1064_SPEND, "6cd821e8cf0dad85fd50e3bc0af4bfb7e6ec6cb9bc3890260feb0dca3f4c1e0e",
+                 "5620f4410d1155072cee767a366798f0a7afabe3031651c1b305e03b6970cf54a7b6", 1064, BLOCK_1064});
+    return v;
+}
+
+//! Each spent output held one coin.
+const CAmount HISTORIC_AMOUNT = COIN;
+
+ScriptError VerdictOf(const Historic& h, unsigned int flags)
+{
+    CDataStream ss(ParseHex(h.hex), SER_NETWORK, PROTOCOL_VERSION);
+    CMutableTransaction mtx;
+    ss >> mtx;
+    const CTransaction tx(mtx);
+    BOOST_REQUIRE_EQUAL(tx.GetHash().GetHex(), std::string(h.txid));
+    BOOST_REQUIRE_EQUAL(tx.vin.size(), 1u);
+    const std::vector<unsigned char> spkBytes = ParseHex(h.spk);
+    const CScript spk(spkBytes.begin(), spkBytes.end());
+    const PrecomputedTransactionData txdata(tx);
+    const TransactionSignatureChecker checker(&tx, 0, HISTORIC_AMOUNT, txdata);
+    ScriptError serr = SCRIPT_ERR_OK;
+    VerifyScript(tx.vin[0].scriptSig, spk, &tx.vin[0].scriptWitness, flags, checker, &serr);
+    return serr;
+}
+
+//! Some hashes that are not on the list: the null hash, the network's genesis
+//! block, and each listed hash with one byte changed and with its bytes
+//! reversed.
+std::vector<uint256> OtherHashes(const Consensus::Params& consensus)
+{
+    std::vector<uint256> v;
+    v.push_back(uint256());
+    v.push_back(consensus.hashGenesisBlock);
+    for (const uint256& listed : {BLOCK_1057, BLOCK_1064}) {
+        uint256 changed = listed;
+        changed.begin()[0] ^= 0x01;
+        v.push_back(changed);
+        uint256 reversed;
+        for (int i = 0; i < 32; ++i)
+            reversed.begin()[i] = listed.begin()[31 - i];
+        v.push_back(reversed);
+    }
+    return v;
+}
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(the_list_holds_two_stagenet_blocks_and_none_elsewhere)
+{
+    for (const char* network : NETWORKS) {
+        const Network selected(network);
+        for (int height : HEIGHTS) {
+            const std::set<uint256>& list = Params().GetConsensus(height).witnessV6AnyprevoutHistoryBlocks;
+            if (std::string(network) == "stagenet") {
+                BOOST_CHECK_MESSAGE(list.size() == 2 && list.count(BLOCK_1057) == 1 && list.count(BLOCK_1064) == 1,
+                    "stagenet, the tier of height " << height << ": " << list.size() << " entries");
+            } else {
+                BOOST_CHECK_MESSAGE(list.empty(), network << ", the tier of height " << height << ": "
+                                                          << list.size() << " entries");
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(the_writer_sets_the_flag_for_the_two_hashes_on_stagenet_alone)
+{
+    for (const char* network : NETWORKS) {
+        const Network selected(network);
+        const bool stagenet = std::string(network) == "stagenet";
+        for (int height : HEIGHTS) {
+            const Consensus::Params& consensus = Params().GetConsensus(height);
+            for (const uint256& listed : {BLOCK_1057, BLOCK_1064}) {
+                BOOST_CHECK_MESSAGE(
+                    WitnessV6HistoryFlags(listed, consensus) == (stagenet ? (unsigned int)SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY : 0u),
+                    network << ", the tier of height " << height << ", block " << listed.GetHex());
+            }
+            for (const uint256& other : OtherHashes(consensus)) {
+                BOOST_CHECK_MESSAGE(WitnessV6HistoryFlags(other, consensus) == 0u,
+                    network << ", the tier of height " << height << ", hash " << other.GetHex());
+            }
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(the_flag_is_in_neither_policy_set_and_shares_its_bit_with_no_other_flag)
+{
+    BOOST_CHECK_EQUAL(STANDARD_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, 0u);
+    BOOST_CHECK_EQUAL(MANDATORY_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, 0u);
+
+    const unsigned int others =
+        SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_STRICTENC | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S |
+        SCRIPT_VERIFY_NULLDUMMY | SCRIPT_VERIFY_SIGPUSHONLY | SCRIPT_VERIFY_MINIMALDATA |
+        SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS | SCRIPT_VERIFY_CLEANSTACK | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY |
+        SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM |
+        SCRIPT_VERIFY_MINIMALIF | SCRIPT_VERIFY_NULLFAIL | SCRIPT_VERIFY_WITNESS_PUBKEYTYPE |
+        SCRIPT_VERIFY_LATTICEFOLD | SCRIPT_VERIFY_PAT | SCRIPT_VERIFY_SOQUOBSCURA | SCRIPT_VERIFY_USDSOQ |
+        SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS | SCRIPT_VERIFY_SCRIPT_RESTORE |
+        SCRIPT_VERIFY_P2WSH_DILITHIUM | SCRIPT_VERIFY_DILITHIUM_KEYHASH | SCRIPT_VERIFY_V6_CONTROLFLOW |
+        SCRIPT_VERIFY_BTCSOQ;
+    BOOST_CHECK_EQUAL(others & SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, 0u);
+    BOOST_CHECK_EQUAL((unsigned int)SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, 1U << 28);
+}
+
+// The two transactions verify under the flags of their blocks, which carry
+// the flag for those two hashes, and are refused under the flags of any other
+// block and of any other network.
+BOOST_AUTO_TEST_CASE(the_two_stagenet_spends_verify_in_their_blocks_and_in_no_other)
+{
+    for (const Historic& h : TheTwoSpends()) {
+        unsigned int blockFlags = 0;
+        unsigned int historyFlag = 0;
+        std::vector<uint256> others;
+        {
+            const Network selected("stagenet");
+            const Consensus::Params& consensus = Params().GetConsensus(h.height);
+            // The six deployments begin at height 0 on stagenet.
+            BOOST_REQUIRE_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].nActivationHeight, 0);
+            BOOST_REQUIRE_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nActivationHeight, 0);
+            BOOST_REQUIRE_EQUAL(consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nActivationHeight, 0);
+            BOOST_REQUIRE_EQUAL(WitnessV11DeploymentFlags(h.height, consensus),
+                                (unsigned int)(SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS));
+            blockFlags = SWAP_FLAGS | WitnessV11DeploymentFlags(h.height, consensus);
+            historyFlag = WitnessV6HistoryFlags(h.block, consensus);
+            others = OtherHashes(consensus);
+            for (const uint256& other : others)
+                BOOST_CHECK_EQUAL(VerdictOf(h, blockFlags | WitnessV6HistoryFlags(other, consensus)),
+                                  SCRIPT_ERR_SIG_HASHTYPE);
+        }
+        BOOST_CHECK_EQUAL(historyFlag, (unsigned int)SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY);
+        BOOST_CHECK_EQUAL(VerdictOf(h, blockFlags | historyFlag), SCRIPT_ERR_OK);
+        BOOST_CHECK_EQUAL(VerdictOf(h, blockFlags), SCRIPT_ERR_SIG_HASHTYPE);
+
+        // The same block hash under the parameters of the other networks.
+        for (const char* network : {"main", "test", "regtest"}) {
+            const Network selected(network);
+            const Consensus::Params& consensus = Params().GetConsensus(h.height);
+            BOOST_CHECK_MESSAGE(VerdictOf(h, blockFlags | WitnessV6HistoryFlags(h.block, consensus)) == SCRIPT_ERR_SIG_HASHTYPE,
+                network << ": the spend of block " << h.height);
+        }
+    }
+}
+
+// Under the flag the key-hash check accepts an anyprevout type, and nothing
+// else is accepted that is refused without it.
+BOOST_AUTO_TEST_CASE(the_flag_widens_the_keyhash_check_and_nothing_else)
+{
+    CKey a, b;
+    a.MakeNewKey(true);
+    b.MakeNewKey(true);
+
+    Spend product;
+    product.ws = CScript() << CScriptNum(-int64_t(4294967296LL)) << CScriptNum(int64_t(2147483648LL)) << OP_MUL;
+
+    for (unsigned int mask = 0; mask < 8; ++mask) {
+        const unsigned int with = SWAP_FLAGS | Covenant(mask) | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY;
+        BOOST_CHECK_EQUAL(SignedChecksigfromstack(a).Verdict(with), SCRIPT_ERR_DISALLOWED_OPCODE);
+        BOOST_CHECK_EQUAL(MatchingTemplate().Verdict(with), SCRIPT_ERR_DISALLOWED_OPCODE);
+        BOOST_CHECK_EQUAL(product.Verdict(with), SCRIPT_ERR_PUSH_SIZE);
+        BOOST_CHECK_EQUAL(TwoOfTwo(a, b, SIGHASH_ALL).Verdict(with), SCRIPT_ERR_OK);
+        for (int byte : {0x41, 0x42}) {
+            const Spend s = TwoOfTwo(a, b, byte);
+            BOOST_CHECK_EQUAL(s.Verdict(with), SCRIPT_ERR_OK);
+            BOOST_CHECK_EQUAL(s.Verdict(with & ~SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY), SCRIPT_ERR_SIG_HASHTYPE);
+        }
+        // A signature that does not verify is refused under the flag as well.
+        Spend forged = TwoOfTwo(a, b, SIGHASH_ANYPREVOUTANYSCRIPT);
+        forged.items[0][7] ^= 0x01;
+        BOOST_CHECK_EQUAL(forged.Verdict(with), SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
     }
 }
 

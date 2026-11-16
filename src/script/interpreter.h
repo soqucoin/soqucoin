@@ -174,6 +174,15 @@ enum {
     // (Step 2C); interpreter witness-v8 dispatch lands in Step 2D.
     SCRIPT_VERIFY_BTCSOQ = (1U << 27),
 
+    // The key-hash check of witness version 6 refuses a signature with an
+    // anyprevout hash type. Under this flag it accepts one. ConnectBlock sets
+    // the flag for a block whose hash is on the network's list
+    // (Consensus::Params::witnessV6AnyprevoutHistoryBlocks), so that the blocks
+    // of a test network that hold such a spend from before the refusal still
+    // validate. Nothing else sets it: the mempool's flags, the standard set
+    // and the mandatory set never carry it.
+    SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY = (1U << 28),
+
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),

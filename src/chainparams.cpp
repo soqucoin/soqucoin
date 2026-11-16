@@ -1563,6 +1563,14 @@ public:
         // (mined before DEPLOYMENT_UTXO_COST code existed on stagenet fleet).
         // See SECURITY_ISSUE_REGISTRY.md SOQ-I007-STAGENET.
         consensus.nUtxoCostEnforcementHeight = 37201;
+
+        // The two blocks that hold a witness version 6 spend signed with an
+        // anyprevout hash type, at heights 1057 and 1064. The key-hash check
+        // refuses such a signature in every other block. Set before the tiers
+        // below are copied from this one, so each tier carries the list.
+        consensus.witnessV6AnyprevoutHistoryBlocks.insert(uint256S("0xb6eceab13b813a7f4600b92d86df852cb86222fe574582e280a777f5a84c6c5e"));
+        consensus.witnessV6AnyprevoutHistoryBlocks.insert(uint256S("0x39c7a32ab8447f2d15711181ad9c03ae1cb34593813f67e97ef7d6e2746d5e7e"));
+
         consensus.nMinimumChainWork = uint256S("0x00");
         consensus.defaultAssumeValid = uint256S("0x00");
 
