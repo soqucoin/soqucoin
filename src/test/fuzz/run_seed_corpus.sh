@@ -21,7 +21,7 @@
 # per-target structured corpus and a real fuzzing engine, which is a follow-up.
 # Do not mistake a green run here for "the verifiers are fuzzed".
 #
-# ⛔ THREE ANTI-VACUOUS GUARDS, and they are the point of the script. A test that
+# ⛔ FOUR ANTI-VACUOUS GUARDS, and they are the point of the script. A test that
 # silently covers nothing passes CI forever and reports success. So:
 #   1. the target list comes from `fuzz --list`, never a hardcoded list here, so
 #      a newly registered target cannot be silently skipped;
@@ -38,6 +38,10 @@
 #      LatticeFold one, which is the whole reason this gate was written. If
 #      someone later prunes the corpus back to small inputs, this guard fails
 #      loudly instead of quietly reporting success again.
+#   4. a run that exits 0 with a sanitizer report in its output is a FAILURE.
+#      The undefined-behaviour sanitizer prints a report and carries on, so the
+#      exit status alone passes a run that reported. The first version of this
+#      loop sent the output to /dev/null and passed 10 such runs in 860.
 # =============================================================================
 set -u
 
@@ -91,16 +95,26 @@ echo "fuzz seed-corpus gate: $n_targets targets x $n_seeds seeds (largest ${larg
 
 failures=0
 runs=0
+# What a sanitizer writes when it reports: the undefined-behaviour line, and the
+# header and summary lines of the address, leak, memory and thread sanitizers.
+SANITIZER_REPORT='runtime error:|ERROR: [A-Za-z]+Sanitizer|SUMMARY: [A-Za-z]+Sanitizer'
 for target in $TARGETS; do
     for seed in $(find "$CORPUS" -type f); do
         runs=$((runs + 1))
         # Capture the status directly. `if ! cmd; then rc=$?` reports the status of
         # the negation, not the command, so it always printed exit=0 even for a
         # SIGABRT. Assign first, test second.
-        FUZZ="$target" "$FUZZ_BIN" < "$seed" > /dev/null 2>&1
+        #
+        # Standard error is kept and standard output is dropped, for guard 4.
+        err=$(FUZZ="$target" "$FUZZ_BIN" < "$seed" 2>&1 > /dev/null)
         rc=$?
         if [ "$rc" -ne 0 ]; then
             echo "FAIL: target=$target seed=$(basename "$seed") exit=$rc" >&2
+            printf '%s\n' "$err" | tail -n 5 >&2
+            failures=$((failures + 1))
+        elif printf '%s\n' "$err" | grep -q -E "$SANITIZER_REPORT"; then
+            echo "FAIL: target=$target seed=$(basename "$seed") exit=0 with a sanitizer report" >&2
+            printf '%s\n' "$err" | grep -E "$SANITIZER_REPORT" | head -n 3 >&2
             failures=$((failures + 1))
         fi
     done
@@ -115,9 +129,9 @@ if [ "$runs" -ne "$expected" ]; then
 fi
 
 if [ "$failures" -ne 0 ]; then
-    echo "FAIL: $failures of $runs fuzz runs crashed or exited non-zero." >&2
+    echo "FAIL: $failures of $runs fuzz runs crashed, exited non-zero or carried a sanitizer report." >&2
     exit 1
 fi
 
-echo "PASS: $runs fuzz runs, no crashes ($n_targets targets, $n_seeds seeds)"
+echo "PASS: $runs fuzz runs, no crashes and no sanitizer report ($n_targets targets, $n_seeds seeds)"
 exit 0
