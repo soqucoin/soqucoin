@@ -307,7 +307,7 @@ BOOST_AUTO_TEST_CASE(sha512_testvectors) {
 }
 
 // A caller that hashes the bytes of an empty vector passes data() of that
-// vector, a null pointer, with a length of zero. The write is a no-op: the
+// vector, which may be a null pointer, with a length of zero. The write is a no-op: the
 // digest of nothing is the digest of the empty message, and a null write
 // between two writes of data leaves the state as it was.
 template <typename Hasher>

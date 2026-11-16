@@ -139,10 +139,12 @@ BOOST_AUTO_TEST_CASE(pqgetnewaddress_is_not_registered)
 }
 
 // PQAddress::EncodeFromHash packs the version byte and the 32-byte hash into
-// 5-bit groups. The expected strings come from the BIP 350 reference encoder
-// over the same 33 bytes, so they do not depend on this tree's bit conversion.
-// The loop shifts its accumulator by 8 bits for each of the 33 bytes.
-BOOST_AUTO_TEST_CASE(encode_from_hash_matches_the_reference_encoder)
+// 5-bit groups. This is the library's own layout, which the node refuses as an
+// address (the case pqvalidateaddress_decodes_with_the_network_prefix above).
+// The case pins that output, so that a change to the loop shows. The expected
+// strings are bech32m over the 53 groups of 0x01 || hash, from the BIP 350
+// reference encoder, so they do not depend on this tree's bit conversion.
+BOOST_AUTO_TEST_CASE(encode_from_hash_keeps_the_library_layout)
 {
     using soqucoin::pqwallet::AddressType;
     using soqucoin::pqwallet::Network;

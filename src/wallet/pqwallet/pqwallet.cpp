@@ -355,9 +355,7 @@ std::string PQAddress::EncodeFromHash(
     converted.reserve((data.size() * 8 + 4) / 5);
 
     int bits = 0;
-    // The accumulator is unsigned and masked to the bits not yet written out,
-    // so the shift stays inside the type for any input length.
-    uint32_t acc = 0;
+    uint32_t acc = 0; // unsigned, and masked below to the 12 bits not yet written out
     for (uint8_t byte : data) {
         acc = ((acc << 8) | byte) & 0xfff;
         bits += 8;
