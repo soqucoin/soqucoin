@@ -447,7 +447,10 @@ BOOST_AUTO_TEST_CASE(mint_transfer_burn_lifecycle)
 
     // ---- TRANSFER (non-authority, v8 in == v8 out) ----
     CKey newOwner; newOwner.MakeNewKey(true);
-    std::vector<unsigned char> newOwnerPk(newOwner.GetPubKey().begin(), newOwner.GetPubKey().end());
+    // A local first: begin() and end() of two temporaries are ends of two objects.
+    const CPubKey newOwnerPub = newOwner.GetPubKey();
+    std::vector<unsigned char> newOwnerPk(newOwnerPub.begin(), newOwnerPub.end());
+    BOOST_REQUIRE_EQUAL(newOwnerPk.size(), 1312u);
     CMutableTransaction xfer; xfer.nVersion = 2;
     CTxIn v8in; v8in.prevout = COutPoint(mintHash, 1); v8in.nSequence = CTxIn::SEQUENCE_FINAL;
     xfer.vin.push_back(v8in);
@@ -1102,7 +1105,10 @@ BOOST_AUTO_TEST_CASE(btcsoq_mint_recipient_must_match_the_signed_commitment)
         BuildMint(coinbaseTxns[1], OPBIND_DEPOSIT_B, 1, coinbasePk, &marker);
 
     CKey thief; thief.MakeNewKey(true);
-    std::vector<unsigned char> thiefPk(thief.GetPubKey().begin(), thief.GetPubKey().end());
+    // A local first: begin() and end() of two temporaries are ends of two objects.
+    const CPubKey thiefPub = thief.GetPubKey();
+    std::vector<unsigned char> thiefPk(thiefPub.begin(), thiefPub.end());
+    BOOST_REQUIRE_EQUAL(thiefPk.size(), 1312u);
     m2.vout[1].scriptPubKey = MakeV8Spk(thiefPk);   // value unchanged, so only the commitment can reject
     ReSignChainedAuthority(m2, coinbaseTxns[1], BTCSOQ_OP_MINT);
 
