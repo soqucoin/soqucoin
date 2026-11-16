@@ -355,9 +355,9 @@ std::string PQAddress::EncodeFromHash(
     converted.reserve((data.size() * 8 + 4) / 5);
 
     int bits = 0;
-    int acc = 0;
+    uint32_t acc = 0; // unsigned, and masked below to 12 bits, which hold every bit not yet written out
     for (uint8_t byte : data) {
-        acc = (acc << 8) | byte;
+        acc = ((acc << 8) | byte) & 0xfff;
         bits += 8;
         while (bits >= 5) {
             bits -= 5;

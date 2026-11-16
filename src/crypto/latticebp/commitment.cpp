@@ -157,7 +157,7 @@ static const int64_t zetas[256] = {
 // breaks the reduction and produces wrong results.
 inline int64_t montgomery_reduce(int64_t a)
 {
-    int32_t t = (int32_t)a * (int32_t)QINV;
+    int32_t t = (int32_t)((int64_t)(int32_t)a * QINV); // the product in 64 bits, as the reference takes it
     return (a - (int64_t)t * LatticeParams::Q) >> 32;
 }
 

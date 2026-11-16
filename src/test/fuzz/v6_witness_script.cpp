@@ -156,8 +156,8 @@ std::string Describe(bool ok, ScriptError err)
 
 uint256 Sha256(const valtype& data)
 {
-    // An empty vector may hold a null pointer; hash from a real one, wide
-    // enough for the block-sized step CSHA256::Write takes from it.
+    // An empty vector may hold a null pointer; hash from a real one, so that
+    // the target does not depend on what Write does with a null pointer.
     static const unsigned char none[64] = {0};
     uint256 hash;
     CSHA256().Write(data.empty() ? none : data.data(), data.size()).Finalize(hash.begin());
