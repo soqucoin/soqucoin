@@ -69,8 +69,9 @@ ScriptError VerdictFor(const CScript& witnessScript, unsigned int flags,
 
 const unsigned int P2WSH = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM;
 
-//! Every handler live: the three swap flags, the restored set (set in every
-//! block) and the flag-gated covenant opcodes.
+//! Every flag a block can carry beside the version 6 gate: the three swap
+//! flags, the restored set (set in every block) and the three flags of witness
+//! version 11, which a version 6 script does not read.
 const unsigned int FULL = P2WSH | SCRIPT_VERIFY_DILITHIUM_KEYHASH | SCRIPT_VERIFY_V6_CONTROLFLOW |
                           SCRIPT_VERIFY_SCRIPT_RESTORE | SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_CSFS |
                           SCRIPT_VERIFY_APO;
@@ -82,7 +83,6 @@ const opcodetype SET[] = {
     OP_DROP, OP_SIZE, OP_EQUAL, OP_EQUALVERIFY, OP_SHA256,
     OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY,
     OP_CHECKDILITHIUMKEYHASH,
-    OP_CHECKTEMPLATEVERIFY, OP_CHECKSIGFROMSTACK,
     OP_CAT, OP_SUBSTR, OP_LEFT, OP_RIGHT,
     OP_AND, OP_OR, OP_XOR, OP_MUL, OP_DIV, OP_MOD,
 };

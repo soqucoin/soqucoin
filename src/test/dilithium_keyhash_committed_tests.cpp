@@ -38,8 +38,10 @@
 // WHAT THESE COVER THAT THE BARE-EVALSCRIPT TESTS DID NOT:
 //   A) single-key committed round-trip  through real v6 VerifyScript  (SIGHASH_ALL)
 //   B) 2-of-2  committed round-trip      through real v6 VerifyScript  (SIGHASH_ALL)
-//   C) 2-of-2  committed round-trip      with SIGHASH_ANYPREVOUTANYSCRIPT (0x42)
-//        -> the eLTOO update-supersession path this primitive was built for
+//   C) 2-of-2  committed, signed with SIGHASH_ANYPREVOUTANYSCRIPT (0x42)
+//        -> refused: witness version 6 takes no anyprevout hash type. The same
+//           witness verifies under the flag ConnectBlock sets for the two
+//           stagenet blocks of the history list, and nowhere else.
 //   D) SUBSTITUTION ATTACK: commit Alice's keyhash, spend with Mallory's key+sig
 //        -> MUST fail at the keyhash check (the load-bearing security property)
 //   E) OUTPUT TAMPER: valid sigs, then mutate the spending tx outputs
@@ -131,7 +133,7 @@ static unsigned int V6KeyhashFlags()
     return SCRIPT_VERIFY_WITNESS
          | SCRIPT_VERIFY_P2WSH_DILITHIUM   // activate v6 covenant dispatch
          | SCRIPT_VERIFY_DILITHIUM_KEYHASH // activate OP_CHECKDILITHIUMKEYHASH
-         | SCRIPT_VERIFY_APO               // allow 0x41/0x42 (eLTOO rebinding)
+         | SCRIPT_VERIFY_APO               // set, and not read by witness version 6
          | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY
          | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY;
 }
@@ -254,10 +256,11 @@ BOOST_AUTO_TEST_CASE(committed_2of2_roundtrip)
 }
 
 // ============================================================================
-// C) 2-of-2 committed round-trip — SIGHASH_ANYPREVOUTANYSCRIPT (0x42)
-//    The eLTOO update-supersession path: APO rebinding + key-committed 2-of-2.
+// C) 2-of-2 committed, signed with SIGHASH_ANYPREVOUTANYSCRIPT (0x42)
+//    Refused with SCRIPT_ERR_SIG_HASHTYPE, with the apo flag set. The two
+//    signatures are good: the same witness verifies under the history flag.
 // ============================================================================
-BOOST_AUTO_TEST_CASE(committed_2of2_apo_anyprevoutanyscript)
+BOOST_AUTO_TEST_CASE(committed_2of2_anyprevoutanyscript_is_refused)
 {
     CKey alice, bob;
     alice.MakeNewKey(true);
@@ -294,8 +297,15 @@ BOOST_AUTO_TEST_CASE(committed_2of2_apo_anyprevoutanyscript)
     TransactionSignatureChecker checker(&ctx, 0, amount);
     bool ok = VerifyScript(CScript(), spk, &w, V6KeyhashFlags(), checker, &serr);
 
+    BOOST_CHECK_MESSAGE(!ok && serr == SCRIPT_ERR_SIG_HASHTYPE,
+        "2-of-2 committed keyhash signed 0x42 must be refused for its hash type; ok=" << ok << " serror=" << serr);
+
+    // The refusal is the hash type's: under the history flag the same witness
+    // verifies.
+    serr = SCRIPT_ERR_OK;
+    ok = VerifyScript(CScript(), spk, &w, V6KeyhashFlags() | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, checker, &serr);
     BOOST_CHECK_MESSAGE(ok,
-        "2-of-2 committed keyhash with APO 0x42 must verify (eLTOO update path); serror=" << serr);
+        "the same witness under the history flag must verify; serror=" << serr);
 }
 
 // ============================================================================
@@ -394,6 +404,8 @@ BOOST_AUTO_TEST_CASE(committed_output_tamper_rejected)
 // ============================================================================
 // F) DETERMINISTIC CROSS-VECTOR vs soq-lightning-sdk (test/keyhash.test.mjs)
 //    Pins witnessScript assembly + v6 scriptPubKey + APO 0x42 sighash to the SDK.
+//    The message is still computed: the two stagenet blocks of the history list
+//    are verified with it. No other witness version 6 spend can use it (case C).
 //    Keygen-independent: built from the two committed keyhashes, no signing.
 //    The amount MUST be 1 COIN to match the SDK (AMOUNT = 100_000_000).
 // ============================================================================
