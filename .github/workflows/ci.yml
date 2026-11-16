@@ -363,14 +363,24 @@ jobs:
       - name: The binaries under test carry both sanitizers
         run: |
           # A build that lost its flags would pass every step below with nothing to report.
-          for bin in src/test/test_soqucoin src/test/fuzz/fuzz; do
-            for symbol in __asan_init __ubsan_handle; do
-              if ! nm "$bin" | grep -q "$symbol"; then
-                echo "::error::$bin carries no $symbol, so it is not instrumented"
-                exit 1
-              fi
-            done
-          done
+          # A program built with the address sanitizer prints that sanitizer's flags when
+          # asked to, through a libtool wrapper too. The undefined-behaviour runtime gives
+          # no such answer inside the address sanitizer's, so its handlers are looked for
+          # in the program file, or in the file a libtool wrapper starts.
+          check() {
+            bin="$1"; shift
+            if ! ASAN_OPTIONS=help=1 "$bin" "$@" 2>&1 | grep -q 'Available flags for AddressSanitizer'; then
+              echo "::error::$bin does not answer as a program built with the address sanitizer"; exit 1
+            fi
+            real="$bin"
+            if [ -f "$(dirname "$bin")/.libs/$(basename "$bin")" ]; then real="$(dirname "$bin")/.libs/$(basename "$bin")"; fi
+            if ! nm "$real" 2>/dev/null | grep -q '__ubsan_handle'; then
+              echo "::error::$real carries no undefined-behaviour handler, so $bin is not instrumented"; exit 1
+            fi
+            echo "$bin: instrumented ($real)"
+          }
+          check src/test/test_soqucoin --list_content
+          check src/test/fuzz/fuzz --list
 
       - name: Unit suite, one case per process
         run: |
