@@ -540,15 +540,24 @@ BOOST_AUTO_TEST_CASE(funding_2of2_signed_spend)
     BOOST_CHECK_MESSAGE(checker.CheckSig(bobSig, bobPkBytes, funding2of2, SIGVERSION_WITNESS_V0),
                         "Bob's Dilithium sig on 2-of-2 funding accepted");
 
-    // Wrong key must fail
+    // A third key's signature does not verify under either key the script names.
     CKey mallory;
     mallory.MakeNewKey(true);
     std::vector<unsigned char> mallorySig;
     BOOST_REQUIRE(mallory.Sign(sighash, mallorySig));
     mallorySig.push_back(SIGHASH_ALL);
-    std::vector<unsigned char> malloryPkBytes(mallory.GetPubKey().begin(), mallory.GetPubKey().end());
-    BOOST_CHECK_MESSAGE(!checker.CheckSig(mallorySig, malloryPkBytes, funding2of2, SIGVERSION_WITNESS_V0),
-                        "Mallory's sig rejected on 2-of-2 (wrong key)");
+    // A local first: begin() and end() of two temporaries are ends of two objects.
+    const CPubKey malloryPk = mallory.GetPubKey();
+    std::vector<unsigned char> malloryPkBytes(malloryPk.begin(), malloryPk.end());
+    BOOST_REQUIRE_EQUAL(malloryPkBytes.size(), 1312u);
+    // The signature is a good one: it verifies under the key that made it.
+    // The two rejections below are therefore the wrong key, never a bad signature.
+    BOOST_CHECK_MESSAGE(checker.CheckSig(mallorySig, malloryPkBytes, funding2of2, SIGVERSION_WITNESS_V0),
+                        "Mallory's sig verifies under Mallory's own key");
+    BOOST_CHECK_MESSAGE(!checker.CheckSig(mallorySig, alicePkBytes, funding2of2, SIGVERSION_WITNESS_V0),
+                        "Mallory's sig does not verify under Alice's key");
+    BOOST_CHECK_MESSAGE(!checker.CheckSig(mallorySig, bobPkBytes, funding2of2, SIGVERSION_WITNESS_V0),
+                        "Mallory's sig does not verify under Bob's key");
 }
 
 // ============================================================================

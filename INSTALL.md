@@ -126,8 +126,8 @@ Use the tag of the current release in place of `v2.6.1`. The build takes a few
 minutes on a modern machine. On a machine with less than 4 GB of memory, use
 `make -j1` so it doesn't run out. The programs end up in `src/`.
 
-Leave out `--disable-tests` if you plan to run the unit tests. Add
-`--enable-fuzz` only to build the fuzz targets.
+Leave out `--disable-tests` if you plan to run the unit tests. The fuzz
+targets are built with them, as `src/test/fuzz/fuzz`.
 
 ### Other systems
 

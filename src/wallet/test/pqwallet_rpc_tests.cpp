@@ -9,8 +9,10 @@
 #include "uint256.h"
 #include "utiladdress.h"
 #include "utilstrencodings.h"
+#include "wallet/pqwallet/pqaddress.h"
 #include "wallet/pqwallet/rpc_pqwallet.h"
 
+#include <array>
 #include <string>
 #include <utility>
 #include <vector>
@@ -134,6 +136,34 @@ BOOST_AUTO_TEST_CASE(pqgetnewaddress_is_not_registered)
     RegisterPQWalletRPCCommands(table);
     BOOST_CHECK(table["pqgetnewaddress"] == nullptr);
     BOOST_CHECK(table["pqvalidateaddress"] != nullptr);
+}
+
+// PQAddress::EncodeFromHash packs the version byte and the 32-byte hash into
+// 5-bit groups. This is the library's own layout, which the node refuses as an
+// address (the case pqvalidateaddress_decodes_with_the_network_prefix above).
+// The case pins that output, so that a change to the loop shows. The expected
+// strings are bech32m over the 53 groups of 0x01 || hash, from the BIP 350
+// reference encoder, so they do not depend on this tree's bit conversion.
+BOOST_AUTO_TEST_CASE(encode_from_hash_keeps_the_library_layout)
+{
+    using soqucoin::pqwallet::AddressType;
+    using soqucoin::pqwallet::Network;
+    using soqucoin::pqwallet::PQAddress;
+
+    std::array<uint8_t, 32> zeros;
+    zeros.fill(0x00);
+    BOOST_CHECK_EQUAL(PQAddress::EncodeFromHash(zeros, Network::Mainnet, AddressType::P2PQ),
+        "sq1qyqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq897wn3");
+
+    std::array<uint8_t, 32> ones;
+    ones.fill(0xff);
+    BOOST_CHECK_EQUAL(PQAddress::EncodeFromHash(ones, Network::Testnet, AddressType::P2PQ),
+        "tsq1q8llllllllllllllllllllllllllllllllllllllllllllllllll7jkc7qa");
+
+    std::array<uint8_t, 32> counting;
+    for (size_t i = 0; i < counting.size(); i++) counting[i] = static_cast<uint8_t>(i);
+    BOOST_CHECK_EQUAL(PQAddress::EncodeFromHash(counting, Network::Stagenet, AddressType::P2PQ_PAT),
+        "ssqp1qyqqzqsrqszsvpcgpy9qkrqdpc83qygjzv2p29shrqv35xcur50p7ekpah9");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

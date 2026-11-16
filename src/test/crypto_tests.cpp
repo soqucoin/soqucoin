@@ -306,6 +306,40 @@ BOOST_AUTO_TEST_CASE(sha512_testvectors) {
                "37de8c3ef5459d76a52cedc02dc499a3c9ed9dedbfb3281afd9653b8a112fafc");
 }
 
+// A caller that hashes the bytes of an empty vector passes data() of that
+// vector, which may be a null pointer, with a length of zero. The write is a no-op: the
+// digest of nothing is the digest of the empty message, and a null write
+// between two writes of data leaves the state as it was.
+template <typename Hasher>
+void TestNullWrite(const std::string& hexEmpty, const std::string& hexAbc)
+{
+    const unsigned char* const null = nullptr;
+    const unsigned char abc[3] = {'a', 'b', 'c'};
+    std::vector<unsigned char> hash(Hasher::OUTPUT_SIZE);
+
+    Hasher().Write(null, 0).Finalize(hash.data());
+    BOOST_CHECK(hash == ParseHex(hexEmpty));
+
+    Hasher h;
+    h.Write(null, 0).Write(abc, 1).Write(null, 0).Write(abc + 1, 2).Write(null, 0);
+    h.Finalize(hash.data());
+    BOOST_CHECK(hash == ParseHex(hexAbc));
+}
+
+BOOST_AUTO_TEST_CASE(a_write_of_nothing_from_a_null_pointer)
+{
+    TestNullWrite<CRIPEMD160>("9c1185a5c5e9fc54612808977ee8f548b2258d31",
+                              "8eb208f7e05d987a9b044a8e98c6b087f15a0bfc");
+    TestNullWrite<CSHA1>("da39a3ee5e6b4b0d3255bfef95601890afd80709",
+                         "a9993e364706816aba3e25717850c26c9cd0d89d");
+    TestNullWrite<CSHA256>("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                           "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    TestNullWrite<CSHA512>("cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce"
+                           "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
+                           "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
+                           "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f");
+}
+
 BOOST_AUTO_TEST_CASE(hmac_sha256_testvectors) {
     // test cases 1, 2, 3, 4, 6 and 7 of RFC 4231
     TestHMACSHA256("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
