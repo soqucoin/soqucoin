@@ -360,27 +360,31 @@ jobs:
             CFLAGS="$SAN" CXXFLAGS="$SAN" LDFLAGS="-fsanitize=address,undefined"
           make $MAKEFLAGS
 
-      - name: The binaries under test carry both sanitizers
+      - name: The programs under test carry both sanitizers
         run: |
           # A build that lost its flags would pass every step below with nothing to report.
-          # A program built with the address sanitizer prints that sanitizer's flags when
-          # asked to, through a libtool wrapper too. The undefined-behaviour runtime gives
-          # no such answer inside the address sanitizer's, so its handlers are looked for
-          # in the program file, or in the file a libtool wrapper starts.
-          check() {
-            bin="$1"; shift
-            if ! ASAN_OPTIONS=help=1 "$bin" "$@" 2>&1 | grep -q 'Available flags for AddressSanitizer'; then
-              echo "::error::$bin does not answer as a program built with the address sanitizer"; exit 1
+          # An object file refers to a sanitizer's runtime only when it was compiled with
+          # that sanitizer, so one object of each program is read for both. A program linked
+          # with the address sanitizer prints that sanitizer's flags when asked to, through
+          # a libtool wrapper too.
+          for object in src/test/test_soqucoin-crypto_tests.o src/test/fuzz/fuzz-Fuzz.o; do
+            for runtime in __asan_ __ubsan_handle; do
+              if ! nm -u "$object" | grep -q "$runtime"; then
+                echo "::error::$object has no reference to $runtime, so it was not compiled with that sanitizer"
+                exit 1
+              fi
+            done
+            echo "$object: compiled with both sanitizers"
+          done
+          linked() {
+            if ! ASAN_OPTIONS=help=1 "$@" 2>&1 | grep -q 'Available flags for AddressSanitizer'; then
+              echo "::error::$1 does not answer as a program linked with the address sanitizer"
+              exit 1
             fi
-            real="$bin"
-            if [ -f "$(dirname "$bin")/.libs/$(basename "$bin")" ]; then real="$(dirname "$bin")/.libs/$(basename "$bin")"; fi
-            if ! nm "$real" 2>/dev/null | grep -q '__ubsan_handle'; then
-              echo "::error::$real carries no undefined-behaviour handler, so $bin is not instrumented"; exit 1
-            fi
-            echo "$bin: instrumented ($real)"
+            echo "$1: linked with the address sanitizer"
           }
-          check src/test/test_soqucoin --list_content
-          check src/test/fuzz/fuzz --list
+          linked src/test/test_soqucoin --list_content
+          linked src/test/fuzz/fuzz --list
 
       - name: Unit suite, one case per process
         run: |

@@ -30,9 +30,10 @@
 # GUARDS, so that a run which covered less than the suite cannot pass:
 #   1. the case list comes from the binary's own --list_content, and a listing
 #      that exits non-zero or carries a sanitizer report is a failure;
-#   2. a listing line this script cannot place is a failure, and a test unit at
-#      the top level with nothing under it is run by its own name, so a case
-#      outside every suite is not passed over;
+#   2. a listing line this script cannot place is a failure (a name followed
+#      by a description, a name with a space in it, a unit nested deeper than a
+#      case), and a test unit at the top level with nothing under it is run by
+#      its own name, so a case outside every suite is not passed over;
 #   3. an empty case list is a failure;
 #   4. the number of cases that reported an exit status must equal the number
 #      of cases started;
@@ -104,9 +105,13 @@ fi
 # a unit inside it. A top-level unit followed by indented lines is a suite and
 # those lines are its cases. A top-level unit with nothing under it is run by
 # its own name. Output: "E name" for an enabled case, "D name" for a disabled
-# one, "? line" for a line that fits neither shape.
+# one, "? line" for a line that fits neither shape. A line with more than the
+# name on it fits neither: the binary prints a description after the name of a
+# unit that has one, and keeps the spaces of a template name.
 awk '
 function flush() { if (top != "" && kids == 0) print (topstar ? "E " : "D ") top }
+/^[ \t]*$/ { next }
+NF != 1 { print "? " $0; next }
 /^[^ ]/ {
     flush()
     top = $1; topstar = (top ~ /\*$/); sub(/\*$/, "", top); kids = 0
@@ -118,7 +123,6 @@ function flush() { if (top != "" && kids == 0) print (topstar ? "E " : "D ") top
     print ((star && topstar) ? "E " : "D ") top "/" name
     next
 }
-/^[ \t]*$/ { next }
 { print "? " $0 }
 END { flush() }
 ' "$LISTING" > "$LOG_DIR/cases-parsed.txt"
