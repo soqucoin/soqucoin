@@ -206,6 +206,7 @@ CLAUDE.md
 src/crypto/latticebp/liblatticebp.dylib
 src/crypto/latticebp/test_capi_bin
 src/test/fuzz/fuzz
+src/test/fuzz/pqwallet_fuzz
 src/test/pqderive-test
 src/wallet/pqwallet/pqwallet-test
 
