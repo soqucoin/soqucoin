@@ -3,14 +3,13 @@ name: CI
 on:
   push:
     branches: [main, 'release/**']
-    paths-ignore:
-      - '**/*.md'
-      - 'doc/**'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'doc/**'
+
+# The trigger carries no filter on what changed. The job `changes` decides whether a
+# change touches anything but documentation, the build and test jobs read its answer,
+# and the job `gate` reports on every pull request. Branch protection requires the
+# check `CI gate`, and a required check that a filter skipped would never report.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,11 +23,53 @@ env:
 
 jobs:
   # ============================================
+  # What the change touches
+  # ============================================
+  changes:
+    name: Changes
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2  # a pull request's merge commit and its first parent, the base
+          persist-credentials: false
+      - name: The scripts and the shape of this workflow
+        run: python3 .github/scripts/ci-selftest.py
+      - name: Does the change touch anything but documentation
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull request is checked out as its merge commit, whose first parent is the
+          # base. A push names the commit before it. With no commit to compare against
+          # the list is empty, ci-changes.py answers true and every job runs.
+          base=""
+          if [ "$EVENT" = "pull_request" ]; then
+            base=$(git rev-parse --verify --quiet 'HEAD^1' || true)
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            if git fetch --no-tags --depth=1 origin "$BEFORE"; then base="$BEFORE"; fi
+          fi
+          files=""
+          if [ -n "$base" ]; then
+            files=$(git diff --name-only --no-renames "$base" HEAD || true)
+          fi
+          answer=$(printf '%s\n' "$files" | python3 .github/scripts/ci-changes.py)
+          echo "$answer"
+          echo "$answer" >> "$GITHUB_OUTPUT"
+
+  # ============================================
   # Lint
   # ============================================
   lint:
     name: Lint
     runs-on: ubuntu-22.04
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
@@ -56,6 +97,9 @@ jobs:
   build-linux-x64:
     name: Linux x86_64
     runs-on: ubuntu-22.04
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v5
 
@@ -109,6 +153,9 @@ jobs:
   build-linux-arm64:
     name: Linux ARM64
     runs-on: ubuntu-22.04
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -169,6 +216,9 @@ jobs:
   build-windows-x64:
     name: Windows x64
     runs-on: ubuntu-22.04
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v5
 
@@ -233,6 +283,9 @@ jobs:
   build-macos-arm64:
     name: macOS ARM64
     runs-on: macos-15
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
 
@@ -250,3 +303,88 @@ jobs:
             LDFLAGS="-L/opt/homebrew/lib -L/opt/homebrew/opt/openssl@3/lib -L/opt/homebrew/opt/libevent/lib" \
             CPPFLAGS="-I/opt/homebrew/include -I/opt/homebrew/opt/openssl@3/include -I/opt/homebrew/opt/libevent/include"
           make $MAKEFLAGS
+
+  # ============================================
+  # Linux x86_64 under the address and undefined-behaviour sanitizers
+  # ============================================
+  sanitizers:
+    name: Sanitizers (address, undefined)
+    runs-on: ubuntu-22.04
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    timeout-minutes: 150
+    env:
+      # Leak detection is a separate set of reports and is off until they are read.
+      ASAN_OPTIONS: detect_leaks=0
+      # The undefined-behaviour sanitizer prints a report and carries on by default.
+      # halt_on_error ends the process with a failure at a report. The suppressions
+      # file lists the known sites, one line each.
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:suppressions=${{ github.workspace }}/src/test/sanitizer_suppressions/ubsan
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libtool autotools-dev automake \
+            pkg-config bsdmainutils python3 libssl-dev \
+            libevent-dev libboost-all-dev libminiupnpc-dev \
+            libzmq3-dev libsqlite3-dev libdb++-dev ccache \
+            clang llvm
+
+      - name: CCache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ~/.ccache
+          key: linux-x64-sanitizers-ccache-${{ hashFiles('**/configure.ac') }}
+          restore-keys: linux-x64-sanitizers-ccache-
+
+      - name: Build with clang and both sanitizers
+        run: |
+          ./autogen.sh
+          SAN="-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer"
+          ./configure --without-gui \
+            --enable-zmq --enable-module-rangeproof \
+            --enable-module-generator --enable-experimental \
+            CC=clang CXX=clang++ \
+            CFLAGS="$SAN" CXXFLAGS="$SAN" LDFLAGS="-fsanitize=address,undefined"
+          make $MAKEFLAGS
+
+      - name: Unit suite, one case per process
+        run: |
+          cd src
+          test/run_unit_cases.sh -j 4 -o "$RUNNER_TEMP/unit-cases"
+
+      - name: Fuzz seed pass
+        run: |
+          cd src
+          test/fuzz/run_seed_corpus.sh
+
+      - name: Keep the output of each case when the run fails
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sanitizer-unit-cases
+          path: ${{ runner.temp }}/unit-cases
+          retention-days: 14
+
+  # ============================================
+  # One check that reports for every job above
+  # ============================================
+  gate:
+    name: CI gate
+    runs-on: ubuntu-22.04
+    if: always()
+    needs: [changes, lint, build-linux-x64, build-linux-arm64, build-windows-x64, build-macos-arm64, sanitizers]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Every job passed, or the change is documentation alone
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 .github/scripts/ci-gate.py
