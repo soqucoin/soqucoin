@@ -265,8 +265,9 @@ two excluded with no comment (rpc_tests.cpp, versionbits_tests.cpp). The
 silent two are an open tracked item: they will either be built or their
 exclusion documented.
 
-Functional tests: `qa/rpc-tests/` holds 98 files. The runner
-(qa/pull-tester/rpc-tests.py) lists 70 in the default list plus one
+Functional tests, counted 2026-11-15 at 31062a453: `qa/rpc-tests/` holds
+114 Python files at its top level. The runner
+(qa/pull-tester/rpc-tests.py) lists 86 in the default list plus one
 conditional (zmq), and 16 in the extended list. Several files are
 commented out of the runner or referenced by neither list, including
 segwit.py, p2p-segwit.py, nulldummy.py, bip9-softforks.py, and
