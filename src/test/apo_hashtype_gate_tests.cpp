@@ -168,4 +168,34 @@ BOOST_AUTO_TEST_CASE(apo_is_not_in_standard_flags)
         "chainparams, not this flag set");
 }
 
+// SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY opens the key-hash check of witness
+// version 6 and no other path. With the flag set the single-key path refuses
+// each anyprevout hash type as it does without it, and takes the same spend
+// signed SIGHASH_ALL.
+BOOST_AUTO_TEST_CASE(apo_rejected_on_single_key_path_under_the_v6_history_flag)
+{
+    const unsigned int withoutFlag = MANDATORY_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_APO;
+    const unsigned int withFlag = withoutFlag | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY;
+    const CTransaction& funding = coinbaseTxns[6];
+
+    auto verdict = [&](int nHashType, unsigned int flags) {
+        const CTransaction tx(SpendWithHashType(funding, nHashType));
+        const TransactionSignatureChecker checker(&tx, 0, funding.vout[0].nValue);
+        ScriptError serr = SCRIPT_ERR_OK;
+        VerifyScript(tx.vin[0].scriptSig, coinbaseSpk, &tx.vin[0].scriptWitness, flags, checker, &serr);
+        return serr;
+    };
+
+    for (int nHashType : {0x41, 0x42, 0xc1, 0xc2}) {
+        BOOST_CHECK_MESSAGE(verdict(nHashType, withFlag) == SCRIPT_ERR_SIG_HASHTYPE,
+            "hash type 0x" << std::hex << nHashType << std::dec << " with the history flag: got "
+                           << ScriptErrorString(verdict(nHashType, withFlag)));
+        BOOST_CHECK_MESSAGE(verdict(nHashType, withoutFlag) == SCRIPT_ERR_SIG_HASHTYPE,
+            "hash type 0x" << std::hex << nHashType << std::dec << " without the history flag: got "
+                           << ScriptErrorString(verdict(nHashType, withoutFlag)));
+    }
+    BOOST_CHECK_EQUAL(verdict(SIGHASH_ALL, withFlag), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(verdict(SIGHASH_ALL, withoutFlag), SCRIPT_ERR_OK);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

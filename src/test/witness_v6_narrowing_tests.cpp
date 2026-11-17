@@ -402,6 +402,20 @@ BOOST_AUTO_TEST_CASE(a_v6_keyhash_spend_with_an_anyprevout_signature_is_refused_
         s.items[first ? 0 : 2] = s.Sign(first ? a : b, SIGHASH_ANYPREVOUTANYSCRIPT);
         BOOST_CHECK_EQUAL(s.Verdict(SWAP_FLAGS | SCRIPT_VERIFY_APO), SCRIPT_ERR_SIG_HASHTYPE);
     }
+
+    // The hash type is refused before the signature is checked: a signature
+    // that does not verify gets the error of its hash type, where the same
+    // bytes under SIGHASH_ALL get the error of the check.
+    for (int byte : ANYPREVOUT_BYTES) {
+        Spend forged = TwoOfTwo(a, b, byte);
+        forged.items[2][7] ^= 0x01;
+        BOOST_CHECK_MESSAGE(forged.Verdict(SWAP_FLAGS | SCRIPT_VERIFY_APO) == SCRIPT_ERR_SIG_HASHTYPE,
+            "a forged signature of hash type 0x" << std::hex << byte << std::dec << ": got "
+                                                  << Name(forged.Verdict(SWAP_FLAGS | SCRIPT_VERIFY_APO)));
+    }
+    Spend forgedOrdinary = TwoOfTwo(a, b, SIGHASH_ALL);
+    forgedOrdinary.items[2][7] ^= 0x01;
+    BOOST_CHECK_EQUAL(forgedOrdinary.Verdict(SWAP_FLAGS | SCRIPT_VERIFY_APO), SCRIPT_ERR_CHECKDILITHIUMKEYHASH);
 }
 
 BOOST_AUTO_TEST_CASE(the_v6_verdict_does_not_read_the_three_flags)
