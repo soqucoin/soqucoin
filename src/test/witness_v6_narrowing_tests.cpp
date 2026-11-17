@@ -25,8 +25,9 @@
 //
 // Three suites. The first drives VerifyScript with stated flags. The second
 // spends a version 6 output on a regtest chain through the mempool and through
-// a block. The third covers the list, its one writer and the two stagenet
-// transactions as they are on that chain.
+// a block, and connects a block whose hash is on the list. The third covers
+// the list, its one writer and the two stagenet transactions as they are on
+// that chain.
 
 #include "amount.h"
 #include "chainparams.h"
@@ -37,6 +38,8 @@
 #include "hash.h"
 #include "key.h"
 #include "policy/policy.h"
+#include "pow.h"
+#include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "pubkey.h"
 #include "script/interpreter.h"
@@ -149,13 +152,27 @@ struct Spend {
         return sig;
     }
 
-    ScriptError Verdict(unsigned int flags) const
+    //! The witness: the items, the script and a trailer.
+    CScriptWitness Witness() const
     {
         CScriptWitness w;
         for (const valtype& v : items)
             w.stack.push_back(v);
         w.stack.push_back(valtype(ws.begin(), ws.end()));
         w.stack.push_back(valtype(1313, 0x00));
+        return w;
+    }
+
+    //! The sigop count of the input, as GetTransactionSigOpCost reads it.
+    size_t SigOps(unsigned int flags) const
+    {
+        const CScriptWitness w = Witness();
+        return CountWitnessSigOps(CScript(), V6ProgramFor(ws), &w, flags);
+    }
+
+    ScriptError Verdict(unsigned int flags) const
+    {
+        const CScriptWitness w = Witness();
         const CTransaction ctx(tx);
         const TransactionSignatureChecker checker(&ctx, 0, amount);
         ScriptError serr = SCRIPT_ERR_OK;
@@ -420,6 +437,47 @@ BOOST_AUTO_TEST_CASE(the_v6_verdict_does_not_read_the_three_flags)
     }
 }
 
+// The sigop count of a version 6 input still reads SCRIPT_VERIFY_CSFS: it
+// charges an OP_CHECKSIGFROMSTACK byte while the flag is set. A script that
+// holds the byte is refused with the flag set and with it clear, so the count
+// of a spend that verifies does not depend on the three flags.
+BOOST_AUTO_TEST_CASE(the_sigop_count_of_a_v6_spend_that_verifies_does_not_read_the_three_flags)
+{
+    CKey a, b;
+    a.MakeNewKey(true);
+    b.MakeNewKey(true);
+
+    struct Row {
+        const char* name;
+        Spend spend;
+        size_t sigops;
+    };
+    std::vector<Row> accepted;
+    // The swap's script holds one key-hash check in each branch.
+    accepted.push_back({"the swap's claim", SwapClaim(a, b), 2});
+    accepted.push_back({"the swap's refund", SwapRefund(a, b), 2});
+    accepted.push_back({"two key-hash checks signed SIGHASH_ALL", TwoOfTwo(a, b, SIGHASH_ALL), 2});
+
+    for (const Row& row : accepted) {
+        for (unsigned int mask = 0; mask < 8; ++mask) {
+            const unsigned int flags = SWAP_FLAGS | Covenant(mask);
+            BOOST_CHECK_MESSAGE(row.spend.Verdict(flags) == SCRIPT_ERR_OK,
+                row.name << ", ctv/apo/csfs mask " << mask << ": got " << Name(row.spend.Verdict(flags)));
+            BOOST_CHECK_MESSAGE(row.spend.SigOps(flags) == row.sigops,
+                row.name << ", ctv/apo/csfs mask " << mask << ": " << row.spend.SigOps(flags) << " sigops, expected "
+                         << row.sigops);
+        }
+    }
+
+    // The byte the count charges under csfs, in a script refused in each state.
+    const Spend refused = SignedChecksigfromstack(a);
+    for (unsigned int mask = 0; mask < 8; ++mask) {
+        const unsigned int flags = SWAP_FLAGS | Covenant(mask);
+        BOOST_CHECK_EQUAL(refused.Verdict(flags), SCRIPT_ERR_DISALLOWED_OPCODE);
+        BOOST_CHECK_EQUAL(refused.SigOps(flags), (mask & 4) ? 1u : 0u);
+    }
+}
+
 BOOST_AUTO_TEST_CASE(the_product_int64_min_is_refused_in_a_v6_script)
 {
     const std::vector<std::pair<int64_t, int64_t> > operands = OperandsOfTheLowestProduct();
@@ -524,6 +582,31 @@ std::string RelayRefusal(const CMutableTransaction& tx)
     return st.GetRejectReason();
 }
 
+//! Whether a solved block passes ConnectBlock on the tip.
+bool Connects(const CBlock& block)
+{
+    CValidationState st;
+    LOCK(cs_main);
+    return TestBlockValidity(st, Params(), block, chainActive.Tip(), true, true);
+}
+
+//! Puts one hash on regtest's list, on the tier of one height, and takes it
+//! off when the case ends. The node has no function that alters a network's
+//! list: chainparams.cpp fills stagenet's when the parameters are built.
+struct ListedForTheCase {
+    std::set<uint256>& list;
+    const uint256 hash;
+
+    ListedForTheCase(const uint256& hashIn, int height)
+        : list(const_cast<Consensus::Params&>(Params().GetConsensus(height)).witnessV6AnyprevoutHistoryBlocks),
+          hash(hashIn)
+    {
+        BOOST_REQUIRE(list.empty());
+        list.insert(hash);
+    }
+    ~ListedForTheCase() { list.erase(hash); }
+};
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
@@ -596,6 +679,54 @@ BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
         BOOST_CHECK_EQUAL(RelayRefusal(tx), std::string());
         BOOST_CHECK_EQUAL(mempool.size(), 1u);
     }
+}
+
+// The call site of the one writer. ConnectBlock reads the list of the network
+// it validates with the hash of the block it connects, so a block on the list
+// takes a version 6 spend signed with an anyprevout type and a block with any
+// other hash does not. Regtest's list is empty: the case puts the hash of one
+// solved block on it for the length of the check.
+BOOST_AUTO_TEST_CASE(connectblock_takes_an_anyprevout_spend_in_a_listed_block_and_in_no_other)
+{
+    const valtype key = coinbasePkBytes;
+    const valtype trailer = PrefixedPubkey(coinbasePkBytes);
+    const CScript ws = CScript() << KeyHash(key) << OP_CHECKDILITHIUMKEYHASH << OP_1;
+    CMutableTransaction tx = SpendOf(SeedCoin(V6ProgramFor(ws), SEEDED, 0xc0), coinbaseSpk);
+    const uint256 sighash = SignatureHash(ws, CTransaction(tx), 0, SIGHASH_ANYPREVOUTANYSCRIPT, SEEDED,
+                                          SIGVERSION_WITNESS_V0, nullptr);
+    valtype sig;
+    BOOST_REQUIRE(coinbaseKey.Sign(sighash, sig));
+    sig.push_back(static_cast<unsigned char>(SIGHASH_ANYPREVOUTANYSCRIPT));
+    SetWitness(tx, {sig, key}, ws, trailer);
+
+    // Two solved blocks that hold the spend and differ in their nonce.
+    const CBlock listed = BuildSolvedBlock(std::vector<CMutableTransaction>(1, tx), coinbaseSpk);
+    CBlock other = listed;
+    do {
+        ++other.nNonce;
+    } while (!CheckProofOfWork(other.GetPoWHash(), other.nBits, Params().GetConsensus(0)));
+    BOOST_REQUIRE(other.GetHash() != listed.GetHash());
+
+    int height = 0;
+    {
+        LOCK(cs_main);
+        height = chainActive.Height() + 1;
+    }
+    BOOST_REQUIRE(Params().GetConsensus(height).witnessV6AnyprevoutHistoryBlocks.empty());
+    BOOST_CHECK(!Connects(listed));
+    BOOST_CHECK(!Connects(other));
+
+    {
+        const ListedForTheCase entry(listed.GetHash(), height);
+        BOOST_CHECK(Connects(listed));
+        BOOST_CHECK(!Connects(other));
+        // The mempool does not read the list.
+        BOOST_CHECK_EQUAL(RelayRefusal(tx), MandatoryRefusal(SCRIPT_ERR_SIG_HASHTYPE));
+        BOOST_CHECK_EQUAL(mempool.size(), 0u);
+    }
+
+    BOOST_CHECK(Params().GetConsensus(height).witnessV6AnyprevoutHistoryBlocks.empty());
+    BOOST_CHECK(!Connects(listed));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

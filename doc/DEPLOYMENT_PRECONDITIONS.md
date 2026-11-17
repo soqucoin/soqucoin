@@ -59,7 +59,7 @@ feature that satisfies its own row and violates one of these is **not** ready.
    all three before any of them is scheduled.
 
    `DEPLOYMENT_CTV`, `DEPLOYMENT_APO` and `DEPLOYMENT_CSFS` are outside this
-   exception. Witness v6 reads none of them. They gate witness v11, where each
+   exception. No verdict of witness v6 depends on them. They gate witness v11, where each
    activation only refuses. Rationale and the per-opcode arity trace:
    `doc/specifications/WITNESS_VERSION_FORK_CLASS.md` §3a and the v6 and v11
    rows of §3.
