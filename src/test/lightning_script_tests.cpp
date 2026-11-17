@@ -10,9 +10,13 @@
 // regression-tested in covenant_tests.cpp; THIS file assembles them into the
 // Lightning scripts (§1.1, §1.3, §2.2, §2.3) and pins the §0.2-P0 relay gap.
 //
-// Phase-0 deployed June 14, 2026: APO now accepted (SOQ-COV-009 updated).
-// A2 rebinding proof added: the eLTOO state machine works on-chain with
-// real Dilithium keys, SIGHASH_ANYPREVOUT, and SIGHASH_ANYPREVOUTANYSCRIPT.
+// Witness version 6 runs none of the channel forms of this file that use an
+// anyprevout hash type, OP_CHECKSIGFROMSTACK or OP_CHECKTEMPLATEVERIFY: the two
+// opcodes are outside its opcode set, and its key-hash check refuses the hash
+// type. The five cases that spent through one of the three hold the refusal.
+// SignatureHash and CheckSig still compute and verify the anyprevout message,
+// which the two stagenet blocks of the history list are checked with, and the
+// cases that call the two directly are unchanged.
 //
 // To enable: add `test/lightning_script_tests.cpp` to BITCOIN_TESTS in
 // src/Makefile.test.include, then:
@@ -191,6 +195,11 @@ BOOST_AUTO_TEST_CASE(ctv_htlc_resolution_commits_outputs)
 //
 // We generate a real Dilithium key, sign with SIGHASH_ANYPREVOUT, and verify
 // CheckSig accepts the APO-signed signature. This is a prerequisite for A2.
+//
+// CheckSig holds no flags, so this is the function's own verdict and not a
+// spend's. Each of its three callers refuses the hash type before the call:
+// the single-key path, the key-hash check of witness version 11, and the
+// key-hash check of witness version 6 in every block outside the history list.
 BOOST_AUTO_TEST_CASE(eltoo_update_apo_accepted_postpatch)
 {
     // Generate Dilithium key pair
@@ -255,13 +264,19 @@ BOOST_AUTO_TEST_CASE(eltoo_update_apo_accepted_postpatch)
 }
 
 // =====================================================
-// A2: APO REBINDING END-TO-END — THE LOAD-BEARING PROOF
+// A2: the anyprevout message, as CheckSig verifies it
 // =====================================================
 //
-// §4.3 / TV §4.3: A newer update TX rebinds + supersedes a stale one on-chain;
-// lower-state update rejected by CLTV supersession guard.
+// §4.3 / TV §4.3. The case calls CheckSig and CheckLockTime and never
+// VerifyScript. It holds two properties of the message: a signature over the
+// 0x42 message verifies against another outpoint and another script of the
+// same keys, and a lock time below a state's guard does not satisfy the guard.
+// It shows nothing about a spend. No witness version accepts an anyprevout
+// signature in a new block: the single-key path and the key-hash check of
+// witness version 6 refuse the hash type, and witness version 11 defines no
+// key type for it.
 //
-// This proves the eLTOO state machine works on-chain:
+// The steps:
 // 1. Create a funding output
 // 2. Sign update TX #1 (state L=100) with SIGHASH_ANYPREVOUT
 // 3. Create update TX #1's output (another update output with L+1 CLTV guard)
@@ -727,29 +742,30 @@ BOOST_AUTO_TEST_CASE(sighashall_dump_vectors)
 }
 
 // ============================================================================
-// V6 ON-CHAIN eLTOO LIFECYCLE — THE FULL-STACK PROOF
+// The CSFS 2-of-2 funding output of the earlier channel design, in version 6
 // ============================================================================
 //
-// ARCHITECTURAL FINDINGS:
-//   1. Soqucoin's EvalScript is a MINIMAL interpreter handling ONLY PQ-specific
-//      opcodes (PAT, LatticeFold, CSFS, CTV, CAT, MUL/DIV/MOD, SUBSTR/LEFT/RIGHT)
-//      and push opcodes (OP_0..OP_16, data pushes).
-//   2. Standard Bitcoin opcodes (OP_CHECKSIG, OP_IF/ELSE/ENDIF, OP_DUP, OP_DROP,
-//      OP_HASH160, OP_EQUALVERIFY, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY)
-//      are NOT handled in EvalScript — they are no-ops that fall through.
-//   3. Dilithium pubkeys (1312 bytes) exceed MAX_SCRIPT_ELEMENT_SIZE (520 bytes),
-//      so they CANNOT be embedded in scripts — they must come from the witness.
-//   4. V6 signature verification uses CSFS (OP_NOP5/OP_CHECKSIGFROMSTACK).
-//      CSFS pops {sig, msg, pubkey}, computes Hash(msg) (double-SHA256), and
-//      verifies via pubkey.Verify(Hash(msg), sig).
+// The earlier design funded a channel to the witness script
+// OP_CHECKSIGFROMSTACK OP_CHECKSIGFROMSTACK OP_1 (b4 b4 51) and spent it two
+// ways: an update whose two signatures cover the 0x42 message of the update
+// transaction, and a cooperative close whose two signatures cover the
+// SIGHASH_ALL message of the close. The opcode pops a signature, a message and
+// a key, and verifies the signature over the double SHA-256 of the message.
 //
-// Design:
-//   Step 1: Build a V6 P2WSH funding output with a CSFS-based 2-of-2 script
-//   Step 2: Spend via APO-signed update TX (CSFS verification through V6)
-//   Step 3: Build & verify a cooperative close (CSFS, SIGHASH_ALL)
+// Witness version 6 refuses both spends with SCRIPT_ERR_DISALLOWED_OPCODE.
+// OP_CHECKSIGFROMSTACK is outside its opcode set, and the walk over the witness
+// script refuses the byte before the script runs and before a signature is
+// read. An output funded to this script cannot be spent where version 6 is
+// active. The two spends are built as they were and run under the same flags,
+// the state in which the earlier rule accepted them; witness_v6_narrowing_tests
+// holds the refusal in the other states of the three deployment flags.
 //
-// Run: src/test/test_soqucoin --run_test=lightning_script_tests/eltoo_v6_onchain_lifecycle --log_level=message
-BOOST_AUTO_TEST_CASE(eltoo_v6_onchain_lifecycle)
+//   Step 1: the funding output
+//   Step 2: the update, refused
+//   Step 3: the cooperative close, refused
+//
+// Run: src/test/test_soqucoin --run_test=lightning_script_tests/eltoo_v6_csfs_funding_spends_are_refused --log_level=message
+BOOST_AUTO_TEST_CASE(eltoo_v6_csfs_funding_spends_are_refused)
 {
     auto hex = [](const unsigned char* p, size_t n) {
         static const char* d = "0123456789abcdef";
@@ -804,6 +820,9 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_onchain_lifecycle)
     // witnessScript: OP_NOP5 OP_NOP5 OP_1
     //   - Two CSFS checks (both in VERIFY mode since OP_CHECKSIGFROMSTACKVERIFY == OP_NOP5)
     //   - OP_1 pushes TRUE for clean stack check
+    //
+    // The layout below is the one the earlier rule executed. Version 6 does
+    // not run the script.
     //
     // CSFS stack layout (per call, bottom→top): sig | msg | pubkey
     // So witness satisfaction items (bottom→top of eval stack):
@@ -888,16 +907,14 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_onchain_lifecycle)
     fundWitness.stack.push_back(std::vector<unsigned char>(funding2of2.begin(), funding2of2.end()));
     fundWitness.stack.push_back(alicePkPrefixed);
 
-    // VerifyScript — THE V6 GATE
+    // The update is refused for the opcode of the funding script.
     CScript emptyScriptSig;
     ScriptError serror = SCRIPT_ERR_OK;
     TransactionSignatureChecker updateChecker(&ctxUpdate, 0, channelAmount);
     bool step2ok = VerifyScript(emptyScriptSig, fundingSpk, &fundWitness, v6Flags,
                                 updateChecker, &serror);
-    BOOST_CHECK_MESSAGE(step2ok,
-        "STEP 2: Update TX passes V6 VerifyScript (APO + CSFS 2-of-2), serror=" << serror);
-
-    BOOST_TEST_MESSAGE("STEP 2: Update TX verified — CSFS 2-of-2 through V6 P2WSH-Dilithium ✓");
+    BOOST_CHECK_MESSAGE(!step2ok && serror == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "STEP 2: the update spend of the CSFS 2-of-2 must be refused for its opcode; ok=" << step2ok << " serror=" << serror);
 
     // ================================================================
     // STEP 3: COOPERATIVE CLOSE (direct 2-of-2 spend of funding)
@@ -940,43 +957,28 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_onchain_lifecycle)
     TransactionSignatureChecker closeChecker(&ctxClose, 0, channelAmount);
     bool step3ok = VerifyScript(emptyScriptSig, fundingSpk, &closeWitness, v6Flags,
                                 closeChecker, &closeError);
-    BOOST_CHECK_MESSAGE(step3ok,
-        "STEP 3: Cooperative close passes V6 VerifyScript, serror=" << closeError);
-
-    BOOST_TEST_MESSAGE("STEP 3: Cooperative close verified — CSFS 2-of-2 through V6 ✓");
-
-    // ---- Summary vectors (for SDK cross-reference) ----
-    BOOST_TEST_MESSAGE("V6_LIFECYCLE_BEGIN");
-    BOOST_TEST_MESSAGE("alice_pk_hex=" << hexv(alicePkBytes));
-    BOOST_TEST_MESSAGE("bob_pk_hex=" << hexv(bobPkBytes));
-    BOOST_TEST_MESSAGE("funding_script_sha256=" << hex256(
-        [&]() { uint256 h; CSHA256().Write(funding2of2.data(), funding2of2.size()).Finalize(h.begin()); return h; }()));
-    BOOST_TEST_MESSAGE("step2_apo_sighash=" << hex256(apoSighash));
-    BOOST_TEST_MESSAGE("step2_csfs_digest=" << hex256(csfsDigest));
-    BOOST_TEST_MESSAGE("step3_close_sighash=" << hex256(closeSighash));
-    BOOST_TEST_MESSAGE("step3_csfs_digest=" << hex256(closeDigest));
-    BOOST_TEST_MESSAGE("V6_LIFECYCLE_END");
-
-    // ---- Both steps must pass ----
-    BOOST_REQUIRE_MESSAGE(step2ok && step3ok,
-        "LIFECYCLE COMPLETE: All steps pass V6 VerifyScript");
+    BOOST_CHECK_MESSAGE(!step3ok && closeError == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "STEP 3: the cooperative close of the CSFS 2-of-2 must be refused for its opcode; ok=" << step3ok << " serror=" << closeError);
 }
 
 // ============================================================================
-// CSFS+CTV BINDING MODEL — PROVES OUTPUT COMMITMENT
+// The two scripts of the binding model, in version 6
 // ============================================================================
 //
-// Key binding concern: CSFS alone verifies signatures over an arbitrary
-// message, but doesn't bind that message to the spending transaction's outputs.
-// CTV (OP_CHECKTEMPLATEVERIFY) fills this gap by committing to:
-//   nVersion, nLockTime, nInputs, sequences, nOutputs, outputs, inputIndex
+// The model compared two witness scripts of the earlier channel design:
+//   OP_NOP5 OP_NOP5 OP_CHECKTEMPLATEVERIFY (b4 b4 b3), two CSFS checks and a
+//     template check whose hash is a witness item, and
+//   OP_NOP5 OP_NOP5 OP_1 (b4 b4 51), the two CSFS checks alone.
+// Under the earlier rule a spend of the first with the outputs of its template
+// verified (A), the same spend with other outputs failed the template check
+// (B), and a spend of the second verified with any outputs (C).
 //
-// Script: OP_NOP5 OP_NOP5 OP_CHECKTEMPLATEVERIFY
-//   - Two CSFS checks (VERIFY mode) authenticate both signers
-//   - CTV checks the template hash, binding to specific outputs
-//   - CTV hash stays on stack → clean stack check (32 bytes = truthy) ✓
+// Witness version 6 refuses the three spends with SCRIPT_ERR_DISALLOWED_OPCODE.
+// Both opcodes are outside its opcode set, so neither script runs and the
+// model's comparison is not reached. The two opcodes belong to witness version
+// 11. The three spends are built as they were.
 //
-// Witness stack (bottom→top):
+// Witness stack of A and B (bottom→top), as the earlier rule executed it:
 //   [0] = ctvHash     → bottom, consumed by CTV after CSFS clears above items
 //   [1] = aliceSig    → 1st CSFS sig
 //   [2] = aliceMsg    → 1st CSFS msg
@@ -987,23 +989,14 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_onchain_lifecycle)
 //
 // Then: witnessScript + trailing 0x00||pk (V6 handler strips these)
 //
-// Test plan:
-//   A) Correct outputs + correct CTV hash → PASS
-//   B) Tampered outputs → CTV REJECTS (binding proof)
-//   C) Same tampering with CSFS-only script → PASSES (proving the gap)
+// The three spends:
+//   A) the outputs of the template, the template's hash: refused
+//   B) other outputs, the same hash: refused
+//   C) the script without the template check, any outputs: refused
 //
-// Run: src/test/test_soqucoin --run_test=lightning_script_tests/csfs_ctv_binding_model --log_level=message
-BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
+// Run: src/test/test_soqucoin --run_test=lightning_script_tests/csfs_ctv_binding_scripts_in_v6_are_refused --log_level=message
+BOOST_AUTO_TEST_CASE(csfs_ctv_binding_scripts_in_v6_are_refused)
 {
-    auto hex = [](const unsigned char* p, size_t n) {
-        static const char* d = "0123456789abcdef";
-        std::string s; s.reserve(n * 2);
-        for (size_t i = 0; i < n; i++) { s += d[p[i] >> 4]; s += d[p[i] & 0xf]; }
-        return s;
-    };
-    auto hexv = [&](const std::vector<unsigned char>& v) { return hex(v.data(), v.size()); };
-    auto hex256 = [&](const uint256& u) { return hex(u.begin(), 32); };
-
     // ---- CTV hash computation (mirrors covenant_tests.cpp ComputeCTVHash) ----
     auto computeCTVHash = [](const CMutableTransaction& tx, unsigned int nIn) -> std::vector<unsigned char> {
         auto writeLE32 = [](CSHA256& h, uint32_t v) {
@@ -1093,7 +1086,7 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
     fundTx.vout.push_back(fundOut);
 
     // ================================================================
-    // TEST A: Correct outputs → CSFS+CTV PASSES
+    // TEST A: the outputs of the template → refused for the opcodes
     // ================================================================
     CMutableTransaction spendTx;
     spendTx.nVersion = 2;
@@ -1140,13 +1133,14 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
     TransactionSignatureChecker checkerA(&ctxSpend, 0, channelAmount);
     bool testA = VerifyScript(emptyScriptSig, csfsCtvSpk, &correctWitness, v6Flags,
                               checkerA, &serrorA);
-    BOOST_CHECK_MESSAGE(testA,
-        "TEST A: CSFS+CTV with correct outputs PASSES, serror=" << serrorA);
-    BOOST_TEST_MESSAGE("TEST A: CSFS+CTV with correct outputs → PASS ✓");
+    BOOST_CHECK_MESSAGE(!testA && serrorA == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "TEST A: CSFS+CTV with the template's outputs must be refused for its opcodes; ok=" << testA << " serror=" << serrorA);
 
     // ================================================================
-    // TEST B: Tampered outputs → CTV REJECTS
+    // TEST B: other outputs, the same hash → refused for the opcodes
     // ================================================================
+    // The earlier rule failed this spend at the template check. It is now
+    // refused before that check, with the error of test A.
     // Change Alice's share from 55 to 65 (steal 10 from Bob)
     CMutableTransaction tamperedTx = spendTx;
     tamperedTx.vout[0].nValue = 65 * COIN; // Alice steals
@@ -1179,15 +1173,14 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
     TransactionSignatureChecker checkerB(&ctxTampered, 0, channelAmount);
     bool testB = VerifyScript(emptyScriptSig, csfsCtvSpk, &tamperedWitness, v6Flags,
                               checkerB, &serrorB);
-    BOOST_CHECK_MESSAGE(!testB,
-        "TEST B: CSFS+CTV with tampered outputs must FAIL, serror=" << serrorB);
-    BOOST_TEST_MESSAGE("TEST B: CSFS+CTV with tampered outputs → REJECTED ✓ (serror=" << serrorB << ")");
+    BOOST_CHECK_MESSAGE(!testB && serrorB == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "TEST B: CSFS+CTV with other outputs must be refused for its opcodes; ok=" << testB << " serror=" << serrorB);
 
     // ================================================================
-    // TEST C: CSFS-only with tampered outputs → PASSES (the gap)
+    // TEST C: the script without the template check → refused for the opcode
     // ================================================================
-    // Proves CSFS alone doesn't bind to outputs — this is the security gap
-    // that CTV fills.
+    // The earlier rule verified this spend with any outputs, since the two
+    // signature checks bind no output.
     CScript csfsOnlyScript;
     csfsOnlyScript << OP_NOP5 << OP_NOP5 << OP_1;
 
@@ -1239,53 +1232,31 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_binding_model)
     TransactionSignatureChecker checkerC(&ctxCsfsSpend, 0, channelAmount);
     bool testC = VerifyScript(emptyScriptSig, csfsOnlySpk, &csfsOnlyWitness, v6Flags,
                               checkerC, &serrorC);
-    BOOST_CHECK_MESSAGE(testC,
-        "TEST C: CSFS-only with tampered outputs PASSES (the gap!), serror=" << serrorC);
-    BOOST_TEST_MESSAGE("TEST C: CSFS-only with tampered outputs → PASS (binding gap demonstrated) ✓");
-
-    // ---- Summary ----
-    BOOST_TEST_MESSAGE("BINDING_MODEL_BEGIN");
-    BOOST_TEST_MESSAGE("csfs_ctv_script_hex=" << hexv(std::vector<unsigned char>(csfsCtvScript.begin(), csfsCtvScript.end())));
-    BOOST_TEST_MESSAGE("csfs_only_script_hex=" << hexv(std::vector<unsigned char>(csfsOnlyScript.begin(), csfsOnlyScript.end())));
-    BOOST_TEST_MESSAGE("ctv_hash_hex=" << hexv(ctvHash));
-    BOOST_TEST_MESSAGE("test_a_csfs_ctv_correct=" << testA);
-    BOOST_TEST_MESSAGE("test_b_csfs_ctv_tampered=" << testB);
-    BOOST_TEST_MESSAGE("test_c_csfs_only_tampered=" << testC);
-    BOOST_TEST_MESSAGE("BINDING_MODEL_END");
-
-    BOOST_REQUIRE_MESSAGE(testA && !testB && testC,
-        "BINDING MODEL CONFIRMED: CSFS+CTV binds outputs, CSFS-only does not");
+    BOOST_CHECK_MESSAGE(!testC && serrorC == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "TEST C: the CSFS-only script must be refused for its opcode; ok=" << testC << " serror=" << serrorC);
 }
 
 // ============================================================================
-// CSFS+CTV SUBSTITUTION ATTACK (Scenarios D + E)
+// The two template forms of the substitution model, in version 6
 // ============================================================================
 //
-// Key insight: when ctv_hash is a free witness item, Alice can substitute
-// BOTH the ctv_hash AND the outputs while reusing Bob's valid CSFS signatures.
-// CSFS verifies "agreed" (the old sighash), CTV verifies ctvH' (the attacker's
-// template) — they're decoupled.
+// The model compared where the template hash of a channel output lives:
+//   OP_NOP5 OP_NOP5 OP_NOP4               (b4 b4 b3), the hash a witness item
+//                                         that the spender chooses;
+//   OP_NOP5 OP_NOP5 <32-byte hash> OP_NOP4 (b4 b4 20<hash> b3), the hash in the
+//                                         witness script, fixed by the output.
+// Under the earlier rule the first form verified a spend that carried the two
+// signatures made for the agreed outputs with another hash and other outputs
+// (D). The second form failed that spend (E) and verified the agreed one
+// (E-sanity).
 //
-// Scenario D: Substitution attack on witness-based CTV hash → PASSES (the bug)
-// Scenario E: Same attack on in-script CTV hash → FAILS (the fix)
+// Witness version 6 refuses the three spends with SCRIPT_ERR_DISALLOWED_OPCODE,
+// the substitution among them: both opcodes are outside its opcode set, so
+// neither script runs. The three spends are built as they were.
 //
-// The fix: commit ctv_hash IN the witnessScript itself:
-//   OP_NOP5 OP_NOP5 <32-byte ctv_hash> OP_NOP4
-//   (b4 b4 20<hash> b3)
-// The hash lives in scriptPubKey = SHA256(witnessScript), so the spender can't
-// change it without changing the UTXO's address.
-//
-// Run: test_soqucoin --run_test=lightning_script_tests/csfs_ctv_substitution_attack --log_level=message
-BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
+// Run: test_soqucoin --run_test=lightning_script_tests/csfs_ctv_substitution_scripts_in_v6_are_refused --log_level=message
+BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_scripts_in_v6_are_refused)
 {
-    auto hex = [](const unsigned char* p, size_t n) {
-        static const char* d = "0123456789abcdef";
-        std::string s; s.reserve(n * 2);
-        for (size_t i = 0; i < n; i++) { s += d[p[i] >> 4]; s += d[p[i] & 0xf]; }
-        return s;
-    };
-    auto hexv = [&](const std::vector<unsigned char>& v) { return hex(v.data(), v.size()); };
-
     // ---- CTV hash computation ----
     auto computeCTVHash = [](const CMutableTransaction& tx, unsigned int nIn) -> std::vector<unsigned char> {
         auto writeLE32 = [](CSHA256& h, uint32_t v) {
@@ -1359,7 +1330,7 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
     // Setup: the "agreed" settlement (55/45 split)
     // ================================================================
 
-    // Witness-based CTV script (the VULNERABLE variant)
+    // The form with the hash in the witness
     CScript vulnScript;
     vulnScript << OP_NOP5 << OP_NOP5 << OP_CHECKTEMPLATEVERIFY;
     CScript vulnSpk = makeV6ScriptPubKey(vulnScript);
@@ -1399,10 +1370,10 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
     BOOST_REQUIRE(bob.Sign(agreedDigest, bobSigAgreed));
 
     // ================================================================
-    // SCENARIO D: Substitution attack on witness-based CTV hash
+    // SCENARIO D: the substitution, on the form with the hash in the witness
     // Alice reuses Bob's valid sig over "agreed" but substitutes the
-    // CTV hash and outputs to steal everything.
-    // Expected: PASSES (the bug!)
+    // CTV hash and outputs to take the whole amount.
+    // The earlier rule verified this spend. Expected: refused for the opcodes.
     // ================================================================
 
     // Alice's theft TX: she takes 100%, Bob gets 0
@@ -1441,17 +1412,16 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
     bool testD = VerifyScript(emptyScriptSig, vulnSpk, &attackWitness, v6Flags,
                               checkerD, &serrorD);
 
-    BOOST_CHECK_MESSAGE(testD,
-        "SCENARIO D: Substitution attack on witness-based CTV hash should PASS (the bug!), serror=" << serrorD);
-    BOOST_TEST_MESSAGE("SCENARIO D: Witness-based CTV hash — substitution attack → "
-        << (testD ? "PASS (BUG CONFIRMED ⚠️)" : "FAIL (unexpected)") << " serror=" << serrorD);
+    BOOST_CHECK_MESSAGE(!testD && serrorD == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "SCENARIO D: the substitution on the witness-hash form must be refused for its opcodes; ok=" << testD << " serror=" << serrorD);
 
     // ================================================================
-    // SCENARIO E: In-script CTV hash blocks the attack
+    // SCENARIO E: the same substitution, on the form with the hash in the script
     // Script: OP_NOP5 OP_NOP5 <agreedCtvHash> OP_CHECKTEMPLATEVERIFY
     //         (b4 b4 20<32 bytes> b3)
     // The hash is committed in witnessScript → scriptPubKey → can't be swapped.
-    // Expected: FAILS (the fix!)
+    // The earlier rule failed this spend at the template check. Expected:
+    // refused for the opcodes, before that check.
     // ================================================================
 
     // Build in-script CTV variant: b4 b4 20<hash> b3
@@ -1462,9 +1432,7 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
 
     CScript secureSpk = makeV6ScriptPubKey(secureScript);
 
-    BOOST_TEST_MESSAGE("secure_script_hex=" << hexv(std::vector<unsigned char>(secureScript.begin(), secureScript.end())));
-
-    // Funding TX → in-script CTV (the SECURE variant)
+    // Funding TX → the form with the hash in the script
     CMutableTransaction fundTxSecure;
     fundTxSecure.nVersion = 2; fundTxSecure.nLockTime = 0;
     CTxIn coinbase2; coinbase2.prevout.SetNull(); coinbase2.nSequence = CTxIn::SEQUENCE_FINAL;
@@ -1472,7 +1440,7 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
     CTxOut fundOut2; fundOut2.nValue = channelAmount; fundOut2.scriptPubKey = secureSpk;
     fundTxSecure.vout.push_back(fundOut2);
 
-    // Alice tries the same theft against the SECURE funding output
+    // Alice tries the same substitution against this funding output
     CMutableTransaction theftTxE;
     theftTxE.nVersion = 2; theftTxE.nLockTime = 0;
     CTxIn theftInE;
@@ -1515,15 +1483,14 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
     bool testE = VerifyScript(emptyScriptSig, secureSpk, &secureAttackWitness, v6Flags,
                               checkerE, &serrorE);
 
-    BOOST_CHECK_MESSAGE(!testE,
-        "SCENARIO E: In-script CTV hash should REJECT theft tx, serror=" << serrorE);
-    BOOST_TEST_MESSAGE("SCENARIO E: In-script CTV hash — substitution attack → "
-        << (testE ? "PASS (unexpected!)" : "FAIL (THEFT BLOCKED ✅)") << " serror=" << serrorE);
+    BOOST_CHECK_MESSAGE(!testE && serrorE == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "SCENARIO E: the substitution on the in-script form must be refused for its opcodes; ok=" << testE << " serror=" << serrorE);
 
     // ================================================================
-    // Scenario E-sanity: in-script CTV with the CORRECT (agreed) tx → PASSES
+    // Scenario E-sanity: the in-script form with the agreed tx → refused
     // ================================================================
-    // Prove the secure script works when used honestly (agreed 55/45 split)
+    // The agreed 55/45 split, which the earlier rule verified. It is refused
+    // with the error of D and E: the form cannot be spent at all.
     CMutableTransaction agreedTxE;
     agreedTxE.nVersion = 2; agreedTxE.nLockTime = 0;
     CTxIn agreedInE;
@@ -1566,25 +1533,8 @@ BOOST_AUTO_TEST_CASE(csfs_ctv_substitution_attack)
     bool testES = VerifyScript(emptyScriptSig, secureSpk, &secureHonestWitness, v6Flags,
                                checkerES, &serrorES);
 
-    BOOST_CHECK_MESSAGE(testES,
-        "SCENARIO E-sanity: In-script CTV with agreed tx should PASS, serror=" << serrorES);
-    BOOST_TEST_MESSAGE("SCENARIO E-sanity: In-script CTV with honest spend → "
-        << (testES ? "PASS ✅" : "FAIL (unexpected)") << " serror=" << serrorES);
-
-    // ---- Summary ----
-    BOOST_TEST_MESSAGE("SUBSTITUTION_ATTACK_BEGIN");
-    BOOST_TEST_MESSAGE("vuln_script_hex=" << hexv(std::vector<unsigned char>(vulnScript.begin(), vulnScript.end())));
-    BOOST_TEST_MESSAGE("secure_script_hex=" << hexv(std::vector<unsigned char>(secureScript.begin(), secureScript.end())));
-    BOOST_TEST_MESSAGE("agreed_ctv_hash=" << hexv(agreedCtvHash));
-    BOOST_TEST_MESSAGE("theft_ctv_hash=" << hexv(theftCtvHash));
-    BOOST_TEST_MESSAGE("test_d_vuln_substitution=" << testD);
-    BOOST_TEST_MESSAGE("test_e_secure_blocked=" << testE);
-    BOOST_TEST_MESSAGE("test_es_secure_honest=" << testES);
-    BOOST_TEST_MESSAGE("SUBSTITUTION_ATTACK_END");
-
-    BOOST_REQUIRE_MESSAGE(testD && !testE && testES,
-        "SUBSTITUTION ATTACK: D=PASS(bug), E=FAIL(fix works), ES=PASS(honest works) — "
-        "IN-SCRIPT CTV HASH IS THE ONLY SECURE VARIANT");
+    BOOST_CHECK_MESSAGE(!testES && serrorES == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "SCENARIO E-sanity: the agreed spend of the in-script form must be refused for its opcodes; ok=" << testES << " serror=" << serrorES);
 }
 
 
@@ -1658,49 +1608,29 @@ BOOST_AUTO_TEST_CASE(mldsa44_interop_vector_dump)
 }
 
 // ============================================================================
-// V6 eLTOO SUPERSESSION MODEL — does "latest state wins" hold on-chain?
+// The update and funding scripts of the supersession model, in version 6
 // ============================================================================
 //
-// Resolves the open question from the P6.3 recon (SOQUSHIELD_OPT3_P6_3_RECON_
-// FINDINGS_2026-06-24.md §5). Two properties were proven SEPARATELY elsewhere
-// but never JOINTLY, and the supersession ratchet was never tested on V6:
+// The model asked whether the earlier channel design held "the latest state
+// wins" on chain. Its three scripts:
+//   b4 b4 20<hash> b3     an update output with the template of its settlement
+//                         (part A);
+//   b4 b4 51              the funding output that every update spends (part B1);
+//   <201> b1 75 b4 b4 51  a funding output behind a lock-time guard (part B2).
+// Under the earlier rule the settlement verified, also from another outpoint
+// (A1, A3), a settlement with other outputs failed the template check (A2), and
+// the update of an earlier state stayed a valid spend of the funding output
+// beside the newest one (B1).
 //
-//   PART A (coexistence): APO-derived CSFS message + in-script CTV bind together
-//     in ONE secure update output, and rebinding (APO ignores prevout) is
-//     consensus-compatible.  Expected: honest spend PASS, tampered REJECT,
-//     rebound spend PASS.
+// Witness version 6 refuses every spend below with
+// SCRIPT_ERR_DISALLOWED_OPCODE: each script holds OP_CHECKSIGFROMSTACK, so none
+// runs, and no state of such a channel can be published, an earlier one or the
+// newest. The spends are built as they were.
 //
-//   PART B (supersession): classic eLTOO ratchets "newer state supersedes older"
-//     via <state+1> OP_CHECKLOCKTIMEVERIFY in the update script.  On V6,
-//     OP_CLTV/OP_CSV are NO-OPs in EvalScript (interpreter.cpp has no CLTV/CSV
-//     opcode handler; they fall through the default case).  So:
-//       B1: an old, fully co-signed update (state 100) REMAINS a valid spend of
-//           the funding output even after the channel advances to state 200 —
-//           nothing on-chain revokes it.  Expected: PASS (= the finding: no
-//           on-chain supersession).
-//       B2: a script that TRIES to gate by state number via OP_CLTV accepts a
-//           tx whose nLockTime is BELOW the committed floor — the ratchet is
-//           silently skipped.  Expected: PASS (= ratchet does not execute).
-//
-// CONCLUSION (documented, not a pass/fail bug): V6's current opcodes support a
-// CTV-committed unilateral close to a FIXED settlement, but NOT a trustless
-// "latest-state-wins" ratchet (eLTOO) or revocation penalty (LN-penalty) — both
-// need in-script branching/comparison that V6 EvalScript treats as no-ops.
-// Trustless multi-update channels therefore require off-chain enforcement
-// (LSP/watchtower co-signing ONLY the latest state) or a new consensus opcode.
-//
-// Run: src/test/test_soqucoin --run_test=lightning_script_tests/eltoo_v6_supersession_model --log_level=message
-BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
+// Run: src/test/test_soqucoin --run_test=lightning_script_tests/eltoo_v6_supersession_scripts_are_refused --log_level=message
+BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_scripts_are_refused)
 {
-    auto hex = [](const unsigned char* p, size_t n) {
-        static const char* d = "0123456789abcdef";
-        std::string s; s.reserve(n * 2);
-        for (size_t i = 0; i < n; i++) { s += d[p[i] >> 4]; s += d[p[i] & 0xf]; }
-        return s;
-    };
-    auto hexv = [&](const std::vector<unsigned char>& v) { return hex(v.data(), v.size()); };
-
-    // CTV hash (mirrors csfs_ctv_substitution_attack / interpreter.cpp:1718-1843)
+    // CTV hash (mirrors csfs_ctv_substitution_scripts_in_v6_are_refused / interpreter.cpp:1718-1843)
     auto computeCTVHash = [](const CMutableTransaction& tx, unsigned int nIn) -> std::vector<unsigned char> {
         auto le32 = [](CSHA256& h, uint32_t v){ uint8_t b[4]={(uint8_t)v,(uint8_t)(v>>8),(uint8_t)(v>>16),(uint8_t)(v>>24)}; h.Write(b,4); };
         auto le64 = [](CSHA256& h, int64_t v){ uint64_t u=(uint64_t)v; uint8_t b[8]={(uint8_t)u,(uint8_t)(u>>8),(uint8_t)(u>>16),(uint8_t)(u>>24),(uint8_t)(u>>32),(uint8_t)(u>>40),(uint8_t)(u>>48),(uint8_t)(u>>56)}; h.Write(b,8); };
@@ -1761,7 +1691,7 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
     const CAmount channelAmount = 100 * COIN;
     CScript emptyScriptSig;
 
-    // Assemble the secure-variant witness for a CSFS+in-script-CTV spend:
+    // Assemble the witness of a spend through the two CSFS checks:
     //   [aliceSig, msg, alicePk, bobSig, msg, bobPk, witnessScript, 0x00||alicePk]
     auto secureWitness = [&](const std::vector<unsigned char>& aSig, const std::vector<unsigned char>& aMsg,
                              const std::vector<unsigned char>& bSig, const std::vector<unsigned char>& bMsg,
@@ -1779,7 +1709,7 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
     };
 
     // ================================================================
-    // PART A — COEXISTENCE: APO-derived CSFS msg + in-script CTV
+    // PART A — the update output: APO-derived CSFS msg + in-script CTV
     // ================================================================
     // Update output commits (in-script CTV) to a settlement that splits 60/40.
     // Both partners authorize via CSFS over the APO-0x42 sighash of that settlement.
@@ -1795,7 +1725,7 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
 
     std::vector<unsigned char> settleCtv = computeCTVHash(settleTx, 0);
 
-    // Secure update output: OP_NOP5 OP_NOP5 <settleCtv> OP_CHECKTEMPLATEVERIFY  (b4 b4 20<hash> b3)
+    // The update output: OP_NOP5 OP_NOP5 <settleCtv> OP_CHECKTEMPLATEVERIFY  (b4 b4 20<hash> b3)
     CScript updateScript;
     updateScript << OP_NOP5 << OP_NOP5 << settleCtv << OP_CHECKTEMPLATEVERIFY;
     CScript updateSpk = makeV6ScriptPubKey(updateScript);
@@ -1808,16 +1738,18 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
     std::vector<unsigned char> aSigA = signCsfs(alice, apo42);
     std::vector<unsigned char> bSigA = signCsfs(bob, apo42);
 
-    // A1: honest settlement spend (outputs match the committed CTV) → PASS
+    // A1: the settlement spend (outputs match the committed CTV) → refused for the opcodes
     {
         ScriptError se = SCRIPT_ERR_OK;
         CScriptWitness w = secureWitness(aSigA, apoMsg, bSigA, apoMsg, updateScript);
         TransactionSignatureChecker ck(&ctxSettle, 0, channelAmount);
         bool ok = VerifyScript(emptyScriptSig, updateSpk, &w, v6Flags, ck, &se);
-        BOOST_CHECK_MESSAGE(ok, "A1: APO-CSFS + in-script-CTV honest spend PASSES, serror=" << se);
+        BOOST_CHECK_MESSAGE(!ok && se == SCRIPT_ERR_DISALLOWED_OPCODE,
+            "A1: the settlement spend of the update output must be refused for its opcodes; ok=" << ok << " serror=" << se);
     }
 
-    // A2: tamper the settlement outputs (Alice grabs 100), keep the committed CTV → CTV REJECTS
+    // A2: other settlement outputs (Alice takes 100), the committed CTV kept. The earlier
+    //     rule failed this spend at the template check; it is refused before that check.
     {
         CMutableTransaction theft = settleTx;
         theft.vout.clear();
@@ -1834,11 +1766,12 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
         CScriptWitness w = secureWitness(aSigT, theftMsg, bSigT, theftMsg, updateScript);
         TransactionSignatureChecker ck(&ctxTheft, 0, channelAmount);
         bool ok = VerifyScript(emptyScriptSig, updateSpk, &w, v6Flags, ck, &se);
-        BOOST_CHECK_MESSAGE(!ok, "A2: tampered outputs REJECTED by in-script CTV, serror=" << se);
+        BOOST_CHECK_MESSAGE(!ok && se == SCRIPT_ERR_DISALLOWED_OPCODE,
+            "A2: the settlement with other outputs must be refused for its opcodes; ok=" << ok << " serror=" << se);
     }
 
-    // A3: rebinding — APO-0x42 ignores prevout, so the SAME sigs validate when the input
-    //     is rebound to a different funding outpoint (consensus-compatible off-chain rebinding).
+    // A3: the settlement of A1 from another outpoint. The 0x42 message leaves the outpoint
+    //     out, so the earlier rule verified the same signatures there. Refused as A1 is.
     {
         CMutableTransaction rebound = settleTx;
         rebound.vin[0].prevout.hash = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
@@ -1851,11 +1784,12 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
         CScriptWitness w = secureWitness(aSigA, apoMsg, bSigA, apoMsg, updateScript);
         TransactionSignatureChecker ck(&ctxRebound, 0, channelAmount);
         bool ok = VerifyScript(emptyScriptSig, updateSpk, &w, v6Flags, ck, &se);
-        BOOST_CHECK_MESSAGE(ok, "A3: REBINDING — same CSFS sigs validate against a different prevout, serror=" << se);
+        BOOST_CHECK_MESSAGE(!ok && se == SCRIPT_ERR_DISALLOWED_OPCODE,
+            "A3: the settlement from another outpoint must be refused for its opcodes; ok=" << ok << " serror=" << se);
     }
 
     // ================================================================
-    // PART B — SUPERSESSION: is "latest state wins" enforced on-chain?
+    // PART B — the updates of two states, against the funding output
     // ================================================================
     // Funding output: CSFS 2-of-2 (b4 b4 51). Every update spends THIS output via APO.
     CScript fundingScript; fundingScript << OP_NOP5 << OP_NOP5 << OP_1;
@@ -1867,7 +1801,7 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
     CTxOut fo; fo.nValue = channelAmount; fo.scriptPubKey = fundingSpk; fundTx.vout.push_back(fo);
 
     // Build a co-signed update tx for a given state (nLockTime carries the state number,
-    // mirroring classic eLTOO — but on V6 it has no in-script effect).
+    // mirroring classic eLTOO; the funding script reads no lock time).
     auto buildSignedUpdate = [&](int64_t stateNum, const CAmount aBal, const CAmount bBal,
                                  std::vector<unsigned char>& outMsg,
                                  std::vector<unsigned char>& outASig,
@@ -1885,7 +1819,7 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
         CScript uSpk = makeV6ScriptPubKey(uScript);
 
         CMutableTransaction u;
-        u.nVersion = 2; u.nLockTime = stateNum; // state number (no in-script effect on V6)
+        u.nVersion = 2; u.nLockTime = stateNum; // state number (the funding script does not read it)
         CTxIn ui; ui.prevout.hash = fundTx.GetHash(); ui.prevout.n = 0; ui.nSequence = 0xfffffffe;
         u.vin.push_back(ui);
         CTxOut uo; uo.nValue = channelAmount; uo.scriptPubKey = uSpk; u.vout.push_back(uo);
@@ -1905,42 +1839,33 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
     std::vector<unsigned char> msg200, aSig200, bSig200;
     CMutableTransaction u200 = buildSignedUpdate(200, 10 * COIN, 90 * COIN, msg200, aSig200, bSig200);
 
-    // Channel has advanced to state 200. Both partners hold valid co-signs for BOTH states.
-    // B1: the OLD state-100 update is STILL a valid spend of the funding output — nothing
-    //     on-chain revoked it. Alice can broadcast it to undo Bob's payment.
-    bool u100StillValid;
+    // The channel has moved to state 200. Both partners hold the two signatures of both states.
+    // B1: the update of state 100. The earlier rule verified it beside the update of state
+    //     200, so either could be published. It is refused for the funding script's opcode.
     {
         CTransaction cu100(u100);
         ScriptError se = SCRIPT_ERR_OK;
         CScriptWitness w = secureWitness(aSig100, msg100, bSig100, msg100, fundingScript);
         TransactionSignatureChecker ck(&cu100, 0, channelAmount);
-        u100StillValid = VerifyScript(emptyScriptSig, fundingSpk, &w, v6Flags, ck, &se);
-        BOOST_CHECK_MESSAGE(u100StillValid,
-            "B1: stale state-100 update STILL valid after advancing to 200 — NO on-chain "
-            "supersession (the finding), serror=" << se);
+        bool ok = VerifyScript(emptyScriptSig, fundingSpk, &w, v6Flags, ck, &se);
+        BOOST_CHECK_MESSAGE(!ok && se == SCRIPT_ERR_DISALLOWED_OPCODE,
+            "B1: the update of state 100 must be refused for the funding script's opcode; ok=" << ok << " serror=" << se);
     }
-    // ...and state 200 is equally valid. Both spend the same funding UTXO; consensus has no
-    // preference for the higher state. Whichever confirms first wins → first-broadcast, not
-    // latest-state. This is the crux: V6 cannot ratchet.
-    bool u200Valid;
+    // B1b: the update of state 200, refused the same way.
     {
         CTransaction cu200(u200);
         ScriptError se = SCRIPT_ERR_OK;
         CScriptWitness w = secureWitness(aSig200, msg200, bSig200, msg200, fundingScript);
         TransactionSignatureChecker ck(&cu200, 0, channelAmount);
-        u200Valid = VerifyScript(emptyScriptSig, fundingSpk, &w, v6Flags, ck, &se);
-        BOOST_CHECK_MESSAGE(u200Valid, "B1b: state-200 update also valid (both spend funding), serror=" << se);
+        bool ok = VerifyScript(emptyScriptSig, fundingSpk, &w, v6Flags, ck, &se);
+        BOOST_CHECK_MESSAGE(!ok && se == SCRIPT_ERR_DISALLOWED_OPCODE,
+            "B1b: the update of state 200 must be refused for the funding script's opcode; ok=" << ok << " serror=" << se);
     }
 
-    // B2: an in-script state floor is UNCONSTRUCTIBLE on V6, and OP_CLTV provably does not gate.
-    //   The classic ratchet is <state+1> OP_CHECKLOCKTIMEVERIFY OP_DROP <...>. But OP_CLTV does
-    //   not pop its argument (true in Bitcoin too), so it must be followed by OP_DROP — and
-    //   OP_DROP is ALSO a no-op in V6 EvalScript, so the pushed state number is never removed and
-    //   corrupts the subsequent CSFS stack (the 1st CSFS reads the leftover number as a pubkey).
-    //   PROOF that OP_CLTV is never consulted: a "satisfied" spend (nLockTime=201 >= floor) and a
-    //   "violated" spend (nLockTime=101 < floor) of the SAME script fail IDENTICALLY — if CLTV
-    //   gated anything, the satisfied case would pass. Both fail with the same error → the
-    //   locktime is never looked at.
+    // B2: the funding script behind a lock-time guard,
+    //   <201> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_NOP5 OP_NOP5 OP_1.
+    //   A spend whose lock time meets the guard (201) and one below it (101) are refused
+    //   alike for the opcode, before the guard is read.
     CScript ratchetScript;
     ratchetScript << CScriptNum(201) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                   << OP_NOP5 << OP_NOP5 << OP_1;
@@ -1968,37 +1893,14 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_model)
         return VerifyScript(emptyScriptSig, ratchetSpk, &w, v6Flags, ck, &se);
     };
 
-    ScriptError seViolated = SCRIPT_ERR_OK, seSatisfied = SCRIPT_ERR_OK;
-    bool okViolated  = spendRatchetAt(101, seViolated);   // below the "floor"
-    bool okSatisfied = spendRatchetAt(201, seSatisfied);  // meets the "floor"
+    ScriptError seBelow = SCRIPT_ERR_OK, seMet = SCRIPT_ERR_OK;
+    bool okBelow = spendRatchetAt(101, seBelow); // below the guard
+    bool okMet   = spendRatchetAt(201, seMet);   // meets the guard
 
-    // Neither spends, and both fail the same way → OP_CLTV gating is absent (not merely skipped):
-    // the script is simply broken by the no-op CLTV/DROP residue, identically regardless of locktime.
-    bool ratchetUnconstructible = (!okViolated && !okSatisfied && seViolated == seSatisfied);
-    BOOST_CHECK_MESSAGE(ratchetUnconstructible,
-        "B2: in-script state floor is unconstructible — satisfied(201) and violated(101) spends "
-        "fail identically (CLTV never consulted). okViolated=" << okViolated
-        << " seViolated=" << seViolated << " okSatisfied=" << okSatisfied << " seSatisfied=" << seSatisfied);
-
-    // ---- Summary ----
-    BOOST_TEST_MESSAGE("SUPERSESSION_MODEL_BEGIN");
-    BOOST_TEST_MESSAGE("update_script_hex=" << hexv(std::vector<unsigned char>(updateScript.begin(), updateScript.end())));
-    BOOST_TEST_MESSAGE("funding_script_hex=" << hexv(std::vector<unsigned char>(fundingScript.begin(), fundingScript.end())));
-    BOOST_TEST_MESSAGE("b1_stale_state_still_valid=" << u100StillValid);
-    BOOST_TEST_MESSAGE("b1b_new_state_valid=" << u200Valid);
-    BOOST_TEST_MESSAGE("b2_cltv_violated_spends=" << okViolated << " (serror=" << seViolated << ")");
-    BOOST_TEST_MESSAGE("b2_cltv_satisfied_spends=" << okSatisfied << " (serror=" << seSatisfied << ")");
-    BOOST_TEST_MESSAGE("b2_ratchet_unconstructible=" << ratchetUnconstructible);
-    BOOST_TEST_MESSAGE("SUPERSESSION_MODEL_END");
-
-    // The decision-forcing result, asserted so it can't silently regress:
-    //  - coexistence + binding WORK (A1/A2/A3 above), but
-    //  - on-chain supersession does NOT (B1: stale state stays valid; B2: no in-script ratchet).
-    BOOST_REQUIRE_MESSAGE(u100StillValid && u200Valid && ratchetUnconstructible,
-        "SUPERSESSION VERDICT: V6 supports CTV-committed fixed-settlement close, but NOT a "
-        "trustless latest-state-wins ratchet — old fully-signed states stay spendable and an "
-        "in-script CLTV/CSV state floor is unconstructible (no-op opcodes). Multi-update channels "
-        "need off-chain (LSP/watchtower) supersession or a new consensus opcode.");
+    BOOST_CHECK_MESSAGE(!okBelow && seBelow == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "B2: the spend below the guard must be refused for the opcode; ok=" << okBelow << " serror=" << seBelow);
+    BOOST_CHECK_MESSAGE(!okMet && seMet == SCRIPT_ERR_DISALLOWED_OPCODE,
+        "B2: the spend that meets the guard must be refused for the opcode; ok=" << okMet << " serror=" << seMet);
 }
 
 // ============================================================================
@@ -2047,7 +1949,13 @@ static CScript MakeV6Spk(const CScript& ws)
 }
 
 // ------------------------------------------------- eLTOO update output (B1 §4.1)
-BOOST_AUTO_TEST_CASE(eltoo_v6_ratchet_target)
+// The update branch signed with SIGHASH_ANYPREVOUTANYSCRIPT is refused: the
+// key-hash check of witness version 6 takes no anyprevout hash type. The script
+// and its lock-time guard are as they were. Signed with SIGHASH_ALL the same
+// spend verifies above the guard and fails below it; a signature of that type
+// covers one outpoint, so the spend is a 2-of-2 behind a lock time and not an
+// update that can be attached to the output of a later state.
+BOOST_AUTO_TEST_CASE(eltoo_v6_ratchet_signed_anyprevout_is_refused)
 {
     // Deterministic keyhashes so the form is reproducible.
     std::vector<unsigned char> khAu(32, 0x11), khBu(32, 0x22), khAs(32, 0x33), khBs(32, 0x44);
@@ -2114,30 +2022,63 @@ BOOST_AUTO_TEST_CASE(eltoo_v6_ratchet_target)
                              | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_DILITHIUM_KEYHASH
                              | SCRIPT_VERIFY_SCRIPT_RESTORE | kV6ControlFlow;
 
-    // Spend the update branch with a tx at a GIVEN state (nLockTime). APO-0x42 keyhash 2-of-2.
-    auto spendUpdateBranch = [&](uint32_t lockState, ScriptError& se) -> bool {
-        CMutableTransaction t; t.nVersion = 2; t.nLockTime = lockState;
-        CTxIn ti; ti.prevout.hash = fund.GetHash(); ti.prevout.n = 0; ti.nSequence = 0xfffffffe; t.vin.push_back(ti);
-        CTxOut to; to.nValue = amt; to.scriptPubKey = updSpk; t.vout.push_back(to); // re-commit (next state)
-        CTransaction ct(t);
-        uint256 sh = SignatureHash(upd, ct, 0, SIGHASH_ANYPREVOUTANYSCRIPT, amt, SIGVERSION_WITNESS_V0, nullptr);
-        std::vector<unsigned char> sa, sb; aU.Sign(sh, sa); bU.Sign(sh, sb);
-        sa.push_back(SIGHASH_ANYPREVOUTANYSCRIPT); sb.push_back(SIGHASH_ANYPREVOUTANYSCRIPT);
-        CScriptWitness w; // satisfaction: [sigA,pubA,sigB,pubB, selector=true], then ws, trailer
-        w.stack.push_back(sa); w.stack.push_back(aUb);
-        w.stack.push_back(sb); w.stack.push_back(bUb);
-        w.stack.push_back(std::vector<unsigned char>{0x01});
-        w.stack.push_back(std::vector<unsigned char>(upd.begin(), upd.end()));
-        w.stack.push_back(aTrail);
+    // A spend of the update branch with a tx at a GIVEN state (nLockTime): keyhash 2-of-2,
+    // both signatures of the given hash type.
+    struct UpdateSpend {
+        CMutableTransaction tx;
+        CScriptWitness witness;
+    };
+    auto buildUpdateSpend = [&](uint32_t lockState, int hashType) -> UpdateSpend {
+        UpdateSpend s;
+        s.tx.nVersion = 2; s.tx.nLockTime = lockState;
+        CTxIn ti; ti.prevout.hash = fund.GetHash(); ti.prevout.n = 0; ti.nSequence = 0xfffffffe; s.tx.vin.push_back(ti);
+        CTxOut to; to.nValue = amt; to.scriptPubKey = updSpk; s.tx.vout.push_back(to); // re-commit (next state)
+        CTransaction ct(s.tx);
+        uint256 sh = SignatureHash(upd, ct, 0, hashType, amt, SIGVERSION_WITNESS_V0, nullptr);
+        std::vector<unsigned char> sa, sb;
+        BOOST_REQUIRE(aU.Sign(sh, sa));
+        BOOST_REQUIRE(bU.Sign(sh, sb));
+        sa.push_back((unsigned char)hashType); sb.push_back((unsigned char)hashType);
+        // satisfaction: [sigA,pubA,sigB,pubB, selector=true], then ws, trailer
+        s.witness.stack.push_back(sa); s.witness.stack.push_back(aUb);
+        s.witness.stack.push_back(sb); s.witness.stack.push_back(bUb);
+        s.witness.stack.push_back(std::vector<unsigned char>{0x01});
+        s.witness.stack.push_back(std::vector<unsigned char>(upd.begin(), upd.end()));
+        s.witness.stack.push_back(aTrail);
+        return s;
+    };
+    auto verifyUpdateSpend = [&](const UpdateSpend& s, unsigned int verifyFlags, ScriptError& se) -> bool {
+        CTransaction ct(s.tx);
         CScript empty; TransactionSignatureChecker ck(&ct, 0, amt);
-        return VerifyScript(empty, updSpk, &w, flags, ck, &se);
+        return VerifyScript(empty, updSpk, &s.witness, verifyFlags, ck, &se);
     };
 
-    ScriptError seHi = SCRIPT_ERR_OK, seLo = SCRIPT_ERR_OK;
-    bool higherSupersedes = spendUpdateBranch((uint32_t)N + 100, seHi); // state > N → CLTV ok
-    bool lowerBlocked     = spendUpdateBranch((uint32_t)N - 100, seLo); // state < N+1 → CLTV fail
-    BOOST_CHECK_MESSAGE(higherSupersedes, "ratchet: higher-state update SPENDS the state-N output, serror=" << seHi);
-    BOOST_CHECK_MESSAGE(!lowerBlocked, "ratchet: lower-state update is REJECTED by CLTV, serror=" << seLo);
+    const uint32_t aboveGuard = (uint32_t)N + 100; // meets the guard, N + 1
+    const uint32_t belowGuard = (uint32_t)N - 100; // does not
+
+    // Signed 0x42, above the guard: refused for the hash type, with the apo flag set.
+    const UpdateSpend anyprevout = buildUpdateSpend(aboveGuard, SIGHASH_ANYPREVOUTANYSCRIPT);
+    ScriptError se = SCRIPT_ERR_OK;
+    bool ok = verifyUpdateSpend(anyprevout, flags, se);
+    BOOST_CHECK_MESSAGE(!ok && se == SCRIPT_ERR_SIG_HASHTYPE,
+        "ratchet: the update signed 0x42 must be refused for its hash type; ok=" << ok << " serror=" << se);
+
+    // The refusal is the hash type's: under the history flag the same witness verifies.
+    se = SCRIPT_ERR_OK;
+    ok = verifyUpdateSpend(anyprevout, flags | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, se);
+    BOOST_CHECK_MESSAGE(ok,
+        "ratchet: the same witness under the history flag must verify; serror=" << se);
+
+    // Signed SIGHASH_ALL the script is as it was: above the guard the spend verifies,
+    // below it the lock-time check fails.
+    se = SCRIPT_ERR_OK;
+    ok = verifyUpdateSpend(buildUpdateSpend(aboveGuard, SIGHASH_ALL), flags, se);
+    BOOST_CHECK_MESSAGE(ok,
+        "ratchet: signed SIGHASH_ALL above the guard must verify; serror=" << se);
+    se = SCRIPT_ERR_OK;
+    ok = verifyUpdateSpend(buildUpdateSpend(belowGuard, SIGHASH_ALL), flags, se);
+    BOOST_CHECK_MESSAGE(!ok && se == SCRIPT_ERR_UNSATISFIED_LOCKTIME,
+        "ratchet: signed SIGHASH_ALL below the guard must fail the lock-time check; ok=" << ok << " serror=" << se);
 }
 
 // ------------------------------------------------------------ HTLC output (B1 §4.2)
