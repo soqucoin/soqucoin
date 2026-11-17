@@ -43,6 +43,7 @@
 #include "consensus/params.h"
 
 #include "test/test_bitcoin.h"
+#include "test/testutil.h"   // ScopedRegtestActivation
 
 #include <boost/test/unit_test.hpp>
 
@@ -626,68 +627,88 @@ BOOST_AUTO_TEST_CASE(retired_v3_is_still_soft_fork_safe_not_burned)
         "the only thing standing between anyone-can-spend and a funded v3 output");
 }
 
-// ⛔ THE ATTACK THIS PINS: someone schedules the v6 covenant stack the way
-// DEPLOYMENT_PRECONDITIONS.md rule 3 reads at a glance — one feature at a time
-// — and ships DEPLOYMENT_P2WSH_DILITHIUM + DEPLOYMENT_DILITHIUM_KEYHASH at
-// height H1 and DEPLOYMENT_APO at H2 > H1. Between H1 and H2 every node
-// rejects a v6 spend carrying an ANYPREVOUT signature; at H2 the upgraded
-// nodes accept it and every node still on the H1 release forks off. That is a
-// HARD FORK produced by a one-line chainparams edit, and until this test
-// existed nothing in the tree observed it.
+// The three deployments of witness version 6 activate at one height:
+// DEPLOYMENT_P2WSH_DILITHIUM, DEPLOYMENT_DILITHIUM_KEYHASH and
+// DEPLOYMENT_V6_CONTROLFLOW.
 //
-// TWO mechanisms produce it, and the deployments are not interchangeable.
-// (Line numbers are deliberately omitted: they drifted within a single editing
-// session. Find each handler by its opcode in EvalScript.)
+// ⛔ THE EDIT THIS PINS: someone schedules them the way
+// DEPLOYMENT_PRECONDITIONS.md rule 3 reads at a glance, one feature at a time,
+// and gives one of the three its own height. Between the two heights a version
+// 6 script runs with one of its opcode families in the clear state, and each
+// family changes the stack between its clear and set states. (Line numbers are
+// deliberately omitted. Find each handler by its opcode in EvalScript.)
 //
-// 1. STACK ARITY, inside a v6 script:
-//
-//   OP_CSFS            set: pops 3, pushes NOTHING. clear: NOP.
-//                      ⚠️ OP_CHECKSIGFROMSTACK and OP_CHECKSIGFROMSTACKVERIFY
-//                      are BOTH OP_NOP5 (script.h), so the handler's
-//                      `opcode == OP_CHECKSIGFROMSTACKVERIFY` test is always
-//                      true and the push branch is dead. The live semantics
-//                      are VERIFY: net -3, not -2.
 //   OP_CDKH            set: pops 3.             clear: NOP7.
-//   V6_CONTROLFLOW     set: OP_DROP/OP_EQUAL/OP_SHA256/OP_CLTV/OP_CSV execute.
-//                      clear: silently ignored. The v6 dispatch chain has NO
-//                      terminal else->BAD_OPCODE, so an unmatched opcode is a
-//                      no-op rather than a failure.
-//   OP_CTV             set: validates and leaves its hash on the stack.
-//                      clear: NOP. ARITY-NEUTRAL, the only one of the four.
+//   V6_CONTROLFLOW     set: OP_IF/OP_DROP/OP_SIZE/OP_EQUAL/OP_SHA256/OP_CLTV/
+//                      OP_CSV execute. clear: each does nothing.
 //
-//   For the eLTOO shape <khB> OP_CDKH <khA> OP_CDKH OP_1 satisfied by
-//   [sigA, pkA, sigB, pkB]: with CDKH clear nothing is popped, seven items
-//   remain, and the clean-stack check in VerifyScript's P2WSH-Dilithium branch
-//   REJECTS. With CDKH set the stack reduces to [1] and it ACCEPTS.
-//
-// 2. SIGHASH ACCEPTANCE, for DEPLOYMENT_APO. APO is a sighash type, not an
-//    opcode, and changes no stack depth. Its loosening is the SIG_HASHTYPE
-//    rejection inside OP_CHECKDILITHIUMKEYHASH turning into an acceptance.
+//   For <khB> OP_CDKH <khA> OP_CDKH OP_1 satisfied by [sigA, pkA, sigB, pkB]:
+//   with CDKH clear nothing is popped, seven items remain, and the clean-stack
+//   check in VerifyScript's P2WSH-Dilithium branch REJECTS. With CDKH set the
+//   stack reduces to [1] and it ACCEPTS.
 //
 // DEPLOYMENT_P2WSH_DILITHIUM is neither: it is the version gate, the baseline
-// the other four are measured against. Rejected-then-accepted is a loosening
+// the other two are measured against. Rejected-then-accepted is a loosening
 // however it is scheduled; flag-day activation does not change fork class,
-// only direction does.
+// only direction does. Every node on the release between the two heights
+// forks off at the second.
 //
 // Measured against the GENESIS binary the combined activation is still a soft
-// fork, because a dormant v6 output is anyone-can-spend. So the whole stack in
-// one flag-day is safe and any split of it is not.
+// fork, because a dormant v6 output is anyone-can-spend. So the three in one
+// flag-day are safe and any split of them is not.
 //
-// See doc/specifications/WITNESS_VERSION_FORK_CLASS.md §3a and the v6 row of
-// §3, doc/DEPLOYMENT_PRECONDITIONS.md rule 3's exception, and bead mpu9.
-BOOST_AUTO_TEST_CASE(v6_covenant_stack_activates_together)
-{
-    const std::pair<Consensus::DeploymentPos, const char*> kStack[] = {
-        {Consensus::DEPLOYMENT_P2WSH_DILITHIUM, "DEPLOYMENT_P2WSH_DILITHIUM"},
-        {Consensus::DEPLOYMENT_DILITHIUM_KEYHASH, "DEPLOYMENT_DILITHIUM_KEYHASH"},
-        {Consensus::DEPLOYMENT_CSFS, "DEPLOYMENT_CSFS"},
-        {Consensus::DEPLOYMENT_V6_CONTROLFLOW, "DEPLOYMENT_V6_CONTROLFLOW"},
-        {Consensus::DEPLOYMENT_APO, "DEPLOYMENT_APO"},
-        // CTV is arity-neutral and could in principle follow later. It is held
-        // to the same height anyway so the rule has no edge case to remember.
-        {Consensus::DEPLOYMENT_CTV, "DEPLOYMENT_CTV"},
-    };
+// DEPLOYMENT_CTV, DEPLOYMENT_APO and DEPLOYMENT_CSFS are not in the set. Witness
+// version 6 reads none of the three: the two opcodes are outside its opcode
+// set and its key-hash check refuses an anyprevout hash type in every state of
+// the deployment (witness_v6_narrowing_tests holds one verdict a spend across
+// the eight states of the three flags). They gate witness version 11, where
+// each activation only refuses, so their heights are tied neither to the three
+// above nor to each other. All six activate by height.
+//
+// See doc/specifications/WITNESS_VERSION_FORK_CLASS.md §3a and the v6 and v11
+// rows of §3, doc/DEPLOYMENT_PRECONDITIONS.md rule 3's exception, and bead
+// mpu9.
+namespace {
 
+const std::pair<Consensus::DeploymentPos, const char*> kV6Swap[] = {
+    {Consensus::DEPLOYMENT_P2WSH_DILITHIUM, "DEPLOYMENT_P2WSH_DILITHIUM"},
+    {Consensus::DEPLOYMENT_DILITHIUM_KEYHASH, "DEPLOYMENT_DILITHIUM_KEYHASH"},
+    {Consensus::DEPLOYMENT_V6_CONTROLFLOW, "DEPLOYMENT_V6_CONTROLFLOW"},
+};
+
+const std::pair<Consensus::DeploymentPos, const char*> kV11Three[] = {
+    {Consensus::DEPLOYMENT_CTV, "DEPLOYMENT_CTV"},
+    {Consensus::DEPLOYMENT_APO, "DEPLOYMENT_APO"},
+    {Consensus::DEPLOYMENT_CSFS, "DEPLOYMENT_CSFS"},
+};
+
+//! Whether the three deployments of witness version 6 hold one activation
+//! height in this tier.
+bool V6SwapDeploymentsShareOneHeight(const Consensus::Params& params)
+{
+    const int32_t anchor = params.vDeployments[kV6Swap[0].first].nActivationHeight;
+    for (const auto& d : kV6Swap) {
+        if (params.vDeployments[d.first].nActivationHeight != anchor) return false;
+    }
+    return true;
+}
+
+//! The three heights of a tier, for a failure message.
+std::string V6SwapHeights(const Consensus::Params& params)
+{
+    std::string s;
+    for (const auto& d : kV6Swap) {
+        if (!s.empty()) s += ", ";
+        s += std::string(d.second) + " at " +
+             std::to_string(params.vDeployments[d.first].nActivationHeight);
+    }
+    return s;
+}
+
+} // namespace
+
+BOOST_AUTO_TEST_CASE(v6_swap_deployments_activate_together)
+{
     // ⛔ EVERY TIER, NOT JUST THE ONE COVERING HEIGHT 0. See AllConsensusTiers.
     for (const std::string& net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET,
                                    CBaseChainParams::REGTEST, CBaseChainParams::STAGENET}) {
@@ -707,37 +728,60 @@ BOOST_AUTO_TEST_CASE(v6_covenant_stack_activates_together)
             "tiers than it claims");
 
         for (const Consensus::Params* tier : tiers) {
-        const Consensus::Params& params = *tier;
+            const Consensus::Params& params = *tier;
 
-        const int32_t anchor = params.vDeployments[kStack[0].first].nActivationHeight;
-        for (const auto& d : kStack) {
-            const int32_t h = params.vDeployments[d.first].nActivationHeight;
             BOOST_CHECK_MESSAGE(
-                h == anchor,
+                V6SwapDeploymentsShareOneHeight(params),
                 net + " (tier effective from height " +
-                std::to_string(params.nHeightEffective) + "): " + d.second +
-                " is scheduled at height " + std::to_string(h) +
-                " but " + kStack[0].second + " is at " + std::to_string(anchor) +
-                ". The witness-v6 covenant stack MUST activate in ONE flag-day. "
-                "Splitting it is a HARD FORK: these opcodes change stack arity "
-                "between their clear and set states, so a v6 script that fails the "
-                "clean-stack check while one of them is dormant PASSES once it "
-                "activates, which splits every node on the intermediate release. "
-                "APO splits it by a different mechanism, sighash acceptance rather "
-                "than arity, and is in the same flag-day for that reason. "
-                "See WITNESS_VERSION_FORK_CLASS.md 3a and bead mpu9. If you are "
-                "scheduling the flag-day, move ALL of these to the same height, "
-                "IN EVERY TIER of this network's consensus tree");
+                std::to_string(params.nHeightEffective) + "): " + V6SwapHeights(params) +
+                ". The three deployments of witness version 6 MUST activate in ONE "
+                "flag-day. Splitting them is a HARD FORK: the key-hash check and the "
+                "control-flow opcodes change the stack between their clear and set "
+                "states, so a v6 script that fails the clean-stack check while one of "
+                "them is dormant PASSES once it activates, which splits every node on "
+                "the intermediate release. See WITNESS_VERSION_FORK_CLASS.md 3a and "
+                "bead mpu9. If you are scheduling the flag-day, move ALL three to the "
+                "same height, IN EVERY TIER of this network's consensus tree");
 
             // NO_HEIGHT_ACTIVATION defers to the BIP9 state machine, whose
             // per-deployment timing is not a single flag-day by construction.
-            BOOST_CHECK_MESSAGE(
-                params.vDeployments[d.first].nActivationHeight !=
-                    Consensus::BIP9Deployment::NO_HEIGHT_ACTIVATION,
-                net + ": " + d.second + " must not use NO_HEIGHT_ACTIVATION. The v6 "
-                "covenant stack activates by height, together; the BIP9 state machine "
-                "would let its members cross the threshold independently");
+            // Held for the three of witness version 11 too: their heights are
+            // free, and each is still a height.
+            auto activatesByHeight = [&](const std::pair<Consensus::DeploymentPos, const char*>& d) {
+                BOOST_CHECK_MESSAGE(
+                    params.vDeployments[d.first].nActivationHeight !=
+                        Consensus::BIP9Deployment::NO_HEIGHT_ACTIVATION,
+                    net + ": " + d.second + " must not use NO_HEIGHT_ACTIVATION. It "
+                    "activates by height; the BIP9 state machine would let the members "
+                    "of a flag-day cross the threshold independently");
+            };
+            for (const auto& d : kV6Swap) activatesByHeight(d);
+            for (const auto& d : kV11Three) activatesByHeight(d);
         }
+    }
+
+    // The edit this case exists for, made on regtest: one of the three at its
+    // own height is reported on every tier.
+    SelectParams(CBaseChainParams::REGTEST);
+    for (const auto& d : kV6Swap) {
+        ScopedRegtestActivation alone(d.first, 50);
+        for (const Consensus::Params* tier : AllConsensusTiers()) {
+            BOOST_CHECK_MESSAGE(!V6SwapDeploymentsShareOneHeight(*tier),
+                std::string(d.second) + " at a height of its own was not reported");
+        }
+    }
+
+    // The schedule of a network that activates witness version 6 and leaves
+    // witness version 11 for later: the three of version 11 unscheduled, or at
+    // heights of their own, is not reported.
+    {
+        ScopedRegtestActivation ctv(Consensus::DEPLOYMENT_CTV, Consensus::BIP9Deployment::NOT_SCHEDULED);
+        ScopedRegtestActivation apo(Consensus::DEPLOYMENT_APO, 50);
+        ScopedRegtestActivation csfs(Consensus::DEPLOYMENT_CSFS, 70);
+        for (const Consensus::Params* tier : AllConsensusTiers()) {
+            BOOST_CHECK_MESSAGE(V6SwapDeploymentsShareOneHeight(*tier),
+                "the heights of DEPLOYMENT_CTV, DEPLOYMENT_APO and DEPLOYMENT_CSFS were "
+                "read as part of the flag-day of witness version 6");
         }
     }
     SelectParams(CBaseChainParams::MAIN);

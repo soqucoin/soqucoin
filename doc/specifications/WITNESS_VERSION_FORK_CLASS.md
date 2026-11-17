@@ -51,13 +51,13 @@ program nor the sighash.
 | v3 | LatticeFold (retired) | soft, if ever revived with a sound verifier | creatable, anyone-can-spend |
 | v4 | SoquObscura pool (confidential SOQ) | **soft**, provided the activation release follows §4 (shielded-pool value model) | |
 | v5 / v7 | USDSOQ authority / holding | **soft**, provided the activation release follows §4 | |
-| v6 | P2WSH-Dilithium | **soft**, provided the activation release follows §3a | spend binds `SHA256(witnessScript)` to the program and the sighash inside the script. ⛔ The covenant opcodes are NOT interchangeable here: only CTV is arity-neutral with its flag clear (`interpreter.cpp` `OP_CHECKTEMPLATEVERIFY`: validates and leaves its hash on the stack when set, NOP when clear). CSFS (pops 3 and pushes NOTHING when set, NOP when clear: `OP_CHECKSIGFROMSTACK` and `OP_CHECKSIGFROMSTACKVERIFY` are both `OP_NOP5`, so the handler's VERIFY branch is the only reachable one and the push branch is dead), CDKH (pops 3 when set, NOP7 when clear) and V6_CONTROLFLOW (its opcodes are silently ignored when clear, there is no terminal `BAD_OPCODE`) each change the stack depth between states, so a script that fails the clean-stack check while they are dormant passes once they activate. A later activation of any of the three is a LOOSENING. **CTV activates in the same flag-day regardless**, so that the rule has no exception to remember, and `witness_version_allocation_tests::v6_covenant_stack_activates_together` enforces that. APO is in the flag-day too, by a different mechanism: it is a sighash type, not an opcode, and its loosening is a rejection inside CDKH turning into an acceptance. See §3a |
+| v6 | P2WSH-Dilithium | **soft**, provided the activation release follows §3a | spend binds `SHA256(witnessScript)` to the program and the sighash inside the script. The version runs three deployments, `P2WSH_DILITHIUM` (the gate), `DILITHIUM_KEYHASH` and `V6_CONTROLFLOW`. ⛔ The last two are NOT separable from the gate in time: CDKH (pops 3 when set, NOP7 when clear) and V6_CONTROLFLOW (its opcodes do nothing when clear) each change the stack depth between states, so a script that fails the clean-stack check while one of them is dormant passes once it activates. A later activation of either is a LOOSENING, so the three activate in one flag-day, and `witness_version_allocation_tests::v6_swap_deployments_activate_together` enforces that. `OP_CHECKTEMPLATEVERIFY` and `OP_CHECKSIGFROMSTACK` are outside the version's opcode set, and its key-hash check refuses an anyprevout hash type, each in every state of `ctv`, `apo` and `csfs`: the version reads none of the three (`witness_v6_narrowing_tests`). See §3a |
 | v8 / v9 | BTCSOQ holding / authority | **soft**, provided the activation release follows §4 | |
 | v10 | confidential USDSOQ | **soft**, provided the activation release follows §4 | the USDSOQ-gated backstop `bad-txns-usdsoq-confidential-not-active` stays: it is a tightening |
-| v11 | key-hash and covenant script, gated by `ctv`, `apo` and `csfs` | **soft**: on this version each of the three activations only refuses | `OP_11 <SHA256(sub-version byte ‖ script)>`. Dormant while the three deployments are inactive, and so creatable, anyone-can-spend and non-standard; it runs when any one of them is active (`IsWitnessV11Active`, `script/interpreter.h`). Inside a running version no byte has a no-op state. `OP_CHECKTEMPLATEVERIFY` and `OP_CHECKSIGFROMSTACK` are reserved bytes while their own deployment is inactive, as `0xbb` to `0xef` are in every state, and a script that holds a reserved byte in any branch is not evaluated: its input succeeds in a block and is refused at relay. The same holds for a committed item whose first byte is not `0xc0`. A key-hash check on a key item whose type byte is not `0x00` passes in a block after the hash comparison and is refused at relay. A release that later defines a reserved byte, a sub-version or a key type therefore only refuses spends that succeeded before it, and a spend valid with a set of the three deployments active is valid with every subset (`witness_v11_script_tests`, `witness_v11_chain_tests`). §3a's sequencing rule for the same three deployments stands for as long as witness v6 reads them. |
+| v11 | key-hash and covenant script, gated by `ctv`, `apo` and `csfs` | **soft**: on this version each of the three activations only refuses | `OP_11 <SHA256(sub-version byte ‖ script)>`. Dormant while the three deployments are inactive, and so creatable, anyone-can-spend and non-standard; it runs when any one of them is active (`IsWitnessV11Active`, `script/interpreter.h`). Inside a running version no byte has a no-op state. `OP_CHECKTEMPLATEVERIFY` and `OP_CHECKSIGFROMSTACK` are reserved bytes while their own deployment is inactive, as `0xbb` to `0xef` are in every state, and a script that holds a reserved byte in any branch is not evaluated: its input succeeds in a block and is refused at relay. The same holds for a committed item whose first byte is not `0xc0`. A key-hash check on a key item whose type byte is not `0x00` passes in a block after the hash comparison and is refused at relay. A release that later defines a reserved byte, a sub-version or a key type therefore only refuses spends that succeeded before it, and a spend valid with a set of the three deployments active is valid with every subset (`witness_v11_script_tests`, `witness_v11_chain_tests`). Witness v6 reads none of the three, so §3a's sequencing rule does not cover them. |
 | v12–v16 | unallocated | soft for any future version whose rules are additive | allocation-time review applies §1 |
 
-### 3a. APO / eLTOO, and the activation-sequencing rule (bead mpu9, ruled 2026-09-08)
+### 3a. Anyprevout hash types, and the activation-sequencing rule (bead mpu9, ruled 2026-09-08; witness v6 narrowed, ruled 2026-11-03)
 
 D1 found that `DEPLOYMENT_APO` gated SIGHASH_ANYPREVOUT at consensus on the v1/v7/v8 single-key
 path, so activating it would relax a rejection = hard fork. Option (a) was ruled and is
@@ -68,26 +68,38 @@ implemented:
   active from genesis, so the genesis binary rejects those spends and every later release must
   keep rejecting them. `DEPLOYMENT_APO` can no longer open this path, so the trap cannot be
   sprung by scheduling a height.
-* **APO reaches the chain only inside witness v6**, through `OP_CHECKDILITHIUMKEYHASH`, whose
-  handler keeps the `SCRIPT_VERIFY_APO` gate. That is safe because OP_CDKH is NOP-when-clear:
-  while its flag is clear the opcode succeeds without inspecting any signature, so the genesis
-  binary rejects nothing there and activation only ADDS a requirement.
-* eLTOO is unaffected. Its channel outputs are already v6 (`src/stagenet-eltoo.cpp` `MakeV6Spk`,
-  `OP_6 <SHA256(witnessScript)>`) and its ANYPREVOUT signatures are verified inside the v6
-  witnessScript.
+* **Witness v6 rejects them too, in every state of the deployment.** The handler of
+  `OP_CHECKDILITHIUMKEYHASH` refuses a signature whose hash type is `0x41` or `0x42`, with or
+  without `ANYONECANPAY`, before a message is computed. The version's opcode set leaves out
+  `OP_CHECKTEMPLATEVERIFY` and `OP_CHECKSIGFROMSTACK`, so a v6 script that holds either byte is
+  refused before it runs. `ctv`, `apo` and `csfs` are read by witness v11 alone, and v11
+  defines no key type for an anyprevout signature. A v6 output cannot be spent through any of
+  the three forms. Of the transactions `src/stagenet-eltoo.cpp` builds, the update signed
+  `0x42` is refused and the cooperative close signed `SIGHASH_ALL` is not.
+* **One exception, by block hash.** Stagenet ran the earlier rule, under which the v6 key-hash
+  check accepted an anyprevout signature while `apo` was active, and two of its blocks, at
+  heights 1057 and 1064, hold such a spend. `Consensus::Params::witnessV6AnyprevoutHistoryBlocks`
+  names the two by hash. `ConnectBlock` sets `SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY` for a block
+  on the list and for no other, so that chain validates from genesis. The list is empty on
+  every other network, and the mempool never sets the flag.
 
-⛔ **SEQUENCING IS PART OF THE FORK CLASS — this is a rule on the activation coordination, not
-on the code.** `DEPLOYMENT_APO` MUST activate in the SAME flag-day as
-`DEPLOYMENT_P2WSH_DILITHIUM` and `DEPLOYMENT_DILITHIUM_KEYHASH`. Measured against the genesis
+⛔ **SEQUENCING IS PART OF THE FORK CLASS. This is a rule on the activation coordination.**
+`DEPLOYMENT_P2WSH_DILITHIUM`, `DEPLOYMENT_DILITHIUM_KEYHASH` and `DEPLOYMENT_V6_CONTROLFLOW`
+MUST activate in the SAME flag-day. Measured against the genesis
 binary a combined activation is a soft fork, because a dormant v6 output is anyone-can-spend and
-the genesis binary accepts any v6 script. Activating APO LATER is a loosening measured against
-the intermediate release: between the two heights a v6 script spending with an APO signature is
-rejected, and after the second height it is accepted, which splits every node running the
-v6-without-APO release. The whole covenant / eLTOO / atomic-swap stack (v6, CTV, CSFS, CDKH,
-V6_CONTROLFLOW, APO) therefore activates as ONE flag-day, which is what D1 §4 assumed.
+the genesis binary accepts any v6 script. Activating the key-hash check or the control-flow set
+LATER is a loosening measured against the intermediate release: between the two heights a v6
+script that uses the dormant opcodes fails the clean-stack check, and after the second height
+it passes, which splits every node running the release in between. The atomic-swap stack of v6
+(the version gate, CDKH, V6_CONTROLFLOW) therefore activates as ONE flag-day. `ctv`, `apo` and
+`csfs` are outside this rule: on v11 each of the three activations only refuses (§3, the v11
+row).
 
-Pinned by `apo_hashtype_gate_tests`: the single-key path rejects APO *with the deployment
-active*, with an ordinary-hashtype spend as the positive control.
+Pinned by `apo_hashtype_gate_tests` (the single-key path rejects APO *with the deployment
+active*, with an ordinary-hashtype spend as the positive control), by
+`witness_v6_narrowing_tests` (the refusals in v6 in every state of the three flags, the history
+list and its one writer) and by
+`witness_version_allocation_tests::v6_swap_deployments_activate_together`.
 
 ## 4. The additive asset-rule design the activation releases must follow
 
