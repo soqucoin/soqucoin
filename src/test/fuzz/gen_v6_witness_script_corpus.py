@@ -16,6 +16,11 @@ and signatures are fixed byte patterns: no seed carries a signature that
 verifies, so a keyhash check passes only where the seed selects the accepting
 signature check.
 
+The seeds named refused_* and anyprevout_* hold the four forms that
+witness_v6_narrowing_tests holds to a refusal: OP_CHECKTEMPLATEVERIFY,
+OP_CHECKSIGFROMSTACK, a signature with an anyprevout hash type at a keyhash
+check, and the product INT64_MIN of OP_MUL.
+
 The output is deterministic. Run it again after a change and commit the result:
     python3 src/test/fuzz/gen_v6_witness_script_corpus.py
 """
@@ -74,7 +79,9 @@ PLAIN, NO_WITNESS, NO_TRAILER, PROGRAM_MISMATCH = 0, 1, 2, 3
 SEQUENCE_FINAL = 0xffffffff
 SEQUENCE_DISABLE = 0x80000000
 SIGHASH_ALL = 0x01
+SIGHASH_ANYPREVOUT = 0x41
 SIGHASH_ANYPREVOUTANYSCRIPT = 0x42
+SIGHASH_ANYONECANPAY = 0x80
 
 
 def sha256(data):
@@ -216,9 +223,17 @@ SEEDS = [
     ("keyhash_single_program_mismatch", seed(ALL, A, single(0), [sig(0), key(0)], shape=PROGRAM_MISMATCH)),
     ("keyhash_single_other_key", seed(ALL, A, single(0), [sig(0), key(1)])),
     ("keyhash_single_prefixed_key", seed(ALL, A, single(0), [sig(0), bytes([0x00]) + key(0)])),
-    ("keyhash_single_anyprevout", seed(ALL, A, single(0), [sig(0, SIGHASH_ANYPREVOUTANYSCRIPT), key(0)])),
-    ("keyhash_single_anyprevout_apo_clear", seed(ALL & ~APO, A, single(0), [sig(0, SIGHASH_ANYPREVOUTANYSCRIPT), key(0)])),
     ("keyhash_opcode_keyhash_clear", seed(P2WSH | CONTROLFLOW, A, ops(push(keyhash(0)), OP_CDKH))),
+    # A signature with an anyprevout hash type. The accepting signature check
+    # is selected, so each of these is refused for its hash type alone.
+    ("anyprevout_single_0x42", seed(ALL, A, single(0), [sig(0, SIGHASH_ANYPREVOUTANYSCRIPT), key(0)])),
+    ("anyprevout_single_0x42_apo_clear", seed(ALL & ~APO, A, single(0), [sig(0, SIGHASH_ANYPREVOUTANYSCRIPT), key(0)])),
+    ("anyprevout_single_0x41", seed(ALL, A, single(0), [sig(0, SIGHASH_ANYPREVOUT), key(0)])),
+    ("anyprevout_single_0xc1", seed(ALL, A, single(0), [sig(0, SIGHASH_ANYPREVOUT | SIGHASH_ANYONECANPAY), key(0)])),
+    ("anyprevout_single_0xc2", seed(ALL, A, single(0), [sig(0, SIGHASH_ANYPREVOUTANYSCRIPT | SIGHASH_ANYONECANPAY), key(0)])),
+    ("anyprevout_2of2_second_check", seed(ALL, A, two_of_two(1, 2), [sig(1, SIGHASH_ANYPREVOUTANYSCRIPT), key(1), sig(2), key(2)])),
+    ("anyprevout_eltoo_update", seed(ALL, A, ELTOO, [sig(1, SIGHASH_ANYPREVOUTANYSCRIPT), key(1), sig(2, SIGHASH_ANYPREVOUTANYSCRIPT), key(2), TRUE],
+                                     locktime=600001, sequence=SEQUENCE_FINAL - 1)),
     # Two keyhashes.
     ("keyhash_2of2", seed(ALL, A, two_of_two(1, 2), [sig(1), key(1), sig(2), key(2)])),
     ("keyhash_2of2_one_pair", seed(ALL, A, two_of_two(1, 2), [sig(2), key(2)])),
@@ -264,6 +279,10 @@ SEEDS = [
     # The restored byte and arithmetic opcodes.
     ("restore_mul", seed(ALL, R, ops(op(2), op(3), OP_MUL, op(6), OP_EQUAL))),
     ("restore_mul_wide", seed(ALL, R, ops(num(1 << 40), op(4), OP_MUL, num(1 << 42), OP_EQUAL))),
+    # The product INT64_MIN, which no script number of eight bytes holds, and
+    # its neighbour INT64_MIN + 2^31, which one does.
+    ("refused_mul_product_int64_min", seed(ALL, R, ops(num(-(1 << 32)), num(1 << 31), OP_MUL, OP_DROP, op(1)))),
+    ("restore_mul_product_beside_int64_min", seed(ALL, R, ops(num(-(1 << 32) + 1), num(1 << 31), OP_MUL, OP_DROP, op(1)))),
     ("restore_div_mod", seed(ALL, R, ops(op(7), op(2), OP_DIV, op(3), OP_EQUALVERIFY, op(7), op(2), OP_MOD, op(1), OP_EQUAL))),
     ("restore_div_by_zero", seed(ALL, R, ops(op(1), OP_0, OP_DIV))),
     ("restore_bitwise", seed(ALL, R, ops(push(b"\x0f"), push(b"\xf0"), OP_OR, push(b"\xff"), OP_EQUALVERIFY,
@@ -280,11 +299,14 @@ SEEDS = [
     ("control_else_alone", seed(ALL, R, ops(OP_ELSE, op(1)))),
     ("control_if_argument_not_minimal", seed(ALL, R, ops(OP_IF, op(1), OP_ELSE, OP_0, OP_ENDIF), [bytes([0x02])])),
     ("control_opcodes_controlflow_clear", seed(P2WSH, R, ops(op(1), op(1), OP_DROP))),
-    # The two later-layer opcodes of the set.
-    ("ctv_other_template", seed(ALL, R, ops(push(bytes([0x77]) * 32), OP_CTV))),
-    ("ctv_opcode_ctv_clear", seed(ALL & ~CTV, R, ops(push(bytes([0x77]) * 32), OP_CTV))),
-    ("csfs_not_a_signature", seed(ALL, R, ops(OP_CSFS, op(1)), [sig(5)[:2420], b"message", key(5)])),
-    ("csfs_opcode_csfs_clear", seed(ALL & ~CSFS, R, ops(OP_CSFS, op(1)), [sig(5)[:2420], b"message", key(5)])),
+    # The two opcodes of witness version 11, outside the set of this version:
+    # executed, with their own flag clear, and in a branch that is not taken.
+    ("refused_ctv", seed(ALL, R, ops(push(bytes([0x77]) * 32), OP_CTV))),
+    ("refused_ctv_ctv_clear", seed(ALL & ~CTV, R, ops(push(bytes([0x77]) * 32), OP_CTV))),
+    ("refused_ctv_in_branch_not_taken", seed(ALL, R, ops(OP_0, OP_IF, push(bytes([0x77]) * 32), OP_CTV, OP_ENDIF, op(1)))),
+    ("refused_csfs", seed(ALL, R, ops(OP_CSFS, op(1)), [sig(5)[:2420], b"message", key(5)])),
+    ("refused_csfs_csfs_clear", seed(ALL & ~CSFS, R, ops(OP_CSFS, op(1)), [sig(5)[:2420], b"message", key(5)])),
+    ("refused_csfs_in_branch_not_taken", seed(ALL, R, ops(OP_0, OP_IF, OP_CSFS, OP_ENDIF, op(1)), [sig(5)[:2420], b"message", key(5)])),
     # Sizes.
     ("script_10000_bytes", seed(ALL, R, ops(op(1), OP_DROP) * 4998 + ops(OP_0, OP_NOTIF, op(1), OP_ENDIF))),
     ("script_10001_bytes", seed(ALL, R, ops(op(1), OP_DROP) * 5000 + ops(op(1)))),
