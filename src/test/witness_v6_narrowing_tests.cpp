@@ -559,8 +559,9 @@ BOOST_AUTO_TEST_SUITE_END()
 // The chain path: a version 6 output on a regtest chain, spent through each
 // refused form. The mempool refuses the spend and a block that holds it does
 // not connect. The refusal at relay carries the reason of a spend that is
-// invalid in a block where the spend also fails under the mandatory flags,
-// which holds for every script of the first case but its last.
+// invalid in a block where the spend also fails with the flags of the check
+// less STANDARD_NOT_MANDATORY_VERIFY_FLAGS, which holds for every refused
+// script of the first case but its last.
 // ---------------------------------------------------------------------------
 BOOST_FIXTURE_TEST_SUITE(witness_v6_narrowing_chain_tests, DilithiumChainSetup)
 
@@ -674,10 +675,12 @@ BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
     const valtype trailer = PrefixedPubkey(coinbasePkBytes);
 
     // Each form is put to a block first and to the mempool second. A block of
-    // this fixture is built over the mempool, and a spend the mempool held
-    // would leave its fee in the block's coinbase and make the block invalid
-    // for that reason. So the mempool is required empty before each block and
-    // emptied after each relay, and what it took is counted.
+    // this fixture is built over the mempool and keeps that template's
+    // coinbase, so its coinbase claims the fee of every spend the mempool held.
+    // From the second such spend the claim is above the fee of the block's one
+    // spend and the block is invalid for that reason. So the mempool is
+    // required empty before each block and emptied after each relay, and what
+    // it took is counted.
     size_t relayed = 0;
     auto refusedInABlock = [&](const CMutableTransaction& tx, const std::string& form) {
         BOOST_REQUIRE_EQUAL(mempool.size(), 0u);
@@ -721,7 +724,8 @@ BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
     }
 
     // The product INT64_MIN. With OP_MUL read as a no-op this script leaves two
-    // items, so it fails under the mandatory flags as well.
+    // items, so it fails with the flags less
+    // STANDARD_NOT_MANDATORY_VERIFY_FLAGS as well.
     {
         const CScript ws = CScript() << CScriptNum(-int64_t(4294967296LL)) << CScriptNum(int64_t(2147483648LL)) << OP_MUL;
         CMutableTransaction tx = SpendOf(SeedCoin(V6ProgramFor(ws), SEEDED, 0xa3), coinbaseSpk);
@@ -830,8 +834,8 @@ BOOST_AUTO_TEST_CASE(the_mempool_flags_option_does_not_carry_the_history_flag)
         const MempoolFlagsOption option(STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY);
         BOOST_CHECK_EQUAL(RelayRefusal(anyprevout), MandatoryRefusal(SCRIPT_ERR_SIG_HASHTYPE));
         BOOST_CHECK_EQUAL(mempool.size(), 0u);
-        // The flag beside the witness flag, without which the mempool runs no
-        // witness program, and no other flag of the standard set.
+        // The flag beside the witness flag and no other flag of the standard
+        // set.
         ForceSetArg("-promiscuousmempoolflags", std::to_string((unsigned int)SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY | SCRIPT_VERIFY_WITNESS));
         BOOST_CHECK_EQUAL(RelayRefusal(anyprevout), MandatoryRefusal(SCRIPT_ERR_SIG_HASHTYPE));
         BOOST_CHECK_EQUAL(mempool.size(), 0u);
