@@ -25,6 +25,12 @@
 // So the invariant to hold is: EVERY script flag ConnectBlock sets must also be
 // set by the mempool. Extra strictness in the mempool is permitted.
 //
+// One flag is outside the invariant by its direction.
+// SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, which ConnectBlock sets for a block on
+// the network's history list, lifts one refusal where every other flag adds
+// one. The mempool never carries it, so for that flag the mempool is the
+// stricter side (witness_v6_narrowing_chain_tests).
+//
 // THAT INVARIANT NOW HOLDS. It did not until 2026-08-20: SCRIPT_VERIFY_SCRIPT_RESTORE
 // was set unconditionally by ConnectBlock and never by the mempool, and because
 // the restored opcodes are NO-OPS rather than errors without it, the same script

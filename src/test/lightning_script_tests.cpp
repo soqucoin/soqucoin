@@ -52,7 +52,8 @@ static CMutableTransaction MakeSpendTx(uint32_t nSequence, uint32_t nLockTime, i
     return tx;
 }
 
-// Identical to covenant_tests.cpp ComputeCTVHash (mirrors interpreter.cpp:1718-1843).
+// Identical to covenant_tests.cpp ComputeCTVHash (mirrors TemplateHashParts and
+// WriteTemplateHash in interpreter.cpp).
 static std::vector<unsigned char> ComputeCTVHash(const CMutableTransaction& tx, unsigned int nIn)
 {
     auto le32 = [](CSHA256& h, uint32_t v){ uint8_t b[4]={(uint8_t)v,(uint8_t)(v>>8),(uint8_t)(v>>16),(uint8_t)(v>>24)}; h.Write(b,4); };
@@ -1630,7 +1631,8 @@ BOOST_AUTO_TEST_CASE(mldsa44_interop_vector_dump)
 // Run: src/test/test_soqucoin --run_test=lightning_script_tests/eltoo_v6_supersession_scripts_are_refused --log_level=message
 BOOST_AUTO_TEST_CASE(eltoo_v6_supersession_scripts_are_refused)
 {
-    // CTV hash (mirrors csfs_ctv_substitution_scripts_in_v6_are_refused / interpreter.cpp:1718-1843)
+    // CTV hash (mirrors csfs_ctv_substitution_scripts_in_v6_are_refused; the node writes it in
+    // TemplateHashParts and WriteTemplateHash, interpreter.cpp)
     auto computeCTVHash = [](const CMutableTransaction& tx, unsigned int nIn) -> std::vector<unsigned char> {
         auto le32 = [](CSHA256& h, uint32_t v){ uint8_t b[4]={(uint8_t)v,(uint8_t)(v>>8),(uint8_t)(v>>16),(uint8_t)(v>>24)}; h.Write(b,4); };
         auto le64 = [](CSHA256& h, int64_t v){ uint64_t u=(uint64_t)v; uint8_t b[8]={(uint8_t)u,(uint8_t)(u>>8),(uint8_t)(u>>16),(uint8_t)(u>>24),(uint8_t)(u>>32),(uint8_t)(u>>40),(uint8_t)(u>>48),(uint8_t)(u>>56)}; h.Write(b,8); };

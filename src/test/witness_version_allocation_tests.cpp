@@ -657,13 +657,14 @@ BOOST_AUTO_TEST_CASE(retired_v3_is_still_soft_fork_safe_not_burned)
 // fork, because a dormant v6 output is anyone-can-spend. So the three in one
 // flag-day are safe and any split of them is not.
 //
-// DEPLOYMENT_CTV, DEPLOYMENT_APO and DEPLOYMENT_CSFS are not in the set. Witness
-// version 6 reads none of the three: the two opcodes are outside its opcode
-// set and its key-hash check refuses an anyprevout hash type in every state of
-// the deployment (witness_v6_narrowing_tests holds one verdict a spend across
-// the eight states of the three flags). They gate witness version 11, where
-// each activation only refuses, so their heights are tied neither to the three
-// above nor to each other. All six activate by height.
+// DEPLOYMENT_CTV, DEPLOYMENT_APO and DEPLOYMENT_CSFS are not in the set. No
+// verdict of witness version 6 depends on the three: the two opcodes are
+// outside its opcode set and its key-hash check refuses an anyprevout hash
+// type in every state of the deployment (witness_v6_narrowing_tests holds one
+// verdict a spend across the eight states of the three flags). They gate
+// witness version 11, where each activation only refuses, so their heights are
+// tied neither to the three above nor to each other. All six activate by
+// height.
 //
 // See doc/specifications/WITNESS_VERSION_FORK_CLASS.md §3a and the v6 and v11
 // rows of §3, doc/DEPLOYMENT_PRECONDITIONS.md rule 3's exception, and bead

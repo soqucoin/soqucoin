@@ -69,9 +69,11 @@ ScriptError VerdictFor(const CScript& witnessScript, unsigned int flags,
 
 const unsigned int P2WSH = SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2WSH_DILITHIUM;
 
-//! Every flag a block can carry beside the version 6 gate: the three swap
-//! flags, the restored set (set in every block) and the three flags of witness
-//! version 11, which a version 6 script does not read.
+//! The version 6 gate with the other two swap flags, the restored set (set in
+//! every block) and the three flags of witness version 11, on which no verdict
+//! of a version 6 script depends. A block of a network's history list carries
+//! one flag more, SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, which
+//! witness_v6_history_tests covers.
 const unsigned int FULL = P2WSH | SCRIPT_VERIFY_DILITHIUM_KEYHASH | SCRIPT_VERIFY_V6_CONTROLFLOW |
                           SCRIPT_VERIFY_SCRIPT_RESTORE | SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_CSFS |
                           SCRIPT_VERIFY_APO;

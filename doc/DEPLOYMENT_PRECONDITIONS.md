@@ -263,7 +263,8 @@ Bitcoin-backed consensus asset, witness v8 (holding) and v9 (authority).
 The three deployments of witness v11. The version runs when any one of them is
 active; inside it `ctv` defines `OP_CHECKTEMPLATEVERIFY` (BIP 119) and `csfs`
 defines `OP_CHECKSIGFROMSTACK` (BIP 348). `apo` defines no hash type: no
-witness version takes `SIGHASH_ANYPREVOUT` (BIP 118).
+witness version takes `SIGHASH_ANYPREVOUT` (BIP 118), outside the two stagenet
+blocks of the history list (`WITNESS_VERSION_FORK_CLASS.md` §3a).
 
 **Preconditions:**
 1. ☐ Halborn Phase 2 covenant scope cleared. Groundwork exists in
@@ -272,7 +273,7 @@ witness version takes `SIGHASH_ANYPREVOUT` (BIP 118).
    pinned on every path (`apo_hashtype_gate_tests.cpp`,
    `witness_v6_narrowing_tests.cpp`), so that activating `apo` makes no path
    accept one.
-3. ☐ The three gate witness v11 and nothing in witness v6
+3. ☐ The three gate witness v11, and no verdict of witness v6 depends on them
    (`WITNESS_VERSION_FORK_CLASS.md` §3, the v11 row, and §3a). They are outside
    the witness v6 exception to rule 3: on v11 each activation only refuses, so
    none of them has to share a height with `DEPLOYMENT_P2WSH_DILITHIUM`,
@@ -281,8 +282,11 @@ witness version takes `SIGHASH_ANYPREVOUT` (BIP 118).
 
 ### `DEPLOYMENT_P2WSH_DILITHIUM` (bit 10)
 Witness v6: P2WSH with Dilithium. Script execution held to the witness v6
-opcode set: key-hash checks, hashlocks and timelocks, the forms of the atomic
-swap.
+opcode set (`IsWitnessV6ScriptOpcode`, `src/script/interpreter.cpp`): pushes,
+the key-hash check, the four conditionals, `OP_DROP`, `OP_SIZE`, `OP_EQUAL`,
+`OP_EQUALVERIFY`, `OP_SHA256` and the two timelock opcodes, which are the forms
+of the atomic swap, and with them `OP_CAT` and the nine restored byte and
+arithmetic opcodes.
 
 **Preconditions:**
 1. ☐ **An audit that is not currently scheduled.** This is called out explicitly

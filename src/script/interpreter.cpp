@@ -2667,7 +2667,9 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     //
     // No witness version takes an APO signature: the key-hash check of
     // witness version 6 refuses one as this path does, in every state of the
-    // deployment, and witness version 11 defines no key type for it.
+    // deployment, and witness version 11 defines no key type for it. The one
+    // exception is that key-hash check in a block of the network's history
+    // list (SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY).
     //
     // Do not gate this on the flag.
     if (IsAPOSigHashType(sig)) {

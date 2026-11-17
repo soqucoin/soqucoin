@@ -4,7 +4,8 @@
 // The two transactions of stagenet that spend a witness version 6 output with
 // signatures of an anyprevout hash type, as they are on that chain: block 1057
 // (transaction e188cd62...653b) and block 1064 (transaction 6cd821e8...1e0e).
-// Each is serialized with its witness. Read by witness_v6_history_tests.cpp.
+// Each is serialized with its witness. Read by the suite
+// witness_v6_history_tests in witness_v6_narrowing_tests.cpp.
 
 #ifndef BITCOIN_TEST_WITNESS_V6_HISTORY_DATA_H
 #define BITCOIN_TEST_WITNESS_V6_HISTORY_DATA_H

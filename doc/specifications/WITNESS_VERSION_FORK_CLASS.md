@@ -75,7 +75,8 @@ implemented:
   refused before it runs. No verdict of a v6 spend depends on `ctv`, `apo` or `csfs`, and v11
   defines no key type for an anyprevout signature. A v6 output cannot be spent through any of
   the three forms. Of the transactions `src/stagenet-eltoo.cpp` builds, the update signed
-  `0x42` is refused and the cooperative close signed `SIGHASH_ALL` is not. The sigop count of
+  `0x42` is refused. The cooperative close signed `SIGHASH_ALL` passes its script check, and
+  its one input is an output of the update, which no block holds. The sigop count of
   a v6 input charges an `OP_CHECKSIGFROMSTACK` byte while `csfs` is active, as it did before
   this rule. A script that holds the byte is refused in both states, so the count of a spend
   that verifies is the same in both.

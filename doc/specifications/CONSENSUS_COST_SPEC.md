@@ -95,7 +95,7 @@ There is no BIP9 miner-signaling activation.
 | **Lattice-BP++** (`OP_LATTICEBP_RANGEPROOF`) | 5 | v4 (`OP_4`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **USDSOQ** (`OP_USDSOQ_*`) | 6 | v5 (`OP_5`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **CTV** (`OP_CHECKTEMPLATEVERIFY`) | 7 | v11 (`OP_11`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
-| **APO** (`SIGHASH_ANYPREVOUT`) | 8 | one of the three that start v11 (`OP_11`); no witness version takes an anyprevout hash type | Dormant (NOT_SCHEDULED) | Active (height 0) |
+| **APO** (`SIGHASH_ANYPREVOUT`) | 8 | one of the three that start v11 (`OP_11`); no witness version takes an anyprevout hash type, outside two stagenet blocks named by hash | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **CSFS** (`OP_CHECKSIGFROMSTACK`) | 9 | v11 (`OP_11`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **P2WSH-Dilithium / L2SOQ** | 10 | v6 (`OP_6`) | Dormant (NOT_SCHEDULED) | Active (height 0) |
 | **UTXO Cost** | 11 | — | Dormant (NOT_SCHEDULED) | Active (height 0) |
