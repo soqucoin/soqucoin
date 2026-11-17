@@ -908,8 +908,8 @@ bool EvalScript(vector<vector<unsigned char> >& stack, const CScript& script, un
                         // The full pubkey is provided in the witness and verified
                         // at spend time.
                         //
-                        // Enables: eLTOO 2-of-2 Dilithium multisig for L2SOQ
-                        // Lightning channels, key-committed covenant patterns.
+                        // Enables: 2-of-2 Dilithium multisig and other scripts
+                        // that commit to a key by its hash.
                         //
                         // V6 witnessScript pattern (the keyhash is COMMITTED):
                         //   <keyhash> OP_CHECKDILITHIUMKEYHASH OP_1
@@ -2097,9 +2097,9 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
                                scriptPubKey[0] == OP_5 &&
                                scriptPubKey[1] == 32);
 
-    // SOQ-AUD2-009: P2WSH-Dilithium (witness v6) — covenant script execution
+    // SOQ-AUD2-009: P2WSH-Dilithium (witness v6) — script execution
     // When SCRIPT_VERIFY_P2WSH_DILITHIUM is set, v6 programs execute the witnessScript
-    // via EvalScript, enabling CTV vaults, CSFS oracles, and L2SOQ Lightning.
+    // via EvalScript, under the opcode set of IsWitnessV6ScriptOpcode.
     // When not set, v6 is anyone-can-spend (soft-fork safe). See DL-P2WSH-DILITHIUM.md.
     bool is_p2wsh_dilithium = (scriptPubKey.size() == 34 &&
                                scriptPubKey[0] == OP_6 &&

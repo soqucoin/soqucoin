@@ -156,7 +156,7 @@ public:
  * code. See doc/design/DL-SOQUOBSCURA-ASSET-TYPE-TRACE.md.
  *
  * ⛔ WITNESS VERSION ALLOCATION — v10, NOT v6. v6 is ALREADY P2WSH-Dilithium
- * (covenant script execution: CTV vaults, CSFS oracles, L2SOQ Lightning), see
+ * (script execution under the opcode set of IsWitnessV6ScriptOpcode), see
  * interpreter.cpp is_p2wsh_dilithium and consensus/params.h
  * DEPLOYMENT_P2WSH_DILITHIUM ("Witness v6"). An earlier revision of this change
  * used v6 and collided with it byte-for-byte. When v10 was allocated the
