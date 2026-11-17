@@ -705,7 +705,9 @@ unsigned int WitnessV11DeploymentFlags(int nHeight, const Consensus::Params& con
 
 // The one place that sets SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY. Its one caller
 // is ConnectBlock, with the hash of the block it connects. The mempool does not
-// call it, so no relayed transaction is checked under the flag.
+// call it and clears the bit from the flags of its own script checks
+// (AcceptToMemoryPoolWorker), so no relayed transaction is checked under the
+// flag.
 unsigned int WitnessV6HistoryFlags(const uint256& hashBlock, const Consensus::Params& consensusParams)
 {
     if (consensusParams.witnessV6AnyprevoutHistoryBlocks.count(hashBlock))
@@ -1669,6 +1671,12 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // The deployment-gated flags of the next block, the same value the sigop
         // count above was priced with (NextBlockDeploymentScriptFlags).
         scriptVerifyFlags |= nextBlockFlags;
+        // SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY belongs to the blocks of a
+        // network's history list, and ConnectBlock sets it for them. It is
+        // cleared here, so that no value of -promiscuousmempoolflags and no
+        // flag of the next block puts it into the check of a relayed
+        // transaction.
+        scriptVerifyFlags &= ~SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY;
 
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.

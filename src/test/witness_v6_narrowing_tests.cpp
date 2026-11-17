@@ -14,9 +14,12 @@
 //     computed.
 //   * The OP_MUL product INT64_MIN, which needs nine bytes as a script number.
 //
-// Each refusal holds in every flag state in which the version 6 branch runs,
-// so it holds on every tier of every network, and the verdict of a version 6
-// spend does not depend on the ctv, apo and csfs deployments.
+// The two opcodes are refused in every flag state in which the version 6
+// branch runs. The hash type is refused wherever the key-hash check runs
+// (SCRIPT_VERIFY_DILITHIUM_KEYHASH) and the product wherever OP_MUL runs
+// (SCRIPT_VERIFY_SCRIPT_RESTORE, which every block and the standard set
+// carry). No refusal depends on the ctv, apo and csfs deployments, so each
+// holds on every tier of every network.
 //
 // One exception is in the code: on stagenet two blocks hold a version 6 spend
 // signed with an anyprevout type from before the refusal. ConnectBlock sets a
@@ -52,6 +55,7 @@
 #include "test/witness_v6_history_data.h"
 #include "txmempool.h"
 #include "uint256.h"
+#include "util.h"
 #include "utilstrencodings.h"
 #include "validation.h"
 #include "version.h"
@@ -59,6 +63,8 @@
 #include <boost/test/unit_test.hpp>
 
 #include <limits>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -551,8 +557,10 @@ BOOST_AUTO_TEST_SUITE_END()
 
 // ---------------------------------------------------------------------------
 // The chain path: a version 6 output on a regtest chain, spent through each
-// refused form. The mempool refuses the spend with the reason of a spend that
-// is invalid in a block, and a block that holds it does not connect.
+// refused form. The mempool refuses the spend and a block that holds it does
+// not connect. The refusal at relay carries the reason of a spend that is
+// invalid in a block where the spend also fails under the mandatory flags,
+// which holds for every script of the first case but its last.
 // ---------------------------------------------------------------------------
 BOOST_FIXTURE_TEST_SUITE(witness_v6_narrowing_chain_tests, DilithiumChainSetup)
 
@@ -596,12 +604,41 @@ std::string RelayRefusal(const CMutableTransaction& tx)
     return st.GetRejectReason();
 }
 
-//! Whether a solved block passes ConnectBlock on the tip.
+//! Whether a solved block passes ConnectBlock on the tip. The block is
+//! checked and the chain stays where it is.
 bool Connects(const CBlock& block)
 {
     CValidationState st;
     LOCK(cs_main);
     return TestBlockValidity(st, Params(), block, chainActive.Tip(), true, true);
+}
+
+//! Hands a solved block to the node, which connects it when it is valid.
+void Submit(const CBlock& block)
+{
+    bool fNewBlock = false;
+    ProcessNewBlock(Params(), std::make_shared<const CBlock>(block), true, &fNewBlock);
+}
+
+uint256 TipHash()
+{
+    LOCK(cs_main);
+    return chainActive.Tip()->GetBlockHash();
+}
+
+//! A spend of a seeded key-hash output of version 6, signed by the fixture's
+//! key with the given hash type.
+CMutableTransaction KeyHashSpend(DilithiumChainSetup& chain, unsigned char tag, int hashType)
+{
+    const valtype key = chain.coinbasePkBytes;
+    const CScript ws = CScript() << KeyHash(key) << OP_CHECKDILITHIUMKEYHASH << OP_1;
+    CMutableTransaction tx = SpendOf(chain.SeedCoin(V6ProgramFor(ws), SEEDED, tag), chain.coinbaseSpk);
+    const uint256 sighash = SignatureHash(ws, CTransaction(tx), 0, hashType, SEEDED, SIGVERSION_WITNESS_V0, nullptr);
+    valtype sig;
+    BOOST_REQUIRE(chain.coinbaseKey.Sign(sighash, sig));
+    sig.push_back(static_cast<unsigned char>(hashType));
+    SetWitness(tx, {sig, key}, ws, PrefixedPubkey(key));
+    return tx;
 }
 
 //! Puts one hash on regtest's list, on the tier of one height, and takes it
@@ -621,12 +658,38 @@ struct ListedForTheCase {
     ~ListedForTheCase() { list.erase(hash); }
 };
 
+//! Gives -promiscuousmempoolflags a value for the length of a case. The option
+//! has no unset form: at the end it is given the standard set, the value the
+//! mempool takes when the option is absent.
+struct MempoolFlagsOption {
+    explicit MempoolFlagsOption(unsigned int flags) { ForceSetArg("-promiscuousmempoolflags", std::to_string(flags)); }
+    ~MempoolFlagsOption() { ForceSetArg("-promiscuousmempoolflags", std::to_string(STANDARD_SCRIPT_VERIFY_FLAGS)); }
+};
+
 } // namespace
 
 BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
 {
     const valtype key = coinbasePkBytes;
     const valtype trailer = PrefixedPubkey(coinbasePkBytes);
+
+    // Each form is put to a block first and to the mempool second. A block of
+    // this fixture is built over the mempool, and a spend the mempool held
+    // would leave its fee in the block's coinbase and make the block invalid
+    // for that reason. So the mempool is required empty before each block and
+    // emptied after each relay, and what it took is counted.
+    size_t relayed = 0;
+    auto refusedInABlock = [&](const CMutableTransaction& tx, const std::string& form) {
+        BOOST_REQUIRE_EQUAL(mempool.size(), 0u);
+        BOOST_CHECK_MESSAGE(!BlockIsValid(std::vector<CMutableTransaction>(1, tx)), form << ": valid in a block");
+    };
+    auto refused = [&](const CMutableTransaction& tx, ScriptError e, const std::string& form) {
+        refusedInABlock(tx, form);
+        const std::string refusal = RelayRefusal(tx);
+        BOOST_CHECK_MESSAGE(refusal == MandatoryRefusal(e), form << " at relay: got \"" << refusal << "\"");
+        relayed += mempool.size();
+        mempool.clear();
+    };
 
     // OP_CHECKSIGFROMSTACK with a signature that verifies.
     {
@@ -636,8 +699,7 @@ BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
         valtype sig;
         BOOST_REQUIRE(coinbaseKey.Sign(Hash(msg.begin(), msg.end()), sig));
         SetWitness(tx, {sig, msg, key}, ws, trailer);
-        BOOST_CHECK_EQUAL(RelayRefusal(tx), MandatoryRefusal(SCRIPT_ERR_DISALLOWED_OPCODE));
-        BOOST_CHECK(!BlockIsValid(std::vector<CMutableTransaction>(1, tx)));
+        refused(tx, SCRIPT_ERR_DISALLOWED_OPCODE, "OP_CHECKSIGFROMSTACK");
     }
 
     // OP_CHECKTEMPLATEVERIFY over the template of the spending transaction.
@@ -647,48 +709,49 @@ BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
         const CScript ws = CScript() << TemplateOf(tx, SEEDED) << OP_CHECKTEMPLATEVERIFY;
         tx.vin[0].prevout = SeedCoin(V6ProgramFor(ws), SEEDED, 0xa2);
         SetWitness(tx, {}, ws, trailer);
-        BOOST_CHECK_EQUAL(RelayRefusal(tx), MandatoryRefusal(SCRIPT_ERR_DISALLOWED_OPCODE));
-        BOOST_CHECK(!BlockIsValid(std::vector<CMutableTransaction>(1, tx)));
+        refused(tx, SCRIPT_ERR_DISALLOWED_OPCODE, "OP_CHECKTEMPLATEVERIFY");
     }
 
     // The key-hash check with a signature of each anyprevout type.
     unsigned char tag = 0xb0;
     for (int byte : ANYPREVOUT_BYTES) {
-        const CScript ws = CScript() << KeyHash(key) << OP_CHECKDILITHIUMKEYHASH << OP_1;
-        CMutableTransaction tx = SpendOf(SeedCoin(V6ProgramFor(ws), SEEDED, tag++), coinbaseSpk);
-        const uint256 sighash = SignatureHash(ws, CTransaction(tx), 0, byte, SEEDED, SIGVERSION_WITNESS_V0, nullptr);
-        valtype sig;
-        BOOST_REQUIRE(coinbaseKey.Sign(sighash, sig));
-        sig.push_back(static_cast<unsigned char>(byte));
-        SetWitness(tx, {sig, key}, ws, trailer);
-        const std::string refusal = RelayRefusal(tx);
-        BOOST_CHECK_MESSAGE(refusal == MandatoryRefusal(SCRIPT_ERR_SIG_HASHTYPE),
-            "hash type 0x" << std::hex << byte << std::dec << " at relay: got \"" << refusal << "\"");
-        BOOST_CHECK_MESSAGE(!BlockIsValid(std::vector<CMutableTransaction>(1, tx)),
-            "hash type 0x" << std::hex << byte << std::dec << " in a block");
+        std::ostringstream form;
+        form << "hash type 0x" << std::hex << byte;
+        refused(KeyHashSpend(*this, tag++, byte), SCRIPT_ERR_SIG_HASHTYPE, form.str());
     }
 
-    // The product INT64_MIN.
+    // The product INT64_MIN. With OP_MUL read as a no-op this script leaves two
+    // items, so it fails under the mandatory flags as well.
     {
         const CScript ws = CScript() << CScriptNum(-int64_t(4294967296LL)) << CScriptNum(int64_t(2147483648LL)) << OP_MUL;
         CMutableTransaction tx = SpendOf(SeedCoin(V6ProgramFor(ws), SEEDED, 0xa3), coinbaseSpk);
         SetWitness(tx, {}, ws, trailer);
-        BOOST_CHECK_EQUAL(RelayRefusal(tx), MandatoryRefusal(SCRIPT_ERR_PUSH_SIZE));
-        BOOST_CHECK(!BlockIsValid(std::vector<CMutableTransaction>(1, tx)));
+        refused(tx, SCRIPT_ERR_PUSH_SIZE, "the product INT64_MIN");
     }
 
-    BOOST_CHECK_EQUAL(mempool.size(), 0u);
+    // The product in a script that passes with OP_MUL read as a no-op. The
+    // restored opcodes are outside the mandatory flags, so the mempool gives
+    // the refusal the reason of a spend that is not standard. The block is
+    // invalid all the same.
+    {
+        const CScript ws = CScript() << CScriptNum(-int64_t(4294967296LL)) << CScriptNum(int64_t(2147483648LL)) << OP_MUL << OP_DROP;
+        CMutableTransaction tx = SpendOf(SeedCoin(V6ProgramFor(ws), SEEDED, 0xa5), coinbaseSpk);
+        SetWitness(tx, {}, ws, trailer);
+        refusedInABlock(tx, "the product INT64_MIN before OP_DROP");
+        const std::string refusal = RelayRefusal(tx);
+        const std::string error = std::string("(") + ScriptErrorString(SCRIPT_ERR_PUSH_SIZE) + ")";
+        BOOST_CHECK_MESSAGE(refusal.size() > error.size() && refusal.compare(refusal.size() - error.size(), error.size(), error) == 0,
+            "the product INT64_MIN before OP_DROP at relay: got \"" << refusal << "\"");
+        relayed += mempool.size();
+        mempool.clear();
+    }
+
+    BOOST_CHECK_EQUAL(relayed, 0u);
 
     // The same output form with an ordinary signature is relayed and mined, so
     // each refusal above is the rule's and not the fixture's.
     {
-        const CScript ws = CScript() << KeyHash(key) << OP_CHECKDILITHIUMKEYHASH << OP_1;
-        CMutableTransaction tx = SpendOf(SeedCoin(V6ProgramFor(ws), SEEDED, 0xa4), coinbaseSpk);
-        const uint256 sighash = SignatureHash(ws, CTransaction(tx), 0, SIGHASH_ALL, SEEDED, SIGVERSION_WITNESS_V0, nullptr);
-        valtype sig;
-        BOOST_REQUIRE(coinbaseKey.Sign(sighash, sig));
-        sig.push_back(static_cast<unsigned char>(SIGHASH_ALL));
-        SetWitness(tx, {sig, key}, ws, trailer);
+        const CMutableTransaction tx = KeyHashSpend(*this, 0xa4, SIGHASH_ALL);
         BOOST_CHECK(BlockIsValid(std::vector<CMutableTransaction>(1, tx)));
         BOOST_CHECK_EQUAL(RelayRefusal(tx), std::string());
         BOOST_CHECK_EQUAL(mempool.size(), 1u);
@@ -699,19 +762,11 @@ BOOST_AUTO_TEST_CASE(each_refused_form_fails_at_relay_and_in_a_block)
 // it validates with the hash of the block it connects, so a block on the list
 // takes a version 6 spend signed with an anyprevout type and a block with any
 // other hash does not. Regtest's list is empty: the case puts the hash of one
-// solved block on it for the length of the check.
+// solved block on it for the length of each check.
 BOOST_AUTO_TEST_CASE(connectblock_takes_an_anyprevout_spend_in_a_listed_block_and_in_no_other)
 {
-    const valtype key = coinbasePkBytes;
-    const valtype trailer = PrefixedPubkey(coinbasePkBytes);
-    const CScript ws = CScript() << KeyHash(key) << OP_CHECKDILITHIUMKEYHASH << OP_1;
-    CMutableTransaction tx = SpendOf(SeedCoin(V6ProgramFor(ws), SEEDED, 0xc0), coinbaseSpk);
-    const uint256 sighash = SignatureHash(ws, CTransaction(tx), 0, SIGHASH_ANYPREVOUTANYSCRIPT, SEEDED,
-                                          SIGVERSION_WITNESS_V0, nullptr);
-    valtype sig;
-    BOOST_REQUIRE(coinbaseKey.Sign(sighash, sig));
-    sig.push_back(static_cast<unsigned char>(SIGHASH_ANYPREVOUTANYSCRIPT));
-    SetWitness(tx, {sig, key}, ws, trailer);
+    const CMutableTransaction tx = KeyHashSpend(*this, 0xc0, SIGHASH_ANYPREVOUTANYSCRIPT);
+    const CMutableTransaction second = KeyHashSpend(*this, 0xc1, SIGHASH_ANYPREVOUTANYSCRIPT);
 
     // Two solved blocks that hold the spend and differ in their nonce.
     const CBlock listed = BuildSolvedBlock(std::vector<CMutableTransaction>(1, tx), coinbaseSpk);
@@ -726,6 +781,7 @@ BOOST_AUTO_TEST_CASE(connectblock_takes_an_anyprevout_spend_in_a_listed_block_an
         LOCK(cs_main);
         height = chainActive.Height() + 1;
     }
+    const uint256 tipBefore = TipHash();
     BOOST_REQUIRE(Params().GetConsensus(height).witnessV6AnyprevoutHistoryBlocks.empty());
     BOOST_CHECK(!Connects(listed));
     BOOST_CHECK(!Connects(other));
@@ -741,6 +797,52 @@ BOOST_AUTO_TEST_CASE(connectblock_takes_an_anyprevout_spend_in_a_listed_block_an
 
     BOOST_CHECK(Params().GetConsensus(height).witnessV6AnyprevoutHistoryBlocks.empty());
     BOOST_CHECK(!Connects(listed));
+
+    // The same through ProcessNewBlock, which connects a block where the
+    // checks above validated it and left the chain as it was. The block with
+    // the other hash does not become the tip and the listed block does. With
+    // the listed block as the tip the mempool refuses a second anyprevout
+    // spend: the flag is the listed block's and not the next block's.
+    {
+        const ListedForTheCase entry(listed.GetHash(), height);
+        Submit(other);
+        BOOST_CHECK(TipHash() == tipBefore);
+        Submit(listed);
+        BOOST_CHECK(TipHash() == listed.GetHash());
+        BOOST_CHECK_EQUAL(RelayRefusal(second), MandatoryRefusal(SCRIPT_ERR_SIG_HASHTYPE));
+        BOOST_CHECK_EQUAL(mempool.size(), 0u);
+    }
+}
+
+// -promiscuousmempoolflags replaces the standard flags of the mempool on a
+// network that does not require standard transactions, regtest among them. A
+// value that carries SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY does not bring the
+// flag into the mempool's script checks: an anyprevout spend is refused under
+// it as without it, and the node still builds a block template.
+BOOST_AUTO_TEST_CASE(the_mempool_flags_option_does_not_carry_the_history_flag)
+{
+    BOOST_REQUIRE(!Params().RequireStandard());
+    const CMutableTransaction anyprevout = KeyHashSpend(*this, 0xd0, SIGHASH_ANYPREVOUTANYSCRIPT);
+    const CMutableTransaction ordinary = KeyHashSpend(*this, 0xd1, SIGHASH_ALL);
+    BOOST_CHECK_EQUAL(RelayRefusal(anyprevout), MandatoryRefusal(SCRIPT_ERR_SIG_HASHTYPE));
+
+    {
+        const MempoolFlagsOption option(STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY);
+        BOOST_CHECK_EQUAL(RelayRefusal(anyprevout), MandatoryRefusal(SCRIPT_ERR_SIG_HASHTYPE));
+        BOOST_CHECK_EQUAL(mempool.size(), 0u);
+        // The flag beside the witness flag, without which the mempool runs no
+        // witness program, and no other flag of the standard set.
+        ForceSetArg("-promiscuousmempoolflags", std::to_string((unsigned int)SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY | SCRIPT_VERIFY_WITNESS));
+        BOOST_CHECK_EQUAL(RelayRefusal(anyprevout), MandatoryRefusal(SCRIPT_ERR_SIG_HASHTYPE));
+        BOOST_CHECK_EQUAL(mempool.size(), 0u);
+        // An ordinary spend enters under the option, and a template is built
+        // over the mempool that holds it.
+        BOOST_CHECK_EQUAL(RelayRefusal(ordinary), std::string());
+        BOOST_CHECK_EQUAL(mempool.size(), 1u);
+        std::unique_ptr<CBlockTemplate> tmpl;
+        BOOST_CHECK_NO_THROW(tmpl = BlockAssembler(Params()).CreateNewBlock(coinbaseSpk, true));
+        BOOST_CHECK(tmpl != nullptr);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -942,9 +1044,13 @@ BOOST_AUTO_TEST_CASE(the_flag_widens_the_keyhash_check_and_nothing_else)
         BOOST_CHECK_EQUAL(MatchingTemplate().Verdict(with), SCRIPT_ERR_DISALLOWED_OPCODE);
         BOOST_CHECK_EQUAL(product.Verdict(with), SCRIPT_ERR_PUSH_SIZE);
         BOOST_CHECK_EQUAL(TwoOfTwo(a, b, SIGHASH_ALL).Verdict(with), SCRIPT_ERR_OK);
-        for (int byte : {0x41, 0x42}) {
+        // Under the flag the check takes each byte the refusal names. For
+        // 0xc1 and 0xc2 the message is the constant SignatureHash returns
+        // for them, as it was under the earlier rule.
+        for (int byte : ANYPREVOUT_BYTES) {
             const Spend s = TwoOfTwo(a, b, byte);
-            BOOST_CHECK_EQUAL(s.Verdict(with), SCRIPT_ERR_OK);
+            BOOST_CHECK_MESSAGE(s.Verdict(with) == SCRIPT_ERR_OK,
+                "hash type 0x" << std::hex << byte << std::dec << " with the flag: got " << Name(s.Verdict(with)));
             BOOST_CHECK_EQUAL(s.Verdict(with & ~SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY), SCRIPT_ERR_SIG_HASHTYPE);
         }
         // A signature that does not verify is refused under the flag as well.
