@@ -876,7 +876,8 @@ static void RemoveOutputsOfDormantWitnessVersions(CTxMemPool& pool)
  * reads the view for the inputs of an entry that spends a coinbase, and with
  * mempool checks on it asserts that the view holds each. The three returns
  * that follow a failed disconnection or connection run it only when this is
- * true. With no tip the view's best block is the null hash.
+ * true. With no tip the comparison is with the null hash, which a view with
+ * no best block returns.
  */
 static bool CoinsViewIsAtTip()
 {

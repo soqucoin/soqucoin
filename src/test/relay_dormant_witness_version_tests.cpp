@@ -710,6 +710,39 @@ struct TwoBranchSetup : public RelayChainSetup {
         BOOST_CHECK(TipIs(y[5]));
     }
 
+    //! InvalidateBlock stops at the tip A-1 and its failure return reads that
+    //! tip: the undo data of block X3 is marked absent and that block is
+    //! invalidated, so block A alone is disconnected. The funding and a
+    //! spend of the newest coinbase block A may spend stay, the template for
+    //! block A holds them, and a spend of the newest coinbase that block A+1
+    //! may spend leaves.
+    void InvalidateBlockStopsAtTheTipBelowTheHeight()
+    {
+        Build();
+        const CMutableTransaction matureAtA = SpendCoinbaseOfBlock(A - Params().GetConsensus(A + 1).nCoinbaseMaturity);
+        const CMutableTransaction young = YoungCoinbaseSpend();
+        BOOST_REQUIRE_EQUAL(Verdict(matureAtA), ACCEPTED);
+        BOOST_REQUIRE_EQUAL(Verdict(young), ACCEPTED);
+        bool invalidated;
+        {
+            LOCK(cs_main);
+            x[3]->nStatus &= ~BLOCK_HAVE_UNDO;
+            CValidationState state;
+            invalidated = InvalidateBlock(state, Params(), x[3]);
+            x[3]->nStatus |= BLOCK_HAVE_UNDO;
+        }
+        BOOST_CHECK(!invalidated);
+        BOOST_REQUIRE(TipIs(x[3]));
+        BOOST_CHECK(ViewIsAt(x[3]));
+        BOOST_CHECK_MESSAGE(mempool.exists(funding.GetHash()), "a funding left the mempool where InvalidateBlock stopped at the tip A-1, whose next block is A");
+        BOOST_CHECK_MESSAGE(mempool.exists(matureAtA.GetHash()), "a spend of a coinbase that block A may spend left the mempool");
+        BOOST_CHECK_MESSAGE(!mempool.exists(young.GetHash()), "a spend of a coinbase that block A may not spend is in the mempool");
+        const Template next = NextTemplate();
+        BOOST_CHECK_MESSAGE(next.built, next.error);
+        BOOST_CHECK(next.Holds(funding));
+        BOOST_CHECK(next.Holds(matureAtA));
+    }
+
     //! What the three cases of a failed write of the chain state hold once
     //! the function has returned. The removal ran: the funding of block A,
     //! which returned on the way, has left. removeForReorg did not: the entry
@@ -1478,14 +1511,17 @@ BOOST_AUTO_TEST_CASE(a_reorganisation_reads_the_mask_of_the_block_after_the_new_
 // disconnected before the failure and the funding returned on the way. At the
 // tip A-3 the removal runs before the function returns. The coins view is that
 // tip's, so removeForReorg runs too: a spend of the newest coinbase that block
-// A+1 may spend leaves.
+// A+1 may spend leaves. It runs with the lock-time flags: the block at A-1
+// holds a transaction, and one that spends its output with a relative lock of
+// two blocks, accepted at the tip A, has left once the first has returned.
 BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
 {
     const int A = Height() + 4;
     V6BeginsAt begins(A);
+    const CMutableTransaction mined = SpendFixtureCoinbase(2);
     Advance();
     Advance();
-    Advance();
+    Advance({mined});
     BOOST_REQUIRE_EQUAL(Height(), A - 1);
     const CMutableTransaction funding = Fund(0);
     BOOST_REQUIRE_EQUAL(Verdict(funding), ACCEPTED);
@@ -1493,6 +1529,12 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
     BOOST_REQUIRE_EQUAL(Height(), A);
     const CMutableTransaction young = SpendCoinbaseOfBlock(A + 1 - Params().GetConsensus(A + 1).nCoinbaseMaturity);
     BOOST_REQUIRE_EQUAL(Verdict(young), ACCEPTED);
+    CMutableTransaction locked;
+    locked.nVersion = 2;
+    locked.vin.push_back(CTxIn(COutPoint(mined.GetHash(), 0), CScript(), 2));
+    locked.vout.push_back(CTxOut(mined.vout[0].nValue - FEE, coinbaseSpk));
+    SignInput(locked, 0, coinbaseSpk, mined.vout[0].nValue);
+    BOOST_REQUIRE_EQUAL(Verdict(locked), ACCEPTED);
 
     bool invalidated;
     {
@@ -1507,6 +1549,9 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
     BOOST_CHECK_EQUAL(Height(), A - 3);
     BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()), "a funding is in the mempool after InvalidateBlock stopped at a tip whose next block is below the height");
     BOOST_CHECK_MESSAGE(!mempool.exists(young.GetHash()), "a spend of a coinbase that is not mature for the next block is in the mempool after InvalidateBlock stopped");
+    BOOST_CHECK_MESSAGE(mempool.exists(mined.GetHash()), "the transaction of the block at A-1 did not return to the mempool");
+    BOOST_CHECK_MESSAGE(!mempool.exists(locked.GetHash()),
+        "a transaction whose relative lock the next block does not meet is in the mempool after InvalidateBlock stopped");
 }
 
 // A reorganisation stops part way, in the two ways ActivateBestChainStep can
@@ -1639,6 +1684,13 @@ BOOST_FIXTURE_TEST_CASE(the_first_early_return_reads_the_tip_where_the_reorganis
 BOOST_FIXTURE_TEST_CASE(the_second_early_return_reads_the_tip_where_the_reorganisation_stopped, TwoBranchSetup)
 {
     StopsAtTheTipBelowTheHeight(true);
+}
+
+// The same for the failure return of InvalidateBlock
+// (TwoBranchSetup::InvalidateBlockStopsAtTheTipBelowTheHeight).
+BOOST_FIXTURE_TEST_CASE(invalidateblock_reads_the_tip_where_it_stopped, TwoBranchSetup)
+{
+    InvalidateBlockStopsAtTheTipBelowTheHeight();
 }
 
 // A write of the chain state fails inside a disconnection or a connection, and
