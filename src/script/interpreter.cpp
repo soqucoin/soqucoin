@@ -2233,12 +2233,14 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // (ConnectBlock reserves only v2, whose spend path binds nothing) but
     // NON-STANDARD (policy/policy.cpp gates v2-v16 on the live activation
     // mask), and no wallet path can construct one. Where relay requires
-    // standard transactions, the anyone-can-spend window is reached by raw
-    // construction plus a miner running modified policy, or by a
-    // transaction that relay accepted while the version ran
-    // at the next block and that confirms below the activation height after
-    // the tip has moved back (doc/specifications/WITNESS_VERSION_FORK_CLASS.md
-    // section 5). In both, only the funds paid into the output are at risk.
+    // standard transactions, a spend of such an output is refused at relay
+    // too (policy/policy.cpp SpendsDormantWitnessProgram), and the mempool
+    // removes a transaction with such an output when the tip moves back below
+    // the version's height (validation.cpp
+    // RemoveOutputsOfDormantWitnessVersions). The anyone-can-spend window is
+    // then reached by raw construction plus a miner running modified policy
+    // (doc/specifications/WITNESS_VERSION_FORK_CLASS.md section 5), and only
+    // the funds paid into the output are at risk.
     if (is_latticebp_witness) {
         if (!(flags & SCRIPT_VERIFY_SOQUOBSCURA)) {
             return set_success(serror);  // Not active yet — anyone-can-spend
