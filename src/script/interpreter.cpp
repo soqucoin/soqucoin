@@ -2235,8 +2235,8 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     // mask), and no wallet path can construct one. Where relay requires
     // standard transactions, a spend of such an output is refused at relay
     // too (policy/policy.cpp SpendsDormantWitnessProgram), and the mempool
-    // removes a transaction with such an output when the tip moves back below
-    // the version's height (validation.cpp
+    // removes a transaction with such an output when the tip moves back and
+    // the next block is below the version's height (validation.cpp
     // RemoveOutputsOfDormantWitnessVersions). The anyone-can-spend window is
     // then reached by raw construction plus a miner running modified policy
     // (doc/specifications/WITNESS_VERSION_FORK_CLASS.md section 5), and only

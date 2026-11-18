@@ -154,7 +154,7 @@ buying consensus exemptions while the verifier was dormant. The second is closed
 every exemption is gated on the deployment being active *and* the authority initialised, so the
 shape alone buys nothing, and the activation release deletes the exemptions outright. The first
 is bounded and stays open, exactly as it is on Bitcoin: dormant-version outputs are non-standard
-(`policy.cpp`, mask from `AcceptToMemoryPoolWorker`), no wallet or RPC path builds an output
+(`policy.cpp`, mask from `NextBlockWitnessVersionMask`), no wallet or RPC path builds an output
 from an address of a dormant witness version, and a stock miner builds blocks from its mempool.
 The address bound has two parts. `DecodeDestination` decodes witness v1 only (`utiladdress.cpp`),
 and it is the only Bech32m decoder the wallet's send paths and the mining payout address call.
@@ -167,19 +167,22 @@ output of the RPCs shows an address for a witness v6 output (`ScriptPubKeyToJSON
 
 Where relay requires standardness, as on mainnet and stagenet (`fRequireStandard`,
 `chainparams.cpp`), three relay rules read one mask of the next block
-(`NextBlockWitnessVersionMask`, `validation.cpp`). An output of a dormant version is
-non-standard (`IsStandard`). A spend of an output of a dormant version is refused, whatever its
-witness (`SpendsDormantWitnessProgram`, `policy.cpp`), so no spend accepted in the dormant state
-waits in a mempool when the version begins. The reason is `dormant-witness-version`, with no
-score for the peer, unless an earlier check of the transaction refuses it first; a transaction
-with an input that has no witness is one such case (`CheckTransaction`,
-`bad-txns-requires-dilithium`). After the tip has moved back, the mempool removes, with
-its descendants, each transaction that has an output the mask of the new next block refuses
-(`RemoveOutputsOfDormantWitnessVersions`, `validation.cpp`), so a witness v6 output accepted
-while the next block was at or above the activation height is not mined below that height from
-the mempool of a node with these rules. It keeps a spend of a confirmed output that it accepted
-under the version's rules: a block below the height takes that spend with nothing read, and a
-block from the height takes it under the rules it was checked with.
+(`NextBlockWitnessVersionMask`, `validation.cpp`). An output of a dormant version is non-standard
+(`IsStandard`). A spend of an output of a dormant version is refused, whatever its witness
+(`SpendsDormantWitnessProgram`, `policy.cpp`), so no spend accepted in the dormant state waits in a
+mempool when the version begins. The reason is `dormant-witness-version`, with no score for the
+peer, unless an earlier check of the transaction refuses it first; a transaction with an input that
+has no witness and an empty scriptSig is one such case (`CheckTransaction`,
+`bad-txns-requires-dilithium`). An input with no witness whose scriptSig ends in a push that begins
+with the byte `00` passes that check and gets the reason. After the tip has moved back, the mempool
+removes, with its descendants, each transaction that has an output the mask of the new next block
+refuses (`RemoveOutputsOfDormantWitnessVersions`, `validation.cpp`), so a witness v6 output accepted
+while the next block was at or above the activation height is not mined below that height from the
+mempool of a node with these rules. The removal runs wherever a block was disconnected with the
+mempool in use, the returns on which a reorganisation or `invalidateblock` stops part way among them
+(`ActivateBestChainStep`, `InvalidateBlock`). It keeps a spend of a confirmed output that it
+accepted under the version's rules: a block below the height takes that spend with nothing read, and
+a block from the height takes it under the rules it was checked with.
 `relay_dormant_witness_version_tests` holds each rule on a mined chain.
 
 The three are relay policy. A block below the activation height that creates such an output or

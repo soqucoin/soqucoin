@@ -26,8 +26,9 @@
 //   failed     the script runs and fails. Relay and a block refuse it.
 //
 // While the version is dormant, relay refuses an input that spends an output
-// of it as "dormant-witness-version", before any other check of the input and
-// with no score for the peer (policy.cpp SpendsDormantWitnessProgram).
+// of it as "dormant-witness-version", before the checks of the previous
+// output's form, of the witness and of the script, and with no score for the
+// peer (policy.cpp SpendsDormantWitnessProgram).
 //
 // While the version runs, relay first refuses an input whose witness is
 // outside its figures, whatever the outcome, as "bad-witness-nonstandard" with

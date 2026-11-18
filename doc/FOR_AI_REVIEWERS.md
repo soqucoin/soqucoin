@@ -54,7 +54,8 @@ is a hard fork, and until 2026-09 the genesis candidate carried exactly that
 (SOQ-I009, SOQ-ARCH-001; retired, record in
 doc/specifications/WITNESS_VERSION_FORK_CLASS.md). What bounds the window is that
 such outputs are NON-STANDARD until their deployment is active
-(src/policy/policy.cpp `IsStandard`, mask from `AcceptToMemoryPoolWorker`)
+(src/policy/policy.cpp `IsStandard`, mask from `NextBlockWitnessVersionMask`
+in src/validation.cpp)
 and that no wallet or RPC path builds an output from an address of a dormant
 witness version: `DecodeDestination` decodes witness v1 only
 (src/utiladdress.cpp) and is the only Bech32m decoder the wallet's send paths
