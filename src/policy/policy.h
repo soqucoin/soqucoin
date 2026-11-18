@@ -214,6 +214,23 @@ static inline WitnessVersionMask WitnessVersionBit(int version) { return (uint32
 
 bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, WitnessVersionMask activeWitnessVersions = 0);
     /**
+     * The one test of a dormant witness version, read by the output rule
+     * (IsStandard), by the input rule (SpendsDormantWitnessProgram) and by the
+     * mempool after the tip has moved back.
+     * @return True for a 34-byte witness program of version 2 to 16 whose bit is clear in the mask
+     */
+bool IsDormantWitnessProgram(const CScript& scriptPubKey, WitnessVersionMask activeWitnessVersions);
+    /**
+     * Whether an input of the transaction spends an output of a dormant
+     * witness version. A block takes such a spend with nothing read, and from
+     * the height of the version its rules judge the same spend, so relay
+     * refuses it while the version is dormant, whatever its witness. Policy
+     * only: no block is refused for it.
+     * @param[in] mapInputs    Map of previous transactions that have outputs we're spending
+     * @return True if a previous output is a dormant witness program (IsDormantWitnessProgram)
+     */
+bool SpendsDormantWitnessProgram(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions);
+    /**
      * Check for standard transaction types
      * @return True if all outputs (scriptPubKeys) use only standard transaction forms
      */
@@ -233,14 +250,15 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
      * activeWitnessVersions is set. They bound the size of the witnessScript and the number of
      * satisfaction items. Every item other than the witnessScript is MAX_STANDARD_V6_ITEM_SIZE bytes
      * at most, or has the length of a signature or of a public key. With the bit clear no v6 limit
-     * applies.
+     * applies; relay has refused the spend before this check (SpendsDormantWitnessProgram).
      *
      * A witness v11 input is held to the MAX_STANDARD_V11_* limits while bit 11 of
      * activeWitnessVersions is set. They bound the size of the committed item and the number of
      * satisfaction items. Every item other than the committed item is MAX_STANDARD_V11_ITEM_SIZE
      * bytes at most, or has the length of a signature or of a key item. With the bit clear no v11
-     * limit applies, and the script check refuses the spend of a dormant version under
-     * SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM.
+     * limit applies; relay has refused the spend before this check (SpendsDormantWitnessProgram),
+     * and the script check refuses the spend of a dormant version under
+     * SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM where that rule is not applied.
      */
 bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions);
 

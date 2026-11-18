@@ -951,8 +951,8 @@ BOOST_FIXTURE_TEST_CASE(createrawtransaction_builds_the_v6_output, TestingSetup)
 // next block is H, and at H, and refuses again once the tip is invalidated
 // back to H-2. At each tip the mempool, which applies the relay mask, gives
 // the same answer for a transaction paying the same output. The transaction
-// the RPC built is mined in block H and gettxout shows the address. The case
-// ends at the tip H-2 by pinning what the mempool then holds.
+// the RPC built is mined in block H and gettxout shows the address. At the tip
+// H-2 the mempool holds neither transaction the RPC built.
 BOOST_FIXTURE_TEST_CASE(createrawtransaction_v6_boundary_follows_relay, DilithiumChainSetup)
 {
     BOOST_REQUIRE_MESSAGE(fRequireStandard, "the unit fixture applies standardness, as mainnet and stagenet do");
@@ -1053,18 +1053,18 @@ BOOST_FIXTURE_TEST_CASE(createrawtransaction_v6_boundary_follows_relay, Dilithiu
     BOOST_CHECK_EQUAL(refused_again.message, DormantMessage(H - 1, address));
     BOOST_CHECK_EQUAL(mempool_verdict(by_hand), "scriptpubkey");
 
-    // What the mempool does when the tip moves back: it keeps both
-    // transactions the RPC built, although the mask of the next height, H-1,
+    // What the mempool does when the tip moves back: it removes both
+    // transactions the RPC built, because the mask of the next height, H-1,
     // refuses their output. The one mined in block H returned through
     // AcceptToMemoryPool when that block was disconnected, while the tip was
-    // still H. The one built at H was never mined. removeForReorg then reads
-    // finality, sequence locks and coinbase maturity, and no output rule
-    // (txmempool.cpp). These two checks turn to "not in the mempool" in the
-    // change that makes the mempool read the mask again.
-    BOOST_CHECK_MESSAGE(mempool.exists(funding.GetHash()),
-        "the transaction mined in block H is not in the mempool at the tip H-2");
-    BOOST_CHECK_MESSAGE(mempool.exists(funding_at_h.GetHash()),
-        "the transaction built at the tip H is not in the mempool at the tip H-2");
+    // still H. The one built at H was never mined. After removeForReorg the
+    // callers apply the mask of the new next height to the outputs of the
+    // mempool (validation.cpp RemoveOutputsOfDormantWitnessVersions;
+    // relay_dormant_witness_version_tests).
+    BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()),
+        "the transaction mined in block H is in the mempool at the tip H-2");
+    BOOST_CHECK_MESSAGE(!mempool.exists(funding_at_h.GetHash()),
+        "the transaction built at the tip H is in the mempool at the tip H-2");
 }
 
 // validateaddress: a version 6 address is not valid, a version 1 address is.

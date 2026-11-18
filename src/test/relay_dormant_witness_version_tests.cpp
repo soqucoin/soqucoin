@@ -705,4 +705,178 @@ BOOST_AUTO_TEST_CASE(a_spend_mined_below_the_height_does_not_return_when_its_blo
     BOOST_CHECK_MESSAGE(!mempool.exists(spend.GetHash()), "the spend returned to the mempool at the tip A-3");
 }
 
+// The same removal on the path of a reorganisation, ActivateBestChainStep. On
+// regtest every block has the same work, so a branch the node moves to is
+// never lower than the one it leaves; the case moves the height of the version
+// instead of the tip. Two blocks stand at one height. The node is on the
+// first, with a funding in its mempool. Made to prefer the second, it
+// reorganises and keeps the funding, since the next block still runs the
+// version. With the version's height then set above the chain, it reorganises
+// back to the first block, and the funding leaves the mempool.
+BOOST_AUTO_TEST_CASE(a_reorganisation_applies_the_mask_of_the_new_next_block)
+{
+    const CBlock first = HandBlock();
+    const CBlock second = HandBlock();
+    BOOST_REQUIRE(first.GetHash() != second.GetHash());
+    BOOST_REQUIRE(Submit(first));
+    BOOST_REQUIRE(!Submit(second));
+
+    auto prefer = [&](const CBlock& block) {
+        CBlockIndex* index;
+        {
+            LOCK(cs_main);
+            BOOST_REQUIRE(mapBlockIndex.count(block.GetHash()));
+            index = mapBlockIndex[block.GetHash()];
+        }
+        CValidationState state;
+        BOOST_REQUIRE(PreciousBlock(state, Params(), index));
+        LOCK(cs_main);
+        BOOST_REQUIRE(chainActive.Tip() == index);
+    };
+
+    const CMutableTransaction funding = Fund(0);
+    BOOST_REQUIRE_EQUAL(Verdict(funding), ACCEPTED);
+    prefer(second);
+    BOOST_CHECK_MESSAGE(mempool.exists(funding.GetHash()), "a funding left the mempool in a reorganisation at a height where the version runs");
+
+    V6BeginsAt later(Height() + 10);
+    prefer(first);
+    BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()), "a funding is in the mempool after a reorganisation to a tip whose next block is below the height");
+}
+
+// The one test of a dormant program, over every version and length. With an
+// empty mask versions 2 to 16 are dormant and versions 0 and 1 are not. A set
+// bit clears its own version and no other. A program of another length, a
+// 34-byte script that is no program and a script that is no witness program
+// are never dormant.
+BOOST_AUTO_TEST_CASE(the_dormant_test_reads_the_version_the_length_and_the_bit)
+{
+    auto program = [](int version, size_t length) {
+        return CScript() << (version == 0 ? OP_0 : (opcodetype)(OP_1 + version - 1)) << valtype(length, 0x11);
+    };
+    WitnessVersionMask every = 0;
+    for (int version = 0; version <= 16; ++version)
+        every |= WitnessVersionBit(version);
+
+    for (int version = 0; version <= 16; ++version) {
+        const CScript spk = program(version, 32);
+        BOOST_REQUIRE_EQUAL(spk.size(), 34u);
+        BOOST_CHECK_MESSAGE(IsDormantWitnessProgram(spk, 0) == (version >= 2), "version " << version << ", empty mask");
+        BOOST_CHECK_MESSAGE(!IsDormantWitnessProgram(spk, every), "version " << version << ", every bit set");
+        for (int bit = 0; bit <= 16; ++bit) {
+            const bool dormant = IsDormantWitnessProgram(spk, WitnessVersionBit(bit));
+            BOOST_CHECK_MESSAGE(dormant == (version >= 2 && bit != version), "version " << version << ", bit " << bit);
+        }
+        for (size_t length = 2; length <= 40; ++length) {
+            if (length != 32)
+                BOOST_CHECK_MESSAGE(!IsDormantWitnessProgram(program(version, length), 0),
+                    "version " << version << ", a program of " << length << " bytes");
+        }
+    }
+
+    // 34 bytes that begin with OP_6 and are no push of 32 bytes.
+    CScript notAProgram = CScript() << OP_6 << OP_DROP;
+    notAProgram.insert(notAProgram.end(), 32, (unsigned char)OP_NOP);
+    BOOST_REQUIRE_EQUAL(notAProgram.size(), 34u);
+    BOOST_CHECK(!IsDormantWitnessProgram(notAProgram, 0));
+    BOOST_CHECK(!IsDormantWitnessProgram(CScript() << OP_TRUE, 0));
+    BOOST_CHECK(!IsDormantWitnessProgram(CScript(), 0));
+    BOOST_CHECK(!IsDormantWitnessProgram(CScript() << OP_RETURN << valtype(32, 0x11), 0));
+
+    // The input rule over a view: one dormant previous output among the
+    // inputs is enough, at any position, and a coinbase has none.
+    CCoinsView base;
+    CCoinsViewCache view(&base);
+    auto coin = [&](unsigned char tag, const CScript& spk) {
+        uint256 txid;
+        txid.begin()[0] = tag;
+        CCoinsModifier c = view.ModifyCoins(txid);
+        c->vout.resize(1);
+        c->vout[0] = CTxOut(SEEDED, spk);
+        return COutPoint(txid, 0);
+    };
+    const COutPoint plain = coin(1, coinbaseSpk);
+    const COutPoint v6 = coin(2, program(6, 32));
+    const COutPoint v9 = coin(3, program(9, 32));
+    auto spending = [](const std::vector<COutPoint>& outs) {
+        CMutableTransaction tx;
+        for (const COutPoint& out : outs)
+            tx.vin.push_back(CTxIn(out));
+        tx.vout.push_back(CTxOut(COIN, CScript() << OP_TRUE));
+        return CTransaction(tx);
+    };
+    const WitnessVersionMask six = WitnessVersionBit(6);
+    BOOST_CHECK(!SpendsDormantWitnessProgram(spending({plain}), view, 0));
+    BOOST_CHECK(SpendsDormantWitnessProgram(spending({v6}), view, 0));
+    BOOST_CHECK(!SpendsDormantWitnessProgram(spending({v6}), view, six));
+    BOOST_CHECK(SpendsDormantWitnessProgram(spending({plain, v6}), view, 0));
+    BOOST_CHECK(SpendsDormantWitnessProgram(spending({v6, plain}), view, 0));
+    BOOST_CHECK(!SpendsDormantWitnessProgram(spending({plain, v6}), view, six));
+    BOOST_CHECK(SpendsDormantWitnessProgram(spending({plain, v6, v9}), view, six));
+    BOOST_CHECK(!SpendsDormantWitnessProgram(spending({plain, v6, v9}), view, six | WitnessVersionBit(9)));
+    BOOST_CHECK(!SpendsDormantWitnessProgram(coinbaseTxns[0], view, 0));
+}
+
+// The mask as one function. For each deployment that sets a bit by height, and
+// for a height A on each of regtest's three tiers of parameters (below 10, 10
+// to 19, from 20), the bit of each version the deployment governs equals
+// DeploymentActiveAtHeight for the block after pindexPrev, at the four blocks
+// around A. Version 11 runs when any one of its three deployments does.
+// Versions 0, 1, 2, 10 and 12 to 16 have no bit, and regtest's version 3
+// deployment is withdrawn.
+BOOST_AUTO_TEST_CASE(the_mask_follows_each_deployment_at_its_height_on_every_tier)
+{
+    struct Gate {
+        Consensus::DeploymentPos pos;
+        std::vector<int> versions;
+    };
+    const std::vector<Gate> gates = {
+        {Consensus::DEPLOYMENT_SOQUOBSCURA, {4}},
+        {Consensus::DEPLOYMENT_USDSOQ, {5, 7}},
+        {Consensus::DEPLOYMENT_P2WSH_DILITHIUM, {6}},
+        {Consensus::DEPLOYMENT_BTCSOQ, {8, 9}},
+        {Consensus::DEPLOYMENT_CTV, {11}},
+        {Consensus::DEPLOYMENT_APO, {11}},
+        {Consensus::DEPLOYMENT_CSFS, {11}},
+    };
+    WitnessVersionMask never = ~(WitnessVersionMask)0;
+    for (int version = 3; version <= 11; ++version)
+        if (version != 10)
+            never &= ~WitnessVersionBit(version);
+
+    LOCK(cs_main);
+    BOOST_REQUIRE(chainActive.Height() > 120);
+    const int FAR = chainActive.Height() + 1000;
+    size_t read = 0;
+    for (const Gate& gate : gates) {
+        for (int A : {5, 15, 100}) {
+            // Every gated deployment far above, then this one at A.
+            GatedVersionsBeginAt far(FAR);
+            ScopedRegtestActivation at(gate.pos, A);
+            for (int next = A - 2; next <= A + 1; ++next) {
+                const Consensus::Params& cons = Params().GetConsensus(next);
+                const bool active = Consensus::DeploymentActiveAtHeight(next, cons, gate.pos);
+                BOOST_CHECK_EQUAL(active, next >= A);
+                const WitnessVersionMask mask = NextBlockWitnessVersionMask(chainActive[next - 1]);
+                WitnessVersionMask expected = 0;
+                if (active)
+                    for (int version : gate.versions)
+                        expected |= WitnessVersionBit(version);
+                BOOST_CHECK_MESSAGE(mask == expected, "deployment " << gate.pos << " at " << A << ", block " << next
+                    << ": mask " << mask << ", expected " << expected);
+                BOOST_CHECK_EQUAL(mask & never, 0u);
+                ++read;
+            }
+        }
+    }
+    BOOST_CHECK_EQUAL(read, gates.size() * 3 * 4);
+
+    // Regtest's own heights: versions 5 to 9 and 11 from the first block, for
+    // the block after the tip and for block 0, which has no block before it.
+    const WitnessVersionMask regtest = WitnessVersionBit(5) | WitnessVersionBit(6) | WitnessVersionBit(7) |
+                                       WitnessVersionBit(8) | WitnessVersionBit(9) | WitnessVersionBit(11);
+    BOOST_CHECK_EQUAL(NextBlockWitnessVersionMask(chainActive.Tip()), regtest);
+    BOOST_CHECK_EQUAL(NextBlockWitnessVersionMask(nullptr), regtest);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
