@@ -773,8 +773,8 @@ static unsigned int NextBlockDeploymentScriptFlags()
 /**
  * The relay mask of witness versions for the block after pindexPrev: bit N is
  * set when the rules of witness version N run in that block. One function for
- * every reader: the output rule and the input rule of AcceptToMemoryPoolWorker
- * and the removal after the tip has moved back
+ * every reader: the output rule, the input rule and the witness limits of
+ * AcceptToMemoryPoolWorker and the removal after the tip has moved back
  * (RemoveOutputsOfDormantWitnessVersions).
  */
 WitnessVersionMask NextBlockWitnessVersionMask(const CBlockIndex* pindexPrev)
@@ -1000,13 +1000,14 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         }
 
         // A spend of an output of a dormant witness version. A block below
-        // the version's height takes it with nothing read; from the height the
-        // version's rules judge it, and block assembly validates its own
-        // template. Refused here, before the checks that depend on which forms
-        // Solver names, so that the refusal has one reason for every dormant
-        // version. The verdict does not read the witness, so the transaction
-        // id is the thing refused, and the sender is not scored: a peer on an
-        // earlier release relays such a spend.
+        // the version's height runs no script for it (versions 3 to 16; no
+        // block may create a version 2 output); from the height the version's
+        // rules judge it, and block assembly validates its own template.
+        // Refused here, before the checks that depend on which forms Solver
+        // names, so that the refusal has one reason for every dormant version.
+        // The verdict does not read the witness, so the transaction id is the
+        // thing refused, and the sender is not scored: a peer on an earlier
+        // release relays such a spend.
         if (fRequireStandard && SpendsDormantWitnessProgram(tx, view, activeWitnessVersions))
             return state.DoS(0, false, REJECT_NONSTANDARD, "dormant-witness-version");
 
@@ -3986,7 +3987,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // BIP141's posture — a dormant version is anyone-can-spend at the script
     // layer (VerifyScript returns success while the deployment flag is clear)
     // and NON-STANDARD at the relay layer (policy.cpp gates v2-v16 on the live
-    // activation mask computed in AcceptToMemoryPoolWorker) — and it is the
+    // activation mask, NextBlockWitnessVersionMask) — and it is the
     // posture that makes every later activation a SOFT fork: activation only
     // ADDS a rule (the spend must now verify), and every block the new rule
     // accepts, the genesis binary also accepts.
@@ -6646,8 +6647,18 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
     // Disconnect active blocks which are no longer in the best chain.
     bool fBlocksDisconnected = false;
     while (chainActive.Tip() && chainActive.Tip() != pindexFork) {
-        if (!DisconnectTip(state, chainparams))
+        if (!DisconnectTip(state, chainparams)) {
+            // The tip has moved back by the blocks already disconnected and
+            // the mempool holds what they returned: run removeForReorg and
+            // the removal of outputs of a dormant witness version for the
+            // tip as it stands, as InvalidateBlock does where its
+            // disconnection fails. The size limit is not applied here.
+            if (fBlocksDisconnected) {
+                mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+                RemoveOutputsOfDormantWitnessVersions(mempool);
+            }
             return false;
+        }
         fBlocksDisconnected = true;
     }
 
@@ -6683,6 +6694,12 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
                     break;
                 } else {
                     // A system error occurred (disk space, database error, ...).
+                    // The same two removals as above, for the tip the
+                    // step has reached.
+                    if (fBlocksDisconnected) {
+                        mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+                        RemoveOutputsOfDormantWitnessVersions(mempool);
+                    }
                     return false;
                 }
             } else {
