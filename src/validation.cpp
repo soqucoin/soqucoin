@@ -840,8 +840,9 @@ WitnessVersionMask NextBlockWitnessVersionMask(const CBlockIndex* pindexPrev)
  * block while the tip was still that high. Mined below the height, its output
  * is one a block lets any spend take. Where standardness is not required the
  * output rule is not applied on the way in and nothing is removed here.
- * removeForReorg, which its callers run first, reads finality, sequence locks
- * and coinbase maturity and no output rule.
+ * removeForReorg, which its callers run first where the coins view is the
+ * tip's (CoinsViewIsAtTip), reads finality, sequence locks and coinbase
+ * maturity and no output rule. This function reads the tip and no view.
  */
 static void RemoveOutputsOfDormantWitnessVersions(CTxMemPool& pool)
 {
@@ -865,6 +866,23 @@ static void RemoveOutputsOfDormantWitnessVersions(CTxMemPool& pool)
     // as the descendant of an earlier one, it finds nothing.
     for (const CTransactionRef& tx : refused)
         pool.removeRecursive(*tx, MemPoolRemovalReason::REORG);
+}
+
+/**
+ * True when the best block of the coins view is the tip. A write of the chain
+ * state that fails inside DisconnectTip or ConnectTip (FlushStateToDisk)
+ * returns after the view took the block and before the tip moved, so the view
+ * is then one block behind the tip or one block ahead of it. removeForReorg
+ * reads the view for the inputs of an entry that spends a coinbase, and with
+ * mempool checks on it asserts that the view holds each. The three returns
+ * that follow a failed disconnection or connection run it only when this is
+ * true. With no tip the view's best block is the null hash.
+ */
+static bool CoinsViewIsAtTip()
+{
+    AssertLockHeld(cs_main);
+    const CBlockIndex* pindexTip = chainActive.Tip();
+    return pcoinsTip->GetBestBlock() == (pindexTip ? pindexTip->GetBlockHash() : uint256());
 }
 
 bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const CTransactionRef& ptx, bool fLimitFree, bool* pfMissingInputs, int64_t nAcceptTime, std::list<CTransactionRef>* plTxnReplaced, bool fOverrideMempoolLimit, const CAmount& nAbsurdFee, std::vector<uint256>& vHashTxnToUncache)
@@ -6649,12 +6667,16 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
     while (chainActive.Tip() && chainActive.Tip() != pindexFork) {
         if (!DisconnectTip(state, chainparams)) {
             // The tip has moved back by the blocks already disconnected and
-            // the mempool holds what they returned: run removeForReorg and
-            // the removal of outputs of a dormant witness version for the
-            // tip as it stands, as InvalidateBlock does where its
-            // disconnection fails. The size limit is not applied here.
+            // the mempool holds what they returned: run the removal of
+            // outputs of a dormant witness version for the tip as it stands,
+            // and removeForReorg before it when the coins view is that
+            // tip's, as InvalidateBlock does where its disconnection fails.
+            // After a failed write of the chain state the view is one block
+            // behind the tip, and what removeForReorg would take stays. The
+            // size limit is not applied here.
             if (fBlocksDisconnected) {
-                mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+                if (CoinsViewIsAtTip())
+                    mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
                 RemoveOutputsOfDormantWitnessVersions(mempool);
             }
             return false;
@@ -6694,10 +6716,13 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
                     break;
                 } else {
                     // A system error occurred (disk space, database error, ...).
-                    // The same two removals as above, for the tip the
-                    // step has reached.
+                    // The same two removals as above, under the same
+                    // condition, for the tip the step has reached. After a
+                    // failed write of the chain state the view is one block
+                    // ahead of that tip.
                     if (fBlocksDisconnected) {
-                        mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+                        if (CoinsViewIsAtTip())
+                            mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
                         RemoveOutputsOfDormantWitnessVersions(mempool);
                     }
                     return false;
@@ -6891,7 +6916,10 @@ bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, C
         // ActivateBestChain considers blocks already in chainActive
         // unconditionally valid already, so force disconnect away from it.
         if (!DisconnectTip(state, chainparams)) {
-            mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+            // removeForReorg when the coins view is the tip's, as at the
+            // two early returns of ActivateBestChainStep.
+            if (CoinsViewIsAtTip())
+                mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
             RemoveOutputsOfDormantWitnessVersions(mempool);
             return false;
         }

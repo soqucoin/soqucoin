@@ -14,15 +14,20 @@
 //   The spend. A transaction that spends a 34-byte witness program of a
 //   version whose bit is clear in the mask of the next block is refused at
 //   relay, whatever its witness, with the reason "dormant-witness-version".
-//   An input with no witness and an empty scriptSig never reaches the rule:
-//   CheckTransaction refuses the transaction first, in a block as at relay.
-//   An input with no witness whose scriptSig ends in a push that begins with
-//   the byte 00 passes CheckTransaction and reaches the rule.
+//   A transaction whose one input has no witness and an empty scriptSig never
+//   reaches the rule: CheckTransaction refuses it first, in a block as at
+//   relay. An input with no witness whose scriptSig ends in a push that
+//   begins with the byte 00 passes CheckTransaction and reaches the rule. So
+//   does an input with no witness and an empty scriptSig in a transaction
+//   that CheckTransaction passes for another input: one with an output
+//   OP_5 <32 bytes> and an input of the authority witness layout.
 //
 //   The mask read again. After the tip has moved back, the mempool holds no
 //   transaction with an output the mask of the new next height refuses, and
 //   no descendant of one. That holds where a reorganisation or an
-//   invalidation stops part way too.
+//   invalidation stops part way too, after a failed write of the chain state
+//   among the stops. removeForReorg runs at those stops when the coins view
+//   is the tip's, which it is unless that write failed.
 //
 // The cases use witness version 6 with its height A set on regtest for their
 // own scope; one case walks versions 0 to 16. Neither rule is a rule on
@@ -38,6 +43,7 @@
 #include "coins.h"
 #include "consensus/merkle.h"
 #include "consensus/params.h"
+#include "consensus/pat_attestation.h"
 #include "consensus/validation.h"
 #include "crypto/sha256.h"
 #include "init.h"
@@ -75,7 +81,8 @@
 #include <vector>
 
 //! The shutdown request of init.cpp, which a node sets when it cannot read a
-//! block. One case reaches that path and takes the request back.
+//! block or write its chain state. The cases that reach those paths take the
+//! request back.
 extern std::atomic<bool> fRequestShutdown;
 
 namespace {
@@ -235,9 +242,9 @@ struct RelayChainSetup : public DilithiumChainSetup {
 
     //! A block on the tip with the given transactions and no other. Its
     //! coinbase claims the subsidy alone. For a mempool that holds no spend
-    //! of a version 1 output: the template's attestation commitment is taken
-    //! out of the coinbase, and a block without it is invalid when the
-    //! template held such a spend.
+    //! of a version 1 output: the template's attestation commitment stays in
+    //! the coinbase, and the block is invalid unless it holds the spends the
+    //! template held.
     CBlock HandBlock(const std::vector<CMutableTransaction>& txns = std::vector<CMutableTransaction>())
     {
         LOCK(cs_main);
@@ -394,6 +401,18 @@ struct RelayChainSetup : public DilithiumChainSetup {
         return tx;
     }
 
+    //! Coinbase n of the fixture paid to the fixture's key.
+    CMutableTransaction SpendFixtureCoinbase(size_t n)
+    {
+        const CTransaction& cb = coinbaseTxns[n];
+        CMutableTransaction tx;
+        tx.nVersion = 2;
+        tx.vin.push_back(CTxIn(COutPoint(cb.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        tx.vout.push_back(CTxOut(cb.vout[0].nValue - FEE, coinbaseSpk));
+        SignInput(tx, 0, coinbaseSpk, cb.vout[0].nValue);
+        return tx;
+    }
+
     //! A spend of one version 6 output of this file to the fixture's key.
     CMutableTransaction Spend(const COutPoint& out, CAmount value, Witness witness, CAmount fee = FEE)
     {
@@ -449,6 +468,359 @@ struct RelayChainSetup : public DilithiumChainSetup {
         tx.vout.push_back(CTxOut(parent.vout[0].nValue - FEE, coinbaseSpk));
         SignInput(tx, 0, coinbaseSpk, parent.vout[0].nValue);
         return tx;
+    }
+};
+
+//! A backend of the coins view whose write throws while it is armed, before
+//! it reads what it was given, so that the view's cache stays as it was.
+struct FailingCoinsBackend : public CCoinsViewBacked {
+    bool armed;
+    int failed;
+    explicit FailingCoinsBackend(CCoinsView* view) : CCoinsViewBacked(view), armed(false), failed(0) {}
+    bool BatchWrite(CCoinsMap& mapCoins, const uint256& hashBlock) override
+    {
+        if (armed) {
+            ++failed;
+            throw std::runtime_error("the case fails this write of the coin database");
+        }
+        return CCoinsViewBacked::BatchWrite(mapCoins, hashBlock);
+    }
+};
+
+//! For its life, the next write of the chain state fails from a moment the
+//! case names by one of two fields. afterDisconnectionTo: from the signal
+//! DisconnectTip gives once the tip has moved back to that block, so the
+//! write fails inside the disconnection of that block, after the view took
+//! the disconnection and before the tip moves. inConnectionOf: from the
+//! signal ConnectTip gives for the block it has checked, so the write fails
+//! after the view took the block's coins and before the tip moves. The object
+//! also makes that write due: FlushStateToDisk writes when the cache is over
+//! nCoinCacheUsage plus the room the mempool leaves, compared as a signed
+//! figure, and the object puts the first below zero. It is a receiver of
+//! validation signals with a scheduler of its own, as TipAtAcceptance is.
+struct FailedChainStateWrite : public CValidationInterface {
+    FailingCoinsBackend backend;
+    CScheduler scheduler;
+    const size_t foundCacheUsage;
+    const CBlockIndex* afterDisconnectionTo;
+    uint256 inConnectionOf;
+
+    FailedChainStateWrite() : backend(pcoinsdbview), foundCacheUsage(nCoinCacheUsage), afterDisconnectionTo(nullptr)
+    {
+        {
+            LOCK(cs_main);
+            pcoinsTip->SetBackend(backend);
+        }
+        RegisterBackgroundSignalScheduler(scheduler);
+        RegisterValidationInterface(this);
+    }
+    ~FailedChainStateWrite()
+    {
+        UnregisterValidationInterface(this);
+        UnregisterBackgroundSignalScheduler();
+        nCoinCacheUsage = foundCacheUsage;
+        LOCK(cs_main);
+        pcoinsTip->SetBackend(*pcoinsdbview);
+    }
+
+    void Arm()
+    {
+        backend.armed = true;
+        nCoinCacheUsage = static_cast<size_t>(int64_t(-2000000000));
+    }
+    void SyncTransaction(const CTransaction&, const CBlockIndex* pindex, int) override
+    {
+        if (afterDisconnectionTo != nullptr && pindex == afterDisconnectionTo)
+            Arm();
+    }
+    void BlockChecked(const CBlock& block, const CValidationState& state) override
+    {
+        if (state.IsValid() && block.GetHash() == inConnectionOf)
+            Arm();
+    }
+};
+
+//! Two branches from one block, for the cases in which a reorganisation or an
+//! invalidation stops part way. Y, of five blocks, is built first and
+//! invalidated. X, of four, is the node's: its fourth block is block A, the
+//! first that runs version 6, and holds a funding. With Y valid again the
+//! node moves to it, from the tip A to the tip A+1.
+//!
+//! A case of this fixture ends where a node would stop, and some end with a
+//! coins view that is not the tip's. The fixture takes back the node's
+//! request for its shutdown and its warning, puts the mempool checks back on,
+//! and prints none of the node's messages for its user: one handler that
+//! prints nothing takes the place of those the fixtures so far connected, and
+//! the next fixture connects the printing handler again.
+struct TwoBranchSetup : public RelayChainSetup {
+    int below, A;
+    CBlockIndex* y[6]; //!< y[1] to y[5], the longer branch
+    CBlockIndex* x[5]; //!< x[1] to x[4], the node's branch
+    CMutableTransaction funding;
+    std::unique_ptr<V6BeginsAt> begins;
+    boost::signals2::scoped_connection quiet;
+
+    TwoBranchSetup() : below(0), A(0)
+    {
+        uiInterface.ThreadSafeMessageBox.disconnect_all_slots();
+        quiet = uiInterface.ThreadSafeMessageBox.connect(
+            [](const std::string&, const std::string&, unsigned int) { return false; });
+    }
+    ~TwoBranchSetup()
+    {
+        fRequestShutdown = false;
+        SetMiscWarning("");
+        mempool.setSanityCheck(1.0);
+    }
+
+    typedef std::vector<std::vector<CMutableTransaction> > BlocksOfTransactions;
+
+    //! yTxns[i] are the transactions of block Y(i+1), xTxns[i] of block
+    //! X(i+1) for X1 to X3. The funding spends coinbase 0 of the fixture.
+    void Build(const BlocksOfTransactions& yTxns = BlocksOfTransactions(), const BlocksOfTransactions& xTxns = BlocksOfTransactions())
+    {
+        below = Height();
+        A = below + 4;
+        begins.reset(new V6BeginsAt(A));
+        for (size_t i = 0; i < 5; ++i)
+            Advance(i < yTxns.size() ? yTxns[i] : std::vector<CMutableTransaction>());
+        {
+            LOCK(cs_main);
+            for (int i = 1; i <= 5; ++i)
+                y[i] = chainActive[below + i];
+            CValidationState state;
+            BOOST_REQUIRE(InvalidateBlock(state, Params(), y[1]));
+        }
+        BOOST_REQUIRE_EQUAL(Height(), below);
+        mempool.clear();
+        for (size_t i = 0; i < 3; ++i)
+            Advance(i < xTxns.size() ? xTxns[i] : std::vector<CMutableTransaction>());
+        BOOST_REQUIRE_EQUAL(Height(), A - 1);
+        funding = Fund(0);
+        BOOST_REQUIRE_EQUAL(Verdict(funding), ACCEPTED);
+        BOOST_REQUIRE(Submit(StockBlock()));
+        BOOST_REQUIRE_EQUAL(Height(), A);
+        LOCK(cs_main);
+        for (int i = 1; i <= 4; ++i)
+            x[i] = chainActive[below + i];
+        BOOST_REQUIRE(x[1] != y[1]);
+    }
+
+    //! A spend of coinbase n of the fixture and of output 0 of a transaction
+    //! that pays the fixture's key.
+    CMutableTransaction SpendFixtureCoinbaseAnd(size_t n, const CMutableTransaction& parent)
+    {
+        const CTransaction& cb = coinbaseTxns[n];
+        CMutableTransaction tx;
+        tx.nVersion = 2;
+        tx.vin.push_back(CTxIn(COutPoint(cb.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        tx.vin.push_back(CTxIn(COutPoint(parent.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        tx.vout.push_back(CTxOut(cb.vout[0].nValue + parent.vout[0].nValue - FEE, coinbaseSpk));
+        SignInput(tx, 0, coinbaseSpk, cb.vout[0].nValue);
+        SignInput(tx, 1, coinbaseSpk, parent.vout[0].nValue);
+        return tx;
+    }
+
+    //! A spend of the newest coinbase that block A+1 may spend.
+    CMutableTransaction YoungCoinbaseSpend()
+    {
+        return SpendCoinbaseOfBlock(A + 1 - Params().GetConsensus(A + 1).nCoinbaseMaturity);
+    }
+
+    bool ViewIsAt(const CBlockIndex* index)
+    {
+        LOCK(cs_main);
+        return pcoinsTip->GetBestBlock() == index->GetBlockHash();
+    }
+    bool TipIs(const CBlockIndex* index)
+    {
+        LOCK(cs_main);
+        return chainActive.Tip() == index;
+    }
+
+    //! Finding its way to Y, the node stops at the tip A-1, on either early
+    //! return of ActivateBestChainStep, and the two calls there read that
+    //! tip: the next block is A.
+    //!
+    //! The first return: the undo data of block X3, the block at A-1, is
+    //! marked absent, so block A alone is disconnected. The second: block Y4,
+    //! the block at A of the longer branch, is pointed past the end of its
+    //! file, so the four blocks of X are disconnected and Y1 to Y3 connected.
+    //!
+    //! The mempool holds the funding of block A once that block has gone, a
+    //! spend of the newest coinbase block A may spend, a spend of the newest
+    //! that block A+1 may spend, and a transaction with a relative lock of
+    //! two blocks on an output mined in block X3, which block A+1 may hold
+    //! and block A may not. The first two stay and the node's template for
+    //! block A holds them. The last two leave. Then, with the block index as
+    //! it was, the reorganisation completes.
+    void StopsAtTheTipBelowTheHeight(bool failsToConnect)
+    {
+        const CMutableTransaction mined = SpendFixtureCoinbase(2);
+        BlocksOfTransactions xTxns(3);
+        xTxns[2].push_back(mined);
+        Build(BlocksOfTransactions(), xTxns);
+        const int maturity = Params().GetConsensus(A + 1).nCoinbaseMaturity;
+        const CMutableTransaction matureAtA = SpendCoinbaseOfBlock(A - maturity);
+        const CMutableTransaction young = YoungCoinbaseSpend();
+        CMutableTransaction locked;
+        locked.nVersion = 2;
+        locked.vin.push_back(CTxIn(COutPoint(mined.GetHash(), 0), CScript(), 2));
+        locked.vout.push_back(CTxOut(mined.vout[0].nValue - FEE, coinbaseSpk));
+        SignInput(locked, 0, coinbaseSpk, mined.vout[0].nValue);
+        BOOST_REQUIRE_EQUAL(Verdict(matureAtA), ACCEPTED);
+        BOOST_REQUIRE_EQUAL(Verdict(young), ACCEPTED);
+        BOOST_REQUIRE_EQUAL(Verdict(locked), ACCEPTED);
+
+        const unsigned int dataPos = y[4]->nDataPos;
+        {
+            LOCK(cs_main);
+            if (failsToConnect)
+                y[4]->nDataPos = 0x7fffffff;
+            else
+                x[3]->nStatus &= ~BLOCK_HAVE_UNDO;
+            BOOST_REQUIRE(ResetBlockFailureFlags(y[1]));
+        }
+        CValidationState stopped;
+        BOOST_CHECK(!ActivateBestChain(stopped, Params()));
+        BOOST_CHECK(!stopped.IsInvalid());
+        BOOST_REQUIRE_MESSAGE(TipIs(failsToConnect ? y[3] : x[3]), "the tip is at A" << Height() - A);
+        BOOST_CHECK(ViewIsAt(failsToConnect ? y[3] : x[3]));
+        BOOST_CHECK_EQUAL(ShutdownRequested(), failsToConnect);
+        fRequestShutdown = false;
+
+        BOOST_CHECK_MESSAGE(mempool.exists(funding.GetHash()),
+            "a funding left the mempool where the reorganisation stopped at the tip A-1, whose next block is A");
+        BOOST_CHECK_MESSAGE(mempool.exists(matureAtA.GetHash()), "a spend of a coinbase that block A may spend left the mempool");
+        BOOST_CHECK_MESSAGE(!mempool.exists(young.GetHash()), "a spend of a coinbase that block A may not spend is in the mempool");
+        BOOST_CHECK_MESSAGE(!mempool.exists(locked.GetHash()), "a transaction whose relative lock block A does not meet is in the mempool");
+        BOOST_CHECK_EQUAL(mempool.exists(mined.GetHash()), failsToConnect);
+        const Template next = NextTemplate();
+        BOOST_CHECK_MESSAGE(next.built, next.error);
+        BOOST_CHECK(next.Holds(funding));
+        BOOST_CHECK(next.Holds(matureAtA));
+
+        {
+            LOCK(cs_main);
+            y[4]->nDataPos = dataPos;
+            x[3]->nStatus |= BLOCK_HAVE_UNDO;
+        }
+        CValidationState completed;
+        BOOST_CHECK(ActivateBestChain(completed, Params()));
+        BOOST_CHECK(TipIs(y[5]));
+    }
+
+    //! What the three cases of a failed write of the chain state hold once
+    //! the function has returned. The removal ran: the funding of block A,
+    //! which returned on the way, has left. removeForReorg did not: the entry
+    //! that spends a coinbase and an output the view no longer holds is in
+    //! the mempool, and so is the spend of a coinbase that is not mature for
+    //! the next block.
+    void CheckTheMempoolAfterTheFailedWrite(const FailedChainStateWrite& failure, const CMutableTransaction& entry, const CMutableTransaction& young)
+    {
+        BOOST_CHECK_EQUAL(failure.backend.failed, 1);
+        BOOST_CHECK(ShutdownRequested());
+        BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()), "a funding is in the mempool after a stop at a tip whose next block is below the height");
+        BOOST_CHECK_MESSAGE(mempool.exists(entry.GetHash()),
+            "removeForReorg ran with a coins view that is not the tip's: the entry that spends a coinbase and an output the view does not hold has left");
+        BOOST_CHECK_MESSAGE(mempool.exists(young.GetHash()),
+            "removeForReorg ran with a coins view that is not the tip's: the spend of a coinbase that is not mature has left");
+    }
+
+    //! The first early return of ActivateBestChainStep after a failed write.
+    //! Block X2 holds a transaction; the mempool holds an entry that spends a
+    //! coinbase and that transaction's output. Blocks A and X3 are
+    //! disconnected, and the write fails inside the disconnection of X2: the
+    //! tip is still X2, and the view is at X1 and without that output.
+    void FirstEarlyReturnAfterAFailedWrite(bool mempoolChecks)
+    {
+        mempool.setSanityCheck(mempoolChecks ? 1.0 : 0.0);
+        const CMutableTransaction mined = SpendFixtureCoinbase(2);
+        BlocksOfTransactions xTxns(3);
+        xTxns[1].push_back(mined);
+        Build(BlocksOfTransactions(), xTxns);
+        const CMutableTransaction entry = SpendFixtureCoinbaseAnd(3, mined);
+        const CMutableTransaction young = YoungCoinbaseSpend();
+        BOOST_REQUIRE_EQUAL(Verdict(entry), ACCEPTED);
+        BOOST_REQUIRE_EQUAL(Verdict(young), ACCEPTED);
+
+        FailedChainStateWrite failure;
+        failure.afterDisconnectionTo = x[2];
+        {
+            LOCK(cs_main);
+            BOOST_REQUIRE(ResetBlockFailureFlags(y[1]));
+        }
+        CValidationState stopped;
+        BOOST_CHECK(!ActivateBestChain(stopped, Params()));
+        BOOST_CHECK(stopped.IsError());
+        BOOST_REQUIRE(TipIs(x[2]));
+        BOOST_REQUIRE(ViewIsAt(x[1]));
+        BOOST_CHECK(!Unspent(COutPoint(mined.GetHash(), 0)));
+        CheckTheMempoolAfterTheFailedWrite(failure, entry, young);
+    }
+
+    //! The second early return after a failed write. A transaction is mined
+    //! below the common ancestor, and block Y1 spends its one output; the
+    //! mempool holds an entry that spends a coinbase and the same output. The
+    //! four blocks of X are disconnected, and the write fails inside the
+    //! connection of Y1: the tip is the common ancestor, and the view is at
+    //! Y1 and without that output.
+    void SecondEarlyReturnAfterAFailedWrite(bool mempoolChecks)
+    {
+        mempool.setSanityCheck(mempoolChecks ? 1.0 : 0.0);
+        const CMutableTransaction mined = SpendFixtureCoinbase(2);
+        Advance({mined});
+        BlocksOfTransactions yTxns(1);
+        yTxns[0].push_back(SpendToKey(mined));
+        Build(yTxns);
+        BOOST_REQUIRE(Unspent(COutPoint(mined.GetHash(), 0)));
+        const CMutableTransaction entry = SpendFixtureCoinbaseAnd(3, mined);
+        const CMutableTransaction young = YoungCoinbaseSpend();
+        BOOST_REQUIRE_EQUAL(Verdict(entry), ACCEPTED);
+        BOOST_REQUIRE_EQUAL(Verdict(young), ACCEPTED);
+
+        FailedChainStateWrite failure;
+        failure.inConnectionOf = y[1]->GetBlockHash();
+        {
+            LOCK(cs_main);
+            BOOST_REQUIRE(ResetBlockFailureFlags(y[1]));
+        }
+        CValidationState stopped;
+        BOOST_CHECK(!ActivateBestChain(stopped, Params()));
+        BOOST_CHECK(stopped.IsError());
+        BOOST_REQUIRE_EQUAL(Height(), below);
+        BOOST_REQUIRE(ViewIsAt(y[1]));
+        BOOST_CHECK(!Unspent(COutPoint(mined.GetHash(), 0)));
+        CheckTheMempoolAfterTheFailedWrite(failure, entry, young);
+    }
+
+    //! The failure return of InvalidateBlock after a failed write: the state
+    //! of the first early return, reached by the invalidation of block X1.
+    void InvalidateBlockAfterAFailedWrite(bool mempoolChecks)
+    {
+        mempool.setSanityCheck(mempoolChecks ? 1.0 : 0.0);
+        const CMutableTransaction mined = SpendFixtureCoinbase(2);
+        BlocksOfTransactions xTxns(3);
+        xTxns[1].push_back(mined);
+        Build(BlocksOfTransactions(), xTxns);
+        const CMutableTransaction entry = SpendFixtureCoinbaseAnd(3, mined);
+        const CMutableTransaction young = YoungCoinbaseSpend();
+        BOOST_REQUIRE_EQUAL(Verdict(entry), ACCEPTED);
+        BOOST_REQUIRE_EQUAL(Verdict(young), ACCEPTED);
+
+        FailedChainStateWrite failure;
+        failure.afterDisconnectionTo = x[2];
+        bool invalidated;
+        {
+            LOCK(cs_main);
+            CValidationState state;
+            invalidated = InvalidateBlock(state, Params(), x[1]);
+        }
+        BOOST_CHECK(!invalidated);
+        BOOST_REQUIRE(TipIs(x[2]));
+        BOOST_REQUIRE(ViewIsAt(x[1]));
+        BOOST_CHECK(!Unspent(COutPoint(mined.GetHash(), 0)));
+        CheckTheMempoolAfterTheFailedWrite(failure, entry, young);
     }
 };
 
@@ -567,8 +939,9 @@ BOOST_AUTO_TEST_CASE(a_funding_leaves_the_mempool_when_the_tip_moves_back_below_
 // built. While the next block is below A, relay refuses a spend of it with the
 // witness 00 and with a signed witness. When the next block is A, the version
 // judges the spend: the witness 00 is outside the version's witness figures
-// and the signed one is accepted and mined in block A. A spend with no witness
-// and an empty scriptSig is refused by CheckTransaction at every height.
+// and the signed one is accepted and mined in block A. The spend the case
+// builds with no witness and an empty scriptSig, its one input, is refused by
+// CheckTransaction at every height.
 BOOST_AUTO_TEST_CASE(a_spend_of_a_dormant_output_is_refused_at_relay_until_the_next_block_is_the_height)
 {
     BOOST_REQUIRE(fRequireStandard);
@@ -820,7 +1193,8 @@ BOOST_AUTO_TEST_CASE(the_checks_that_run_before_the_spend_rule_keep_their_reason
 // An input with no witness reaches the rule when its scriptSig ends in a push
 // that begins with the byte 00: CheckTransaction reads that push where it
 // finds no witness. With an empty scriptSig CheckTransaction refuses the
-// transaction. While the next block is below A, relay refuses the first form
+// transaction the case builds, whose one input it is. While the next block is
+// below A, relay refuses the first form
 // with the rule's reason and a block that holds it connects. When the next
 // block is A the version judges it: relay refuses it for another reason, and
 // a block that holds it does not connect.
@@ -866,6 +1240,85 @@ BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_pus
     BOOST_CHECK(!Submit(HandBlock({atTheHeight})));
     BOOST_CHECK_EQUAL(Height(), A - 1);
     BOOST_CHECK(Unspent(COutPoint(funding.GetHash(), 1)));
+}
+
+// An input with no witness and an empty scriptSig reaches the rule in a
+// transaction that CheckTransaction passes for another input: where the
+// transaction has an output OP_5 <32 bytes> and one input whose witness has
+// the authority layout (six items, the third the byte 55, the fifth of 2,420
+// bytes), CTransaction::HasDilithiumSignatures answers for the whole
+// transaction before it reads another input. The output is standard on
+// regtest, where version 5 runs. While the next block is below A, relay gives
+// the rule's reason. The transaction is no authority transaction, and a block
+// that holds it is refused by the authority rule.
+BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_an_empty_scriptsig_reaches_the_rule_beside_an_input_of_the_authority_layout)
+{
+    BOOST_REQUIRE(fRequireStandard);
+    const int A = Height() + 4;
+    V6BeginsAt begins(A);
+    const CMutableTransaction funding = Fund(0);
+    Advance({funding});
+    BOOST_REQUIRE_EQUAL(Height(), A - 3);
+
+    const CTransaction& cb = coinbaseTxns[2];
+    CMutableTransaction tx;
+    tx.nVersion = 2;
+    tx.vin.push_back(CTxIn(COutPoint(cb.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    tx.vin.push_back(CTxIn(COutPoint(funding.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    tx.vout.push_back(CTxOut(10 * COIN, CScript() << OP_5 << valtype(32, 0x05)));
+    tx.vout.push_back(CTxOut(cb.vout[0].nValue + funding.vout[0].nValue - 10 * COIN - FEE, coinbaseSpk));
+    SignInput(tx, 0, coinbaseSpk, cb.vout[0].nValue);
+    tx.vin[0].scriptWitness.stack.push_back(valtype(1, 0x55));
+    tx.vin[0].scriptWitness.stack.push_back(valtype(32, 0x01));
+    tx.vin[0].scriptWitness.stack.push_back(valtype(2420, 0x02));
+    tx.vin[0].scriptWitness.stack.push_back(valtype(1, 0x03));
+    BOOST_REQUIRE_EQUAL(tx.vin[0].scriptWitness.stack.size(), 6u);
+    BOOST_REQUIRE(tx.vin[1].scriptWitness.IsNull());
+    BOOST_REQUIRE(tx.vin[1].scriptSig.empty());
+
+    const CMutableTransaction alone = Spend(funding, 0, NO_WITNESS);
+    {
+        CValidationState refused, passed;
+        BOOST_CHECK(!CheckTransaction(CTransaction(alone), refused));
+        BOOST_CHECK_EQUAL(refused.GetRejectReason(), NO_SIGNATURE);
+        BOOST_CHECK_MESSAGE(CheckTransaction(CTransaction(tx), passed), passed.GetRejectReason());
+    }
+    BOOST_CHECK_EQUAL(Verdict(alone), NO_SIGNATURE);
+    BOOST_CHECK_EQUAL(Verdict(tx), DORMANT);
+    BOOST_CHECK_EQUAL(mempool.size(), 0u);
+    BOOST_CHECK_EQUAL(RejectReasonFor({tx}), "bad-usdsoq-authority-unavailable");
+}
+
+// HandBlock and the attestation commitment. With no spend of a version 1
+// output in the mempool the template has no commitment and the block is valid.
+// With one in the mempool the template commits to it, and the commitment stays
+// in the coinbase HandBlock builds: the block is valid when it holds the spend
+// and is refused when it does not.
+BOOST_AUTO_TEST_CASE(a_hand_block_keeps_the_attestation_commitment_of_the_template)
+{
+    auto commitments = [](const CBlock& block) {
+        uint256 committed;
+        return patattest::FindCommitments(*block.vtx[0], committed);
+    };
+    auto verdict = [](const CBlock& block) {
+        LOCK(cs_main);
+        CValidationState state;
+        return TestBlockValidity(state, Params(), block, chainActive.Tip(), true, true) ? std::string("valid") : state.GetRejectReason();
+    };
+    const CBlock empty = HandBlock();
+    BOOST_CHECK_EQUAL(commitments(empty), 0);
+    BOOST_CHECK_EQUAL(verdict(empty), "valid");
+
+    const CMutableTransaction spend = SpendFixtureCoinbase(0);
+    BOOST_REQUIRE_EQUAL(Verdict(spend), ACCEPTED);
+
+    const CBlock without = HandBlock();
+    BOOST_CHECK_EQUAL(without.vtx.size(), 1u);
+    BOOST_CHECK_EQUAL(commitments(without), 1);
+    BOOST_CHECK_EQUAL(verdict(without), "bad-blk-pat-commitment-empty");
+    const CBlock with = HandBlock({spend});
+    BOOST_CHECK_EQUAL(commitments(with), 1);
+    BOOST_CHECK_EQUAL(verdict(with), "valid");
 }
 
 // Neither rule is a rule on blocks. A block below A that holds a spend of a
@@ -1023,7 +1476,9 @@ BOOST_AUTO_TEST_CASE(a_reorganisation_reads_the_mask_of_the_block_after_the_new_
 // case marks the undo data of block A-3 as absent and invalidates that block
 // from the tip A, where block A holds a funding. Blocks A, A-1 and A-2 are
 // disconnected before the failure and the funding returned on the way. At the
-// tip A-3 the removal runs before the function returns.
+// tip A-3 the removal runs before the function returns. The coins view is that
+// tip's, so removeForReorg runs too: a spend of the newest coinbase that block
+// A+1 may spend leaves.
 BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
 {
     const int A = Height() + 4;
@@ -1036,6 +1491,8 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
     BOOST_REQUIRE_EQUAL(Verdict(funding), ACCEPTED);
     BOOST_REQUIRE(Submit(StockBlock()));
     BOOST_REQUIRE_EQUAL(Height(), A);
+    const CMutableTransaction young = SpendCoinbaseOfBlock(A + 1 - Params().GetConsensus(A + 1).nCoinbaseMaturity);
+    BOOST_REQUIRE_EQUAL(Verdict(young), ACCEPTED);
 
     bool invalidated;
     {
@@ -1049,6 +1506,7 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
     BOOST_CHECK(!invalidated);
     BOOST_CHECK_EQUAL(Height(), A - 3);
     BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()), "a funding is in the mempool after InvalidateBlock stopped at a tip whose next block is below the height");
+    BOOST_CHECK_MESSAGE(!mempool.exists(young.GetHash()), "a spend of a coinbase that is not mature for the next block is in the mempool after InvalidateBlock stopped");
 }
 
 // A reorganisation stops part way, in the two ways ActivateBestChainStep can
@@ -1071,8 +1529,12 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
 // for the next block is without it. removeForReorg runs on both paths too: an
 // ordinary spend of the newest coinbase that block A+1 may spend leaves the
 // mempool, since that coinbase is not mature for the block after the tip where
-// the reorganisation stops. With the block index as it was, the
-// reorganisation completes.
+// the reorganisation stops. It runs with the lock-time flags: the block at A-1
+// holds a transaction, and one that spends its output with a relative lock of
+// two blocks is accepted at the tip A. Where the reorganisation stops the
+// first has returned to the mempool and the second, whose lock the next block
+// does not meet, has left. With the block index as it was, the reorganisation
+// completes.
 BOOST_AUTO_TEST_CASE(the_removal_runs_when_a_reorganisation_stops_part_way)
 {
     // Every fixture of the unit binary connects the handler that prints a
@@ -1099,9 +1561,10 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_a_reorganisation_stops_part_way)
             BOOST_REQUIRE(InvalidateBlock(state, Params(), longer));
         }
         BOOST_REQUIRE_EQUAL(Height(), below);
+        const CMutableTransaction mined = SpendFixtureCoinbase(failsToConnect ? 3 : 2);
         Advance();
         Advance();
-        Advance();
+        Advance({mined});
         BOOST_REQUIRE_EQUAL(Height(), A - 1);
         const CMutableTransaction funding = Fund(failsToConnect ? 1 : 0);
         BOOST_REQUIRE_EQUAL(Verdict(funding), ACCEPTED);
@@ -1109,6 +1572,12 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_a_reorganisation_stops_part_way)
         BOOST_REQUIRE_EQUAL(Height(), A);
         const CMutableTransaction young = SpendCoinbaseOfBlock(A + 1 - Params().GetConsensus(A + 1).nCoinbaseMaturity);
         BOOST_REQUIRE_EQUAL(Verdict(young), ACCEPTED);
+        CMutableTransaction locked;
+        locked.nVersion = 2;
+        locked.vin.push_back(CTxIn(COutPoint(mined.GetHash(), 0), CScript(), 2));
+        locked.vout.push_back(CTxOut(mined.vout[0].nValue - FEE, coinbaseSpk));
+        SignInput(locked, 0, coinbaseSpk, mined.vout[0].nValue);
+        BOOST_REQUIRE_EQUAL(Verdict(locked), ACCEPTED);
 
         CBlockIndex* noUndo;
         const unsigned int dataPos = longer->nDataPos;
@@ -1134,6 +1603,9 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_a_reorganisation_stops_part_way)
             way << ": a funding is in the mempool after a reorganisation stopped at a tip whose next block is below the height");
         BOOST_CHECK_MESSAGE(!mempool.exists(young.GetHash()),
             way << ": a spend of a coinbase that is not mature for the next block is in the mempool");
+        BOOST_CHECK_MESSAGE(mempool.exists(mined.GetHash()), way << ": the transaction of the block at A-1 did not return to the mempool");
+        BOOST_CHECK_MESSAGE(!mempool.exists(locked.GetHash()),
+            way << ": a transaction whose relative lock the next block does not meet is in the mempool");
         const Template next = NextTemplate();
         BOOST_CHECK_MESSAGE(next.built, way << ": " << next.error);
         BOOST_CHECK_MESSAGE(!next.Holds(funding), way << ": the template for the next block holds the funding");
@@ -1147,7 +1619,67 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_a_reorganisation_stops_part_way)
         BOOST_CHECK_MESSAGE(ActivateBestChain(completed, Params()), way);
         BOOST_CHECK_MESSAGE(Height() == A + 1, way << ": the tip is A" << Height() - A);
         BOOST_CHECK(!mempool.exists(funding.GetHash()));
+        // The blocks of the next run are built by hand, for a mempool that
+        // holds no spend of a version 1 output.
+        mempool.clear();
     }
+}
+
+// What the calls at the two early returns are given: the tip the step has
+// reached, the height of the block after it and the lock-time flags. Each run
+// stops at the tip A-1, where a funding and a spend of a coinbase mature at A
+// stay and a spend of a coinbase mature at A+1 and a transaction with a
+// relative lock that block A does not meet leave
+// (TwoBranchSetup::StopsAtTheTipBelowTheHeight).
+BOOST_FIXTURE_TEST_CASE(the_first_early_return_reads_the_tip_where_the_reorganisation_stopped, TwoBranchSetup)
+{
+    StopsAtTheTipBelowTheHeight(false);
+}
+
+BOOST_FIXTURE_TEST_CASE(the_second_early_return_reads_the_tip_where_the_reorganisation_stopped, TwoBranchSetup)
+{
+    StopsAtTheTipBelowTheHeight(true);
+}
+
+// A write of the chain state fails inside a disconnection or a connection, and
+// the function returns with a coins view that is one block behind the tip or
+// one block ahead of it. At each of the three returns that follow, the two
+// early returns of ActivateBestChainStep and the failure return of
+// InvalidateBlock, the removal of outputs of a dormant version runs, since it
+// reads the tip alone, and removeForReorg does not, since it reads the view:
+// given that view with mempool checks on, it stops the process by an assertion
+// on an entry that spends a coinbase and an output the view no longer holds,
+// and with the checks off it removes that entry. Mempool checks are on by
+// default on regtest and off on the other networks, and each return has a case
+// for either setting.
+BOOST_FIXTURE_TEST_CASE(the_first_early_return_after_a_failed_write_of_the_chain_state, TwoBranchSetup)
+{
+    FirstEarlyReturnAfterAFailedWrite(true);
+}
+
+BOOST_FIXTURE_TEST_CASE(the_first_early_return_after_a_failed_write_of_the_chain_state_with_mempool_checks_off, TwoBranchSetup)
+{
+    FirstEarlyReturnAfterAFailedWrite(false);
+}
+
+BOOST_FIXTURE_TEST_CASE(the_second_early_return_after_a_failed_write_of_the_chain_state, TwoBranchSetup)
+{
+    SecondEarlyReturnAfterAFailedWrite(true);
+}
+
+BOOST_FIXTURE_TEST_CASE(the_second_early_return_after_a_failed_write_of_the_chain_state_with_mempool_checks_off, TwoBranchSetup)
+{
+    SecondEarlyReturnAfterAFailedWrite(false);
+}
+
+BOOST_FIXTURE_TEST_CASE(invalidateblock_after_a_failed_write_of_the_chain_state, TwoBranchSetup)
+{
+    InvalidateBlockAfterAFailedWrite(true);
+}
+
+BOOST_FIXTURE_TEST_CASE(invalidateblock_after_a_failed_write_of_the_chain_state_with_mempool_checks_off, TwoBranchSetup)
+{
+    InvalidateBlockAfterAFailedWrite(false);
 }
 
 // The one test of a dormant program, over every version and length. With an
