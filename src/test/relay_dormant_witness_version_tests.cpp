@@ -284,15 +284,17 @@ struct RelayChainSetup : public DilithiumChainSetup {
         return CScript() << OP_6 << h;
     }
 
-    //! Coinbase n of the fixture paid into equal version 6 outputs.
-    CMutableTransaction Fund(size_t n, unsigned int outputs = 1)
+    //! Coinbase n of the fixture paid into equal outputs: each of version 6,
+    //! or with changeFirst the first to the fixture's key and the rest of
+    //! version 6.
+    CMutableTransaction Fund(size_t n, unsigned int outputs = 1, bool changeFirst = false)
     {
         const CTransaction& cb = coinbaseTxns[n];
         CMutableTransaction tx;
         tx.nVersion = 2;
         tx.vin.push_back(CTxIn(COutPoint(cb.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
         for (unsigned int i = 0; i < outputs; ++i)
-            tx.vout.push_back(CTxOut((cb.vout[0].nValue - FEE) / outputs, V6Output()));
+            tx.vout.push_back(CTxOut((cb.vout[0].nValue - FEE) / outputs, changeFirst && i == 0 ? coinbaseSpk : V6Output()));
         SignInput(tx, 0, coinbaseSpk, cb.vout[0].nValue);
         return tx;
     }
@@ -347,8 +349,9 @@ std::string WitnessName(Witness w)
 BOOST_FIXTURE_TEST_SUITE(relay_dormant_witness_version_tests, RelayChainSetup)
 
 // The tip moves back one block, from A-1 to A-2. Two transactions that fund a
-// version 6 output were accepted at the tip A-1, where the next block is A,
-// and one of them has a child that spends its output with a signed witness.
+// version 6 output were accepted at the tip A-1, where the next block is A.
+// One of them has a child that spends its output with a signed witness. The
+// other pays its change first and the version 6 output second.
 // At the tip A-2 the mask of the next block refuses their output: the mempool
 // holds none of the three, a spend of the other output with the witness 00
 // finds nothing to spend, and the node's template for block A-1 is empty.
@@ -362,7 +365,7 @@ BOOST_AUTO_TEST_CASE(a_funding_and_its_child_leave_the_mempool_when_the_tip_move
 
     const CMutableTransaction withChild = Fund(0);
     const CMutableTransaction child = Spend(withChild, 0, SIGNED);
-    const CMutableTransaction alone = Fund(1);
+    const CMutableTransaction alone = Fund(1, 2, true);
     BOOST_REQUIRE_EQUAL(Verdict(withChild), ACCEPTED);
     BOOST_REQUIRE_EQUAL(Verdict(child), ACCEPTED);
     BOOST_REQUIRE_EQUAL(Verdict(alone), ACCEPTED);
@@ -374,7 +377,7 @@ BOOST_AUTO_TEST_CASE(a_funding_and_its_child_leave_the_mempool_when_the_tip_move
     BOOST_CHECK_MESSAGE(!mempool.exists(child.GetHash()), "the child of that funding is in the mempool at the tip A-2");
     BOOST_CHECK_MESSAGE(!mempool.exists(alone.GetHash()), "the second funding is in the mempool at the tip A-2");
 
-    const CMutableTransaction taking = Spend(alone, 0, ONE_ZERO_BYTE);
+    const CMutableTransaction taking = Spend(alone, 1, ONE_ZERO_BYTE);
     BOOST_CHECK_EQUAL(Verdict(taking), MISSING_INPUTS);
 
     const Template next = NextTemplate();

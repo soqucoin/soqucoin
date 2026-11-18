@@ -169,9 +169,11 @@ Where relay requires standardness, as on mainnet and stagenet (`fRequireStandard
 `chainparams.cpp`), three relay rules read one mask of the next block
 (`NextBlockWitnessVersionMask`, `validation.cpp`). An output of a dormant version is
 non-standard (`IsStandard`). A spend of an output of a dormant version is refused, whatever its
-witness, with the reason `dormant-witness-version` and no score for the peer
-(`SpendsDormantWitnessProgram`, `policy.cpp`), so no spend accepted in the dormant state waits
-in a mempool when the version begins. After the tip has moved back, the mempool removes, with
+witness (`SpendsDormantWitnessProgram`, `policy.cpp`), so no spend accepted in the dormant state
+waits in a mempool when the version begins. The reason is `dormant-witness-version`, with no
+score for the peer, unless an earlier check of the transaction refuses it first; a transaction
+with an input that has no witness is one such case (`CheckTransaction`,
+`bad-txns-requires-dilithium`). After the tip has moved back, the mempool removes, with
 its descendants, each transaction that has an output the mask of the new next block refuses
 (`RemoveOutputsOfDormantWitnessVersions`, `validation.cpp`), so a witness v6 output accepted
 while the next block was at or above the activation height is not mined below that height from
