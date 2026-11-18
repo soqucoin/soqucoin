@@ -171,19 +171,23 @@ Where relay requires standardness, as on mainnet and stagenet (`fRequireStandard
 (`IsStandard`). A spend of an output of a dormant version is refused, whatever its witness
 (`SpendsDormantWitnessProgram`, `policy.cpp`), so no spend accepted in the dormant state waits in a
 mempool when the version begins. The reason is `dormant-witness-version`, with no score for the
-peer, unless an earlier check of the transaction refuses it first; a transaction with an input that
-has no witness and an empty scriptSig is one such case (`CheckTransaction`,
+peer, unless an earlier check of the transaction refuses it first; a transaction whose one input has
+no witness and an empty scriptSig is one such case (`CheckTransaction`,
 `bad-txns-requires-dilithium`). An input with no witness whose scriptSig ends in a push that begins
-with the byte `00` passes that check and gets the reason. After the tip has moved back, the mempool
-removes, with its descendants, each transaction that has an output the mask of the new next block
-refuses (`RemoveOutputsOfDormantWitnessVersions`, `validation.cpp`), so a witness v6 output accepted
-while the next block was at or above the activation height is not mined below that height from the
-mempool of a node with these rules. The removal runs wherever a block was disconnected with the
-mempool in use, the returns on which a reorganisation or `invalidateblock` stops part way among them
-(`ActivateBestChainStep`, `InvalidateBlock`). It keeps a spend of a confirmed output that it
-accepted under the version's rules: a block below the height takes that spend with nothing read, and
-a block from the height takes it under the rules it was checked with.
-`relay_dormant_witness_version_tests` holds each rule on a mined chain.
+with the byte `00` passes that check and gets the reason, and so does an input with no witness and
+an empty scriptSig in a transaction the check passes for another input, one with an `OP_5 <32
+bytes>` output and an input of the authority witness layout. After the tip has moved back, the
+mempool removes, with its descendants, each transaction that has an output the mask of the new next
+block refuses (`RemoveOutputsOfDormantWitnessVersions`, `validation.cpp`), so a witness v6 output
+accepted while the next block was at or above the activation height is not mined below that height
+from the mempool of a node with these rules. The removal runs wherever a block was disconnected with
+the mempool in use, the returns on which a reorganisation or `invalidateblock` stops part way among
+them (`ActivateBestChainStep`, `InvalidateBlock`). On those returns `removeForReorg` runs before it
+only when the coins view is the tip's: after a failed write of the chain state the view is one block
+from the tip, the node has asked for its shutdown, and what `removeForReorg` would take stays. It
+keeps a spend of a confirmed output that it accepted under the version's rules: a block below the
+height takes that spend with nothing read, and a block from the height takes it under the rules it
+was checked with. `relay_dormant_witness_version_tests` holds each rule on a mined chain.
 
 The three are relay policy. A block below the activation height that creates such an output or
 holds such a spend is valid, so reaching the anyone-can-spend window takes raw construction

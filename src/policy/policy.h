@@ -225,8 +225,9 @@ bool IsDormantWitnessProgram(const CScript& scriptPubKey, WitnessVersionMask act
      * witness version. A block runs no script for such a spend of version 3
      * to 16, and from the height of the version its rules judge the same
      * spend, so relay refuses it while the version is dormant, whatever its
-     * witness. Version 2 is dormant under every mask: no block may create an
-     * output of it. Policy only: no block is refused for it.
+     * witness. Version 2 has no bit in a mask the node computes, so it is
+     * dormant at every height; no block may create an output of it. Policy
+     * only: no block is refused for it.
      * @param[in] mapInputs    Map of previous transactions that have outputs we're spending
      * @return True if a previous output is a dormant witness program (IsDormantWitnessProgram)
      */
