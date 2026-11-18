@@ -136,6 +136,15 @@ void AbsorbConsensus(DigestBuilder& d, const Consensus::Params& c)
     // change and must move the digest.
     d.I64(c.nPatCommitmentMandatoryHeight);
 
+    // The blocks in which the key-hash check of witness version 6 accepts an
+    // anyprevout hash type: the count, then each hash in the order of the set.
+    // Two on every stagenet tier and none on another network. An entry added
+    // or removed changes what a node accepts in a block and must move the
+    // digest.
+    d.U64(c.witnessV6AnyprevoutHistoryBlocks.size());
+    for (const uint256& hashBlock : c.witnessV6AnyprevoutHistoryBlocks)
+        d.Hash(hashBlock);
+
     // The derived privacy seed. THIS is the field whose class of defect F4 exists
     // for: it is computed at startup by HKDF over the genesis hash, so it is both
     // public and code-derived, and the nh6m bug made exactly that kind of value
@@ -803,8 +812,21 @@ BOOST_AUTO_TEST_CASE(consensus_digest_is_pinned)
     // deployment was scheduled on any network. The value did not move in the
     // commit that added the version's script rules: under the six earlier
     // flag sets the version is dormant and its verdicts are what they were.
+    //
+    // Moved from dcebc6c5... on 2026-11-17 when AbsorbConsensus gained
+    // witnessV6AnyprevoutHistoryBlocks, the blocks in which the key-hash check
+    // of witness version 6 accepts an anyprevout hash type. A COVERAGE change
+    // for a field the same pull request adds: for every sampled height on all
+    // four networks the digest absorbs the count of the list and then each
+    // hash. The count is 0 on mainnet, testnet and regtest, and 2 on every
+    // stagenet tier, followed by the hashes of stagenet blocks 1057 and 1064.
+    // No other absorbed input moved: with the three lines that absorb the
+    // list left out, the value at this commit is dcebc6c5... again. It did
+    // not move in the commits that changed the script rules of witness
+    // version 6 either, so no absorbed verdict changed with them. Those
+    // verdicts are held by witness_v6_narrowing_tests.
     const std::string expected =
-        "dcebc6c5a1df01f477f1f997659e1bec831baa5473a3cba76cf5e38aae2338fa";
+        "694e63e405a25b1897a673d77f348a7d4f2c4515cc91b7f89ea011e5ea01304f";
 
     BOOST_CHECK_MESSAGE(digest.ToString() == expected,
         "consensus digest is " + digest.ToString() + ", expected " + expected +

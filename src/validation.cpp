@@ -703,6 +703,18 @@ unsigned int WitnessV11DeploymentFlags(int nHeight, const Consensus::Params& con
     return flags;
 }
 
+// The one place that sets SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY. Its one caller
+// is ConnectBlock, with the hash of the block it connects. The mempool does not
+// call it and clears the bit from the flags of its own script checks
+// (AcceptToMemoryPoolWorker), so no relayed transaction is checked under the
+// flag.
+unsigned int WitnessV6HistoryFlags(const uint256& hashBlock, const Consensus::Params& consensusParams)
+{
+    if (consensusParams.witnessV6AnyprevoutHistoryBlocks.count(hashBlock))
+        return SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY;
+    return 0;
+}
+
 /**
  * The script flags that deployments switch on for the next block (tip height
  * plus one), from the predicates ConnectBlock reads at that height. The mempool
@@ -714,21 +726,21 @@ static unsigned int NextBlockDeploymentScriptFlags()
     AssertLockHeld(cs_main);
     unsigned int flags = 0;
 
-    // Relay + enforce V6 covenant txs that the NEXT block will enforce. STANDARD omits the V6
-    // covenant opcodes, so without this a B1/eLTOO (or CTV/CSFS/keyhash) tx is non-standard
-    // (won't relay) AND its covenant opcodes are no-ops at the mempool — e.g. OP_CLTV in a v6
-    // script wrongly passes a below-floor eLTOO spend that ConnectBlock rejects. OR-in the V6
-    // covenant flags gated by their height-activation (p96/Option D), mirroring ConnectBlock:
-    // they are height-0 on stagenet/regtest and NOT_SCHEDULED (never) on mainnet, so this adds
-    // NOTHING on mainnet until activation — keeping mempool policy consistent with consensus.
+    // Relay + enforce V6 txs that the NEXT block will enforce. STANDARD omits the V6 flags,
+    // so without this a V6 tx is non-standard (won't relay) AND its flag-gated opcodes are
+    // no-ops at the mempool — e.g. OP_CLTV in a v6 script wrongly passes a spend below its
+    // lock time that ConnectBlock rejects. OR-in the V6 flags gated by their
+    // height-activation (p96/Option D), mirroring ConnectBlock: they are height-0 on
+    // stagenet/regtest and NOT_SCHEDULED (never) on mainnet, so this adds NOTHING on mainnet
+    // until activation — keeping mempool policy consistent with consensus.
     // Evaluated for the NEXT block (tip height + 1), which is what these txs would land in.
     const int nNextHeight = chainActive.Height() + 1;
     const Consensus::Params& cons = Params().GetConsensus(nNextHeight);
     auto v6active = [&](Consensus::DeploymentPos pos) {
         return Consensus::DeploymentActiveAtHeight(nNextHeight, cons, pos);
     };
-    // The three flags of witness version 11, which the covenant opcodes and
-    // the anyprevout hash types of witness version 6 read as well.
+    // The three flags of witness version 11. The verdict of a witness version 6
+    // spend depends on none of them.
     flags |= WitnessV11DeploymentFlags(nNextHeight, cons);
     if (v6active(Consensus::DEPLOYMENT_P2WSH_DILITHIUM))   flags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
     if (v6active(Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
@@ -1659,6 +1671,12 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // The deployment-gated flags of the next block, the same value the sigop
         // count above was priced with (NextBlockDeploymentScriptFlags).
         scriptVerifyFlags |= nextBlockFlags;
+        // SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY belongs to the blocks of a
+        // network's history list, and ConnectBlock sets it for them. It is
+        // cleared here, so that no value of -promiscuousmempoolflags and no
+        // flag of the next block puts it into the check of a relayed
+        // transaction.
+        scriptVerifyFlags &= ~SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY;
 
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
@@ -3612,14 +3630,19 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // and SCRIPT_VERIFY_CSFS, each from its deployment at this block's height.
     // Witness version 11 runs when any of the three is set; inside it the
     // first defines OP_CHECKTEMPLATEVERIFY and the third OP_CHECKSIGFROMSTACK.
-    // Witness version 6 reads the same three for its covenant opcodes and its
-    // anyprevout hash types. The mempool takes the same value for the next
-    // block (NextBlockDeploymentScriptFlags and the relay mask).
+    // The verdict of a witness version 6 spend depends on none of the three.
+    // The mempool takes the same value for the next block
+    // (NextBlockDeploymentScriptFlags and the relay mask).
     flags |= WitnessV11DeploymentFlags(pindex->nHeight, consensus);
 
-    // SOQ-AUD2-009: Start enforcing P2WSH-Dilithium (witness v6) — covenant script execution
-    // When active, witness v6 programs execute arbitrary scripts via EvalScript,
-    // enabling CTV vaults, CSFS oracles, OP_CAT covenants, and L2SOQ Lightning.
+    // A block on the network's history list, by its hash: in it the key-hash
+    // check of witness version 6 accepts an anyprevout hash type. Two blocks
+    // of stagenet are on the list and no block of another network.
+    flags |= WitnessV6HistoryFlags(block.GetHash(), consensus);
+
+    // SOQ-AUD2-009: Start enforcing P2WSH-Dilithium (witness v6) — script execution
+    // When active, witness v6 programs execute a witness script via EvalScript,
+    // under the opcode set of IsWitnessV6ScriptOpcode (script/interpreter.cpp).
     // See DL-P2WSH-DILITHIUM.md for full design.
     if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_P2WSH_DILITHIUM)) {
         flags |= SCRIPT_VERIFY_P2WSH_DILITHIUM;
@@ -3627,7 +3650,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     // OP_CHECKDILITHIUMKEYHASH: Key-committed Dilithium signature verification
     // When active, OP_NOP7 (0xb6) enforces SHA256(pubkey)==keyhash + Dilithium sig verify.
-    // Enables eLTOO 2-of-2 multisig for L2SOQ Lightning with oversized Dilithium pubkeys.
+    // Enables 2-of-2 multisig with Dilithium pubkeys, which exceed MAX_SCRIPT_ELEMENT_SIZE.
     // See DL-OP-CHECKDILITHIUMKEYHASH.md for design.
     if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_DILITHIUM_KEYHASH)) {
         flags |= SCRIPT_VERIFY_DILITHIUM_KEYHASH;
@@ -3635,8 +3658,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     // DL-V6-CONTROLFLOW-RESTORE: Start enforcing the restored branch/length/timelock/hashlock opcodes
     // (OP_IF/NOTIF/ELSE/ENDIF, OP_DROP, OP_SIZE, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY, OP_SHA256,
-    // OP_EQUAL/OP_EQUALVERIFY) in v6 EvalScript — the eLTOO state ratchet, settlement CSV, and HTLC hashlock/timeout.
-    // PQ sigs stay on CSFS/keyhash. When inactive these opcodes remain no-ops (unchanged behaviour).
+    // OP_EQUAL/OP_EQUALVERIFY) in v6 EvalScript — the hashlock and the timeouts of an HTLC.
+    // PQ sigs stay on OP_CHECKDILITHIUMKEYHASH. When inactive these opcodes remain no-ops (unchanged behaviour).
     if (Consensus::DeploymentActiveAtHeight(pindex->nHeight, consensus, Consensus::DEPLOYMENT_V6_CONTROLFLOW)) {
         flags |= SCRIPT_VERIFY_V6_CONTROLFLOW;
     }

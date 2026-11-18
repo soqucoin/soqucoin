@@ -8,8 +8,9 @@
 // Three of its properties are held here against statements of them that share
 // no code with the interpreter:
 //
-//   - a number is pushed as its sign-and-magnitude encoding. The product
-//     INT64_MIN of OP_MUL is the one number that takes nine bytes;
+//   - a number is pushed as its sign-and-magnitude encoding. INT64_MIN is the
+//     one number that takes nine bytes, and OP_MUL refuses the product that
+//     would be it;
 //   - an opcode runs when no enclosing branch is false, with the nesting kept
 //     as a list of booleans that is read from end to end;
 //   - the template hash of a transaction at an input is the written format,
@@ -522,6 +523,41 @@ std::string Hex(CSHA256& digest)
 //! The numbers the arithmetic family multiplies and divides: zero, each power
 //! of two below 2^63, the two neighbours of seven of them, and the largest
 //! value an operand of eight bytes holds, each with either sign.
+//! Whether two items are the encodings of numbers whose product is INT64_MIN:
+//! their signs differ and their magnitudes are two powers of two whose
+//! exponents add up to 63. An item that is not the encoding of a number of at
+//! most eight bytes multiplies to nothing.
+bool MultiplyToTheLowest(const valtype& x, const valtype& y)
+{
+    struct Number {
+        bool valid;
+        bool negative;
+        uint64_t magnitude;
+        explicit Number(const valtype& item) : valid(false), negative(false), magnitude(0)
+        {
+            if (item.empty() || item.size() > 8)
+                return;
+            for (size_t i = 0; i < item.size(); ++i)
+                magnitude |= static_cast<uint64_t>(i + 1 == item.size() ? item[i] & 0x7f : item[i]) << (8 * i);
+            negative = (item.back() & 0x80) != 0;
+            valid = magnitude != 0 && NumberEncoding(negative ? -static_cast<int64_t>(magnitude) : static_cast<int64_t>(magnitude)) == item;
+        }
+        int Exponent() const
+        {
+            if (magnitude & (magnitude - 1))
+                return -1;
+            int k = 0;
+            while ((magnitude >> k) != 1)
+                ++k;
+            return k;
+        }
+    };
+    const Number a(x), b(y);
+    if (!a.valid || !b.valid || a.negative == b.negative)
+        return false;
+    return a.Exponent() >= 0 && b.Exponent() >= 0 && a.Exponent() + b.Exponent() == 63;
+}
+
 std::vector<int64_t> Operands()
 {
     std::vector<int64_t> v;
@@ -592,10 +628,11 @@ BOOST_AUTO_TEST_CASE(a_number_is_pushed_as_its_sign_and_magnitude)
 }
 
 // OP_MUL takes operands of up to eight bytes, and its overflow test admits the
-// product INT64_MIN. Witness version 6 pushes that product as nine bytes, for
-// each of the 124 pairs of operands that multiply to it, and the item cannot
-// be an operand again. Witness version 11 refuses the product.
-BOOST_AUTO_TEST_CASE(witness_version_6_pushes_the_product_int64_min_as_nine_bytes)
+// product INT64_MIN, which needs nine bytes as a script number. The loop
+// refuses that product as it refuses an overflow, for each of the 124 pairs of
+// operands that multiply to it and under every signature version, so no script
+// pushes a number of nine bytes.
+BOOST_AUTO_TEST_CASE(the_product_int64_min_is_refused_under_every_signature_version)
 {
     const valtype nine = ParseHex("000000000000008080");
     int pairs = 0;
@@ -608,8 +645,8 @@ BOOST_AUTO_TEST_CASE(witness_version_6_pushes_the_product_int64_min_as_nine_byte
             ++pairs;
             const CScript equal = CScript() << CScriptNum(a) << CScriptNum(b) << OP_MUL << nine << OP_EQUAL;
             const ScriptError got = V6Verdict(equal);
-            BOOST_CHECK_MESSAGE(got == SCRIPT_ERR_OK,
-                a << " times " << b << " must leave the nine bytes under witness version 6; got " << Name(got));
+            BOOST_CHECK_MESSAGE(got == SCRIPT_ERR_PUSH_SIZE,
+                a << " times " << b << " must be refused under witness version 6; got " << Name(got));
             BOOST_CHECK_EQUAL(V11Verdict(equal), SCRIPT_ERR_PUSH_SIZE);
         }
     }
@@ -617,16 +654,18 @@ BOOST_AUTO_TEST_CASE(witness_version_6_pushes_the_product_int64_min_as_nine_byte
 
     const int64_t two32 = int64_t(1) << 32;
     const int64_t two31 = int64_t(1) << 31;
-    // The loop itself, under the two signature versions that existed before
-    // witness version 11: the stack holds the nine bytes and nothing else.
-    for (SigVersion sigversion : {SIGVERSION_BASE, SIGVERSION_WITNESS_V0}) {
+    // The loop itself, under each signature version: it stops at the opcode
+    // with the two operands on the stack.
+    const std::vector<valtype> operands = {NumberEncoding(-two32), NumberEncoding(two31)};
+    for (SigVersion sigversion : {SIGVERSION_BASE, SIGVERSION_WITNESS_V0, SIGVERSION_WITNESS_V11}) {
         const Outcome out = Run(CScript() << CScriptNum(-two32) << CScriptNum(two31) << OP_MUL, std::vector<valtype>(), ACTIVE, sigversion);
-        BOOST_CHECK(out.ok);
-        BOOST_CHECK(out.stack == std::vector<valtype>(1, nine));
+        BOOST_CHECK(!out.ok);
+        BOOST_CHECK_EQUAL(out.error, SCRIPT_ERR_PUSH_SIZE);
+        BOOST_CHECK(out.stack == operands);
     }
-    // The nine bytes are not a number the next arithmetic opcode takes.
+    // A script that goes on after the product fails at the product.
     BOOST_CHECK_EQUAL(V6Verdict(CScript() << CScriptNum(-two32) << CScriptNum(two31) << OP_MUL << OP_1 << OP_MUL << OP_DROP << OP_1),
-                      SCRIPT_ERR_UNKNOWN_ERROR);
+                      SCRIPT_ERR_PUSH_SIZE);
     // The product beside it is a number of eight bytes: -(2^63 - 2^32).
     const CScript beside = CScript() << CScriptNum(-two32) << CScriptNum(two31 - 1) << OP_MUL
                                      << ParseHex("00000000ffffffff") << OP_EQUAL;
@@ -1235,12 +1274,18 @@ BOOST_AUTO_TEST_CASE(a_checker_that_holds_the_precomputed_data_reads_no_script_o
 
 // A digest for each of three families of generated scripts: what EvalScript
 // returns, its error and the stack it leaves, for every script of the family.
-// The three values were computed on the loop as it stood at the merge of
-// witness version 11. A change that alters no verdict and no stack leaves them
-// where they are, and one that means to alter some moves the family it
-// touches and says so by its new value. An error is recorded by its number,
-// so a change that gives another number to an error a family records moves
-// that family.
+// The values of the conditionals and of the template checks were computed on
+// the loop as it stood at the merge of witness version 11. A change that
+// alters no verdict and no stack leaves them where they are, and one that
+// means to alter some moves the family it touches and says so by its new
+// value. An error is recorded by its number, so a change that gives another
+// number to an error a family records moves that family.
+//
+// The numbers moved once: the loop refuses the OP_MUL product INT64_MIN under
+// every signature version, where it pushed nine bytes under all but witness
+// version 11. The case holds both values. The second is the same family with
+// each run of that product recorded as the nine bytes, and it is the value of
+// the merge of witness version 11, so nothing else in the family moved.
 BOOST_AUTO_TEST_CASE(the_three_families_keep_their_digests)
 {
     struct Mode {
@@ -1260,7 +1305,8 @@ BOOST_AUTO_TEST_CASE(the_three_families_keep_their_digests)
     // numbers or sit at and past the edge of a number of eight bytes, the
     // length OP_SIZE pushes, and the sixteen small numbers.
     CSHA256 numbers;
-    size_t numberRuns = 0, numberOk = 0;
+    CSHA256 numbersWithTheProductPushed;
+    size_t numberRuns = 0, numberOk = 0, productRuns = 0, unused = 0;
     {
         const opcodetype arithmetic[] = {OP_MUL, OP_DIV, OP_MOD};
         const std::vector<int64_t> operands = Operands();
@@ -1291,24 +1337,43 @@ BOOST_AUTO_TEST_CASE(the_three_families_keep_their_digests)
             pairs.push_back(std::make_pair(ParseHex(x), NumberEncoding(3)));
             pairs.push_back(std::make_pair(NumberEncoding(-3), ParseHex(x)));
         }
+        Outcome pushed;
+        pushed.ok = true;
+        pushed.error = SCRIPT_ERR_OK;
+        pushed.stack = std::vector<valtype>(1, ParseHex("000000000000008080"));
         for (const std::pair<valtype, valtype>& p : pairs) {
             for (opcodetype op : arithmetic) {
                 for (const Mode& mode : modes) {
-                    Record(numbers, Run(CScript() << op, {p.first, p.second}, mode.flags, mode.sigversion), numberOk);
+                    const Outcome out = Run(CScript() << op, {p.first, p.second}, mode.flags, mode.sigversion);
+                    Record(numbers, out, numberOk);
                     ++numberRuns;
+                    // The runs that moved: the product INT64_MIN where the
+                    // opcode runs, outside witness version 11.
+                    const bool moved = op == OP_MUL && MultiplyToTheLowest(p.first, p.second) &&
+                                       (mode.flags & SCRIPT_VERIFY_SCRIPT_RESTORE) != 0 &&
+                                       mode.sigversion != SIGVERSION_WITNESS_V11;
+                    if (moved) {
+                        ++productRuns;
+                        BOOST_CHECK(!out.ok && out.error == SCRIPT_ERR_PUSH_SIZE);
+                    }
+                    Record(numbersWithTheProductPushed, moved ? pushed : out, unused);
                 }
             }
         }
         const size_t lengths[] = {0, 1, 2, 75, 76, 127, 128, 255, 256, 520, 2421};
         for (size_t length : lengths) {
             for (const Mode& mode : modes) {
-                Record(numbers, Run(CScript() << OP_SIZE, {valtype(length, 0x5a)}, mode.flags, mode.sigversion), numberOk);
+                const Outcome out = Run(CScript() << OP_SIZE, {valtype(length, 0x5a)}, mode.flags, mode.sigversion);
+                Record(numbers, out, numberOk);
+                Record(numbersWithTheProductPushed, out, unused);
                 ++numberRuns;
             }
         }
         for (int n = 1; n <= 16; ++n) {
             for (const Mode& mode : modes) {
-                Record(numbers, Run(CScript() << static_cast<opcodetype>(OP_1 + n - 1), std::vector<valtype>(), mode.flags, mode.sigversion), numberOk);
+                const Outcome out = Run(CScript() << static_cast<opcodetype>(OP_1 + n - 1), std::vector<valtype>(), mode.flags, mode.sigversion);
+                Record(numbers, out, numberOk);
+                Record(numbersWithTheProductPushed, out, unused);
                 ++numberRuns;
             }
         }
@@ -1369,7 +1434,11 @@ BOOST_AUTO_TEST_CASE(the_three_families_keep_their_digests)
     BOOST_TEST_MESSAGE("conditionals: " << conditionalRuns << " runs, " << conditionalOk << " succeeded, " << conditionalsDigest);
     BOOST_TEST_MESSAGE("templates: " << templateRuns << " runs, " << templateOk << " succeeded, " << templatesDigest);
 
-    BOOST_CHECK_EQUAL(numbersDigest, "16a0b39cd0fff9c64d1cb07c2ec77a6a56df83853d7eee8011cf39fdca9fbb55");
+    BOOST_CHECK_EQUAL(numbersDigest, "6dead6011dd1f7c01ba2ca75e6975d71b8a0122afbb5eaacb66e5d8ddbb784fe");
+    // The value of the merge of witness version 11, from the same runs with
+    // the product recorded as the nine bytes: 124 pairs under three modes.
+    BOOST_CHECK_EQUAL(Hex(numbersWithTheProductPushed), "16a0b39cd0fff9c64d1cb07c2ec77a6a56df83853d7eee8011cf39fdca9fbb55");
+    BOOST_CHECK_EQUAL(productRuns, 372u);
     BOOST_CHECK_EQUAL(conditionalsDigest, "2786a8b84efc82a19be50826b6dd94b0a32b4f5a627e2ddd22e5a90a0ab18c58");
     BOOST_CHECK_EQUAL(templatesDigest, "ed007c65d27ca989e653be3465d945770e4bb69b212013d473f17c199a6f9958");
 }

@@ -7,8 +7,11 @@
 //
 // WHAT THIS ASSERTS, each step at relay and then in a mined block:
 //   1) A transaction that funds a keyhash-2-of-2 v6 output is accepted.
-//   2) A spend of that output with a 2-of-2 ML-DSA-44 witness is accepted, the
-//      two signatures made with hashtype 0x42 (SIGHASH_ANYPREVOUTANYSCRIPT).
+//   2) A spend of that output with a 2-of-2 ML-DSA-44 witness signed
+//      SIGHASH_ALL is accepted. The same spend signed with hashtype 0x42
+//      (SIGHASH_ANYPREVOUTANYSCRIPT) is refused at relay: witness version 6
+//      takes no anyprevout hash type. The block path of that refusal is
+//      witness_v6_narrowing_chain_tests.
 //   3) A version-2 spend whose input sequence encodes 288 blocks is held by
 //      BIP68 at relay (non-BIP68-final) until the lock is met, and is refused
 //      one block before that.
@@ -17,9 +20,8 @@
 //      one of its two keys is refused at relay and in a block.
 //
 // WHAT THIS DOES NOT ASSERT:
-//   The rebinding of a 0x42 signature to a second outpoint: the signed spend
-//   uses one outpoint. A delay required by the output: the witnessScript holds
-//   no OP_CHECKSEQUENCEVERIFY, so the 288 blocks are the spender's own choice
+//   A delay required by the output: the witnessScript holds no
+//   OP_CHECKSEQUENCEVERIFY, so the 288 blocks are the spender's own choice
 //   (v6_checksequence_bip112_tests covers the opcode). The eLTOO supersession
 //   guard: the update output U:0 is a plain keyhash-2-of-2.
 //
@@ -29,7 +31,7 @@
 //
 //   Transaction graph:
 //     F (funding)   → coinbase spend → keyhash-2-of-2 output (value V)
-//     U (update)    → spends F:0, hashtype 0x42 → keyhash-2-of-2 (value V-fee)
+//     U (update)    → spends F:0, SIGHASH_ALL → keyhash-2-of-2 (value V-fee)
 //     S (settlement)→ spends U:0, nSequence 288 → two keyhash payouts (value V-2*fee)
 //
 // BUILD + RUN:
@@ -286,9 +288,10 @@ struct DilithiumCoinbaseChainSetup : public TestingSetup {
 
 // ============================================================================
 // THE TEST: keyhash-2-of-2 eLTOO graph on regtest
-//   F (funding) → U (update, hashtype 0x42) → S (settlement, nSequence 288)
-//   Asserts: acceptance at relay and in a block; S held by BIP68 up to one
-//   block short of its sequence lock, accepted once the lock is met.
+//   F (funding) → U (update) → S (settlement, nSequence 288)
+//   Asserts: acceptance at relay and in a block; U signed with hashtype 0x42
+//   refused at relay; S held by BIP68 up to one block short of its sequence
+//   lock, accepted once the lock is met.
 // ============================================================================
 BOOST_FIXTURE_TEST_SUITE(keyhash_broadcast_tests, DilithiumCoinbaseChainSetup)
 
@@ -354,7 +357,7 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
     BOOST_TEST_MESSAGE("F txid: " << CTransaction(fundTx).GetHash().ToString());
 
     // ----------------------------------------------------------------
-    // Step 4: Build U (update tx) — spends F:0 with APO 0x42
+    // Step 4: Build U (update tx) — spends F:0
     // ----------------------------------------------------------------
     // U output is the SAME 2-of-2 keyhash script (re-closable).
     CMutableTransaction updateTx;
@@ -374,14 +377,12 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         updateTx.vout.push_back(out);
     }
 
-    // Sign U with APO 0x42 — both parties sign the SAME sighash.
-    // SIGHASH_ANYPREVOUTANYSCRIPT: prevout, sequence, scriptCode NOT committed;
-    // amount IS committed. Rebindable to any funding output of the same value.
-    {
+    // U's witness with both signatures of one hash type. Both parties sign
+    // the same message.
+    auto updateWitness = [&](int hashType) {
         CTransaction ctx(updateTx);
-        const int apo = SIGHASH_ANYPREVOUTANYSCRIPT;  // 0x42
-        std::vector<unsigned char> sigA = SignWith(alice, ws, ctx, 0, V, apo);
-        std::vector<unsigned char> sigB = SignWith(bob,   ws, ctx, 0, V, apo);
+        std::vector<unsigned char> sigA = SignWith(alice, ws, ctx, 0, V, hashType);
+        std::vector<unsigned char> sigB = SignWith(bob,   ws, ctx, 0, V, hashType);
 
         CScriptWitness w;
         w.stack.push_back(sigA);          // eval[0]: sigA
@@ -390,8 +391,18 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         w.stack.push_back(bPk);           // eval[3]: pubkeyB (top → checked first)
         w.stack.push_back(std::vector<unsigned char>(ws.begin(), ws.end()));
         w.stack.push_back(Prefixed(aPk)); // trailing 0x00||pk
-        updateTx.vin[0].scriptWitness = w;
-    }
+        return w;
+    };
+
+    // The same transaction signed with SIGHASH_ANYPREVOUTANYSCRIPT (0x42), a
+    // message that leaves out the prevout, the sequence and the scriptCode.
+    // The witness is outside the txid, so both copies have U's txid.
+    CMutableTransaction updateApoTx = updateTx;
+    updateApoTx.vin[0].scriptWitness = updateWitness(SIGHASH_ANYPREVOUTANYSCRIPT);
+
+    // U as it is relayed and mined: signed SIGHASH_ALL.
+    updateTx.vin[0].scriptWitness = updateWitness(SIGHASH_ALL);
+    BOOST_REQUIRE(CTransaction(updateApoTx).GetHash() == CTransaction(updateTx).GetHash());
     BOOST_TEST_MESSAGE("U txid: " << CTransaction(updateTx).GetHash().ToString());
 
     // ----------------------------------------------------------------
@@ -480,14 +491,24 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
     BOOST_CHECK_EQUAL(mempool.size(), 0u);
 
     // ----------------------------------------------------------------
-    // Step 7: Broadcast U (update, APO 0x42) → mine 1 block
+    // Step 7: U signed 0x42 → EXPECT REJECT; U signed SIGHASH_ALL → mine 1 block
     // ----------------------------------------------------------------
-    BOOST_TEST_MESSAGE("\n=== Broadcasting U (update, APO 0x42) ===");
+    BOOST_TEST_MESSAGE("\n=== Broadcasting U signed with hashtype 0x42 (expect refusal) ===");
+    {
+        std::string reason;
+        bool ok = ToMemPool(updateApoTx, reason);
+        BOOST_CHECK_MESSAGE(!ok, "U signed with hashtype 0x42 must be refused at relay; it was accepted");
+        BOOST_CHECK_MESSAGE(reason.find("mandatory-script-verify-flag-failed") != std::string::npos &&
+                            reason.find(ScriptErrorString(SCRIPT_ERR_SIG_HASHTYPE)) != std::string::npos,
+            "the refusal must be the mandatory one and name the hash type; got: " << reason);
+        BOOST_CHECK_EQUAL(mempool.size(), 0u);
+    }
+    BOOST_TEST_MESSAGE("\n=== Broadcasting U (update, SIGHASH_ALL) ===");
     {
         std::string reason;
         bool ok = ToMemPool(updateTx, reason);
         BOOST_CHECK_MESSAGE(ok,
-            "U must be accepted to mempool (keyhash-2-of-2 + APO 0x42); reject=" << reason);
+            "U must be accepted to mempool (keyhash-2-of-2, SIGHASH_ALL); reject=" << reason);
         if (!ok) {
             BOOST_TEST_MESSAGE("FINDING: U rejected: " << reason);
             BOOST_FAIL("Cannot continue: U rejected from mempool.");
@@ -498,7 +519,7 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
         CBlock b = MineBlock();
         BOOST_CHECK(chainActive.Tip()->GetBlockHash() == b.GetHash());
         BOOST_TEST_MESSAGE("U mined in block " << chainActive.Height()
-                           << ": keyhash-2-of-2 spend, hashtype 0x42");
+                           << ": keyhash-2-of-2 spend, SIGHASH_ALL");
     }
     BOOST_CHECK_EQUAL(mempool.size(), 0u);
 
@@ -565,7 +586,8 @@ BOOST_AUTO_TEST_CASE(keyhash_2of2_eltoo_graph_regtest)
     BOOST_TEST_MESSAGE("\n"
         "=== Phase 1a regtest results ===\n"
         "F (funding)        : accepted and mined, coinbase → keyhash-2-of-2 v6\n"
-        "U (update)         : accepted and mined, keyhash-2-of-2 spend, hashtype 0x42\n"
+        "U (hashtype 0x42)  : refused at relay for its hash type\n"
+        "U (update)         : accepted and mined, keyhash-2-of-2 spend, SIGHASH_ALL\n"
         "S (early)          : refused non-BIP68-final at U's confirmation\n"
         "S (one block short): refused non-BIP68-final\n"
         "S (lock met)       : accepted and mined");

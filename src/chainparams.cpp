@@ -364,7 +364,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_CSFS].nTimeout = 0;    // Not yet scheduled
 
         // SOQ-AUD2-009: P2WSH-Dilithium (witness v6) — NOT ACTIVE on mainnet
-        // Enables covenant script execution (CTV vaults, CSFS oracles, L2SOQ Lightning).
+        // Enables script execution under witness version 6.
         // BIP9 activation post-audit: set nStartTime to future timestamp, miners signal bit 10.
         // See DL-P2WSH-DILITHIUM.md for full design.
         consensus.vDeployments[Consensus::DEPLOYMENT_P2WSH_DILITHIUM].bit = 10;
@@ -380,8 +380,8 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = 0;    // Not yet scheduled
 
         // OP_CHECKDILITHIUMKEYHASH — NOT ACTIVE on mainnet (pending Phase 2 audit)
-        // Key-committed Dilithium signature verification for eLTOO 2-of-2 multisig.
-        // Enables L2SOQ Lightning channels with Dilithium pubkeys > MAX_SCRIPT_ELEMENT_SIZE.
+        // Key-committed Dilithium signature verification for 2-of-2 multisig.
+        // Enables scripts with Dilithium pubkeys > MAX_SCRIPT_ELEMENT_SIZE.
         // BIP9 activation post-audit: set nStartTime, miners signal bit 12.
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = 0;  // NOT ACTIVE: pending Halborn Phase 2 audit
@@ -867,7 +867,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE on testnet for eLTOO/HTLC integration testing
+        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE on testnet for HTLC integration testing
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
@@ -1112,7 +1112,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE for regtest (eLTOO/HTLC unit + functional tests)
+        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE for regtest (HTLC unit + functional tests)
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
@@ -1437,8 +1437,8 @@ public:
         // CTV (BIP 119), APO (BIP 118), and CSFS (BIP 348) are ALWAYS_ACTIVE
         // on stagenet and regtest from genesis. This is intentional:
         //
-        //   - Enables full integration testing of covenant scripts, vaults,
-        //     eltoo payment channels, and oracle contracts before mainnet
+        //   - Enables full integration testing of covenant scripts, vaults
+        //     and oracle contracts before mainnet
         //   - Allows the covenant_tests.cpp test suite to run against live
         //     regtest nodes without miner activation signaling
         //   - Stagenet mirrors mainnet economics but activates all features
@@ -1475,12 +1475,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_UTXO_COST].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // OP_CHECKDILITHIUMKEYHASH — ALWAYS_ACTIVE on stagenet for eLTOO testing
+        // OP_CHECKDILITHIUMKEYHASH — ALWAYS_ACTIVE on stagenet
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].bit = 12;
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_DILITHIUM_KEYHASH].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
 
-        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE on stagenet for the eLTOO/HTLC e2e (ratchet, settlement, HTLC)
+        // DL-V6-CONTROLFLOW-RESTORE — ALWAYS_ACTIVE on stagenet for the HTLC e2e
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].bit = 13;
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;  // STAGENET ONLY
         consensus.vDeployments[Consensus::DEPLOYMENT_V6_CONTROLFLOW].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
@@ -1563,6 +1563,14 @@ public:
         // (mined before DEPLOYMENT_UTXO_COST code existed on stagenet fleet).
         // See SECURITY_ISSUE_REGISTRY.md SOQ-I007-STAGENET.
         consensus.nUtxoCostEnforcementHeight = 37201;
+
+        // The two blocks that hold a witness version 6 spend signed with an
+        // anyprevout hash type, at heights 1057 and 1064. The key-hash check
+        // refuses such a signature in every other block. Set before the tiers
+        // below are copied from this one, so each tier carries the list.
+        consensus.witnessV6AnyprevoutHistoryBlocks.insert(uint256S("0xb6eceab13b813a7f4600b92d86df852cb86222fe574582e280a777f5a84c6c5e"));
+        consensus.witnessV6AnyprevoutHistoryBlocks.insert(uint256S("0x39c7a32ab8447f2d15711181ad9c03ae1cb34593813f67e97ef7d6e2746d5e7e"));
+
         consensus.nMinimumChainWork = uint256S("0x00");
         consensus.defaultAssumeValid = uint256S("0x00");
 

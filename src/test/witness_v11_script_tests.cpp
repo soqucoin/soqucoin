@@ -842,8 +842,8 @@ BOOST_AUTO_TEST_CASE(every_byte_has_one_class_in_every_flag_state)
 
 // The hash types of an ML-DSA-44 key are a closed list of six. Every other
 // value of the byte fails before a message is computed, whichever message the
-// signature was made over and whether or not the anyprevout deployment is
-// active.
+// signature was made over, whether or not the anyprevout deployment is
+// active, and under the history flag of witness version 6 as without it.
 BOOST_AUTO_TEST_CASE(the_hash_type_list_of_an_ml_dsa_44_key_is_closed)
 {
     const CTransaction tx(SpendingTx());
@@ -853,6 +853,7 @@ BOOST_AUTO_TEST_CASE(the_hash_type_list_of_an_ml_dsa_44_key_is_closed)
     const CScript script = SingleKeyScript(ownerItem);
     const unsigned int withApo = ACTIVE;
     const unsigned int withoutApo = BLOCK | SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_CSFS;
+    const unsigned int withHistory = ACTIVE | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY;
 
     int admitted = 0;
     for (int b = 0; b <= 0xff; ++b) {
@@ -865,9 +866,9 @@ BOOST_AUTO_TEST_CASE(the_hash_type_list_of_an_ml_dsa_44_key_is_closed)
         const ScriptError expected = listed ? SCRIPT_ERR_OK : SCRIPT_ERR_SIG_HASHTYPE;
         if (listed)
             ++admitted;
-        for (unsigned int flags : {withApo, withoutApo, withApo | RELAY}) {
+        for (unsigned int flags : {withApo, withoutApo, withApo | RELAY, withHistory}) {
             const ScriptError got = Verdict(s, flags, tx);
-            BOOST_CHECK_MESSAGE(got == expected, "hash type " << b << ": expected " << Name(expected) << ", got " << Name(got));
+            BOOST_CHECK_MESSAGE(got == expected, "hash type " << b << ", flags " << flags << ": expected " << Name(expected) << ", got " << Name(got));
         }
     }
     BOOST_CHECK_EQUAL(admitted, 6);
@@ -878,11 +879,13 @@ BOOST_AUTO_TEST_CASE(the_hash_type_list_of_an_ml_dsa_44_key_is_closed)
     for (int b : {0x41, 0x42}) {
         const Spend s = SpendOf(script, {SignV6Message(owner, script, tx, b), ownerItem});
         BOOST_CHECK_EQUAL(Verdict(s, withApo, tx), SCRIPT_ERR_SIG_HASHTYPE);
+        BOOST_CHECK_EQUAL(Verdict(s, withHistory, tx), SCRIPT_ERR_SIG_HASHTYPE);
     }
     for (int b : {0xc1, 0xc2}) {
         valtype sig = SignHash(owner, uint256S("0x0000000000000000000000000000000000000000000000000000000000000001"));
         sig.push_back(static_cast<unsigned char>(b));
         BOOST_CHECK_EQUAL(Verdict(SpendOf(script, {sig, ownerItem}), withApo, tx), SCRIPT_ERR_SIG_HASHTYPE);
+        BOOST_CHECK_EQUAL(Verdict(SpendOf(script, {sig, ownerItem}), withHistory, tx), SCRIPT_ERR_SIG_HASHTYPE);
     }
 }
 

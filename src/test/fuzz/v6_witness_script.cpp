@@ -3,9 +3,10 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 //
 // Fuzz target v6_witness_script: a witness v6 spend through VerifyScript and
-// its witnessScript through EvalScript, with the six covenant deployment flags
-// (P2WSH_DILITHIUM, DILITHIUM_KEYHASH, V6_CONTROLFLOW, CTV, APO, CSFS) set and
-// clear, over the flags every block sets and over the flags relay sets.
+// its witnessScript through EvalScript, with the three deployment flags of the
+// version (P2WSH_DILITHIUM, DILITHIUM_KEYHASH, V6_CONTROLFLOW) and the three of
+// witness version 11 (CTV, APO, CSFS) set and clear, over the flags every
+// block sets and over the flags relay sets.
 //
 // Input layout. Every byte string decodes; bytes past the end read as zero.
 //   [0]       bits 0..5  the six deployment flags, in the order above
@@ -25,10 +26,10 @@
 // The mode governs that one step and nothing else. OP_CHECKDILITHIUMKEYHASH
 // reaches it through checker.CheckSig, after the handler's own checks (the
 // item count and sizes, the key hash, the hashtype) and after CheckSig refuses
-// an empty signature, so a keyhash check can fail in modes 2 and 3.
-// OP_CHECKSIGFROMSTACK does not ask the checker: it verifies with
-// CPubKey::Verify in every mode, and the target neither replaces nor records
-// that verification.
+// an empty signature, so a keyhash check can fail in modes 2 and 3. It is the
+// one signature verification a spend of the version reaches:
+// OP_CHECKSIGFROMSTACK, which verifies with CPubKey::Verify and asks no
+// checker, is outside the opcode set.
 //
 // What is checked for each input, beyond the absence of a memory error. A
 // failed check prints its name and aborts.
@@ -48,7 +49,7 @@
 //                 the block flags with the same deployment flags.
 //   signature     a signature check is a call the node makes to the checker's
 //                 CheckSig, and a verification is the step the mode stands in
-//                 for; OP_CHECKSIGFROMSTACK makes neither. With
+//                 for. With
 //                 P2WSH_DILITHIUM or DILITHIUM_KEYHASH clear there is no check
 //                 and no verification. A check that answers false is the last
 //                 one asked for and the spend is refused with
@@ -62,11 +63,26 @@
 //                 every OP_CHECKDILITHIUMKEYHASH directly follows a push of 32
 //                 bytes, each signature was checked for a key whose SHA-256 is
 //                 that push, in script order.
+//   three flags   under the block flags and under the relay flags, the verdict,
+//                 the error and the signature checks of the input's state are
+//                 those of the state with CTV, APO and CSFS all clear and of
+//                 the state with all three set, and an accepted spend has one
+//                 sigop count in the three states.
+//   hashtype      in every state above the node asks the checker about no
+//                 signature whose hash type is an anyprevout type.
+//   history       the block flags with SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY,
+//                 which ConnectBlock sets for the blocks of a network's list
+//                 and relay never sets. Every check above but hashtype holds
+//                 in that state. No spend is refused there with
+//                 SCRIPT_ERR_SIG_HASHTYPE, and its verdict, error and
+//                 signature checks are those of the block flags unless the
+//                 block flags refuse the spend with SCRIPT_ERR_SIG_HASHTYPE.
 //
 // The opcode set is not written here. It is read from the binary once, with
-// one-opcode scripts in the state with all six flags set, and four things
+// one-opcode scripts in the state with all six flags set, and five things
 // are required of it then:
 //   anchor        the witnessScript OP_1 is accepted.
+//   covenant      OP_CHECKTEMPLATEVERIFY and OP_CHECKSIGFROMSTACK are refused.
 //   handler       every byte the set admits changes the stack or fails in its
 //                 handler when EvalScript runs it; none is skipped.
 //   branch        a refused byte is refused inside a branch that is not taken.
@@ -124,6 +140,9 @@ const unsigned int SIX_FLAGS[6] = {
 const unsigned int ALL_SIX = SCRIPT_VERIFY_P2WSH_DILITHIUM | SCRIPT_VERIFY_DILITHIUM_KEYHASH |
                              SCRIPT_VERIFY_V6_CONTROLFLOW | SCRIPT_VERIFY_CTV |
                              SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS;
+//! The three flags of witness version 11. No verdict of a witness v6 spend
+//! depends on them.
+const unsigned int V11_THREE = SCRIPT_VERIFY_CTV | SCRIPT_VERIFY_APO | SCRIPT_VERIFY_CSFS;
 
 //! What ConnectBlock sets for every block besides the deployment flags, as far
 //! as the v6 branch reads it.
@@ -172,10 +191,22 @@ struct SignatureRecord {
     std::vector<uint256> keys;
     //! How many of those verifications answered true.
     size_t nVerified = 0;
+    //! How many of the CheckSig calls carried a signature whose hash type is
+    //! an anyprevout type.
+    size_t nAnyprevout = 0;
 
     bool Empty() const { return answers.empty() && keys.empty(); }
-    bool operator==(const SignatureRecord& o) const { return answers == o.answers && keys == o.keys && nVerified == o.nVerified; }
+    bool operator==(const SignatureRecord& o) const { return answers == o.answers && keys == o.keys && nVerified == o.nVerified && nAnyprevout == o.nAnyprevout; }
 };
+
+//! Whether a signature item ends in an anyprevout hash type: the low seven
+//! bits of its last byte are SIGHASH_ANYPREVOUT or SIGHASH_ANYPREVOUTANYSCRIPT.
+bool EndsInAnyprevoutHashType(const std::vector<unsigned char>& vchSig)
+{
+    if (vchSig.empty()) return false;
+    const int base = vchSig.back() & 0x7f;
+    return base == SIGHASH_ANYPREVOUT || base == SIGHASH_ANYPREVOUTANYSCRIPT;
+}
 
 //! The transaction checker of the node with the ML-DSA-44 verification that
 //! ends CheckSig replaceable, and with every CheckSig call and every
@@ -203,6 +234,7 @@ public:
     {
         const bool fAnswer = TransactionSignatureChecker::CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
         record.answers.push_back(fAnswer);
+        if (EndsInAnyprevoutHashType(vchSig)) record.nAnyprevout++;
         return fAnswer;
     }
     const SignatureRecord& Record() const { return record; }
@@ -229,6 +261,12 @@ struct Spend {
     CScript scriptPubKey;
     CScriptWitness witness;
     bool fNoWitness;
+
+    //! The sigop count of the input, as GetTransactionSigOpCost reads it.
+    size_t SigOps(unsigned int flags) const
+    {
+        return CountWitnessSigOps(CScript(), scriptPubKey, fNoWitness ? nullptr : &witness, flags);
+    }
 
     Verdict Verify(unsigned int flags) const
     {
@@ -351,6 +389,13 @@ struct OpcodeSet {
         if (cut.ok)
             Fail("prescan", "a witnessScript that ends inside a push is " + Describe(cut.ok, cut.err));
         unparseable = cut.err;
+        // covenant: the two opcodes belong to witness version 11. With
+        // OP_CHECKSIGFROMSTACK refused, every signature verification of a
+        // spend of this version is one the checker records.
+        if (Admits(OP_CHECKTEMPLATEVERIFY))
+            Fail("covenant", "the opcode set admits OP_CHECKTEMPLATEVERIFY");
+        if (Admits(OP_CHECKSIGFROMSTACK))
+            Fail("covenant", "the opcode set admits OP_CHECKSIGFROMSTACK");
 
         const bool fBranchProbe = Admits(OP_0) && Admits(OP_1) && Admits(OP_IF) && Admits(OP_ENDIF);
         for (unsigned int b = 0; b < 256; b++) {
@@ -479,6 +524,11 @@ void CheckSignatures(unsigned int flags, const Verdict& v, const std::string& go
     const unsigned int handler = SCRIPT_VERIFY_P2WSH_DILITHIUM | SCRIPT_VERIFY_DILITHIUM_KEYHASH;
     if ((flags & handler) != handler && !v.sigs.Empty())
         Fail("signature", got + ", a signature was checked with P2WSH_DILITHIUM or DILITHIUM_KEYHASH clear");
+    // The handler refuses an anyprevout hash type before it asks the checker,
+    // in every state but the one ConnectBlock sets for a block of the
+    // network's history list.
+    if (!(flags & SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY) && v.sigs.nAnyprevout != 0)
+        Fail("hashtype", got + ", the checker was asked about a signature with an anyprevout hash type");
 
     const std::vector<bool>& answers = v.sigs.answers;
     size_t nTrue = 0;
@@ -628,6 +678,33 @@ void v6_witness_script(fuzzer::FuzzBuffer& buffer) noexcept
     const Verdict relay = CheckState(set, spend, RELAY_BASE | six, t);
     if (relay.ok && !block.ok)
         Fail("relay", "accepted under the relay flags, under the block flags " + Describe(block.ok, block.err));
+
+    // three flags: the input's state against the state with the three flags of
+    // witness version 11 all clear and against the state with all three set.
+    const unsigned int bases[2] = {BLOCK_BASE, RELAY_BASE};
+    const Verdict* const inputState[2] = {&block, &relay};
+    for (int i = 0; i < 2; i++) {
+        const unsigned int others[2] = {bases[i] | (six & ~V11_THREE), bases[i] | six | V11_THREE};
+        for (int j = 0; j < 2; j++) {
+            const Verdict v = spend.Verify(others[j]);
+            if (!(v == *inputState[i]))
+                Fail("three flags", "flags " + Hex(bases[i] | six) + ": " + Describe(inputState[i]->ok, inputState[i]->err) + ", flags " + Hex(others[j]) + ": " + Describe(v.ok, v.err));
+            // The count charges an OP_CHECKSIGFROMSTACK byte under CSFS. A
+            // script that holds one is refused, so the charge reaches no
+            // accepted spend.
+            if (v.ok && spend.SigOps(others[j]) != spend.SigOps(bases[i] | six))
+                Fail("three flags", "an accepted spend counts " + std::to_string(spend.SigOps(bases[i] | six)) + " sigops under flags " + Hex(bases[i] | six) + " and " + std::to_string(spend.SigOps(others[j])) + " under flags " + Hex(others[j]));
+        }
+    }
+
+    // history: the one state in which the key-hash check takes an anyprevout
+    // hash type. It widens nothing else.
+    if (t) *t += " history:";
+    const Verdict history = CheckState(set, spend, BLOCK_BASE | six | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY, t);
+    if (!history.ok && history.err == SCRIPT_ERR_SIG_HASHTYPE)
+        Fail("history", "refused for its hash type under the history flag");
+    if (!(history == block) && (block.ok || block.err != SCRIPT_ERR_SIG_HASHTYPE))
+        Fail("history", "under the block flags " + Describe(block.ok, block.err) + ", with the history flag " + Describe(history.ok, history.err));
 
     // The state mainnet is in, and the input's state with the v6 branch dormant.
     const unsigned int dormant[3] = {BLOCK_BASE, BLOCK_BASE | (six & ~SCRIPT_VERIFY_P2WSH_DILITHIUM), RELAY_BASE | (six & ~SCRIPT_VERIFY_P2WSH_DILITHIUM)};

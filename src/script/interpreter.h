@@ -31,8 +31,9 @@ enum {
     // a modified sighash that excludes the prevout, enabling rebindable
     // signatures for channel update mechanisms.
     //
-    // SECURITY: These ONLY take effect when SCRIPT_VERIFY_APO flag is set.
-    // Without the flag, CheckSig rejects these as unknown hash types.
+    // No witness version accepts a signature with one of these, in any state
+    // of the apo deployment: see IsAPOSigHashType in interpreter.cpp. The one
+    // exception is SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY below.
     SIGHASH_ANYPREVOUT = 0x41,           // Signs outputs + scriptPubKey, NOT prevout
     SIGHASH_ANYPREVOUTANYSCRIPT = 0x42,  // Signs outputs only, NOT prevout or script
 };
@@ -130,10 +131,10 @@ enum {
     // Constrains spending outputs via template hash commitment.
     SCRIPT_VERIFY_CTV = (1U << 20),
 
-    // BIP 118: Enable SIGHASH_ANYPREVOUT and SIGHASH_ANYPREVOUTANYSCRIPT
-    // Allows signatures that do not commit to the prevout, enabling
-    // eltoo/LN-Symmetry update-and-settle channel patterns.
-    // DOES NOT modify existing Dilithium sig verification — additive only.
+    // Set while the apo deployment is active. It is one of the three flags
+    // that each switch witness version 11 on (IsWitnessV11Active), and nothing
+    // else reads it: no witness version accepts SIGHASH_ANYPREVOUT or
+    // SIGHASH_ANYPREVOUTANYSCRIPT under it.
     SCRIPT_VERIFY_APO = (1U << 21),
 
     // BIP 348: Enable OP_CHECKSIGFROMSTACK and OP_CHECKSIGFROMSTACKVERIFY
@@ -149,21 +150,21 @@ enum {
     // all original DoS vectors. No audit required — trivial math/string ops.
     SCRIPT_VERIFY_SCRIPT_RESTORE = (1U << 23),
 
-    // SOQ-AUD2-009: P2WSH-Dilithium (witness v6) — covenant script execution
+    // SOQ-AUD2-009: P2WSH-Dilithium (witness v6) — script execution
     // When set, witness v6 programs (OP_6 <32-byte hash>) execute the witnessScript
-    // via EvalScript, enabling CTV vaults, CSFS oracles, and L2SOQ Lightning channels.
+    // via EvalScript, under the opcode set of IsWitnessV6ScriptOpcode (interpreter.cpp).
     // BIP9-gated: ALWAYS_ACTIVE on stagenet/regtest, nStartTime=0 on mainnet.
     SCRIPT_VERIFY_P2WSH_DILITHIUM = (1U << 24),
 
     // SOQ-COV-013: OP_CHECKDILITHIUMKEYHASH — key-committed Dilithium sig verify.
     // When set, OP_NOP7 (0xb6) enforces SHA256(pubkey)==keyhash + Dilithium sig verify.
-    // Enables eLTOO 2-of-2 multisig for L2SOQ Lightning with oversized Dilithium pubkeys.
+    // Enables 2-of-2 multisig with Dilithium pubkeys, which exceed MAX_SCRIPT_ELEMENT_SIZE.
     SCRIPT_VERIFY_DILITHIUM_KEYHASH = (1U << 25),
 
     // DL-V6-CONTROLFLOW-RESTORE: execute the bounded standard-opcode set that
     // trust-minimised Lightning needs but V6's PQ-only EvalScript treats as no-ops:
     // OP_IF/NOTIF/ELSE/ENDIF, OP_DROP, OP_SIZE, OP_CHECKLOCKTIMEVERIFY, OP_CHECKSEQUENCEVERIFY,
-    // OP_SHA256, OP_EQUAL/OP_EQUALVERIFY. PQ signatures stay on CSFS/keyhash (the
+    // OP_SHA256, OP_EQUAL/OP_EQUALVERIFY. PQ signatures stay on OP_CHECKDILITHIUMKEYHASH (the
     // 520-byte push limit still forbids inline 1312-byte pubkeys → no inline CHECKSIG).
     // When clear, those opcodes remain no-ops (unchanged behaviour).
     SCRIPT_VERIFY_V6_CONTROLFLOW = (1U << 26),
@@ -173,6 +174,15 @@ enum {
     // DEPLOYMENT_BTCSOQ (bit 14). Consumed by ConnectBlock's BTCSOQ money-path
     // (Step 2C); interpreter witness-v8 dispatch lands in Step 2D.
     SCRIPT_VERIFY_BTCSOQ = (1U << 27),
+
+    // The key-hash check of witness version 6 refuses a signature with an
+    // anyprevout hash type. Under this flag it accepts one. ConnectBlock sets
+    // the flag for a block whose hash is on the network's list
+    // (Consensus::Params::witnessV6AnyprevoutHistoryBlocks), so that the blocks
+    // of a test network that hold such a spend from before the refusal still
+    // validate. Nothing else sets it: the mempool's flags, the standard set
+    // and the mandatory set never carry it.
+    SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY = (1U << 28),
 
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //

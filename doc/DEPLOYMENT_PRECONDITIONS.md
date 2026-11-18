@@ -38,34 +38,31 @@ feature that satisfies its own row and violates one of these is **not** ready.
    batch-activate. `NOT_SCHEDULED` stays until the relevant Halborn Phase 2 scope
    signs off on that specific feature.
 
-   ⛔ **ONE EXCEPTION, AND IT IS MANDATORY, NOT PERMISSIVE: the witness-v6
-   covenant stack.** `DEPLOYMENT_P2WSH_DILITHIUM`, `DEPLOYMENT_DILITHIUM_KEYHASH`,
-   `DEPLOYMENT_CSFS`, `DEPLOYMENT_V6_CONTROLFLOW` and `DEPLOYMENT_APO` MUST
-   activate at the SAME height, in one flag-day, and so does `DEPLOYMENT_CTV`.
-   Splitting them is not a conservative choice here, it is a hard fork. Two
-   distinct mechanisms produce it, and the deployments are not interchangeable:
+   ⛔ **ONE EXCEPTION, AND IT IS MANDATORY: the three deployments of witness
+   v6.** `DEPLOYMENT_P2WSH_DILITHIUM`,
+   `DEPLOYMENT_DILITHIUM_KEYHASH` and `DEPLOYMENT_V6_CONTROLFLOW` MUST activate
+   at the SAME height, in one flag-day. Splitting them is a hard fork, and the
+   mechanism is stack arity:
+   `OP_CHECKDILITHIUMKEYHASH` and the control-flow opcodes each change the stack
+   depth between their clear and set states, so a v6 script that fails the
+   clean-stack check while one of them is dormant PASSES once it activates.
 
-   - **Stack arity**, for `DEPLOYMENT_CSFS`, `DEPLOYMENT_DILITHIUM_KEYHASH` and
-     `DEPLOYMENT_V6_CONTROLFLOW`. Each of those opcodes changes the stack depth
-     between its clear and set states, so a v6 script that fails the clean-stack
-     check while one of them is dormant PASSES once it activates.
-   - **Sighash acceptance**, for `DEPLOYMENT_APO`. APO is a sighash type, not an
-     opcode, and changes no stack depth. Its loosening is a `SIG_HASHTYPE`
-     rejection inside `OP_CHECKDILITHIUMKEYHASH` turning into an acceptance.
+   `DEPLOYMENT_P2WSH_DILITHIUM` is the version gate itself, and the baseline the
+   other two are measured against.
+   `witness_version_allocation_tests::v6_swap_deployments_activate_together`
+   enforces the one height on every consensus tier.
 
-   `DEPLOYMENT_P2WSH_DILITHIUM` is neither: it is the version gate itself, and
-   the baseline the other four are measured against. `DEPLOYMENT_CTV` is the one
-   member that is genuinely arity-neutral and could in principle follow later;
-   it is held to the same flag-day so the rule has no exception to remember, and
-   `witness_version_allocation_tests::v6_covenant_stack_activates_together`
-   enforces that on every consensus tier.
+   A later activation of either of the two is a loosening measured against the
+   intermediate release, and it splits every node running that release. Measured
+   against the genesis binary the combined activation is a soft fork, because a
+   dormant v6 output is anyone-can-spend. Audit scope must therefore clear for
+   all three before any of them is scheduled.
 
-   Either mechanism gives a loosening measured against the intermediate release,
-   and it splits every node running that release. Measured against the genesis
-   binary the combined activation is a soft fork, because a dormant v6 output is
-   anyone-can-spend. Audit scope must therefore clear for the WHOLE stack before
-   any of it is scheduled. Rationale and the per-opcode arity trace:
-   `doc/specifications/WITNESS_VERSION_FORK_CLASS.md` §3a and the v6 row of §3.
+   `DEPLOYMENT_CTV`, `DEPLOYMENT_APO` and `DEPLOYMENT_CSFS` are outside this
+   exception. No verdict of witness v6 depends on them. They gate witness v11, where each
+   activation only refuses. Rationale and the per-opcode arity trace:
+   `doc/specifications/WITNESS_VERSION_FORK_CLASS.md` §3a and the v6 and v11
+   rows of §3.
 
 4. **Relay policy must move in lockstep with consensus, never ahead of it.** A
    gated witness version is anyone-can-spend until its deployment activates. If
@@ -263,26 +260,33 @@ Bitcoin-backed consensus asset, witness v8 (holding) and v9 (authority).
    unchanged.
 
 ### `DEPLOYMENT_CTV` (bit 7), `DEPLOYMENT_APO` (bit 8), `DEPLOYMENT_CSFS` (bit 9)
-BIP 119 `OP_CHECKTEMPLATEVERIFY`, BIP 118 `SIGHASH_ANYPREVOUT`, BIP 348
-`OP_CHECKSIGFROMSTACK`. Covenants, eltoo Lightning, oracle and bridge attestation.
+The three deployments of witness v11. The version runs when any one of them is
+active; inside it `ctv` defines `OP_CHECKTEMPLATEVERIFY` (BIP 119) and `csfs`
+defines `OP_CHECKSIGFROMSTACK` (BIP 348). `apo` defines no hash type: no
+witness version takes `SIGHASH_ANYPREVOUT` (BIP 118), outside the two stagenet
+blocks of the history list (`WITNESS_VERSION_FORK_CLASS.md` §3a).
 
 **Preconditions:**
 1. ☐ Halborn Phase 2 covenant scope cleared. Groundwork exists in
    `DL-COVENANT-ADVERSARIAL-AUDIT.md` and `DL-COVENANT-POST-AUDIT-HARDENING.md`.
-2. ☐ APO specifically: the hashtype gate must be pinned
-   (`apo_hashtype_gate_tests.cpp`), since ANYPREVOUT changes what a signature
-   commits to.
-3. ☐ These three are commonly activated together for eLTOO. Under the v6
-   covenant-stack exception to rule 3 they are not three separate scheduling
-   decisions. All three activate in the same flag-day as
-   `DEPLOYMENT_P2WSH_DILITHIUM`, `DEPLOYMENT_DILITHIUM_KEYHASH` and
-   `DEPLOYMENT_V6_CONTROLFLOW`: a later activation of CSFS or APO is a
-   loosening, and CTV is included so the rule has no exception. They remain
-   three separate AUDIT decisions, and the flag-day cannot be scheduled until
-   all of them clear.
+2. ☐ APO specifically: the refusal of the anyprevout hash types must stay
+   pinned on every path (`apo_hashtype_gate_tests.cpp`,
+   `witness_v6_narrowing_tests.cpp`), so that activating `apo` makes no path
+   accept one.
+3. ☐ The three gate witness v11, and no verdict of witness v6 depends on them
+   (`WITNESS_VERSION_FORK_CLASS.md` §3, the v11 row, and §3a). They are outside
+   the witness v6 exception to rule 3: on v11 each activation only refuses, so
+   none of them has to share a height with `DEPLOYMENT_P2WSH_DILITHIUM`,
+   `DEPLOYMENT_DILITHIUM_KEYHASH` and `DEPLOYMENT_V6_CONTROLFLOW`. They are
+   three separate audit decisions.
 
 ### `DEPLOYMENT_P2WSH_DILITHIUM` (bit 10)
-Witness v6: P2WSH with Dilithium. Covenant script execution and L2SOQ Lightning.
+Witness v6: P2WSH with Dilithium. Script execution held to the witness v6
+opcode set (`IsWitnessV6ScriptOpcode`, `src/script/interpreter.cpp`): pushes,
+the key-hash check, the four conditionals, `OP_DROP`, `OP_SIZE`, `OP_EQUAL`,
+`OP_EQUALVERIFY`, `OP_SHA256` and the two timelock opcodes, which are the forms
+of the atomic swap, and with them `OP_CAT` and the nine restored byte and
+arithmetic opcodes.
 
 **Preconditions:**
 1. ☐ **An audit that is not currently scheduled.** This is called out explicitly
@@ -308,7 +312,7 @@ Witness v6: P2WSH with Dilithium. Covenant script execution and L2SOQ Lightning.
 ### `DEPLOYMENT_V6_CONTROLFLOW` (bit 13)
 `OP_IF`, `OP_NOTIF`, `OP_ELSE`, `OP_ENDIF`, `OP_DROP`, `OP_SIZE`,
 `OP_CHECKLOCKTIMEVERIFY`, `OP_CHECKSEQUENCEVERIFY`, `OP_SHA256`, `OP_EQUAL` and
-`OP_EQUALVERIFY` inside v6 `EvalScript`, for the eLTOO ratchet and HTLCs.
+`OP_EQUALVERIFY` inside v6 `EvalScript`, for timelocked branches and HTLCs.
 
 **Preconditions:**
 1. ☐ Cannot precede `DEPLOYMENT_P2WSH_DILITHIUM`: it extends v6 script execution,
@@ -316,7 +320,8 @@ Witness v6: P2WSH with Dilithium. Covenant script execution and L2SOQ Lightning.
 2. ☐ Halborn Phase 2 clearance for the restored control-flow surface.
 
 ### `DEPLOYMENT_DILITHIUM_KEYHASH` (bit 12)
-`OP_CHECKDILITHIUMKEYHASH`: key-committed Dilithium verification, eLTOO 2-of-2.
+`OP_CHECKDILITHIUMKEYHASH`: key-committed Dilithium verification, for the
+2-of-2 and the HTLC of the atomic swap.
 
 **Preconditions:**
 1. ☐ Halborn Phase 2 clearance.

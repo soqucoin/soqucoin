@@ -82,12 +82,12 @@ BOOST_FIXTURE_TEST_SUITE(apo_hashtype_gate_tests, ApoGateSetup)
 // and a release that accepts it accepts a block the genesis binary rejects.
 // Flag-day scheduling does not change that; only direction does.
 //
-// The rejection on the single-key path is now UNCONDITIONAL. APO reaches the
-// chain only inside witness v6, through OP_CHECKDILITHIUMKEYHASH, which is
-// NOP-when-clear and therefore soft-fork activatable (covenant_tests,
-// dilithium_keyhash_committed_tests, keyhash_broadcast_tests,
-// lightning_script_tests cover that path; eLTOO channel outputs are v6, see
-// src/stagenet-eltoo.cpp MakeV6Spk).
+// The rejection on the single-key path is now UNCONDITIONAL. No other path
+// takes an APO signature either: the key-hash check of witness version 6
+// refuses the hash type in every state of the deployment, outside the two
+// stagenet blocks of the history list, and witness version 11 defines no key
+// type for it (witness_v6_narrowing_tests, dilithium_keyhash_committed_tests,
+// keyhash_broadcast_tests, lightning_script_tests, witness_v11_script_tests).
 //
 // Regtest activates APO at height 0, so this runs with the deployment ACTIVE.
 // That is the point: the flag must not be able to open this path.
@@ -151,19 +151,51 @@ BOOST_AUTO_TEST_CASE(sighash_all_unaffected_by_apo_dormancy)
         "withdrawing APO must not affect ordinary SIGHASH_ALL spending");
 }
 
-// Policy must agree with consensus, or an APO tx relays and can never be mined
-// (accept-then-reject, the daf9fd85 template-stalling failure). APO is omitted
-// from STANDARD_SCRIPT_VERIFY_FLAGS and OR-ed in by the ATMP block from the
-// same DeploymentActiveAtHeight call ConnectBlock uses, so the two agree at
-// off/off and on/on. Pinned because the stale CheckSig comment asserted the
-// opposite arrangement.
+// Policy must agree with consensus on the flag. It is one of the three that run
+// witness version 11, so a mempool that sets it while a block does not holds
+// version 11 spends to rules the block does not apply. APO is omitted from
+// STANDARD_SCRIPT_VERIFY_FLAGS and OR-ed in by the ATMP block from the same
+// DeploymentActiveAtHeight call ConnectBlock uses, so the two agree at off/off
+// and on/on. Pinned because the stale CheckSig comment asserted the opposite
+// arrangement.
 BOOST_AUTO_TEST_CASE(apo_is_not_in_standard_flags)
 {
     BOOST_CHECK_MESSAGE((STANDARD_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_APO) == 0,
-        "SCRIPT_VERIFY_APO has entered STANDARD_SCRIPT_VERIFY_FLAGS. Consensus gates it "
-        "on DEPLOYMENT_APO, so an unconditional policy flag makes the mempool accept "
-        "APO transactions that mainnet consensus rejects — accept-then-reject. If APO "
-        "activation is intended, change chainparams, not this flag set");
+        "SCRIPT_VERIFY_APO has entered STANDARD_SCRIPT_VERIFY_FLAGS. Consensus sets it "
+        "from DEPLOYMENT_APO, and it is one of the three flags that run witness version "
+        "11, so an unconditional policy flag makes the mempool run a version that a "
+        "mainnet block leaves dormant. If the activation is intended, change "
+        "chainparams, not this flag set");
+}
+
+// SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY opens the key-hash check of witness
+// version 6 and no other path. With the flag set the single-key path refuses
+// each anyprevout hash type as it does without it, and takes the same spend
+// signed SIGHASH_ALL.
+BOOST_AUTO_TEST_CASE(apo_rejected_on_single_key_path_under_the_v6_history_flag)
+{
+    const unsigned int withoutFlag = MANDATORY_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_APO;
+    const unsigned int withFlag = withoutFlag | SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY;
+    const CTransaction& funding = coinbaseTxns[6];
+
+    auto verdict = [&](int nHashType, unsigned int flags) {
+        const CTransaction tx(SpendWithHashType(funding, nHashType));
+        const TransactionSignatureChecker checker(&tx, 0, funding.vout[0].nValue);
+        ScriptError serr = SCRIPT_ERR_OK;
+        VerifyScript(tx.vin[0].scriptSig, coinbaseSpk, &tx.vin[0].scriptWitness, flags, checker, &serr);
+        return serr;
+    };
+
+    for (int nHashType : {0x41, 0x42, 0xc1, 0xc2}) {
+        BOOST_CHECK_MESSAGE(verdict(nHashType, withFlag) == SCRIPT_ERR_SIG_HASHTYPE,
+            "hash type 0x" << std::hex << nHashType << std::dec << " with the history flag: got "
+                           << ScriptErrorString(verdict(nHashType, withFlag)));
+        BOOST_CHECK_MESSAGE(verdict(nHashType, withoutFlag) == SCRIPT_ERR_SIG_HASHTYPE,
+            "hash type 0x" << std::hex << nHashType << std::dec << " without the history flag: got "
+                           << ScriptErrorString(verdict(nHashType, withoutFlag)));
+    }
+    BOOST_CHECK_EQUAL(verdict(SIGHASH_ALL, withFlag), SCRIPT_ERR_OK);
+    BOOST_CHECK_EQUAL(verdict(SIGHASH_ALL, withoutFlag), SCRIPT_ERR_OK);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

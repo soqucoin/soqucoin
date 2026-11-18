@@ -411,6 +411,16 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 unsigned int WitnessV11DeploymentFlags(int nHeight, const Consensus::Params& consensusParams);
 
 /**
+ * SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY when the block is on the network's list
+ * of blocks in which the key-hash check of witness version 6 accepts an
+ * anyprevout hash type, and zero for every other block. ConnectBlock adds the
+ * value to a block's flags. The mempool does not.
+ * @param[in] hashBlock       The hash of the block the flags are for
+ * @param[in] consensusParams The consensus parameters of that block's height
+ */
+unsigned int WitnessV6HistoryFlags(const uint256& hashBlock, const Consensus::Params& consensusParams);
+
+/**
  * Check whether all inputs of this transaction are valid (no double spends, scripts & sigs, amounts)
  * This does not modify the UTXO set. If pvChecks is not NULL, script checks are pushed onto it
  * instead of being performed inline.
