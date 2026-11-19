@@ -154,7 +154,7 @@ buying consensus exemptions while the verifier was dormant. The second is closed
 every exemption is gated on the deployment being active *and* the authority initialised, so the
 shape alone buys nothing, and the activation release deletes the exemptions outright. The first
 is bounded and stays open, exactly as it is on Bitcoin: dormant-version outputs are non-standard
-(`policy.cpp`, mask from `AcceptToMemoryPoolWorker`), no wallet or RPC path builds an output
+(`policy.cpp`, mask from `NextBlockWitnessVersionMask`), no wallet or RPC path builds an output
 from an address of a dormant witness version, and a stock miner builds blocks from its mempool.
 The address bound has two parts. `DecodeDestination` decodes witness v1 only (`utiladdress.cpp`),
 and it is the only Bech32m decoder the wallet's send paths and the mining payout address call.
@@ -166,18 +166,39 @@ output of the RPCs shows an address for a witness v6 output (`ScriptPubKeyToJSON
 `rpc/rawtransaction.cpp`); `DecodeDestination` refuses that string.
 
 Where relay requires standardness, as on mainnet and stagenet (`fRequireStandard`,
-`chainparams.cpp`), reaching the anyone-can-spend window takes one of two things. The first is
-raw construction plus a miner running modified policy. The second needs no modified policy:
-the mask and the RPC read the tip once and the mempool does not apply the mask again when the
-tip moves back (`CTxMemPool::removeForReorg`; `witness_v6_address_tests` pins it at the
-boundary), so a witness v6 output accepted while the deployment was active at the next block
-height can be confirmed below the activation height once the next block is below that height
-again. The second is bounded by the height of the tip, since every block at or above the
-activation height runs the committed script, and by the reorganisation depth limit, since a
-node refuses a header whose branch leaves its active chain `nMaxReorgDepth` or more blocks
+`chainparams.cpp`), three relay rules read one mask of the next block
+(`NextBlockWitnessVersionMask`, `validation.cpp`). An output of a dormant version is non-standard
+(`IsStandard`). A spend of an output of a dormant version is refused, whatever its witness
+(`SpendsDormantWitnessProgram`, `policy.cpp`), so no spend accepted in the dormant state waits in a
+mempool when the version begins. The reason is `dormant-witness-version`, with no score for the
+peer, unless an earlier check of the transaction refuses it first; a transaction whose one input has
+no witness and an empty scriptSig is one such case (`CheckTransaction`,
+`bad-txns-requires-dilithium`). An input with no witness whose scriptSig ends in a push that begins
+with the byte `00` passes that check and gets the reason, and so does an input with no witness and
+an empty scriptSig in a transaction the check passes for another input, one with an `OP_5 <32
+bytes>` output and an input of the authority witness layout. After the tip has moved back, the
+mempool removes, with its descendants, each transaction that has an output the mask of the new next
+block refuses (`RemoveOutputsOfDormantWitnessVersions`, `validation.cpp`), so a witness v6 output
+accepted while the next block was at or above the activation height is not mined below that height
+from the mempool of a node with these rules. The removal runs wherever a block was disconnected with
+the mempool in use, the returns on which a reorganisation or `invalidateblock` stops part way among
+them (`ActivateBestChainStep`, `InvalidateBlock`). On those returns `removeForReorg` runs before it
+only when the coins view is the tip's: after a failed write of the chain state the view is one block
+from the tip, the node has asked for its shutdown, and what `removeForReorg` would take stays. It
+keeps a spend of a confirmed output that it accepted under the version's rules: a block below the
+height takes that spend with nothing read, and a block from the height takes it under the rules it
+was checked with. `relay_dormant_witness_version_tests` holds each rule on a mined chain.
+
+The three are relay policy. A block below the activation height that creates such an output or
+holds such a spend is valid, so reaching the anyone-can-spend window takes raw construction
+plus a miner whose node does not apply them, by its own policy or because it runs a release
+without them. That state is bounded by the height of the tip, since every block at or above
+the activation height runs the committed script, and by the reorganisation depth limit, since
+a node refuses a header whose branch leaves its active chain `nMaxReorgDepth` or more blocks
 below its tip (`ContextualCheckBlockHeader`, `bad-fork-beyond-finality`; skipped during
-initial block download, and off where the constant is 0, as on regtest). In both, the only
-funds at risk are those paid into the output.
+initial block download, and off where the constant is 0, as on regtest). The only funds at
+risk are those paid into the output. Where standardness is not required, as on testnet and
+regtest, none of the three applies.
 
 Residual, tracked separately: the USDSOQ bootstrap in `ConnectBlock` selects its authority
 input by SHAPE — any `OP_5 <32>` prevout, while the tracked outpoint is null — and does not

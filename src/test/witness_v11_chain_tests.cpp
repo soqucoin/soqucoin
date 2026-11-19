@@ -25,12 +25,17 @@
 //              encoding; no spend of this file is of that kind.
 //   failed     the script runs and fails. Relay and a block refuse it.
 //
+// While the version is dormant, relay refuses an input that spends an output
+// of it as "dormant-witness-version", before the checks of the previous
+// output's form, of the witness and of the script, and with no score for the
+// peer (policy.cpp SpendsDormantWitnessProgram).
+//
 // While the version runs, relay first refuses an input whose witness is
 // outside its figures, whatever the outcome, as "bad-witness-nonstandard" with
-// no score for the peer. Inside the figures it refuses a dormant or hooked
-// input with the reason "non-mandatory-script-verify-flag", naming the script
-// error, and does not score the peer that sent it, and it refuses a failed
-// input with "mandatory-script-verify-flag-failed" and scores the peer.
+// no score for the peer. Inside the figures it refuses a hooked input with the
+// reason "non-mandatory-script-verify-flag", naming the script error, and does
+// not score the peer that sent it, and it refuses a failed input with
+// "mandatory-script-verify-flag-failed" and scores the peer.
 
 #include "test/dilithium_chain_setup.h"
 
@@ -175,6 +180,9 @@ CScript DropScript(size_t n)
     s << OP_1;
     return s;
 }
+
+//! Relay's reason for a spend of an output of a dormant witness version.
+const std::string DORMANT_VERSION = "dormant-witness-version";
 
 std::string NonMandatory(ScriptError e)
 {
@@ -435,9 +443,8 @@ BOOST_AUTO_TEST_CASE(the_decoded_script_names_the_type_and_shows_no_address)
 
 // With the three deployments withdrawn, the state mainnet ships in, an output
 // of the version is spent in a block by anyone, with any witness. Relay refuses
-// each such spend by the script flag, names the dormant version and does not
-// score the peer. With the three active the same spends are refused in a block
-// and at relay.
+// each such spend as a spend of a dormant version and does not score the peer.
+// With the three active the same spends are refused in a block and at relay.
 BOOST_AUTO_TEST_CASE(a_spend_of_a_dormant_output_is_refused_at_relay_and_valid_in_a_block)
 {
     const CScript script = CScript() << Sha256(ownerItem) << OP_CHECKDILITHIUMKEYHASH << OP_1;
@@ -459,8 +466,8 @@ BOOST_AUTO_TEST_CASE(a_spend_of_a_dormant_output_is_refused_at_relay_and_valid_i
         for (const CMutableTransaction* attempt : attempts) {
             const RelayResult r = Relay(*attempt);
             BOOST_CHECK_MESSAGE(!r.accepted, "a spend of a dormant output must be refused at relay");
-            BOOST_CHECK_MESSAGE(r.reason == NonMandatory(SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM),
-                "the refusal must be the script flag's and name the dormant version; got '" << r.reason << "'");
+            BOOST_CHECK_MESSAGE(r.reason == DORMANT_VERSION,
+                "the refusal must be that of a spend of a dormant version; got '" << r.reason << "'");
             BOOST_CHECK_MESSAGE(r.nDoS == 0, "the sending peer must not be scored; got " << r.nDoS);
             BOOST_CHECK_MESSAGE(BlockIsValid(std::vector<CMutableTransaction>(1, *attempt)),
                 "a spend of a dormant output must be valid in a block");
@@ -676,8 +683,11 @@ BOOST_AUTO_TEST_CASE(relay_accepts_only_what_a_block_accepts_under_every_combina
                     where << ": the mempool records " << r.sigOpCost << " sigops and the block charges " << charge);
             }
             if (!expectRelay && expectValid) {
-                BOOST_CHECK_MESSAGE(r.reason == NonMandatory(v.error) && r.nDoS == 0,
-                    where << ": expected the script flag's refusal with no score; got '" << r.reason << "', score " << r.nDoS);
+                // Dormant, the refusal is that of a spend of a dormant
+                // version. Running, it is the script flag's.
+                const std::string expected = dormant ? DORMANT_VERSION : NonMandatory(v.error);
+                BOOST_CHECK_MESSAGE(r.reason == expected && r.nDoS == 0,
+                    where << ": expected '" << expected << "' with no score; got '" << r.reason << "', score " << r.nDoS);
             }
             if (!expectRelay && !expectValid) {
                 BOOST_CHECK_MESSAGE(r.reason == Mandatory(v.error) && r.nDoS == 100,
@@ -727,11 +737,11 @@ BOOST_AUTO_TEST_CASE(relay_reads_the_deployments_at_the_next_block_and_not_at_th
         BOOST_CHECK_MESSAGE(BlockIsValid(std::vector<CMutableTransaction>(1, stolen)),
             "one block below the version's height a block must accept any spend of the output");
         const RelayResult theft = Relay(stolen);
-        BOOST_CHECK_MESSAGE(!theft.accepted && theft.reason == NonMandatory(SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM),
+        BOOST_CHECK_MESSAGE(!theft.accepted && theft.reason == DORMANT_VERSION,
             "one block below the version's height relay must refuse the stranger's spend as dormant; accepted "
             << theft.accepted << ", reason '" << theft.reason << "'");
         const RelayResult spend = Relay(S);
-        BOOST_CHECK_MESSAGE(!spend.accepted && spend.reason == NonMandatory(SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM),
+        BOOST_CHECK_MESSAGE(!spend.accepted && spend.reason == DORMANT_VERSION,
             "one block below the version's height a spend must be refused as dormant; accepted " << spend.accepted
             << ", reason '" << spend.reason << "'");
         const RelayResult output = Relay(creates);
@@ -855,11 +865,11 @@ BOOST_AUTO_TEST_CASE(an_item_over_each_figure_is_refused_and_a_hooked_script_is_
     }
 
     // With the three withdrawn relay applies none of its figures to the
-    // version, and the script flag refuses the spend.
+    // version, and refuses the spend as one of a dormant version.
     {
         ScopedV11Deployments withdrawn(0);
         const RelayResult r = Relay(rows[1].tx);
-        BOOST_CHECK_MESSAGE(!r.accepted && r.reason == NonMandatory(SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM),
+        BOOST_CHECK_MESSAGE(!r.accepted && r.reason == DORMANT_VERSION,
             "an input over a relay figure, dormant: accepted " << r.accepted << ", reason '" << r.reason << "'");
     }
 }

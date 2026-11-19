@@ -156,8 +156,11 @@ BOOST_AUTO_TEST_CASE(deployment_gated_flags_are_paired)
         "be OR-ed in per height on both paths, or the mempool enforces a rule consensus has "
         "not activated and rejects transactions that are perfectly valid in a block");
 
-    // The flag under which relay refuses a spend of a dormant witness v11
-    // output and each of the version's upgrade hooks is the other kind: relay
+    // The flag under which the mempool's script check refuses a spend of a
+    // dormant witness v11 output and each of the version's upgrade hooks is
+    // the other kind. Where standardness is required the relay rule refuses
+    // the dormant spend first (policy.cpp SpendsDormantWitnessProgram), and
+    // the flag refuses it where standardness is not required. Relay
     // always carries it, no deployment gates it, and it is not mandatory, so a
     // refusal under it scores no peer. The interpreter gives it readers in
     // witness v11 alone (witness_v11_script_tests; witness_v11_chain_tests

@@ -200,6 +200,7 @@ BITCOIN_TESTS =\
   test/witness_v11_chain_tests.cpp \
   test/v6_asset_opcode_ban_tests.cpp \
   test/v6_witness_script_opcode_set_tests.cpp \
+  test/relay_dormant_witness_version_tests.cpp \
   test/witness_v6_narrowing_tests.cpp \
   test/witness_v6_history_data.h \
   test/v6_checksequence_bip112_tests.cpp \

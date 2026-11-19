@@ -82,16 +82,32 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType, WitnessVersi
     //
     // Deliberately a POLICY change, not a consensus one: tightening consensus here
     // would turn each future activation into a hard fork.
-    if (scriptPubKey.size() == 34 &&
-        scriptPubKey[0] >= 0x52 && scriptPubKey[0] <= 0x60 &&  // OP_2 through OP_16
-        scriptPubKey[1] == 32) {
-        const int witnessVersion = scriptPubKey[0] - 0x50;      // OP_N encodes N
-        if (!(activeWitnessVersions & WitnessVersionBit(witnessVersion))) {
-            return false;
-        }
-    }
+    if (IsDormantWitnessProgram(scriptPubKey, activeWitnessVersions))
+        return false;
 
     return true;
+}
+
+bool IsDormantWitnessProgram(const CScript& scriptPubKey, WitnessVersionMask activeWitnessVersions)
+{
+    if (scriptPubKey.size() != 34 ||
+        scriptPubKey[0] < 0x52 || scriptPubKey[0] > 0x60 ||   // OP_2 through OP_16
+        scriptPubKey[1] != 32)
+        return false;
+    const int witnessVersion = scriptPubKey[0] - 0x50;         // OP_N encodes N
+    return !(activeWitnessVersions & WitnessVersionBit(witnessVersion));
+}
+
+bool SpendsDormantWitnessProgram(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions)
+{
+    if (tx.IsCoinBase())
+        return false;
+
+    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        if (IsDormantWitnessProgram(mapInputs.GetOutputFor(tx.vin[i]).scriptPubKey, activeWitnessVersions))
+            return true;
+    }
+    return false;
 }
 
 bool IsStandardTx(const CTransaction& tx, std::string& reason, WitnessVersionMask activeWitnessVersions)

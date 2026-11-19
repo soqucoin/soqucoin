@@ -744,8 +744,9 @@ BOOST_AUTO_TEST_CASE(a_witness_above_the_standard_number_of_items_is_refused_at_
 }
 
 // Both rules follow the v6 deployment. With it not scheduled, as on mainnet,
-// the mempool applies no v6 limit and a block holds no v6 bound: the two
-// spends that relay refuses while v6 is active are accepted and connect.
+// a block holds no v6 bound: the two spends that relay refuses while v6 is
+// active connect. Relay applies no v6 limit to them either and refuses both
+// for another reason, as spends of an output of a dormant version.
 BOOST_AUTO_TEST_CASE(no_v6_limit_applies_while_the_v6_deployment_is_not_active)
 {
     BOOST_REQUIRE_MESSAGE(fRequireStandard,
@@ -767,11 +768,11 @@ BOOST_AUTO_TEST_CASE(no_v6_limit_applies_while_the_v6_deployment_is_not_active)
     {
         ScopedV6ActivationHeight notScheduled(Consensus::BIP9Deployment::NOT_SCHEDULED);
         r = Relay(itemAbove);
-        BOOST_CHECK_MESSAGE(r.empty(),
-            "an item above the consensus size must be accepted at relay while v6 is dormant; got: " << r);
+        BOOST_CHECK_MESSAGE(r.find("dormant-witness-version") != std::string::npos,
+            "an item above the consensus size must be refused at relay as a dormant spend while v6 is dormant; got: " << OrAccepted(r));
         r = Relay(numberAbove);
-        BOOST_CHECK_MESSAGE(r.empty(),
-            "one item above the standard number must be accepted at relay while v6 is dormant; got: " << r);
+        BOOST_CHECK_MESSAGE(r.find("dormant-witness-version") != std::string::npos,
+            "one item above the standard number must be refused at relay as a dormant spend while v6 is dormant; got: " << OrAccepted(r));
         BOOST_CHECK_MESSAGE(ValidInABlock(itemAbove),
             "a block holding an item above the consensus size must connect while v6 is dormant");
         BOOST_CHECK_MESSAGE(ValidInABlock(numberAbove),

@@ -411,6 +411,17 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 unsigned int WitnessV11DeploymentFlags(int nHeight, const Consensus::Params& consensusParams);
 
 /**
+ * The relay mask of witness versions for the block after pindexPrev: bit N is
+ * set when the rules of witness version N run in that block. Bit 3 follows the
+ * version-bits state of that block, bits 4 to 9 the height of their
+ * deployment, bit 11 WitnessV11DeploymentFlags; versions 2, 10 and 12 to 16
+ * have no bit. The mempool reads it for the block after the tip. Requires
+ * cs_main.
+ * @param[in] pindexPrev The block before the one the mask is for
+ */
+WitnessVersionMask NextBlockWitnessVersionMask(const CBlockIndex* pindexPrev);
+
+/**
  * SCRIPT_VERIFY_V6_ANYPREVOUT_HISTORY when the block is on the network's list
  * of blocks in which the key-hash check of witness version 6 accepts an
  * anyprevout hash type, and zero for every other block. ConnectBlock adds the

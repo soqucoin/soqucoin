@@ -770,6 +770,122 @@ static unsigned int NextBlockDeploymentScriptFlags()
     return flags;
 }
 
+/**
+ * The relay mask of witness versions for the block after pindexPrev: bit N is
+ * set when the rules of witness version N run in that block. One function for
+ * every reader: the output rule, the input rule and the witness limits of
+ * AcceptToMemoryPoolWorker and the removal after the tip has moved back
+ * (RemoveOutputsOfDormantWitnessVersions).
+ */
+WitnessVersionMask NextBlockWitnessVersionMask(const CBlockIndex* pindexPrev)
+{
+    AssertLockHeld(cs_main);
+    // Which gated witness versions are actually spendable-by-rule right now.
+    //
+    // A gated witness version is anyone-can-spend until its deployment activates,
+    // so relaying an output of that form before activation is a fund-loss path,
+    // not a safe failure: it confirms, and then anybody may spend it. Policy must
+    // therefore track consensus on the OUTPUT side, exactly as it already does on
+    // the INPUT side (see NextBlockDeploymentScriptFlags above, added after live
+    // bug daf9fd85). Anything not listed here stays non-standard, which is the
+    // fail-safe direction.
+    WitnessVersionMask activeWitnessVersions = 0;
+    const int nNextHeight = pindexPrev ? pindexPrev->nHeight + 1 : 0;
+    const Consensus::Params& cons = Params().GetConsensus(nNextHeight);
+    auto heightActive = [&](Consensus::DeploymentPos pos) {
+        return Consensus::DeploymentActiveAtHeight(nNextHeight, cons, pos);
+    };
+    auto bip9Active = [&](Consensus::DeploymentPos pos) {
+        return VersionBitsState(pindexPrev, cons, pos, versionbitscache) == THRESHOLD_ACTIVE;
+    };
+    // v1 is the always-standard base form; v0 is never standard, because the
+    // script layer cannot spend it as Solver names it (IsStandard, bead trp6).
+    // v2 (PAT) is deliberately absent and must stay absent: it is
+    // permanently unfundable at consensus (ConnectBlock's v2 creation rule),
+    // because PAT's attestation is a coinbase commitment rather than an
+    // output type. Setting the bit from DEPLOYMENT_CHECKPATAGG would state
+    // the opposite of the consensus rule. It would also have no effect —
+    // Solver never names the v2 form, so IsStandard returns false before it
+    // reads this mask (witness_version_allocation_tests
+    // mask_bits_for_v2_v3_v4_cannot_affect_standardness) — and a dead bit
+    // that contradicts consensus is exactly the kind of disagreement this
+    // mask exists to prevent. Bead pat-v2-anyone-can-spend-ae6u.
+    if (bip9Active(Consensus::DEPLOYMENT_LATTICEFOLD))     activeWitnessVersions |= WitnessVersionBit(3);
+    if (heightActive(Consensus::DEPLOYMENT_SOQUOBSCURA))   activeWitnessVersions |= WitnessVersionBit(4);
+    // USDSOQ governs both the v5 authority marker and the v7 holding form.
+    if (heightActive(Consensus::DEPLOYMENT_USDSOQ))        activeWitnessVersions |= WitnessVersionBit(5) | WitnessVersionBit(7);
+    if (heightActive(Consensus::DEPLOYMENT_P2WSH_DILITHIUM)) activeWitnessVersions |= WitnessVersionBit(6);
+    // BTCSOQ governs both the v8 holding form and the v9 authority marker.
+    if (heightActive(Consensus::DEPLOYMENT_BTCSOQ))        activeWitnessVersions |= WitnessVersionBit(8) | WitnessVersionBit(9);
+    // v10 is ALLOCATED (confidential USDSOQ, gated on SOQUOBSCURA + USDSOQ
+    // together) but deliberately stays out of this mask: its Solver form and
+    // verifier ship with the activation release, and nothing is standard
+    // that Solver cannot name.
+    // v11 runs when any of its three deployments is active. The bit is set
+    // from the flags the mempool's script checks read for the same height
+    // (NextBlockDeploymentScriptFlags), so an output of the version is
+    // standard exactly where a spend of it is verified.
+    if (IsWitnessV11Active(WitnessV11DeploymentFlags(nNextHeight, cons))) activeWitnessVersions |= WitnessVersionBit(11);
+    // v12-v16 are unallocated: never standard until one is assigned a
+    // deployment.
+
+    return activeWitnessVersions;
+}
+
+/**
+ * After the tip has moved back: removes from the mempool, with its
+ * descendants, each transaction that has an output the relay mask of the next
+ * block refuses. Such a transaction was accepted while the next block was at
+ * or above the height of the output's version, or returned from a disconnected
+ * block while the tip was still that high. Mined below the height, its output
+ * is one a block lets any spend take. Where standardness is not required the
+ * output rule is not applied on the way in and nothing is removed here.
+ * removeForReorg, which its callers run first where the coins view is the
+ * tip's (CoinsViewIsAtTip), reads finality, sequence locks and coinbase
+ * maturity and no output rule. This function reads the tip and no view.
+ */
+static void RemoveOutputsOfDormantWitnessVersions(CTxMemPool& pool)
+{
+    AssertLockHeld(cs_main);
+    if (!fRequireStandard)
+        return;
+    const WitnessVersionMask activeWitnessVersions = NextBlockWitnessVersionMask(chainActive.Tip());
+    std::vector<CTransactionRef> refused;
+    {
+        LOCK(pool.cs);
+        for (CTxMemPool::indexed_transaction_set::const_iterator it = pool.mapTx.begin(); it != pool.mapTx.end(); ++it) {
+            for (const CTxOut& txout : it->GetTx().vout) {
+                if (IsDormantWitnessProgram(txout.scriptPubKey, activeWitnessVersions)) {
+                    refused.push_back(it->GetSharedTx());
+                    break;
+                }
+            }
+        }
+    }
+    // removeRecursive takes the descendants too. Given a transaction that left
+    // as the descendant of an earlier one, it finds nothing.
+    for (const CTransactionRef& tx : refused)
+        pool.removeRecursive(*tx, MemPoolRemovalReason::REORG);
+}
+
+/**
+ * True when the best block of the coins view is the tip. A write of the chain
+ * state that fails inside DisconnectTip or ConnectTip (FlushStateToDisk)
+ * returns after the view took the block and before the tip moved, so the view
+ * is then one block behind the tip or one block ahead of it. removeForReorg
+ * reads the view for the inputs of an entry that spends a coinbase, and with
+ * mempool checks on it asserts that the view holds each. The three returns
+ * that follow a failed disconnection or connection run it only when this is
+ * true. With no tip the comparison is with the null hash, which a view with
+ * no best block returns.
+ */
+static bool CoinsViewIsAtTip()
+{
+    AssertLockHeld(cs_main);
+    const CBlockIndex* pindexTip = chainActive.Tip();
+    return pcoinsTip->GetBestBlock() == (pindexTip ? pindexTip->GetBlockHash() : uint256());
+}
+
 bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const CTransactionRef& ptx, bool fLimitFree, bool* pfMissingInputs, int64_t nAcceptTime, std::list<CTransactionRef>* plTxnReplaced, bool fOverrideMempoolLimit, const CAmount& nAbsurdFee, std::vector<uint256>& vHashTxnToUncache)
 {
     const CTransaction& tx = *ptx;
@@ -791,56 +907,9 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         return state.DoS(0, false, REJECT_NONSTANDARD, "no-witness-yet", true);
     }
 
-    // Which gated witness versions are actually spendable-by-rule right now.
-    //
-    // A gated witness version is anyone-can-spend until its deployment activates,
-    // so relaying an output of that form before activation is a fund-loss path,
-    // not a safe failure: it confirms, and then anybody may spend it. Policy must
-    // therefore track consensus on the OUTPUT side, exactly as it already does on
-    // the INPUT side (see NextBlockDeploymentScriptFlags above, added after live
-    // bug daf9fd85). Anything not listed here stays non-standard, which is the
-    // fail-safe direction.
-    WitnessVersionMask activeWitnessVersions = 0;
-    {
-        const int nNextHeight = chainActive.Height() + 1;
-        const Consensus::Params& cons = Params().GetConsensus(nNextHeight);
-        auto heightActive = [&](Consensus::DeploymentPos pos) {
-            return Consensus::DeploymentActiveAtHeight(nNextHeight, cons, pos);
-        };
-        auto bip9Active = [&](Consensus::DeploymentPos pos) {
-            return VersionBitsState(chainActive.Tip(), cons, pos, versionbitscache) == THRESHOLD_ACTIVE;
-        };
-        // v1 is the always-standard base form; v0 is never standard, because the
-        // script layer cannot spend it as Solver names it (IsStandard, bead trp6).
-        // v2 (PAT) is deliberately absent and must stay absent: it is
-        // permanently unfundable at consensus (ConnectBlock's v2 creation rule),
-        // because PAT's attestation is a coinbase commitment rather than an
-        // output type. Setting the bit from DEPLOYMENT_CHECKPATAGG would state
-        // the opposite of the consensus rule. It would also have no effect —
-        // Solver never names the v2 form, so IsStandard returns false before it
-        // reads this mask (witness_version_allocation_tests
-        // mask_bits_for_v2_v3_v4_cannot_affect_standardness) — and a dead bit
-        // that contradicts consensus is exactly the kind of disagreement this
-        // mask exists to prevent. Bead pat-v2-anyone-can-spend-ae6u.
-        if (bip9Active(Consensus::DEPLOYMENT_LATTICEFOLD))     activeWitnessVersions |= WitnessVersionBit(3);
-        if (heightActive(Consensus::DEPLOYMENT_SOQUOBSCURA))   activeWitnessVersions |= WitnessVersionBit(4);
-        // USDSOQ governs both the v5 authority marker and the v7 holding form.
-        if (heightActive(Consensus::DEPLOYMENT_USDSOQ))        activeWitnessVersions |= WitnessVersionBit(5) | WitnessVersionBit(7);
-        if (heightActive(Consensus::DEPLOYMENT_P2WSH_DILITHIUM)) activeWitnessVersions |= WitnessVersionBit(6);
-        // BTCSOQ governs both the v8 holding form and the v9 authority marker.
-        if (heightActive(Consensus::DEPLOYMENT_BTCSOQ))        activeWitnessVersions |= WitnessVersionBit(8) | WitnessVersionBit(9);
-        // v10 is ALLOCATED (confidential USDSOQ, gated on SOQUOBSCURA + USDSOQ
-        // together) but deliberately stays out of this mask: its Solver form and
-        // verifier ship with the activation release, and nothing is standard
-        // that Solver cannot name.
-        // v11 runs when any of its three deployments is active. The bit is set
-        // from the flags the script checks below read for the same height, so
-        // an output of the version is standard exactly where a spend of it is
-        // verified.
-        if (IsWitnessV11Active(WitnessV11DeploymentFlags(nNextHeight, cons))) activeWitnessVersions |= WitnessVersionBit(11);
-        // v12-v16 are unallocated: never standard until one is assigned a
-        // deployment.
-    }
+    // The relay mask of witness versions for the next block. The output rule,
+    // the input rule and the witness limits below read this one value.
+    const WitnessVersionMask activeWitnessVersions = NextBlockWitnessVersionMask(chainActive.Tip());
 
     // Rather not work on nonstandard transactions (unless -testnet/-regtest)
     std::string reason;
@@ -948,6 +1017,18 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
             if (!CheckSequenceLocks(tx, STANDARD_LOCKTIME_VERIFY_FLAGS, &lp))
                 return state.DoS(0, false, REJECT_NONSTANDARD, "non-BIP68-final");
         }
+
+        // A spend of an output of a dormant witness version. A block below
+        // the version's height runs no script for it (versions 3 to 16; no
+        // block may create a version 2 output); from the height the version's
+        // rules judge it, and block assembly validates its own template.
+        // Refused here, before the checks that depend on which forms Solver
+        // names, so that the refusal has one reason for every dormant version.
+        // The verdict does not read the witness, so the transaction id is the
+        // thing refused, and the sender is not scored: a peer on an earlier
+        // release relays such a spend.
+        if (fRequireStandard && SpendsDormantWitnessProgram(tx, view, activeWitnessVersions))
+            return state.DoS(0, false, REJECT_NONSTANDARD, "dormant-witness-version");
 
         // Check for non-standard pay-to-script-hash in inputs
         if (fRequireStandard && !AreInputsStandard(tx, view))
@@ -3925,7 +4006,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // BIP141's posture — a dormant version is anyone-can-spend at the script
     // layer (VerifyScript returns success while the deployment flag is clear)
     // and NON-STANDARD at the relay layer (policy.cpp gates v2-v16 on the live
-    // activation mask computed in AcceptToMemoryPoolWorker) — and it is the
+    // activation mask, NextBlockWitnessVersionMask) — and it is the
     // posture that makes every later activation a SOFT fork: activation only
     // ADDS a rule (the spend must now verify), and every block the new rule
     // accepts, the genesis binary also accepts.
@@ -6585,8 +6666,22 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
     // Disconnect active blocks which are no longer in the best chain.
     bool fBlocksDisconnected = false;
     while (chainActive.Tip() && chainActive.Tip() != pindexFork) {
-        if (!DisconnectTip(state, chainparams))
+        if (!DisconnectTip(state, chainparams)) {
+            // The tip has moved back by the blocks already disconnected and
+            // the mempool holds what they returned: run the removal of
+            // outputs of a dormant witness version for the tip as it stands,
+            // and removeForReorg before it when the coins view is that
+            // tip's, as InvalidateBlock does where its disconnection fails.
+            // After a failed write of the chain state the view is one block
+            // behind the tip, and what removeForReorg would take stays. The
+            // size limit is not applied here.
+            if (fBlocksDisconnected) {
+                if (CoinsViewIsAtTip())
+                    mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+                RemoveOutputsOfDormantWitnessVersions(mempool);
+            }
             return false;
+        }
         fBlocksDisconnected = true;
     }
 
@@ -6622,6 +6717,15 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
                     break;
                 } else {
                     // A system error occurred (disk space, database error, ...).
+                    // The same two removals as above, under the same
+                    // condition, for the tip the step has reached. After a
+                    // failed write of the chain state the view is one block
+                    // ahead of that tip.
+                    if (fBlocksDisconnected) {
+                        if (CoinsViewIsAtTip())
+                            mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+                        RemoveOutputsOfDormantWitnessVersions(mempool);
+                    }
                     return false;
                 }
             } else {
@@ -6637,6 +6741,7 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
 
     if (fBlocksDisconnected) {
         mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+        RemoveOutputsOfDormantWitnessVersions(mempool);
         LimitMempoolSize(mempool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
     }
     mempool.check(pcoinsTip);
@@ -6812,7 +6917,11 @@ bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, C
         // ActivateBestChain considers blocks already in chainActive
         // unconditionally valid already, so force disconnect away from it.
         if (!DisconnectTip(state, chainparams)) {
-            mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+            // removeForReorg when the coins view is the tip's, as at the
+            // two early returns of ActivateBestChainStep.
+            if (CoinsViewIsAtTip())
+                mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+            RemoveOutputsOfDormantWitnessVersions(mempool);
             return false;
         }
     }
@@ -6853,6 +6962,7 @@ bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, C
 
     InvalidChainFound(pindex);
     mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+    RemoveOutputsOfDormantWitnessVersions(mempool);
     uiInterface.NotifyBlockTip(IsInitialBlockDownload(), pindex->pprev);
     return true;
 }
