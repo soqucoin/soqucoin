@@ -1229,8 +1229,9 @@ BOOST_AUTO_TEST_CASE(the_checks_that_run_before_the_spend_rule_keep_their_reason
 // CheckTransaction refuses the first, and relay gives that reason.
 // CheckTransaction passes the second: relay refuses it with the rule's reason
 // while the next block is below A, and a block that holds it connects. When
-// the next block is A the version judges a spend of the second form: relay
-// refuses it for another reason, and a block that holds it does not connect.
+// the next block is A, relay refuses a spend of the second form by the rule
+// on a scriptSig, which reads the output the input spends and the scriptSig
+// of the input, and a block that holds it does not connect.
 BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_push_of_00_reaches_the_rule)
 {
     BOOST_REQUIRE(fRequireStandard);

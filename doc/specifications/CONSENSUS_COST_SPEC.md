@@ -633,6 +633,33 @@ LatticeFold+ provides **recursive proof composition** for Dilithium batch verifi
 | **Block Size Attacks** | MAX_BLOCK_WEIGHT = 4 MB | Consensus |
 | **Dust Attacks** | DEFAULT_HARD_DUST_LIMIT | Policy |
 | **UTXO Bloat** | UTXO_COST_PER_BYTE = 6,500 (bit 11) | Consensus (height-gated) |
+| **Script Hashing (witness v6, v11)** | 16 hash opcodes in a standard script (`MAX_STANDARD_SCRIPT_HASH_OPCODES`) | Policy |
+
+### Script Hashing in Witness Versions 6 and 11
+
+A hash opcode in a script of witness version 6 or 11 counts no signature operation. It has no entry
+in the verification costs of section 4. Consensus bounds the hashing of one input by the size of its
+script (`MAX_SCRIPT_SIZE`, `src/script/script.h:31`) and of its witness items.
+
+Relay adds a count where standardness is required and the version runs. A script with more than 16
+hash opcodes (`OP_RIPEMD160` to `OP_HASH256`) is non-standard. The figure is
+`MAX_STANDARD_SCRIPT_HASH_OPCODES` (`src/policy/policy.h:93`), read by `IsWitnessStandard` in
+`src/policy/policy.cpp`. The count is over the whole script: an opcode in a branch that does not run
+is counted. No block is refused for it.
+
+The table gives the cost of validating one full block on one core of a 2.0 GHz server-class virtual
+CPU. The script checks ran on one thread with nothing cached. The build is `-O2` with portable
+SHA-256. Measured 19 November 2026.
+
+| Block | Time |
+|---|---|
+| Ordinary one-key spends | 0.08 to 0.13 s (0.27 to 0.34 s on a first run) |
+| Scripts with no hash opcode | 0.07 to 0.08 s |
+| Scripts at the relay limit of 16 hash opcodes | 0.21 to 0.23 s |
+| The most hashing the consensus bounds admit | 1.7 to 1.8 s |
+
+Relay admits the blocks of rows one to three. The block of row four reaches the chain only from a
+miner that builds it.
 
 ---
 

@@ -110,6 +110,22 @@ bool SpendsDormantWitnessProgram(const CTransaction& tx, const CCoinsViewCache& 
     return false;
 }
 
+bool SpendsWitnessProgramWithScriptSig(const CTransaction& tx, const CCoinsViewCache& mapInputs)
+{
+    if (tx.IsCoinBase())
+        return false;
+
+    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        if (tx.vin[i].scriptSig.empty())
+            continue;
+        int witnessversion = 0;
+        std::vector<unsigned char> witnessprogram;
+        if (mapInputs.GetOutputFor(tx.vin[i]).scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram))
+            return true;
+    }
+    return false;
+}
+
 bool IsStandardTx(const CTransaction& tx, std::string& reason, WitnessVersionMask activeWitnessVersions)
 {
     if (tx.nVersion > CTransaction::MAX_STANDARD_VERSION || tx.nVersion < 1) {
@@ -237,6 +253,21 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
     return true;
 }
 
+//! The number of hash opcodes (OP_RIPEMD160 to OP_HASH256) of a script, read
+//! as the interpreter decodes it: the bytes of a push are no opcodes. The
+//! count ends where the script stops decoding.
+static unsigned int CountHashOpcodes(const CScript& script)
+{
+    unsigned int nHashOpcodes = 0;
+    CScript::const_iterator pc = script.begin();
+    opcodetype opcode;
+    while (pc < script.end() && script.GetOp(pc, opcode)) {
+        if (opcode >= OP_RIPEMD160 && opcode <= OP_HASH256)
+            nHashOpcodes++;
+    }
+    return nHashOpcodes;
+}
+
 bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions)
 {
     if (tx.IsCoinBase())
@@ -296,6 +327,8 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
             const size_t nSatisfactionItems = stack.size() - 2;
             if (stack[nSatisfactionItems].size() > MAX_STANDARD_V6_SCRIPT_SIZE)
                 return false;
+            if (CountHashOpcodes(CScript(stack[nSatisfactionItems].begin(), stack[nSatisfactionItems].end())) > MAX_STANDARD_SCRIPT_HASH_OPCODES)
+                return false;
             if (nSatisfactionItems > MAX_STANDARD_V6_SATISFACTION_ITEMS)
                 return false;
             // Every item other than the witnessScript, the trailer included
@@ -320,6 +353,11 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
             // The satisfaction items come first, so their number is the committed item's index
             const size_t nSatisfactionItems = stack.size() - 2;
             if (stack[nSatisfactionItems].size() > MAX_STANDARD_V11_COMMITTED_ITEM_SIZE)
+                return false;
+            // The script follows the sub-version byte; an item of another sub-version is no script
+            const std::vector<unsigned char>& committed = stack[nSatisfactionItems];
+            if (!committed.empty() && committed[0] == WITNESS_V11_SUBVERSION_SCRIPT &&
+                CountHashOpcodes(CScript(committed.begin() + 1, committed.end())) > MAX_STANDARD_SCRIPT_HASH_OPCODES)
                 return false;
             if (nSatisfactionItems > MAX_STANDARD_V11_SATISFACTION_ITEMS)
                 return false;

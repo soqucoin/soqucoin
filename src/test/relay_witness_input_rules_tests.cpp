@@ -54,7 +54,7 @@ const std::string ACCEPTED = "accepted";
 const std::string SCRIPTSIG = "witness-scriptsig-not-empty";
 const std::string WITNESS_NONSTANDARD = "bad-witness-nonstandard";
 //! The number of hash opcodes a standard script of version 6 or 11 may hold.
-const unsigned int LIMIT = 16;
+const unsigned int LIMIT = MAX_STANDARD_SCRIPT_HASH_OPCODES;
 //! The one satisfaction item of every script spend of this file.
 const valtype ITEM(32, 0x42);
 
@@ -425,11 +425,46 @@ BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_FIXTURE_TEST_SUITE(relay_witness_input_rules_policy_tests, PolicySetup)
 
+// The scriptSig rule through its function. For an output of each witness
+// version 0 to 16 and for a 20-byte program, an input with an empty scriptSig
+// is outside the rule and one with a scriptSig is inside it, with a witness
+// or without. An input that spends an output that is no witness program is
+// outside it, and so is a coinbase. One input inside the rule is enough.
+BOOST_AUTO_TEST_CASE(the_scriptsig_rule_reads_the_output_an_input_spends_and_the_scriptsig_of_the_input)
+{
+    const CScript push00 = CScript() << valtype(1, 0x00);
+    for (unsigned int out = 0; out <= SHORT_PROGRAM; ++out) {
+        CMutableTransaction spend = SpendOf({out});
+        BOOST_CHECK_MESSAGE(!SpendsWitnessProgramWithScriptSig(CTransaction(spend), view), "output " << out << ", an empty scriptSig");
+        spend.vin[0].scriptWitness.stack = {valtype(1, 0x00)};
+        BOOST_CHECK_MESSAGE(!SpendsWitnessProgramWithScriptSig(CTransaction(spend), view), "output " << out << ", an empty scriptSig and a witness");
+        spend.vin[0].scriptSig = push00;
+        BOOST_CHECK_MESSAGE(SpendsWitnessProgramWithScriptSig(CTransaction(spend), view), "output " << out << ", a scriptSig and a witness");
+        spend.vin[0].scriptWitness.SetNull();
+        BOOST_CHECK_MESSAGE(SpendsWitnessProgramWithScriptSig(CTransaction(spend), view), "output " << out << ", a scriptSig");
+    }
+
+    CMutableTransaction noProgram = SpendOf({NO_PROGRAM, 1});
+    noProgram.vin[0].scriptSig = push00;
+    BOOST_CHECK(!SpendsWitnessProgramWithScriptSig(CTransaction(noProgram), view));
+    noProgram.vin[1].scriptSig = push00;
+    BOOST_CHECK(SpendsWitnessProgramWithScriptSig(CTransaction(noProgram), view));
+
+    CMutableTransaction coinbase;
+    coinbase.vin.resize(1);
+    coinbase.vin[0].prevout.SetNull();
+    coinbase.vin[0].scriptSig = CScript() << 1 << OP_0;
+    coinbase.vout.push_back(CTxOut(COIN, CScript() << OP_1 << valtype(32, 0x01)));
+    BOOST_REQUIRE(CTransaction(coinbase).IsCoinBase());
+    BOOST_CHECK(!SpendsWitnessProgramWithScriptSig(CTransaction(coinbase), view));
+}
+
 // The limit through IsWitnessStandard, for versions 6 and 11: a script of
 // the limit's number of OP_SHA256 is standard and one more is refused while
 // the version's bit is set, and with the bit clear no limit is read.
 BOOST_AUTO_TEST_CASE(the_limit_is_read_for_versions_6_and_11_while_their_bit_is_set)
 {
+    BOOST_CHECK_EQUAL(MAX_STANDARD_SCRIPT_HASH_OPCODES, 16u);
     for (int version : {6, WITNESS_V11_VERSION}) {
         const valtype atTheLimit = ScriptItem(version, valtype(LIMIT, (unsigned char)OP_SHA256));
         const valtype over = ScriptItem(version, valtype(LIMIT + 1, (unsigned char)OP_SHA256));
