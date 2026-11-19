@@ -92,6 +92,9 @@ const CAmount SEEDED = 10 * COIN;
 const std::string ACCEPTED = "accepted";
 const std::string MISSING_INPUTS = "missing-inputs";
 const std::string DORMANT = "dormant-witness-version";
+//! Relay's reason for a transaction with an input that spends a witness
+//! program and carries a scriptSig.
+const std::string SCRIPTSIG = "witness-scriptsig-not-empty";
 //! CheckTransaction's reason for a transaction whose one input has no
 //! witness and an empty scriptSig.
 const std::string NO_SIGNATURE = "bad-txns-requires-dilithium";
@@ -1226,9 +1229,10 @@ BOOST_AUTO_TEST_CASE(the_checks_that_run_before_the_spend_rule_keep_their_reason
 // CheckTransaction refuses the first, and relay gives that reason.
 // CheckTransaction passes the second: relay refuses it with the rule's reason
 // while the next block is below A, and a block that holds it connects. When
-// the next block is A the version judges a spend of the second form: relay
-// refuses it for another reason, and a block that holds it does not connect.
-BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_push_of_00_reaches_the_rule)
+// the next block is A, relay refuses a spend of the second form by the rule
+// on a scriptSig, which reads the output the input spends and the scriptSig
+// of the input, and a block that holds it does not connect.
+BOOST_AUTO_TEST_CASE(the_spend_rule_reads_the_output_an_input_with_no_witness_spends)
 {
     BOOST_REQUIRE(fRequireStandard);
     const int A = Height() + 4;
@@ -1265,7 +1269,7 @@ BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_pus
     BOOST_REQUIRE_EQUAL(Height(), A - 1);
     const CMutableTransaction atTheHeight = noWitness(1, push00);
     const std::string verdict = Verdict(atTheHeight);
-    BOOST_CHECK_MESSAGE(verdict != DORMANT && verdict != ACCEPTED && verdict != NO_SIGNATURE, "next block A: \"" << verdict << "\"");
+    BOOST_CHECK_MESSAGE(verdict == SCRIPTSIG, "next block A: \"" << verdict << "\"");
     BOOST_REQUIRE_EQUAL(mempool.size(), 0u);
     BOOST_CHECK(!Submit(HandBlock({atTheHeight})));
     BOOST_CHECK_EQUAL(Height(), A - 1);
@@ -1279,7 +1283,7 @@ BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_pus
 // with the rule's reason. The same input alone in a transaction is refused by
 // CheckTransaction, and relay gives that reason. A block that holds the
 // two-input transaction is refused by the authority rule.
-BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_an_empty_scriptsig_reaches_the_rule_beside_an_input_of_the_authority_layout)
+BOOST_AUTO_TEST_CASE(one_input_of_two_that_spends_a_dormant_output_is_enough_for_the_spend_rule)
 {
     BOOST_REQUIRE(fRequireStandard);
     const int A = Height() + 4;

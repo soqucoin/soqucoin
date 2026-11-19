@@ -183,6 +183,7 @@ CScript DropScript(size_t n)
 
 //! Relay's reason for a spend of an output of a dormant witness version.
 const std::string DORMANT_VERSION = "dormant-witness-version";
+const std::string SCRIPTSIG_NOT_EMPTY = "witness-scriptsig-not-empty";
 
 std::string NonMandatory(ScriptError e)
 {
@@ -689,9 +690,16 @@ BOOST_AUTO_TEST_CASE(relay_accepts_only_what_a_block_accepts_under_every_combina
                 BOOST_CHECK_MESSAGE(r.reason == expected && r.nDoS == 0,
                     where << ": expected '" << expected << "' with no score; got '" << r.reason << "', score " << r.nDoS);
             }
-            if (!expectRelay && !expectValid) {
+            if (!expectRelay && !expectValid && e.tx.vin[0].scriptSig.empty()) {
                 BOOST_CHECK_MESSAGE(r.reason == Mandatory(v.error) && r.nDoS == 100,
                     where << ": expected a refusal that scores the peer; got '" << r.reason << "', score " << r.nDoS);
+            }
+            if (!expectRelay && !expectValid && !e.tx.vin[0].scriptSig.empty()) {
+                // Relay's rule on the scriptSig of a witness spend answers
+                // before the script check, with no score. The block's refusal
+                // above is the version's.
+                BOOST_CHECK_MESSAGE(r.reason == SCRIPTSIG_NOT_EMPTY && r.nDoS == 0,
+                    where << ": expected '" << SCRIPTSIG_NOT_EMPTY << "' with no score; got '" << r.reason << "', score " << r.nDoS);
             }
         }
         for (int larger = 0; larger < 8; ++larger) {

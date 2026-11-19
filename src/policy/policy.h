@@ -89,6 +89,8 @@ static const unsigned int STANDARD_V11_SIGNATURE_SIZE = 2420;
 static const unsigned int STANDARD_V11_KEY_ITEM_SIZE = 1313;
 /** The maximum size of a standard witness v11 committed item: the sub-version byte and a script of 3600 bytes */
 static const unsigned int MAX_STANDARD_V11_COMMITTED_ITEM_SIZE = 3601;
+/** The maximum number of hash opcodes (OP_RIPEMD160 to OP_HASH256) in a standard witness v6 witnessScript or witness v11 script */
+static const unsigned int MAX_STANDARD_SCRIPT_HASH_OPCODES = 16;
 /**
  * Soqucoin: Default dust limit that is evaluated when considering whether a
  * transaction output is required to pay additional fee for relay and inclusion
@@ -233,6 +235,17 @@ bool IsDormantWitnessProgram(const CScript& scriptPubKey, WitnessVersionMask act
      */
 bool SpendsDormantWitnessProgram(const CTransaction& tx, const CCoinsViewCache& mapInputs, WitnessVersionMask activeWitnessVersions);
     /**
+     * Whether an input of the transaction spends a witness program and
+     * carries a scriptSig that is not empty. No signature of a witness spend
+     * covers its scriptSig and the transaction id does, so a copy with bytes
+     * added there is the same payment under another id. The function reads
+     * the output each input spends and the scriptSig of the input, and
+     * nothing of the chain's state. Policy only: no block is refused for it.
+     * @param[in] mapInputs    Map of previous transactions that have outputs we're spending
+     * @return True if an input with a scriptSig spends a witness program of any version and length
+     */
+bool SpendsWitnessProgramWithScriptSig(const CTransaction& tx, const CCoinsViewCache& mapInputs);
+    /**
      * Check for standard transaction types
      * @return True if all outputs (scriptPubKeys) use only standard transaction forms
      */
@@ -253,6 +266,12 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
      * satisfaction items. Every item other than the witnessScript is MAX_STANDARD_V6_ITEM_SIZE bytes
      * at most, or has the length of a signature or of a public key. With the bit clear no v6 limit
      * applies; relay has refused the spend before this check (SpendsDormantWitnessProgram).
+     *
+     * While either bit is set, the script of an input of that version holds at most
+     * MAX_STANDARD_SCRIPT_HASH_OPCODES hash opcodes: the witnessScript of v6, and the script of a
+     * v11 committed item of the script sub-version. The count is over the whole script as the
+     * interpreter decodes it, so the bytes of a push are left out and an opcode in a branch that
+     * does not run is counted; it ends where the script stops decoding.
      *
      * A witness v11 input is held to the MAX_STANDARD_V11_* limits while bit 11 of
      * activeWitnessVersions is set. They bound the size of the committed item and the number of

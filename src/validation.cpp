@@ -1030,6 +1030,16 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         if (fRequireStandard && SpendsDormantWitnessProgram(tx, view, activeWitnessVersions))
             return state.DoS(0, false, REJECT_NONSTANDARD, "dormant-witness-version");
 
+        // A scriptSig on an input that spends a witness program. No signature
+        // of such a spend covers the scriptSig and the transaction id does,
+        // so a copy with bytes added there is the same payment under another
+        // id. A block may hold such a transaction. The verdict reads what the
+        // transaction id covers, so the id is the thing refused, and the
+        // sender is not scored: a peer on an earlier release relays such a
+        // transaction.
+        if (fRequireStandard && SpendsWitnessProgramWithScriptSig(tx, view))
+            return state.DoS(0, false, REJECT_NONSTANDARD, "witness-scriptsig-not-empty");
+
         // Check for non-standard pay-to-script-hash in inputs
         if (fRequireStandard && !AreInputsStandard(tx, view))
             return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-inputs");
