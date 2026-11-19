@@ -92,6 +92,9 @@ const CAmount SEEDED = 10 * COIN;
 const std::string ACCEPTED = "accepted";
 const std::string MISSING_INPUTS = "missing-inputs";
 const std::string DORMANT = "dormant-witness-version";
+//! Relay's reason for a transaction with an input that spends a witness
+//! program and carries a scriptSig.
+const std::string SCRIPTSIG = "witness-scriptsig-not-empty";
 //! CheckTransaction's reason for a transaction whose one input has no
 //! witness and an empty scriptSig.
 const std::string NO_SIGNATURE = "bad-txns-requires-dilithium";
@@ -1265,7 +1268,7 @@ BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_pus
     BOOST_REQUIRE_EQUAL(Height(), A - 1);
     const CMutableTransaction atTheHeight = noWitness(1, push00);
     const std::string verdict = Verdict(atTheHeight);
-    BOOST_CHECK_MESSAGE(verdict != DORMANT && verdict != ACCEPTED && verdict != NO_SIGNATURE, "next block A: \"" << verdict << "\"");
+    BOOST_CHECK_MESSAGE(verdict == SCRIPTSIG, "next block A: \"" << verdict << "\"");
     BOOST_REQUIRE_EQUAL(mempool.size(), 0u);
     BOOST_CHECK(!Submit(HandBlock({atTheHeight})));
     BOOST_CHECK_EQUAL(Height(), A - 1);
