@@ -173,10 +173,10 @@ Where relay requires standardness, as on mainnet and stagenet (`fRequireStandard
 mempool when the version begins. The reason is `dormant-witness-version`, with no score for the
 peer, unless an earlier check of the transaction refuses it first; a transaction whose one input has
 no witness and an empty scriptSig is one such case (`CheckTransaction`,
-`bad-txns-requires-dilithium`). An input with no witness whose scriptSig ends in a push that begins
-with the byte `00` passes that check and gets the reason, and so does an input with no witness and
-an empty scriptSig in a transaction the check passes for another input, one with an `OP_5 <32
-bytes>` output and an input of the authority witness layout. After the tip has moved back, the
+`bad-txns-requires-dilithium`). The rule reads the output each input spends, and neither the witness
+nor the scriptSig of the input: where the earlier checks pass a transaction, a spend of a dormant
+output gets the reason whether or not the input carries a witness, and whatever the transaction's
+other inputs are. After the tip has moved back, the
 mempool removes, with its descendants, each transaction that has an output the mask of the new next
 block refuses (`RemoveOutputsOfDormantWitnessVersions`, `validation.cpp`), so a witness v6 output
 accepted while the next block was at or above the activation height is not mined below that height

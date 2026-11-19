@@ -14,13 +14,11 @@
 //   The spend. A transaction that spends a 34-byte witness program of a
 //   version whose bit is clear in the mask of the next block is refused at
 //   relay, whatever its witness, with the reason "dormant-witness-version".
-//   A transaction whose one input has no witness and an empty scriptSig never
-//   reaches the rule: CheckTransaction refuses it first, in a block as at
-//   relay. An input with no witness whose scriptSig ends in a push that
-//   begins with the byte 00 passes CheckTransaction and reaches the rule. So
-//   does an input with no witness and an empty scriptSig in a transaction
-//   that CheckTransaction passes for another input: one with an output
-//   OP_5 <32 bytes> and an input of the authority witness layout.
+//   The rule reads the output each input spends, and neither the witness nor
+//   the scriptSig of the input, so one such input is enough, with or without
+//   a witness. A transaction that an earlier check refuses keeps that check's
+//   reason: CheckTransaction refuses a transaction whose one input has no
+//   witness and an empty scriptSig, in a block as at relay.
 //
 //   The mask read again. After the tip has moved back, the mempool holds no
 //   transaction with an output the mask of the new next height refuses, and
@@ -94,7 +92,7 @@ const CAmount SEEDED = 10 * COIN;
 const std::string ACCEPTED = "accepted";
 const std::string MISSING_INPUTS = "missing-inputs";
 const std::string DORMANT = "dormant-witness-version";
-//! CheckTransaction's reason for a transaction with an input that has no
+//! CheckTransaction's reason for a transaction whose one input has no
 //! witness and an empty scriptSig.
 const std::string NO_SIGNATURE = "bad-txns-requires-dilithium";
 
@@ -1223,14 +1221,13 @@ BOOST_AUTO_TEST_CASE(the_checks_that_run_before_the_spend_rule_keep_their_reason
     BOOST_CHECK_EQUAL(mempool.size(), 0u);
 }
 
-// An input with no witness reaches the rule when its scriptSig ends in a push
-// that begins with the byte 00: CheckTransaction reads that push where it
-// finds no witness. With an empty scriptSig CheckTransaction refuses the
-// transaction the case builds, whose one input it is. While the next block is
-// below A, relay refuses the first form
-// with the rule's reason and a block that holds it connects. When the next
-// block is A the version judges it: relay refuses it for another reason, and
-// a block that holds it does not connect.
+// The rule reads the output an input spends, and neither the witness nor the
+// scriptSig of the input. Here the input has no witness, in two transactions.
+// CheckTransaction refuses the first, and relay gives that reason.
+// CheckTransaction passes the second: relay refuses it with the rule's reason
+// while the next block is below A, and a block that holds it connects. When
+// the next block is A the version judges a spend of the second form: relay
+// refuses it for another reason, and a block that holds it does not connect.
 BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_push_of_00_reaches_the_rule)
 {
     BOOST_REQUIRE(fRequireStandard);
@@ -1275,15 +1272,13 @@ BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_pus
     BOOST_CHECK(Unspent(COutPoint(funding.GetHash(), 1)));
 }
 
-// An input with no witness and an empty scriptSig reaches the rule in a
-// transaction that CheckTransaction passes for another input: where the
-// transaction has an output OP_5 <32 bytes> and one input whose witness has
-// the authority layout (six items, the third the byte 55, the fifth of 2,420
-// bytes), CTransaction::HasDilithiumSignatures answers for the whole
-// transaction before it reads another input. The output is standard on
-// regtest, where version 5 runs. While the next block is below A, relay gives
-// the rule's reason. The transaction is no authority transaction, and a block
-// that holds it is refused by the authority rule.
+// The rule holds for a transaction when any one of its inputs spends a dormant
+// output. Here the second input spends the dormant output and has no witness,
+// in a transaction that CheckTransaction passes and whose outputs are standard
+// on regtest. While the next block is below A, relay refuses the transaction
+// with the rule's reason. The same input alone in a transaction is refused by
+// CheckTransaction, and relay gives that reason. A block that holds the
+// two-input transaction is refused by the authority rule.
 BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_an_empty_scriptsig_reaches_the_rule_beside_an_input_of_the_authority_layout)
 {
     BOOST_REQUIRE(fRequireStandard);
