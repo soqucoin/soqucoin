@@ -92,7 +92,7 @@ const CAmount SEEDED = 10 * COIN;
 const std::string ACCEPTED = "accepted";
 const std::string MISSING_INPUTS = "missing-inputs";
 const std::string DORMANT = "dormant-witness-version";
-//! CheckTransaction's reason for a transaction with an input that has no
+//! CheckTransaction's reason for a transaction whose one input has no
 //! witness and an empty scriptSig.
 const std::string NO_SIGNATURE = "bad-txns-requires-dilithium";
 
@@ -1222,12 +1222,12 @@ BOOST_AUTO_TEST_CASE(the_checks_that_run_before_the_spend_rule_keep_their_reason
 }
 
 // The rule reads the output an input spends, and neither the witness nor the
-// scriptSig of the input. Here the input has no witness. Where
-// CheckTransaction refuses the transaction, relay gives that reason. Where
-// CheckTransaction passes it, relay refuses the spend with the rule's reason
+// scriptSig of the input. Here the input has no witness, in two transactions.
+// CheckTransaction refuses the first, and relay gives that reason.
+// CheckTransaction passes the second: relay refuses it with the rule's reason
 // while the next block is below A, and a block that holds it connects. When
-// the next block is A the version judges the spend: relay refuses it for
-// another reason, and a block that holds it does not connect.
+// the next block is A the version judges a spend of the second form: relay
+// refuses it for another reason, and a block that holds it does not connect.
 BOOST_AUTO_TEST_CASE(an_input_with_no_witness_and_a_scriptsig_that_ends_in_a_push_of_00_reaches_the_rule)
 {
     BOOST_REQUIRE(fRequireStandard);
