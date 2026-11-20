@@ -10,10 +10,12 @@
 //   reason "witness-scriptsig-not-empty". The rule reads the output each
 //   input spends and the scriptSig of the input. No signature of a witness
 //   spend covers its scriptSig and the transaction id does, so a copy with
-//   bytes added there is the same payment under another id. The exception
-//   is a spend of a running version 11 output whose script this release
-//   evaluates: the version's own rule refuses a scriptSig there, so that
-//   copy is valid in no block. A committed item of an undefined sub-version
+//   bytes added there is the same payment under another id. There are two
+//   exceptions, both of a running version 11 output whose script this
+//   release evaluates: the version's own rule refuses a scriptSig on its
+//   spend, and a template of OP_CHECKTEMPLATEVERIFY covers the scriptSig
+//   of every input of the transaction. Neither copy is valid in a block.
+//   A committed item of an undefined sub-version
 //   and a script with a reserved opcode succeed before that rule is read.
 //
 //   The hash opcodes. While witness version 6 or 11 runs, an input of the
@@ -26,11 +28,12 @@
 //   on past it.
 //
 // Neither is a rule on blocks. A block that holds what relay refuses here
-// connects, and one case for each rule holds that. The exception is a spend
+// connects, and one case for each rule holds that. The exceptions are a spend
 // of a running version 11 output with a scriptSig, where the script is one
-// this release evaluates: relay refuses it by the first rule, a block does
-// not connect with it by the version's own rule, and the third case holds
-// both.
+// this release evaluates, and bytes added to the scriptSig of any input of a
+// transaction that such a script holds to a template: relay refuses each by
+// the first rule and a block does not connect with either. The third case
+// holds the first.
 //
 // Two suites. The first sends transactions through the mempool and in blocks
 // the case builds. The second calls the two policy functions with a coins
@@ -539,6 +542,22 @@ BOOST_AUTO_TEST_CASE(the_limit_is_read_for_versions_6_and_11_while_their_bit_is_
     two.vin[1].scriptWitness.stack[1] = v11AtTheLimit;
     two.vin[0].scriptWitness.stack[1] = ScriptItem(6, valtype(LIMIT + 1, (unsigned char)OP_SHA256));
     BOOST_CHECK_MESSAGE(!IsWitnessStandard(CTransaction(two), view, RUNNING), "the first input one over the limit");
+
+    // Two inputs of one version. The policy function reads the output and the
+    // witness of each input, so the two inputs here name one output.
+    for (unsigned int version : {6u, (unsigned int)WITNESS_V11_VERSION}) {
+        const valtype atTheLimit = ScriptItem(version, valtype(LIMIT, (unsigned char)OP_SHA256));
+        const valtype over = ScriptItem(version, valtype(LIMIT + 1, (unsigned char)OP_SHA256));
+        CMutableTransaction same = SpendOf({version, version});
+        same.vin[0].scriptWitness.stack = {ITEM, atTheLimit, trailer};
+        same.vin[1].scriptWitness.stack = {ITEM, atTheLimit, trailer};
+        BOOST_CHECK_MESSAGE(IsWitnessStandard(CTransaction(same), view, RUNNING), "two inputs of version " << version << ", each at the limit");
+        same.vin[1].scriptWitness.stack[1] = over;
+        BOOST_CHECK_MESSAGE(!IsWitnessStandard(CTransaction(same), view, RUNNING), "two inputs of version " << version << ", the second one over the limit");
+        same.vin[1].scriptWitness.stack[1] = atTheLimit;
+        same.vin[0].scriptWitness.stack[1] = over;
+        BOOST_CHECK_MESSAGE(!IsWitnessStandard(CTransaction(same), view, RUNNING), "two inputs of version " << version << ", the first one over the limit");
+    }
 }
 
 // Each of the five hash opcodes counts, in both versions: the limit's number

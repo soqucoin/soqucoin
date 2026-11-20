@@ -653,7 +653,7 @@ CPU. The script checks ran on one thread. The build is `-O2` with portable SHA-2
 
 | Block | Time |
 |---|---|
-| Ordinary one-key spends, with nothing cached | 0.27 to 0.34 s |
+| Ordinary one-key spends, with no signature cached | 0.27 to 0.34 s |
 | Scripts with no hash opcode, spending outputs created 100 to a transaction | 0.07 to 0.08 s |
 | Scripts at the relay limit of 16 hash opcodes, spending outputs created 100 to a transaction | 0.21 to 0.23 s |
 | The most hashing the consensus bounds admit | 1.7 to 1.8 s |
@@ -667,8 +667,8 @@ every output the block spends, the block of row two took 1.36 to 1.41 s and the 
 1.19 to 1.44 s on that core. The added time is spent on the coins the block reads, and none of it on
 hashing. The block of row four spends 393 outputs and took 1.7 to 1.8 s in either layout.
 
-Relay admits the spends of rows one to three. The block of row four reaches the chain only from a
-miner that builds it.
+Where the version of the script runs, relay admits the spends of rows one to three. The block of
+row four reaches the chain only from a miner that builds it.
 
 ---
 
