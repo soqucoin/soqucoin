@@ -10,9 +10,11 @@
 //   reason "witness-scriptsig-not-empty". The rule reads the output each
 //   input spends and the scriptSig of the input. No signature of a witness
 //   spend covers its scriptSig and the transaction id does, so a copy with
-//   bytes added there is the same payment under another id. A spend of a
-//   running version 11 output is the exception: the version's own rule
-//   refuses a scriptSig, so that copy is valid in no block.
+//   bytes added there is the same payment under another id. The exception
+//   is a spend of a running version 11 output whose script this release
+//   evaluates: the version's own rule refuses a scriptSig there, so that
+//   copy is valid in no block. A committed item of an undefined sub-version
+//   and a script with a reserved opcode succeed before that rule is read.
 //
 //   The hash opcodes. While witness version 6 or 11 runs, an input of the
 //   version is non-standard when its script holds more than 16 hash opcodes.
@@ -25,9 +27,10 @@
 //
 // Neither is a rule on blocks. A block that holds what relay refuses here
 // connects, and one case for each rule holds that. The exception is a spend
-// of a running version 11 output with a scriptSig: relay refuses it by the
-// first rule, a block does not connect with it by the version's own rule,
-// and the third case holds both.
+// of a running version 11 output with a scriptSig, where the script is one
+// this release evaluates: relay refuses it by the first rule, a block does
+// not connect with it by the version's own rule, and the third case holds
+// both.
 //
 // Two suites. The first sends transactions through the mempool and in blocks
 // the case builds. The second calls the two policy functions with a coins
@@ -310,8 +313,9 @@ BOOST_AUTO_TEST_CASE(a_scriptsig_added_to_a_spend_of_a_running_version_6_output_
     BOOST_CHECK_EQUAL(Verdict(original), ACCEPTED);
 }
 
-// A spend of a running version 11 output with a scriptSig. The rules of
-// version 11 hold the scriptSig of its input empty in a block too. Relay
+// A spend of a running version 11 output with a scriptSig. For a script this
+// release evaluates, as here, the rules of version 11 hold the scriptSig of
+// its input empty in a block too. Relay
 // refuses the transaction with the rule's reason, and a block that holds it
 // does not connect.
 BOOST_AUTO_TEST_CASE(a_scriptsig_on_a_spend_of_a_running_version_11_output_is_refused_at_relay_and_in_a_block)

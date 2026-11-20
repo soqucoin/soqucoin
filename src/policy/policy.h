@@ -238,9 +238,10 @@ bool SpendsDormantWitnessProgram(const CTransaction& tx, const CCoinsViewCache& 
      * Whether an input of the transaction spends a witness program and
      * carries a scriptSig that is not empty. No signature of a witness spend
      * covers its scriptSig and the transaction id does, so a copy with bytes
-     * added there is the same payment under another id. A spend of a running
-     * version 11 output is the exception: the version's own rule refuses a
-     * scriptSig, so that copy is valid in no block. The function reads
+     * added there is the same payment under another id. The exception is a
+     * spend of a running version 11 output whose script this release
+     * evaluates: the version's own rule refuses a scriptSig there, so that
+     * copy is valid in no block. The function reads
      * the output each input spends and the scriptSig of the input, and
      * nothing of the chain's state. Policy only: no block is refused for it.
      * @param[in] mapInputs    Map of previous transactions that have outputs we're spending
