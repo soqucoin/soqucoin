@@ -1033,7 +1033,9 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState& state, const C
         // A scriptSig on an input that spends a witness program. No signature
         // of such a spend covers the scriptSig and the transaction id does,
         // so a copy with bytes added there is the same payment under another
-        // id. A block may hold such a transaction. The verdict reads what the
+        // id. A block may hold such a transaction, with one exception: the
+        // rule of a running version 11 refuses a scriptSig on a spend of its
+        // output, so no block holds that copy. The verdict reads what the
         // transaction id covers, so the id is the thing refused, and the
         // sender is not scored: a peer on an earlier release relays such a
         // transaction.

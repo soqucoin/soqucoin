@@ -238,7 +238,9 @@ bool SpendsDormantWitnessProgram(const CTransaction& tx, const CCoinsViewCache& 
      * Whether an input of the transaction spends a witness program and
      * carries a scriptSig that is not empty. No signature of a witness spend
      * covers its scriptSig and the transaction id does, so a copy with bytes
-     * added there is the same payment under another id. The function reads
+     * added there is the same payment under another id. A spend of a running
+     * version 11 output is the exception: the version's own rule refuses a
+     * scriptSig, so that copy is valid in no block. The function reads
      * the output each input spends and the scriptSig of the input, and
      * nothing of the chain's state. Policy only: no block is refused for it.
      * @param[in] mapInputs    Map of previous transactions that have outputs we're spending
@@ -269,9 +271,10 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
      *
      * While either bit is set, the script of an input of that version holds at most
      * MAX_STANDARD_SCRIPT_HASH_OPCODES hash opcodes: the witnessScript of v6, and the script of a
-     * v11 committed item of the script sub-version. The count is over the whole script as the
-     * interpreter decodes it, so the bytes of a push are left out and an opcode in a branch that
-     * does not run is counted; it ends where the script stops decoding.
+     * v11 committed item of the script sub-version. The count is over the whole script as
+     * CScript::GetOp decodes it, so the bytes of a push are left out and an opcode in a branch that
+     * does not run is counted; it ends where the script stops decoding. The interpreter's walk of a
+     * v11 script ends at the first reserved byte; the count goes on past it.
      *
      * A witness v11 input is held to the MAX_STANDARD_V11_* limits while bit 11 of
      * activeWitnessVersions is set. They bound the size of the committed item and the number of

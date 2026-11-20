@@ -10,17 +10,24 @@
 //   reason "witness-scriptsig-not-empty". The rule reads the output each
 //   input spends and the scriptSig of the input. No signature of a witness
 //   spend covers its scriptSig and the transaction id does, so a copy with
-//   bytes added there is the same payment under another id.
+//   bytes added there is the same payment under another id. A spend of a
+//   running version 11 output is the exception: the version's own rule
+//   refuses a scriptSig, so that copy is valid in no block.
 //
 //   The hash opcodes. While witness version 6 or 11 runs, an input of the
 //   version is non-standard when its script holds more than 16 hash opcodes.
 //   The rule reads the witnessScript of version 6 and the script of the
-//   committed item of version 11. The count is over the whole script as the
-//   interpreter decodes it: a byte inside a push is left out, and an opcode
-//   in a branch that does not run is counted.
+//   committed item of version 11. The count is over the whole script as
+//   CScript::GetOp decodes it: a byte inside a push is left out, and an
+//   opcode in a branch that does not run is counted. The interpreter's walk
+//   of a version 11 script ends at the first reserved byte; the count goes
+//   on past it.
 //
-// Neither is a rule on blocks: a block that holds what relay refuses here
-// connects, and one case for each rule holds that.
+// Neither is a rule on blocks. A block that holds what relay refuses here
+// connects, and one case for each rule holds that. The exception is a spend
+// of a running version 11 output with a scriptSig: relay refuses it by the
+// first rule, a block does not connect with it by the version's own rule,
+// and the third case holds both.
 //
 // Two suites. The first sends transactions through the mempool and in blocks
 // the case builds. The second calls the two policy functions with a coins
@@ -421,6 +428,36 @@ BOOST_AUTO_TEST_CASE(the_count_takes_a_branch_that_does_not_run_and_leaves_out_t
     BOOST_CHECK_EQUAL(Verdict(SpendScript(fundedPushed, 6, pushed)), ACCEPTED);
 }
 
+// The place of the scriptSig rule: before the rule on the form of the output
+// an input spends and before the limits on the witness. A spend of a 20-byte
+// program of version 6, a form Solver does not name, and a spend whose script
+// is one hash opcode over the limit: each gets the later rule's reason with
+// an empty scriptSig and the scriptSig rule's reason with one. The second has
+// no mark of possible corruption then, which the later rule would set.
+BOOST_AUTO_TEST_CASE(the_scriptsig_rule_answers_before_the_other_input_rules)
+{
+    BOOST_REQUIRE(fRequireStandard);
+    const COutPoint seeded = SeedCoin(CScript() << OP_6 << valtype(20, 0x06), 10 * COIN, 0x61);
+    CMutableTransaction spendShort;
+    spendShort.nVersion = 2;
+    spendShort.vin.push_back(CTxIn(seeded, CScript(), CTxIn::SEQUENCE_FINAL));
+    spendShort.vout.push_back(CTxOut(10 * COIN - FEE, coinbaseSpk));
+    spendShort.vin[0].scriptWitness.stack = {valtype(1, 0x00)};
+    BOOST_CHECK_EQUAL(Verdict(spendShort), "bad-txns-nonstandard-inputs");
+    spendShort.vin[0].scriptSig = AddedScriptSigs()[0];
+    BOOST_CHECK_EQUAL(Verdict(spendShort), SCRIPTSIG);
+
+    const CScript over = HashChain(LIMIT + 1);
+    const CMutableTransaction funding = Confirmed(0, 6, over);
+    CMutableTransaction spendOver = SpendScript(funding, 6, over);
+    BOOST_CHECK_EQUAL(Verdict(spendOver), WITNESS_NONSTANDARD);
+    spendOver.vin[0].scriptSig = AddedScriptSigs()[0];
+    CValidationState state;
+    BOOST_CHECK_EQUAL(Verdict(spendOver, state), SCRIPTSIG);
+    BOOST_CHECK(!state.CorruptionPossible());
+    BOOST_CHECK_EQUAL(mempool.size(), 0u);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_FIXTURE_TEST_SUITE(relay_witness_input_rules_policy_tests, PolicySetup)
@@ -429,7 +466,8 @@ BOOST_FIXTURE_TEST_SUITE(relay_witness_input_rules_policy_tests, PolicySetup)
 // version 0 to 16 and for a 20-byte program, an input with an empty scriptSig
 // is outside the rule and one with a scriptSig is inside it, with a witness
 // or without. An input that spends an output that is no witness program is
-// outside it, and so is a coinbase. One input inside the rule is enough.
+// outside it, and so is a coinbase. One input inside the rule is enough,
+// whichever place it has among the inputs: the last, the first or one between.
 BOOST_AUTO_TEST_CASE(the_scriptsig_rule_reads_the_output_an_input_spends_and_the_scriptsig_of_the_input)
 {
     const CScript push00 = CScript() << valtype(1, 0x00);
@@ -450,6 +488,15 @@ BOOST_AUTO_TEST_CASE(the_scriptsig_rule_reads_the_output_an_input_spends_and_the
     noProgram.vin[1].scriptSig = push00;
     BOOST_CHECK(SpendsWitnessProgramWithScriptSig(CTransaction(noProgram), view));
 
+    // The first of two inputs carries the scriptSig and the last has none;
+    // then the second of three.
+    CMutableTransaction first = SpendOf({1, 2});
+    first.vin[0].scriptSig = push00;
+    BOOST_CHECK(SpendsWitnessProgramWithScriptSig(CTransaction(first), view));
+    CMutableTransaction between = SpendOf({1, 2, 3});
+    between.vin[1].scriptSig = push00;
+    BOOST_CHECK(SpendsWitnessProgramWithScriptSig(CTransaction(between), view));
+
     CMutableTransaction coinbase;
     coinbase.vin.resize(1);
     coinbase.vin[0].prevout.SetNull();
@@ -461,7 +508,9 @@ BOOST_AUTO_TEST_CASE(the_scriptsig_rule_reads_the_output_an_input_spends_and_the
 
 // The limit through IsWitnessStandard, for versions 6 and 11: a script of
 // the limit's number of OP_SHA256 is standard and one more is refused while
-// the version's bit is set, and with the bit clear no limit is read.
+// the version's bit is set, and with the bit clear no limit is read. The
+// limit is on the script of each input: two inputs at the limit are standard,
+// and one input over it is refused, whichever of the two it is.
 BOOST_AUTO_TEST_CASE(the_limit_is_read_for_versions_6_and_11_while_their_bit_is_set)
 {
     BOOST_CHECK_EQUAL(MAX_STANDARD_SCRIPT_HASH_OPCODES, 16u);
@@ -473,6 +522,19 @@ BOOST_AUTO_TEST_CASE(the_limit_is_read_for_versions_6_and_11_while_their_bit_is_
         BOOST_CHECK_MESSAGE(!Standard(version, over, WitnessVersionBit(version)), "version " << version << ", its bit alone");
         BOOST_CHECK_MESSAGE(Standard(version, over, RUNNING & ~WitnessVersionBit(version)), "version " << version << ", its bit clear");
     }
+
+    const valtype trailer(1, 0x00);
+    const valtype v6AtTheLimit = ScriptItem(6, valtype(LIMIT, (unsigned char)OP_SHA256));
+    const valtype v11AtTheLimit = ScriptItem(WITNESS_V11_VERSION, valtype(LIMIT, (unsigned char)OP_SHA256));
+    CMutableTransaction two = SpendOf({6, WITNESS_V11_VERSION});
+    two.vin[0].scriptWitness.stack = {ITEM, v6AtTheLimit, trailer};
+    two.vin[1].scriptWitness.stack = {ITEM, v11AtTheLimit, trailer};
+    BOOST_CHECK_MESSAGE(IsWitnessStandard(CTransaction(two), view, RUNNING), "two inputs, each at the limit");
+    two.vin[1].scriptWitness.stack[1] = ScriptItem(WITNESS_V11_VERSION, valtype(LIMIT + 1, (unsigned char)OP_SHA256));
+    BOOST_CHECK_MESSAGE(!IsWitnessStandard(CTransaction(two), view, RUNNING), "the second input one over the limit");
+    two.vin[1].scriptWitness.stack[1] = v11AtTheLimit;
+    two.vin[0].scriptWitness.stack[1] = ScriptItem(6, valtype(LIMIT + 1, (unsigned char)OP_SHA256));
+    BOOST_CHECK_MESSAGE(!IsWitnessStandard(CTransaction(two), view, RUNNING), "the first input one over the limit");
 }
 
 // Each of the five hash opcodes counts, in both versions: the limit's number
