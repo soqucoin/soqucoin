@@ -24,7 +24,8 @@ static const CAmount RECOMMENDED_MIN_TX_FEE = COIN / 100;
 
 /** Default for -blockmaxsize, which controls the maximum size of block the mining code will create.
  *  Equal to DEFAULT_BLOCK_MAX_WEIGHT: a transaction's weight is never below its size, so the weight
- *  limit binds first and a default template admits every standard transaction (MAX_STANDARD_TX_WEIGHT). **/
+ *  limit binds first and a default template admits every standard transaction (MAX_STANDARD_TX_WEIGHT),
+ *  one heavier than DEFAULT_BLOCK_LANE_WEIGHT at DEFAULT_BLOCK_BULK_TX_FEE. **/
 static const unsigned int DEFAULT_BLOCK_MAX_SIZE = 3000000;
 /** Default for -blockprioritysize, maximum space for zero/low-fee transactions **/
 static const unsigned int DEFAULT_BLOCK_PRIORITY_SIZE = 27000;
@@ -32,6 +33,13 @@ static const unsigned int DEFAULT_BLOCK_PRIORITY_SIZE = 27000;
 static const unsigned int DEFAULT_BLOCK_MAX_WEIGHT = 3000000;
 /** Default for -blockmintxfee, which sets the minimum feerate for a transaction in blocks created by mining code **/
 static const unsigned int DEFAULT_BLOCK_MIN_TX_FEE = (unsigned int) RECOMMENDED_MIN_TX_FEE;
+/** Default for -blocklaneweight: the weight of a block the mining code fills with transactions that pay
+ *  less than -blockbulktxfee (the standard lane). The rest of the block is open at -blockbulktxfee only.
+ *  A rule of block assembly, not of validation: a block built with any other value is valid. **/
+static const unsigned int DEFAULT_BLOCK_LANE_WEIGHT = 200000;
+/** Default for -blockbulktxfee: the feerate (per kB of virtual size) at which the mining code admits a
+ *  transaction outside the standard lane **/
+static const CAmount DEFAULT_BLOCK_BULK_TX_FEE = 10 * COIN;
 /** The maximum weight for transactions we're willing to relay/mine
  *  SOQ-ARCH-003: Bumped from 400K to 800K for Dilithium consolidation TXs.
  *  Each Dilithium input is ~3,896 WU — at 400K, only ~100 inputs fit.

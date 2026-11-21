@@ -210,6 +210,15 @@ soqucoin-cli pqestimatefeerate 1 2
 }
 ```
 
+From release 2.7.0 a miner's node includes at most 200,000 weight a block of
+transactions that pay less than 10 SOQ per kB of virtual size, and
+`estimatesmartfee` answers no lower than the rate that enters that space in
+the next block. A withdrawal sent at a fixed rate waits while transactions at
+a higher rate fill the space, so read the rate from the node for each send. A
+transaction heavier than 200,000 weight, about 51 ML-DSA-44 inputs, is
+included at 10 SOQ per kB only: keep a consolidation at 50 inputs or fewer.
+See [Block space](../pool-integration.md#block-space-the-standard-lane-and-the-bulk-rate).
+
 ### 4.2 Sending Transactions
 
 Build and sign each withdrawal with the SDK in your signing infrastructure, as described in [Step 3: Process Withdrawals](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#step-3-process-withdrawals), then broadcast the signed transaction through the node:

@@ -145,9 +145,14 @@ private:
     unsigned int nBlockMaxWeight, nBlockMaxSize;
     bool fNeedSizeAccounting;
     CFeeRate blockMinFeeRate;
+    // The standard lane: the weight open to what pays less than blockBulkFeeRate
+    uint64_t nBlockLaneWeight;
+    CFeeRate blockBulkFeeRate;
 
     // Information on the current status of the block
     uint64_t nBlockWeight;
+    // Weight the standard lane holds, counted as four times the virtual size
+    uint64_t nLaneWeight;
     uint64_t nBlockSize;
     uint64_t nBlockTx;
     uint64_t nBlockSigOpsCost;
@@ -194,6 +199,8 @@ private:
     void onlyUnconfirmed(CTxMemPool::setEntries& testSet);
     /** Test if a new package would "fit" in the block */
     bool TestPackage(uint64_t packageSize, int64_t packageSigOpsCost);
+    /** True when the fees are below the bulk rate for the size and the standard lane has no room for it */
+    bool LaneRefuses(uint64_t nSize, CAmount nFees) const;
     /** Perform checks on each transaction in a package:
       * locktime, premature-witness, serialized size (if necessary)
       * These checks should always succeed, and they're here
@@ -209,6 +216,12 @@ private:
       * of updated descendants. */
     int UpdatePackagesForAdded(const CTxMemPool::setEntries& alreadyAdded, indexed_modified_transaction_set &mapModifiedTx);
 };
+
+/** The feerate a transaction needs to enter the standard lane of the next block this node would build:
+ *  above the lowest rate the lane would hold, and never above the bulk rate. Zero when the mempool does
+ *  not fill the lane. It cannot answer for a transaction heavier than the room the lane has left, which
+ *  is admitted at the bulk rate only. */
+CFeeRate EstimateLaneFeeRate(const CTxMemPool& pool);
 
 /** Modify the extranonce in a block */
 void IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned int& nExtraNonce);

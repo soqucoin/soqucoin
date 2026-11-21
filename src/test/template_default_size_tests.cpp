@@ -11,7 +11,9 @@
  * the largest standard transactions out of a default node's template while
  * they relay and wait in its mempool. This suite builds that transaction with
  * real ML-DSA-44 inputs, has the mempool accept it under the real policy, and
- * asserts the default template carries it.
+ * asserts the default template carries it. The transaction is heavier than
+ * the standard lane (DEFAULT_BLOCK_LANE_WEIGHT), so it pays the bulk rate
+ * (DEFAULT_BLOCK_BULK_TX_FEE), the rate at which a default template takes it.
  */
 
 #include "amount.h"
@@ -40,8 +42,7 @@ namespace {
 //! The most ML-DSA-44 keyhash inputs a standard transaction holds; the test
 //! asserts that one more would take it past MAX_STANDARD_TX_WEIGHT.
 const int kInputs = 204;
-const CAmount kInputValue = COIN;
-const CAmount kFee = 10 * COIN;
+const CAmount kInputValue = 20 * COIN;
 } // namespace
 
 BOOST_AUTO_TEST_CASE(the_largest_standard_witness_transaction_enters_the_default_template)
@@ -56,11 +57,19 @@ BOOST_AUTO_TEST_CASE(the_largest_standard_witness_transaction_enters_the_default
         // Tags from 1 give each seeded coin its own txid, none of them the null hash.
         tx.vin.push_back(CTxIn(SeedCoin(coinbaseSpk, kInputValue, (uint8_t)(i + 1))));
     }
-    tx.vout.push_back(CTxOut(kInputs * kInputValue - kFee, coinbaseSpk));
+    tx.vout.push_back(CTxOut(kInputs * kInputValue, coinbaseSpk));
+    for (int i = 0; i < kInputs; ++i) {
+        SignInput(tx, i, coinbaseSpk, kInputValue);
+    }
+    // The fee is the bulk rate for the virtual size, which the value of the
+    // output does not change; the inputs are signed again over the new output.
+    const CAmount kFee = CFeeRate(DEFAULT_BLOCK_BULK_TX_FEE).GetFee(GetVirtualTransactionSize(CTransaction(tx)));
+    tx.vout[0].nValue -= kFee;
     for (int i = 0; i < kInputs; ++i) {
         SignInput(tx, i, coinbaseSpk, kInputValue);
     }
     const CTransaction ctx(tx);
+    BOOST_CHECK_GT(GetTransactionWeight(ctx), (int64_t)DEFAULT_BLOCK_LANE_WEIGHT);
 
     // The shape: standard by weight, one input short of the bound, and more
     // bytes than the byte cap a default template applied before this change.

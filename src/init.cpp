@@ -502,6 +502,8 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-blockmaxweight=<n>", strprintf(_("Set maximum BIP141 block weight (default: %d)"), DEFAULT_BLOCK_MAX_WEIGHT));
     strUsage += HelpMessageOpt("-blockmaxsize=<n>", strprintf(_("Set maximum block size in bytes (default: %d)"), DEFAULT_BLOCK_MAX_SIZE));
     strUsage += HelpMessageOpt("-blockprioritysize=<n>", strprintf(_("Set maximum size of high-priority/low-fee transactions in bytes (default: %d)"), DEFAULT_BLOCK_PRIORITY_SIZE));
+    strUsage += HelpMessageOpt("-blocklaneweight=<n>", strprintf(_("Set the weight of a block open to transactions that pay less than -blockbulktxfee, the standard lane (default: %d). A transaction heavier than the room left in the lane is included at -blockbulktxfee only. A value of -blockmaxweight or more leaves the whole block open at -blockmintxfee."), DEFAULT_BLOCK_LANE_WEIGHT));
+    strUsage += HelpMessageOpt("-blockbulktxfee=<amt>", strprintf(_("Set the fee rate (in %s/kB) at which a transaction is included in block creation outside the standard lane (default: %s)"), CURRENCY_UNIT, FormatMoney(DEFAULT_BLOCK_BULK_TX_FEE)));
     strUsage += HelpMessageOpt("-blockmintxfee=<amt>", strprintf(_("Set lowest fee rate (in %s/kB) for transactions to be included in block creation. (default: %s)"), CURRENCY_UNIT, FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE)));
     if (showDebug)
         strUsage += HelpMessageOpt("-blockversion=<n>", "Override block version to test forking scenarios");
@@ -1094,6 +1096,11 @@ bool AppInitParameterInteraction()
         CAmount n = 0;
         if (!ParseMoney(GetArg("-blockmintxfee", ""), n))
             return InitError(AmountErrMsg("blockmintxfee", GetArg("-blockmintxfee", "")));
+    }
+    if (IsArgSet("-blockbulktxfee")) {
+        CAmount n = 0;
+        if (!ParseMoney(GetArg("-blockbulktxfee", ""), n))
+            return InitError(AmountErrMsg("blockbulktxfee", GetArg("-blockbulktxfee", "")));
     }
 
     fRequireStandard = !GetBoolArg("-acceptnonstdtxn", !chainparams.RequireStandard());

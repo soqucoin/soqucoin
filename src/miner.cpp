@@ -75,6 +75,34 @@ int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParam
     return nNewTime - nOldTime;
 }
 
+//! -blockmintxfee, the floor of the standard lane.
+static CFeeRate BlockMinFeeRateFromArgs()
+{
+    if (IsArgSet("-blockmintxfee")) {
+        CAmount n = 0;
+        ParseMoney(GetArg("-blockmintxfee", ""), n);
+        return CFeeRate(n);
+    }
+    return CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
+}
+
+//! -blockbulktxfee, the rate outside the standard lane. It is read apart from
+//! -blockmintxfee, so a node that lowers its floor keeps the default bulk rate.
+static CFeeRate BlockBulkFeeRateFromArgs()
+{
+    if (IsArgSet("-blockbulktxfee")) {
+        CAmount n = 0;
+        if (ParseMoney(GetArg("-blockbulktxfee", ""), n))
+            return CFeeRate(n);
+    }
+    return CFeeRate(DEFAULT_BLOCK_BULK_TX_FEE);
+}
+
+static uint64_t BlockLaneWeightFromArgs()
+{
+    return (uint64_t)std::max<int64_t>(0, GetArg("-blocklaneweight", DEFAULT_BLOCK_LANE_WEIGHT));
+}
+
 BlockAssembler::BlockAssembler(const CChainParams& _chainparams)
     : chainparams(_chainparams)
 {
@@ -96,13 +124,9 @@ BlockAssembler::BlockAssembler(const CChainParams& _chainparams)
             nBlockMaxWeight = nBlockMaxSize * WITNESS_SCALE_FACTOR;
         }
     }
-    if (IsArgSet("-blockmintxfee")) {
-        CAmount n = 0;
-        ParseMoney(GetArg("-blockmintxfee", ""), n);
-        blockMinFeeRate = CFeeRate(n);
-    } else {
-        blockMinFeeRate = CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
-    }
+    blockMinFeeRate = BlockMinFeeRateFromArgs();
+    blockBulkFeeRate = BlockBulkFeeRateFromArgs();
+    nBlockLaneWeight = BlockLaneWeightFromArgs();
 
     // Limit weight to between 4K and MAX_BLOCK_WEIGHT-4K for sanity:
     nBlockMaxWeight = std::max((unsigned int)4000, std::min((unsigned int)(MAX_BLOCK_WEIGHT - 4000), nBlockMaxWeight));
@@ -119,6 +143,7 @@ void BlockAssembler::resetBlock()
     // Reserve space for coinbase tx
     nBlockSize = 1000;
     nBlockWeight = 4000;
+    nLaneWeight = 0;
     nBlockSigOpsCost = 400;
     fIncludeWitness = false;
 
@@ -285,6 +310,18 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
         return false;
     }
     return true;
+}
+
+// The two lanes. A transaction or package that pays the bulk rate for its
+// virtual size is outside the lane and is bound by the block limits alone.
+// One that pays less enters only while the lane has room for the whole of it:
+// the lane is strict, so nothing runs past its weight, and a transaction
+// heavier than the lane is admitted at the bulk rate only.
+bool BlockAssembler::LaneRefuses(uint64_t nSize, CAmount nFees) const
+{
+    if (nFees >= blockBulkFeeRate.GetFee(nSize))
+        return false;
+    return nLaneWeight + WITNESS_SCALE_FACTOR * nSize > nBlockLaneWeight;
 }
 
 // Perform transaction-level checks before adding to block:
@@ -533,6 +570,19 @@ void BlockAssembler::addPackageTxs(int& nPackagesSelected, int& nDescendantsUpda
             return;
         }
 
+        // The standard lane. A refused package is passed over and the walk goes
+        // on, with no limit on the count of refusals: a package below it in rate
+        // may be small enough for the room left, and a limit would let packages
+        // that never fit keep every other one out.
+        const bool fLanePackage = packageFees < blockBulkFeeRate.GetFee(packageSize);
+        if (LaneRefuses(packageSize, packageFees)) {
+            if (fUsingModified) {
+                mapModifiedTx.get<ancestor_score>().erase(modit);
+                failedTx.insert(iter);
+            }
+            continue;
+        }
+
         if (!TestPackage(packageSize, packageSigOpsCost)) {
             if (fUsingModified) {
                 // Since we always look at the best entry in mapModifiedTx,
@@ -571,6 +621,8 @@ void BlockAssembler::addPackageTxs(int& nPackagesSelected, int& nDescendantsUpda
 
         // This transaction will make it in; reset the failed counter.
         nConsecutiveFailed = 0;
+        if (fLanePackage)
+            nLaneWeight += WITNESS_SCALE_FACTOR * packageSize;
 
         // Package can be added. Sort the entries in a valid order.
         std::vector<CTxMemPool::txiter> sortedEntries;
@@ -644,9 +696,18 @@ void BlockAssembler::addPriorityTxs()
             continue;
         }
 
+        // The space for priority is inside the standard lane: what it admits
+        // below the bulk rate takes room in the lane, and is passed over when
+        // the lane has none for it.
+        const bool fLaneTx = iter->GetModifiedFee() < blockBulkFeeRate.GetFee(iter->GetTxSize());
+        if (LaneRefuses(iter->GetTxSize(), iter->GetModifiedFee()))
+            continue;
+
         // If this tx fits in the block add it, otherwise keep looping
         if (TestForBlock(iter)) {
             AddToBlock(iter);
+            if (fLaneTx)
+                nLaneWeight += WITNESS_SCALE_FACTOR * iter->GetTxSize();
 
             // If now that this txs is added we've surpassed our desired priority size
             // or have dropped below the AllowFreeThreshold, then we're done adding priority txs
@@ -667,6 +728,38 @@ void BlockAssembler::addPriorityTxs()
         }
     }
     fNeedSizeAccounting = fSizeAccounting;
+}
+
+CFeeRate EstimateLaneFeeRate(const CTxMemPool& pool)
+{
+    const CFeeRate minRate = BlockMinFeeRateFromArgs();
+    const CFeeRate bulkRate = BlockBulkFeeRateFromArgs();
+    const uint64_t nLane = BlockLaneWeightFromArgs();
+
+    LOCK(pool.cs);
+    uint64_t nUsed = 0;
+    CFeeRate lowest(0);
+    for (CTxMemPool::indexed_transaction_set::index<ancestor_score>::type::iterator mi = pool.mapTx.get<ancestor_score>().begin();
+         mi != pool.mapTx.get<ancestor_score>().end(); ++mi) {
+        const uint64_t nSize = mi->GetSizeWithAncestors();
+        const CAmount nFees = mi->GetModFeesWithAncestors();
+        if (nFees >= bulkRate.GetFee(nSize))
+            continue; // outside the lane
+        if (nFees < minRate.GetFee(nSize))
+            break; // below the floor, as is everything after it
+        const uint64_t nWeight = WITNESS_SCALE_FACTOR * mi->GetTxSize();
+        if (nWeight > nLane)
+            continue; // never enters the lane
+        if (nUsed + nWeight > nLane) {
+            // The lane is full at this rate. One step above the lowest rate it
+            // holds is ahead of that transaction in the next template.
+            const CFeeRate above(lowest.GetFeePerK() + incrementalRelayFee.GetFeePerK());
+            return above < bulkRate ? above : bulkRate;
+        }
+        nUsed += nWeight;
+        lowest = CFeeRate(nFees, nSize);
+    }
+    return CFeeRate(0);
 }
 
 void IncrementExtraNonce(CBlock* pblock, const CBlockIndex* pindexPrev, unsigned int& nExtraNonce)
