@@ -130,6 +130,7 @@ BITCOIN_TESTS =\
   test/merkle_tests.cpp \
   test/migration_arming_tests.cpp \
   test/migration_rule_tests.cpp \
+  test/miner_lane_tests.cpp \
   test/miner_tests.cpp \
   test/net_tests.cpp \
   test/netbase_tests.cpp \

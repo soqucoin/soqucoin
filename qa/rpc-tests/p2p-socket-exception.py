@@ -126,11 +126,13 @@ class SocketExceptionTest(BitcoinTestFramework):
         self.num_nodes = 1
 
     def setup_network(self, split=False):
-        # -blockmintxfee=0 lets mine_large_block fill each block; -maxsendbuffer
+        # -blockmintxfee=0 and a standard lane as wide as the block let
+        # mine_large_block fill each block; -maxsendbuffer
         # raised so the node holds the whole multi-block response as a backlog
         # rather than capping it below the kernel send buffer.
         self.nodes = [start_node(0, self.options.tmpdir,
                                  ["-debug=net", "-blockmintxfee=0",
+                                  "-blocklaneweight=3000000",
                                   "-maxsendbuffer=5000"])]
 
     def peer_by_port(self, node, port):

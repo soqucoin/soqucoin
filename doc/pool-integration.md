@@ -58,6 +58,38 @@ soqucoin-cli submitauxblock <hash> <auxpow_hex>
 Dogecoin form with no address argument) pays the node's own wallet and needs
 one; the macOS builds are made without a wallet.
 
+### Block space: the standard lane and the bulk rate
+
+From release 2.7.0 the node fills a template in two lanes. Both are settings
+of block assembly. Neither is a rule on blocks: a block built with other
+values is valid, and the minimum relay fee and the dust limits are unchanged.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `-blockmintxfee` | 0.01 SOQ per kB | the lowest rate a template includes, unchanged |
+| `-blocklaneweight` | 200,000 | the weight of a block open to transactions that pay less than `-blockbulktxfee` (the standard lane) |
+| `-blockbulktxfee` | 10 SOQ per kB | the rate at which a transaction is included outside the standard lane |
+
+Rates are per 1,000 bytes of virtual size, and the lane counts a transaction
+as four times its virtual size. A payment of one ML-DSA-44 input and two
+outputs is about 4,300 weight, so the standard lane holds 46 of them a
+block.
+
+The lane is strict. A transaction that pays less than the bulk rate is
+included only while the lane has room for the whole of it, and a transaction
+heavier than 200,000 weight, about 51 ML-DSA-44 inputs, is included at the
+bulk rate only. A parent and its unconfirmed children are counted together.
+The space set by `-blockprioritysize` is inside the lane.
+
+A node that sets `-blockmintxfee` lower keeps the default bulk rate, because
+the two are read apart. `-blocklaneweight` at the value of `-blockmaxweight`
+or more opens the whole block at `-blockmintxfee`.
+
+`estimatefee` and `estimatesmartfee` answer no lower than an estimate of the
+rate that enters the standard lane of the next block when the mempool holds
+more than the lane. The estimate does not count what `-blockprioritysize`
+takes of the lane.
+
 ### Node Information
 
 ```bash

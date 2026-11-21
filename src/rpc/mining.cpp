@@ -884,6 +884,9 @@ UniValue estimatefee(const JSONRPCRequest& request)
             "have been observed to make an estimate.\n"
             "-1 is always returned for nblocks == 1 as it is impossible to calculate\n"
             "a fee that is high enough to get reliably included in the next block.\n"
+            "When the mempool holds more than the standard lane of a block (-blocklaneweight),\n"
+            "the result is no lower than an estimate of the rate that enters the lane of the\n"
+            "next block, for any nblocks. A transaction heavier than the lane needs -blockbulktxfee.\n"
             "\nExample:\n" +
             HelpExampleCli("estimatefee", "6"));
 
@@ -894,6 +897,9 @@ UniValue estimatefee(const JSONRPCRequest& request)
         nBlocks = 1;
 
     CFeeRate feeRate = mempool.estimateFee(nBlocks);
+    const CFeeRate laneRate = EstimateLaneFeeRate(mempool);
+    if (laneRate > feeRate)
+        feeRate = laneRate;
     if (feeRate == CFeeRate(0))
         return -1.0;
 
@@ -947,6 +953,10 @@ UniValue estimatesmartfee(const JSONRPCRequest& request)
             "A negative value is returned if not enough transactions and blocks\n"
             "have been observed to make an estimate for any number of blocks.\n"
             "However it will not return a value below the mempool reject fee.\n"
+            "When the mempool holds more than the standard lane of a block (-blocklaneweight),\n"
+            "the feerate is no lower than an estimate of the rate that enters the lane of the\n"
+            "next block.\n"
+            "A transaction heavier than the lane needs -blockbulktxfee.\n"
             "\nExample:\n" +
             HelpExampleCli("estimatesmartfee", "6"));
 
@@ -957,6 +967,12 @@ UniValue estimatesmartfee(const JSONRPCRequest& request)
     UniValue result(UniValue::VOBJ);
     int answerFound;
     CFeeRate feeRate = mempool.estimateSmartFee(nBlocks, &answerFound);
+    const CFeeRate laneRate = EstimateLaneFeeRate(mempool);
+    if (laneRate > feeRate) {
+        // The lane's rate is for the next template, so it answers the target asked for.
+        feeRate = laneRate;
+        answerFound = nBlocks;
+    }
     result.pushKV("feerate", feeRate == CFeeRate(0) ? -1.0 : ValueFromAmount(feeRate.GetFeePerK()));
     result.pushKV("blocks", answerFound);
     return result;
