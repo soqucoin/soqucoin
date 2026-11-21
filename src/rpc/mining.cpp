@@ -968,8 +968,11 @@ UniValue estimatesmartfee(const JSONRPCRequest& request)
     int answerFound;
     CFeeRate feeRate = mempool.estimateSmartFee(nBlocks, &answerFound);
     const CFeeRate laneRate = EstimateLaneFeeRate(mempool);
-    if (laneRate > feeRate)
+    if (laneRate > feeRate) {
+        // The lane's rate is for the next template, so it answers the target asked for.
         feeRate = laneRate;
+        answerFound = nBlocks;
+    }
     result.pushKV("feerate", feeRate == CFeeRate(0) ? -1.0 : ValueFromAmount(feeRate.GetFeePerK()));
     result.pushKV("blocks", answerFound);
     return result;

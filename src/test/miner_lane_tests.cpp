@@ -21,6 +21,7 @@
 #include "miner.h"
 #include "policy/policy.h"
 #include "primitives/transaction.h"
+#include "rpc/server.h"
 #include "test/dilithium_chain_setup.h"
 #include "test/test_bitcoin.h"
 #include "txmempool.h"
@@ -29,6 +30,8 @@
 #include "validation.h"
 
 #include <boost/test/unit_test.hpp>
+
+#include <univalue.h>
 
 #include <memory>
 #include <set>
@@ -405,6 +408,20 @@ BOOST_AUTO_TEST_CASE(the_estimate_is_the_rate_that_enters_the_lane)
     const Template t = Build(bulkRate);
     BOOST_CHECK(t.Holds(atLane));
     BOOST_CHECK(t.nLaneWeight <= DEFAULT_BLOCK_LANE_WEIGHT);
+
+    // estimatesmartfee answers the lane's rate, with the target asked for.
+    {
+        JSONRPCRequest request;
+        request.strMethod = "estimatesmartfee";
+        request.params = UniValue(UniValue::VARR);
+        request.params.push_back(6);
+        request.fHelp = false;
+        const CRPCCommand* command = tableRPC["estimatesmartfee"];
+        BOOST_REQUIRE(command != nullptr);
+        const UniValue answer = (*command->actor)(request);
+        BOOST_CHECK_EQUAL(AmountFromValue(find_value(answer, "feerate")), lane.GetFeePerK());
+        BOOST_CHECK_EQUAL(find_value(answer, "blocks").get_int(), 6);
+    }
 
     // With -incrementalrelayfee at zero the rate is still above the flood's.
     {

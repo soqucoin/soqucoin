@@ -443,7 +443,9 @@ int BlockAssembler::UpdatePackagesForAdded(const CTxMemPool::setEntries& already
             // An entry that failed is not made again: the new entry would
             // start from the totals with every ancestor and take off this
             // one alone, so an ancestor already in the block would be
-            // counted in its fees and size a second time.
+            // counted in its fees and size a second time. Such an entry is
+            // left for a later template, where it is read again without the
+            // ancestors that a block has confirmed.
             if (alreadyAdded.count(desc) || failedTx.count(desc))
                 continue;
             ++nDescendantsUpdated;
