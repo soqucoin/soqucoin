@@ -432,7 +432,7 @@ void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
 }
 
 int BlockAssembler::UpdatePackagesForAdded(const CTxMemPool::setEntries& alreadyAdded,
-    indexed_modified_transaction_set& mapModifiedTx)
+    indexed_modified_transaction_set& mapModifiedTx, const CTxMemPool::setEntries& failedTx)
 {
     int nDescendantsUpdated = 0;
     BOOST_FOREACH (const CTxMemPool::txiter it, alreadyAdded) {
@@ -440,7 +440,11 @@ int BlockAssembler::UpdatePackagesForAdded(const CTxMemPool::setEntries& already
         mempool.CalculateDescendants(it, descendants);
         // Insert all descendants (not yet in block) into the modified set
         BOOST_FOREACH (CTxMemPool::txiter desc, descendants) {
-            if (alreadyAdded.count(desc))
+            // An entry that failed is not made again: the new entry would
+            // start from the totals with every ancestor and take off this
+            // one alone, so an ancestor already in the block would be
+            // counted in its fees and size a second time.
+            if (alreadyAdded.count(desc) || failedTx.count(desc))
                 continue;
             ++nDescendantsUpdated;
             modtxiter mit = mapModifiedTx.find(desc);
@@ -506,7 +510,7 @@ void BlockAssembler::addPackageTxs(int& nPackagesSelected, int& nDescendantsUpda
 
     // Start by adding all descendants of previously added txs to mapModifiedTx
     // and modifying them for their already included ancestors
-    UpdatePackagesForAdded(inBlock, mapModifiedTx);
+    UpdatePackagesForAdded(inBlock, mapModifiedTx, failedTx);
 
     CTxMemPool::indexed_transaction_set::index<ancestor_score>::type::iterator mi = mempool.mapTx.get<ancestor_score>().begin();
     CTxMemPool::txiter iter;
@@ -637,7 +641,7 @@ void BlockAssembler::addPackageTxs(int& nPackagesSelected, int& nDescendantsUpda
         ++nPackagesSelected;
 
         // Update transactions that depend on each of these
-        nDescendantsUpdated += UpdatePackagesForAdded(ancestors, mapModifiedTx);
+        nDescendantsUpdated += UpdatePackagesForAdded(ancestors, mapModifiedTx, failedTx);
     }
 }
 
@@ -743,21 +747,27 @@ CFeeRate EstimateLaneFeeRate(const CTxMemPool& pool)
          mi != pool.mapTx.get<ancestor_score>().end(); ++mi) {
         const uint64_t nSize = mi->GetSizeWithAncestors();
         const CAmount nFees = mi->GetModFeesWithAncestors();
-        if (nFees >= bulkRate.GetFee(nSize))
-            continue; // outside the lane
         if (nFees < minRate.GetFee(nSize))
             break; // below the floor, as is everything after it
+        // Each transaction for itself: a child that pays little is counted
+        // though its parent pays the bulk rate for the two.
+        if (mi->GetModifiedFee() >= bulkRate.GetFee(mi->GetTxSize()))
+            continue; // outside the lane
         const uint64_t nWeight = WITNESS_SCALE_FACTOR * mi->GetTxSize();
         if (nWeight > nLane)
             continue; // never enters the lane
         if (nUsed + nWeight > nLane) {
             // The lane is full at this rate. One step above the lowest rate it
-            // holds is ahead of that transaction in the next template.
-            const CFeeRate above(lowest.GetFeePerK() + incrementalRelayFee.GetFeePerK());
+            // holds is ahead of that transaction in the next template. The
+            // step is never below the default, whatever -incrementalrelayfee is.
+            const CAmount nStep = std::max<CAmount>(incrementalRelayFee.GetFeePerK(), DEFAULT_INCREMENTAL_RELAY_FEE);
+            const CFeeRate above(lowest.GetFeePerK() + nStep);
             return above < bulkRate ? above : bulkRate;
         }
         nUsed += nWeight;
-        lowest = CFeeRate(nFees, nSize);
+        const CFeeRate rate(nFees, nSize);
+        if (nUsed == nWeight || rate < lowest)
+            lowest = rate;
     }
     return CFeeRate(0);
 }

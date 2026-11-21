@@ -85,8 +85,10 @@ A node that sets `-blockmintxfee` lower keeps the default bulk rate, because
 the two are read apart. `-blocklaneweight` at the value of `-blockmaxweight`
 or more opens the whole block at `-blockmintxfee`.
 
-`estimatefee` and `estimatesmartfee` answer no lower than the rate that enters
-the standard lane of the next block when the mempool holds more than the lane.
+`estimatefee` and `estimatesmartfee` answer no lower than an estimate of the
+rate that enters the standard lane of the next block when the mempool holds
+more than the lane. The estimate does not count what `-blockprioritysize`
+takes of the lane.
 
 ### Node Information
 

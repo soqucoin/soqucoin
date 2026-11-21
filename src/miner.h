@@ -214,13 +214,15 @@ private:
     /** Add descendants of given transactions to mapModifiedTx with ancestor
       * state updated assuming given transactions are inBlock. Returns number
       * of updated descendants. */
-    int UpdatePackagesForAdded(const CTxMemPool::setEntries& alreadyAdded, indexed_modified_transaction_set &mapModifiedTx);
+    int UpdatePackagesForAdded(const CTxMemPool::setEntries& alreadyAdded, indexed_modified_transaction_set &mapModifiedTx, const CTxMemPool::setEntries& failedTx);
 };
 
-/** The feerate a transaction needs to enter the standard lane of the next block this node would build:
- *  above the lowest rate the lane would hold, and never above the bulk rate. Zero when the mempool does
- *  not fill the lane. It cannot answer for a transaction heavier than the room the lane has left, which
- *  is admitted at the bulk rate only. */
+/** An estimate of the feerate a transaction needs to enter the standard lane of the next block this node
+ *  would build: above the lowest rate the lane would hold, and never above the bulk rate. Zero when the
+ *  mempool does not fill the lane. It reads the mempool in the order of block assembly and counts each
+ *  transaction that pays less than the bulk rate for itself; it does not run the selection, and it does
+ *  not count what the space for priority takes. It cannot answer for a transaction heavier than the room
+ *  the lane has left, which is admitted at the bulk rate only. */
 CFeeRate EstimateLaneFeeRate(const CTxMemPool& pool);
 
 /** Modify the extranonce in a block */

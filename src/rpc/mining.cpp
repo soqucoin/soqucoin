@@ -885,8 +885,8 @@ UniValue estimatefee(const JSONRPCRequest& request)
             "-1 is always returned for nblocks == 1 as it is impossible to calculate\n"
             "a fee that is high enough to get reliably included in the next block.\n"
             "When the mempool holds more than the standard lane of a block (-blocklaneweight),\n"
-            "the result is no lower than the rate that enters the lane of the next block, for\n"
-            "any nblocks. A transaction heavier than the lane needs -blockbulktxfee.\n"
+            "the result is no lower than an estimate of the rate that enters the lane of the\n"
+            "next block, for any nblocks. A transaction heavier than the lane needs -blockbulktxfee.\n"
             "\nExample:\n" +
             HelpExampleCli("estimatefee", "6"));
 
@@ -954,7 +954,8 @@ UniValue estimatesmartfee(const JSONRPCRequest& request)
             "have been observed to make an estimate for any number of blocks.\n"
             "However it will not return a value below the mempool reject fee.\n"
             "When the mempool holds more than the standard lane of a block (-blocklaneweight),\n"
-            "the feerate is no lower than the rate that enters the lane of the next block.\n"
+            "the feerate is no lower than an estimate of the rate that enters the lane of the\n"
+            "next block.\n"
             "A transaction heavier than the lane needs -blockbulktxfee.\n"
             "\nExample:\n" +
             HelpExampleCli("estimatesmartfee", "6"));

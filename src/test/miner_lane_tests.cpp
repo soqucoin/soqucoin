@@ -307,6 +307,48 @@ BOOST_AUTO_TEST_CASE(a_package_pays_the_bulk_rate_for_the_whole_of_it)
     BOOST_CHECK_EQUAL(t.Count(), 2u);
 }
 
+// A child of two parents, one that pays the bulk rate for itself and the
+// child, one small at a low rate. The lane has room for the small parent and
+// not for it with the child. The first parent is taken outside the lane, the
+// child with the small parent is passed over, and the small parent is taken
+// alone. The child stays out: the fee of the first parent is in the block and
+// is not counted for the child again.
+BOOST_AUTO_TEST_CASE(a_fee_already_in_the_block_is_not_counted_again)
+{
+    const CAmount f = DEFAULT_BLOCK_MIN_TX_FEE;
+    const CMutableTransaction small = SpendFan(1, CFeeRate(2 * f));
+
+    // The child's size does not depend on its values, so a first build measures it.
+    CMutableTransaction child;
+    child.nVersion = 2;
+    child.vin.push_back(CTxIn(COutPoint(uint256(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    child.vin.push_back(CTxIn(COutPoint(small.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+    child.vout.push_back(CTxOut(COIN, coinbaseSpk));
+    SignInput(child, 0, coinbaseSpk, COIN);
+    SignInput(child, 1, coinbaseSpk, small.vout[0].nValue);
+    const uint64_t nChild = VSize(child);
+
+    const uint64_t nPaying = VSize(SpendFan(0, bulkRate));
+    const CMutableTransaction paying = SpendWithFee(COutPoint(fan.GetHash(), 0), FAN_VALUE, bulkRate.GetFee(nPaying + nChild));
+    const CAmount in = paying.vout[0].nValue + small.vout[0].nValue;
+    child.vin[0].prevout = COutPoint(paying.GetHash(), 0);
+    child.vout[0].nValue = in - CFeeRate(5 * f).GetFee(nChild);
+    SignInput(child, 0, coinbaseSpk, paying.vout[0].nValue);
+    SignInput(child, 1, coinbaseSpk, small.vout[0].nValue);
+    BOOST_REQUIRE_EQUAL(VSize(child), nChild);
+
+    ForceSetArg("-blocklaneweight", strprintf("%u", LaneWeight(small) + LaneWeight(small) / 2));
+    Send(paying);
+    Send(small);
+    Send(child);
+
+    const Template t = Build(bulkRate);
+    BOOST_CHECK(t.Holds(paying));
+    BOOST_CHECK(t.Holds(small));
+    BOOST_CHECK(!t.Holds(child));
+    BOOST_CHECK_EQUAL(t.Count(), 2u);
+}
+
 // The space for priority is inside the lane. Two spends of mature coinbases
 // pay the relay minimum, which is below the block floor, so only the space
 // for priority admits them. The one heavier than the lane is left out. The
@@ -363,6 +405,26 @@ BOOST_AUTO_TEST_CASE(the_estimate_is_the_rate_that_enters_the_lane)
     const Template t = Build(bulkRate);
     BOOST_CHECK(t.Holds(atLane));
     BOOST_CHECK(t.nLaneWeight <= DEFAULT_BLOCK_LANE_WEIGHT);
+
+    // With -incrementalrelayfee at zero the rate is still above the flood's.
+    {
+        const CFeeRate previous = ::incrementalRelayFee;
+        ::incrementalRelayFee = CFeeRate(0);
+        BOOST_CHECK(EstimateLaneFeeRate(mempool) > flood);
+        ::incrementalRelayFee = previous;
+    }
+
+    // Children at a low rate fill the lane though each parent pays the bulk
+    // rate for itself and its child: the rate is above the children's.
+    mempool.clear();
+    for (unsigned int i = 0; i < 55; ++i) {
+        const uint64_t nSize = VSize(SpendFan(i, flood));
+        const CMutableTransaction parent = SpendWithFee(COutPoint(fan.GetHash(), i), FAN_VALUE, bulkRate.GetFee(2 * nSize));
+        Send(parent);
+        Send(Spend(COutPoint(parent.GetHash(), 0), parent.vout[0].nValue, flood));
+    }
+    BOOST_CHECK(EstimateLaneFeeRate(mempool) > flood);
+    BOOST_CHECK(Build(bulkRate).nLaneWeight <= DEFAULT_BLOCK_LANE_WEIGHT);
 
     // A lane that is already full at the bulk rate's edge answers the bulk rate.
     mempool.clear();
