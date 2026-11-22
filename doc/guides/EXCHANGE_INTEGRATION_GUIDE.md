@@ -1,6 +1,6 @@
 # Soqucoin Exchange Integration Guide
 
-> **Version**: 1.1 | **Updated**: October 10, 2026
+> **Version**: 1.1 | **Updated**: November 22, 2026
 > **Audience**: Exchange operators, custodians, and trading platform developers
 > **Support**: dev@soqu.org
 
@@ -140,11 +140,10 @@ soqucoin-cli getblockchaininfo | grep -E "(blocks|headers|verificationprogress)"
 
 ### 2.4 Sync Time Estimates
 
-| Network | Blocks | Estimated Sync Time |
-|---------|--------|---------------------|
-| Mainnet | TBD (pre-launch) | TBD |
-| Testnet3 | ~12,000 | < 1 hour |
-| Stagenet | ~0 | Immediate |
+We have not timed an initial sync on a reference host. Mainnet launched on
+13 October 2026. On 22 November 2026 it was at block 58,347 with 1.5 GB of
+block files; [Sizing, measured](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#sizing-measured)
+in the SDK guide has the figures for the node and the indexer.
 
 ---
 
@@ -174,14 +173,15 @@ With the node's wallet disabled, deposits are found through an address index. [S
 
 ### 3.4 Confirmation Requirements
 
-| Transaction Size | Recommended Confirmations |
-|------------------|---------------------------|
-| < 1,000 SOQ | 6 confirmations (~6 min) |
-| 1,000 - 10,000 SOQ | 12 confirmations (~12 min) |
-| 10,000 - 100,000 SOQ | 24 confirmations (~24 min) |
-| Large value / final settlement | **288 confirmations (~4.8h — absolute finality)** |
+| Deposit | Recommended Confirmations |
+|---------|---------------------------|
+| Standard, below your value line | 100 confirmations (~1.7 h) |
+| Large, at or above your value line | **288 confirmations (~4.8 h)** |
+| Mined (coinbase) outputs | 288 confirmations on mainnet before they can be spent, a consensus rule |
 
-> **Note**: Below 288 blocks, confirmations are **probabilistic** — more confirmations lower the reversal risk, but a large hashpower rental can still reorganize recent blocks. At **288 blocks (~4.8h)** finality becomes **absolute**: the network rejects any reorg deeper than 288 blocks (`nMaxReorgDepth`), so a buried transaction cannot be reversed by hashpower. **Do not credit large deposits on a handful of confirmations** — wait for the 288-block finality horizon for high-value settlement. See [Chain Finality](https://soqu.org/docs/protocol/finality/) for the full properties and tradeoffs.
+The value line is yours to set. We suggest the amount of SOQ worth about 1,000 USD at your own price, moved when the price moves.
+
+> **Note**: Below 288 confirmations a reorganisation is a question of hashpower: more confirmations lower the risk, and a large hashpower rental can still replace recent blocks. 288 is the depth of the consensus rule `nMaxReorgDepth`. A synced node refuses a new header on a branch that forks from its chain 288 or more blocks below the tip, and a branch that would remove a transaction with 288 confirmations forks that far down. The rule is applied when a header arrives and is off during initial block download, so it holds for a node that has caught up. See [Chain Finality](https://soqu.org/docs/protocol/finality/) for the properties and tradeoffs, and [Step 4: Confirm Transactions](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#step-4-confirm-transactions) in the SDK guide for the full table.
 
 ---
 
