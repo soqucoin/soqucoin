@@ -175,11 +175,20 @@ With the node's wallet disabled, deposits are found through an address index. [S
 
 | Deposit | Recommended Confirmations |
 |---------|---------------------------|
-| Standard, below your value line | 100 confirmations (~1.7 h) |
-| Large, at or above your value line | **288 confirmations (~4.8 h)** |
+| Small, below your first value line | 10 confirmations (~10 min) |
+| Standard, below your second value line | 30 confirmations (~30 min) |
+| Large, at or above your second value line | **288 confirmations (~4.8 h)** |
 | Mined (coinbase) outputs | 288 confirmations on mainnet before they can be spent, a consensus rule |
 
-The value line is yours to set. We suggest the amount of SOQ worth about 1,000 USD at your own price, moved when the price moves.
+The two value lines are yours to set. We suggest the amounts of SOQ worth about 100 USD and about 1,000 USD at your own price, moved when the price moves.
+
+The two lower tiers are sized by value. Below 288 confirmations a reorganisation remains possible, and the value lines bound what one could cost. We suggest three safeguards with them:
+
+1. A ceiling of about 10,000 USD on the total value credited below 288 confirmations at one time.
+2. 288 confirmations for every deposit during the 288 blocks after a reorganisation of three or more blocks. The same holds while the hashrate of the last 120 blocks is below half that of the last 1,440 (`getnetworkhashps 120` against `getnetworkhashps 1440`, on your own node). `getchaintips` lists each branch the node knows with its length.
+3. A withdrawal against a deposit is released once that deposit has reached its own tier.
+
+These figures are our recommendation for today. They follow how mining is distributed across pools now. We plan to lower the 288 tier as more pools mine SOQ, and this guide will carry the new figures when they change.
 
 > **Note**: Below 288 confirmations a reorganisation is a question of hashpower: more confirmations lower the risk, and a large hashpower rental can still replace recent blocks. 288 is the depth of the consensus rule `nMaxReorgDepth`. A synced node refuses a new header on a branch that forks from its chain 288 or more blocks below the tip, and a branch that would remove a transaction with 288 confirmations forks that far down. The rule is applied once, when a header is first accepted, and is off during initial block download. A header the node accepted while its branch was shallower is not judged again when its block arrives. 288 confirmations are therefore the depth of this rule; they are not unconditional finality. See [Chain Finality](https://soqu.org/docs/protocol/finality/) for the properties and tradeoffs, and [Step 4: Confirm Transactions](https://github.com/soqucoin-labs/soqucoin-sdk/blob/main/docs/EXCHANGE_INTEGRATION.md#step-4-confirm-transactions) in the SDK guide for the full table.
 
