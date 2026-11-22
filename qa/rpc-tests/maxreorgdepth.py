@@ -8,12 +8,15 @@
 #
 # A small merge-mined chain cannot out-hash a rental 51% attack (renting a
 # majority of SOQ's scrypt hashrate is ~free because the same hashrate earns
-# LTC+DOGE -- Analysis [A], 2026-06-22). The finality horizon makes deeply
-# buried history irreversible: a node refuses a new header on a branch that
-# forks nMaxReorgDepth or more blocks below its tip, while still accepting
-# shallower reorgs. A block with nMaxReorgDepth confirmations therefore stays,
-# and one with nMaxReorgDepth - 1 can still be reorganised away; scenarios 3
-# and 4 hold the rule to that boundary.
+# LTC+DOGE -- Analysis [A], 2026-06-22). The finality horizon bounds the depth
+# of a reorganisation a node takes from a branch it has not seen before: it
+# refuses a new header on a branch that forks nMaxReorgDepth or more blocks
+# below its tip, while still accepting shallower reorgs. The check runs once,
+# when a header is first accepted, and not during initial block download; a
+# header already in the index is not judged again, so the rule is no
+# unconditional finality. Against a branch that arrives new, a block with
+# nMaxReorgDepth confirmations stays and one with nMaxReorgDepth - 1 can still
+# be reorganised away; scenarios 3 and 4 hold the rule to that boundary.
 #
 # The horizon is a consensus parameter on real networks; regtest exposes the
 # -maxreorgdepth override so this test can use a small value (10) instead of
