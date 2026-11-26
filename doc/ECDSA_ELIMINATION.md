@@ -3,15 +3,22 @@
 > **Date**: February 6, 2026
 > **Status**: Verified — no ECDSA signing paths reachable in consensus
 > **Audience**: Halborn Auditors
+> **Updated**: November 25, 2026. Release 1.2.0 removed the `secp256k1` library. See Current State.
 
 ---
 
-## Why `secp256k1/` Is Still in the Source Tree
+## Current State
 
-The full `libsecp256k1` library resides at `src/secp256k1/`. This is **inherited** from the Dogecoin Core / Bitcoin Core lineage. It is NOT compiled out because:
+Release 1.2.0 of 4 June 2026 removed the `secp256k1` library from the source tree. The tree holds no `src/secp256k1/` directory, and the build links no secp256k1 library (`src/Makefile.am`, `configure.ac`). `CHANGELOG.md` records the removal as SOQ-SECP-001. The sections below are the record of 6 February 2026, and their file and line references were read on that date.
 
-1. **Bulletproofs++ (BP++)** — Pedersen commitments use secp256k1 curve arithmetic for range proofs. This is a consensus-critical privacy feature.
-2. **ECDSA Adaptor Signatures** — The `ecdsa_adaptor` and `ecdsa_s2c` modules exist in the tree but are not invoked by any Soqucoin consensus or wallet path.
+---
+
+## Why `secp256k1/` Was Still in the Source Tree in February 2026
+
+In February 2026 the full `libsecp256k1` library resided at `src/secp256k1/`, **inherited** from the Dogecoin Core / Bitcoin Core lineage. It was not compiled out because:
+
+1. **Bulletproofs++ (BP++).** Pedersen commitments used secp256k1 curve arithmetic for range proofs.
+2. **ECDSA Adaptor Signatures.** The `ecdsa_adaptor` and `ecdsa_s2c` modules existed in the tree and were not invoked by any Soqucoin consensus or wallet path.
 
 ---
 
@@ -27,7 +34,7 @@ The full `libsecp256k1` library resides at `src/secp256k1/`. This is **inherited
 
 ---
 
-## What Remains (Not Reachable for Signing)
+## What Remained in February 2026 (Not Reachable for Signing)
 
 | Module | Path | Used For |
 |--------|------|----------|
