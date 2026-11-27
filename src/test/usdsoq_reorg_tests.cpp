@@ -41,7 +41,9 @@
 #include "chainparams.h"
 #include "consensus/usdsoq.h"
 #include "consensus/validation.h"
+#include "init.h"
 #include "test/dilithium_chain_setup.h"
+#include "txdb.h"
 #include "validation.h"
 
 #include <boost/test/unit_test.hpp>
@@ -249,6 +251,293 @@ BOOST_AUTO_TEST_CASE(a_verification_disconnect_must_not_mutate_asset_state)
         "does this at every startup for the last 6 blocks, so an ordinary "
         "restart silently desynchronises asset state from the chain. Gate the "
         "asset reversals on pfClean == nullptr");
+}
+
+// ---------------------------------------------------------------------------
+// The order of the two supply reversals. ConnectBlock applies a block's mint
+// and then its burn. UndoMint refuses to leave the minted total below the
+// burned total, so a block that mints and burns more than was outstanding
+// before it can be disconnected only if its burn is taken back first.
+// ---------------------------------------------------------------------------
+struct UsdsoqMintAndBurnSetup : public UsdsoqReorgSetup {
+    const CAmount V = 1000 * COIN;
+
+    //! An issuer transaction minting v7Val of the token to the fixture's key:
+    //! the marker at output 0, the token at output 1, the change at output 2.
+    //! With prevMarker it spends that marker at input 0 and coinbase n at
+    //! input 1; without, it is the bootstrap and spends coinbase n alone.
+    CMutableTransaction Mint(size_t n, CAmount v7Val, const COutPoint* prevMarker = nullptr)
+    {
+        const CTransaction& cb = coinbaseTxns[n];
+        const CAmount fund = cb.vout[0].nValue;
+        CMutableTransaction tx;
+        tx.nVersion = 2;
+        if (prevMarker)
+            tx.vin.push_back(CTxIn(*prevMarker, CScript(), CTxIn::SEQUENCE_FINAL));
+        tx.vin.push_back(CTxIn(COutPoint(cb.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        tx.vout.push_back(CTxOut(10000, auth.MarkerSpk()));
+        tx.vout.push_back(CTxOut(v7Val, Spk(OP_7)));
+        tx.vout.push_back(CTxOut(fund - 20000, coinbaseSpk));
+        SignInput(tx, prevMarker ? 1 : 0, coinbaseSpk, fund);
+        auth.Sign(tx, 0, auth.MarkerSpk());
+        return tx;
+    }
+
+    //! An issuer transaction spending the marker and the token output of
+    //! `mint`, with coinbase n for the fee: it burns v7Val and mints nothing.
+    CMutableTransaction Burn(const CMutableTransaction& mint, size_t n, CAmount v7Val)
+    {
+        const CTransaction& cb = coinbaseTxns[n];
+        const CAmount fund = cb.vout[0].nValue;
+        CMutableTransaction tx;
+        tx.nVersion = 2;
+        tx.vin.push_back(CTxIn(COutPoint(mint.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        tx.vin.push_back(CTxIn(COutPoint(cb.GetHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        tx.vin.push_back(CTxIn(COutPoint(mint.GetHash(), 1), CScript(), CTxIn::SEQUENCE_FINAL));
+        tx.vout.push_back(CTxOut(10000, auth.MarkerSpk()));
+        tx.vout.push_back(CTxOut(fund - 10000, coinbaseSpk));
+        SignInput(tx, 1, coinbaseSpk, fund);
+        SignInput(tx, 2, Spk(OP_7), v7Val);
+        auth.Sign(tx, 0, auth.MarkerSpk());
+        return tx;
+    }
+
+    CBlockIndex* Tip()
+    {
+        LOCK(cs_main);
+        return chainActive.Tip();
+    }
+
+    //! Connects a block of txns on the tip and returns its index.
+    CBlockIndex* Connect(const std::vector<CMutableTransaction>& txns)
+    {
+        const CBlock b = CreateAndProcessBlock(txns, coinbaseSpk);
+        LOCK(cs_main);
+        BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == b.GetHash(), "the block did not connect");
+        return chainActive.Tip();
+    }
+
+    bool Invalidate(CBlockIndex* index)
+    {
+        LOCK(cs_main);
+        CValidationState state;
+        const bool done = InvalidateBlock(state, Params(), index);
+        mempool.clear();
+        return done;
+    }
+
+    //! A branch of `length` empty blocks on the tip, set aside with
+    //! InvalidateBlock so that the next block connects on the same parent.
+    std::vector<CBlockIndex*> SetAsideABranch(int length)
+    {
+        std::vector<CBlockIndex*> branch;
+        for (int i = 0; i < length; ++i)
+            branch.push_back(Connect({}));
+        BOOST_REQUIRE(Invalidate(branch.front()));
+        BOOST_REQUIRE(Tip() == branch.front()->pprev);
+        return branch;
+    }
+
+    //! Makes a block set aside valid again; the node moves to the most work.
+    bool Reconsider(CBlockIndex* index)
+    {
+        {
+            LOCK(cs_main);
+            BOOST_REQUIRE(ResetBlockFailureFlags(index));
+        }
+        CValidationState state;
+        return ActivateBestChain(state, Params());
+    }
+
+    //! The totals, in memory and in the database view.
+    void CheckTotals(CAmount minted, CAmount burned)
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalMinted(), minted);
+        BOOST_CHECK_EQUAL(g_usdsoq_supply.TotalBurned(), burned);
+        CUSDSOQSupply stored;
+        BOOST_CHECK(pcoinsdbview->ReadUSDSOQSupply(stored));
+        BOOST_CHECK_EQUAL(stored.TotalMinted(), minted);
+        BOOST_CHECK_EQUAL(stored.TotalBurned(), burned);
+    }
+
+    //! The totals and the tracked marker, in memory and in the database view.
+    void CheckTokenState(CAmount minted, CAmount burned, const COutPoint& marker)
+    {
+        CheckTotals(minted, burned);
+        LOCK(cs_main);
+        BOOST_CHECK(g_usdsoq_authority_outpoint == marker);
+        COutPoint storedMarker;
+        BOOST_CHECK(pcoinsdbview->ReadUSDSOQAuthorityOutpoint(storedMarker));
+        BOOST_CHECK(storedMarker == marker);
+    }
+};
+
+// A block holds an issuer mint and the burn of what it mints, with nothing
+// outstanding before it, and the node leaves it for a longer branch built on
+// its parent.
+BOOST_FIXTURE_TEST_CASE(a_block_that_mints_and_burns_it_is_left_for_a_longer_branch, UsdsoqMintAndBurnSetup)
+{
+    CBlockIndex* parent = Tip();
+    const std::vector<CBlockIndex*> longer = SetAsideABranch(2);
+    const CMutableTransaction mint = Mint(0, V);
+    const CMutableTransaction burn = Burn(mint, 1, V);
+    CBlockIndex* block = Connect({mint, burn});
+    CheckTokenState(V, V, COutPoint(burn.GetHash(), 0));
+
+    BOOST_CHECK(Reconsider(longer.front()));
+    BOOST_CHECK(Tip() == longer.back());
+    {
+        LOCK(cs_main);
+        BOOST_CHECK(!chainActive.Contains(block));
+        BOOST_CHECK(chainActive.Contains(parent));
+    }
+    CheckTokenState(0, 0, COutPoint());
+    BOOST_CHECK(!ShutdownRequested());
+}
+
+// The same block given to InvalidateBlock, which disconnects it through the
+// DisconnectTip that a reorganisation calls.
+BOOST_FIXTURE_TEST_CASE(a_block_that_mints_and_burns_it_is_invalidated, UsdsoqMintAndBurnSetup)
+{
+    CBlockIndex* parent = Tip();
+    const CMutableTransaction mint = Mint(0, V);
+    const CMutableTransaction burn = Burn(mint, 1, V);
+    CBlockIndex* block = Connect({mint, burn});
+    CheckTokenState(V, V, COutPoint(burn.GetHash(), 0));
+
+    BOOST_CHECK(Invalidate(block));
+    BOOST_CHECK(Tip() == parent);
+    CheckTokenState(0, 0, COutPoint());
+    BOOST_CHECK(!ShutdownRequested());
+}
+
+// Totals above zero before the block, and a burn larger than what was
+// outstanding before it: the block mints 2V on the marker of an earlier mint
+// of V and burns the 2V.
+BOOST_FIXTURE_TEST_CASE(a_burn_larger_than_what_was_outstanding_is_taken_back_first, UsdsoqMintAndBurnSetup)
+{
+    const CMutableTransaction first = Mint(0, V);
+    Connect({first});
+    const COutPoint firstMarker(first.GetHash(), 0);
+    CheckTokenState(V, 0, firstMarker);
+
+    CBlockIndex* parent = Tip();
+    const CMutableTransaction mint = Mint(1, 2 * V, &firstMarker);
+    const CMutableTransaction burn = Burn(mint, 2, 2 * V);
+    CBlockIndex* block = Connect({mint, burn});
+    CheckTokenState(3 * V, 2 * V, COutPoint(burn.GetHash(), 0));
+
+    BOOST_CHECK(Invalidate(block));
+    BOOST_CHECK(Tip() == parent);
+    CheckTokenState(V, 0, firstMarker);
+    BOOST_CHECK(!ShutdownRequested());
+}
+
+// Both totals above zero before the block: an earlier mint of V is burned in
+// full, which leaves (V, V). The block mints V/2 on the marker of that burn
+// and burns it, more than was outstanding before it.
+BOOST_FIXTURE_TEST_CASE(a_block_that_mints_and_burns_it_after_a_full_burn_is_invalidated, UsdsoqMintAndBurnSetup)
+{
+    const CMutableTransaction first = Mint(0, V);
+    Connect({first});
+    const CMutableTransaction burnAll = Burn(first, 1, V);
+    CBlockIndex* parent = Connect({burnAll});
+    const COutPoint priorMarker(burnAll.GetHash(), 0);
+    CheckTokenState(V, V, priorMarker);
+
+    const CMutableTransaction mint = Mint(2, V / 2, &priorMarker);
+    const CMutableTransaction burn = Burn(mint, 3, V / 2);
+    CBlockIndex* block = Connect({mint, burn});
+    CheckTokenState(V + V / 2, V + V / 2, COutPoint(burn.GetHash(), 0));
+
+    BOOST_CHECK(Invalidate(block));
+    BOOST_CHECK(Tip() == parent);
+    CheckTokenState(V, V, priorMarker);
+    BOOST_CHECK(!ShutdownRequested());
+}
+
+// The block made valid again after its disconnection connects with the
+// totals and the marker of its first connection.
+BOOST_FIXTURE_TEST_CASE(a_block_that_mints_and_burns_it_connects_again, UsdsoqMintAndBurnSetup)
+{
+    const CMutableTransaction mint = Mint(0, V);
+    const CMutableTransaction burn = Burn(mint, 1, V);
+    CBlockIndex* block = Connect({mint, burn});
+    BOOST_CHECK(Invalidate(block));
+
+    BOOST_CHECK(Reconsider(block));
+    BOOST_CHECK(Tip() == block);
+    CheckTokenState(V, V, COutPoint(burn.GetHash(), 0));
+}
+
+BOOST_FIXTURE_TEST_CASE(a_block_with_a_mint_alone_is_invalidated, UsdsoqMintAndBurnSetup)
+{
+    CBlockIndex* parent = Tip();
+    const CMutableTransaction mint = Mint(0, V);
+    CBlockIndex* block = Connect({mint});
+    CheckTokenState(V, 0, COutPoint(mint.GetHash(), 0));
+
+    BOOST_CHECK(Invalidate(block));
+    BOOST_CHECK(Tip() == parent);
+    CheckTokenState(0, 0, COutPoint());
+}
+
+BOOST_FIXTURE_TEST_CASE(a_block_with_a_burn_alone_is_invalidated, UsdsoqMintAndBurnSetup)
+{
+    const CMutableTransaction mint = Mint(0, V);
+    Connect({mint});
+    const COutPoint mintMarker(mint.GetHash(), 0);
+    CBlockIndex* parent = Tip();
+    const CMutableTransaction burn = Burn(mint, 1, V);
+    CBlockIndex* block = Connect({burn});
+    CheckTokenState(V, V, COutPoint(burn.GetHash(), 0));
+
+    BOOST_CHECK(Invalidate(block));
+    BOOST_CHECK(Tip() == parent);
+    CheckTokenState(V, 0, mintMarker);
+}
+
+// The control: the same mint and burn in two blocks, left for a longer branch.
+BOOST_FIXTURE_TEST_CASE(the_mint_and_the_burn_in_two_blocks_are_left_for_a_longer_branch, UsdsoqMintAndBurnSetup)
+{
+    const std::vector<CBlockIndex*> longer = SetAsideABranch(3);
+    const CMutableTransaction mint = Mint(0, V);
+    const CMutableTransaction burn = Burn(mint, 1, V);
+    Connect({mint});
+    Connect({burn});
+    CheckTokenState(V, V, COutPoint(burn.GetHash(), 0));
+
+    BOOST_CHECK(Reconsider(longer.front()));
+    BOOST_CHECK(Tip() == longer.back());
+    CheckTokenState(0, 0, COutPoint());
+    BOOST_CHECK(!ShutdownRequested());
+}
+
+// A node that holds the totals a disconnection in the earlier order left: its
+// first attempt refused UndoMint, ran UndoBurn and wrote (V, 0) with the block
+// still the tip. From (V, 0) the burn cannot be taken back and the mint is,
+// which leaves (0, 0); from (0, 0) both are refused. Either way the block
+// stays the tip.
+BOOST_FIXTURE_TEST_CASE(totals_left_by_the_earlier_order_keep_the_block, UsdsoqMintAndBurnSetup)
+{
+    const CMutableTransaction mint = Mint(0, V);
+    const CMutableTransaction burn = Burn(mint, 1, V);
+    CBlockIndex* block = Connect({mint, burn});
+    {
+        LOCK(cs_main);
+        BOOST_REQUIRE(g_usdsoq_supply.UndoBurn(V));
+        BOOST_REQUIRE(pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply));
+    }
+    CheckTotals(V, 0);
+
+    BOOST_CHECK(!Invalidate(block));
+    BOOST_CHECK(Tip() == block);
+    CheckTotals(0, 0);
+
+    BOOST_CHECK(!Invalidate(block));
+    BOOST_CHECK(Tip() == block);
+    CheckTotals(0, 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -2918,7 +2918,7 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
     // by ConnectBlock. It also never counted reversed burns (inputs).
     //
     // Correct approach: Count the same deltas ConnectBlock counted, then
-    // apply the INVERSE operations (UndoMint, UndoBurn) to the in-memory
+    // apply the INVERSE operations (UndoBurn, then UndoMint) to the in-memory
     // supply counter. Persist the corrected counter to LevelDB.
     //
     // Reversed mint = USDSOQ output being removed → UndoMint(amount)
@@ -2982,18 +2982,21 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
             LogPrintf("USDSOQ: reorg reversal at block %d: reversed_mint=%d reversed_burn=%d\n",
                 pindex->nHeight, nUSDSOQReversedMint, nUSDSOQReversedBurn);
 
-            // Apply inverse operations to supply counter
-            if (nUSDSOQReversedMint > 0) {
-                if (!g_usdsoq_supply.UndoMint(nUSDSOQReversedMint)) {
-                    LogPrintf("ERROR: USDSOQ: UndoMint(%d) failed at block %d — supply invariant violation\n",
-                        nUSDSOQReversedMint, pindex->nHeight);
-                    fClean = false;
-                }
-            }
+            // Apply inverse operations to supply counter, the burn first and
+            // then the mint: the reverse of ConnectBlock's order. UndoMint
+            // refuses to take total_minted below total_burned, so the burn
+            // this block added is taken back before its mint.
             if (nUSDSOQReversedBurn > 0) {
                 if (!g_usdsoq_supply.UndoBurn(nUSDSOQReversedBurn)) {
                     LogPrintf("ERROR: USDSOQ: UndoBurn(%d) failed at block %d — supply invariant violation\n",
                         nUSDSOQReversedBurn, pindex->nHeight);
+                    fClean = false;
+                }
+            }
+            if (nUSDSOQReversedMint > 0) {
+                if (!g_usdsoq_supply.UndoMint(nUSDSOQReversedMint)) {
+                    LogPrintf("ERROR: USDSOQ: UndoMint(%d) failed at block %d — supply invariant violation\n",
+                        nUSDSOQReversedMint, pindex->nHeight);
                     fClean = false;
                 }
             }
@@ -3257,17 +3260,20 @@ bool DisconnectBlock(const CBlock& block, CValidationState& state, const CBlockI
             LogPrintf("BTCSOQ: reorg reversal at block %d: reversed_mint=%d reversed_burn=%d\n",
                 pindex->nHeight, nBTCSOQReversedMint, nBTCSOQReversedBurn);
 
-            if (nBTCSOQReversedMint > 0) {
-                if (!g_btcsoq_supply.UndoMint(nBTCSOQReversedMint)) {
-                    LogPrintf("ERROR: BTCSOQ: UndoMint(%d) failed at block %d — supply invariant violation\n",
-                        nBTCSOQReversedMint, pindex->nHeight);
-                    fClean = false;
-                }
-            }
+            // The burn first and then the mint: the reverse of ConnectBlock's
+            // order. UndoMint refuses to take total_minted below total_burned,
+            // so the burn this block added is taken back before its mint.
             if (nBTCSOQReversedBurn > 0) {
                 if (!g_btcsoq_supply.UndoBurn(nBTCSOQReversedBurn)) {
                     LogPrintf("ERROR: BTCSOQ: UndoBurn(%d) failed at block %d — supply invariant violation\n",
                         nBTCSOQReversedBurn, pindex->nHeight);
+                    fClean = false;
+                }
+            }
+            if (nBTCSOQReversedMint > 0) {
+                if (!g_btcsoq_supply.UndoMint(nBTCSOQReversedMint)) {
+                    LogPrintf("ERROR: BTCSOQ: UndoMint(%d) failed at block %d — supply invariant violation\n",
+                        nBTCSOQReversedMint, pindex->nHeight);
                     fClean = false;
                 }
             }
