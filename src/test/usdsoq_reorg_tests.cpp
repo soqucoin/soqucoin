@@ -518,7 +518,10 @@ BOOST_FIXTURE_TEST_CASE(the_mint_and_the_burn_in_two_blocks_are_left_for_a_longe
 // first attempt refused UndoMint, ran UndoBurn and wrote (V, 0) with the block
 // still the tip. From (V, 0) the burn cannot be taken back and the mint is,
 // which leaves (0, 0); from (0, 0) both are refused. Either way the block
-// stays the tip.
+// stays the tip, and InvalidateBlock asks for no shutdown. The sections after
+// the totals still run on a refused attempt: the marker the block set is put
+// back to the null marker of the chain below it while the block is the tip.
+// The case records what a refused disconnection leaves.
 BOOST_FIXTURE_TEST_CASE(totals_left_by_the_earlier_order_keep_the_block, UsdsoqMintAndBurnSetup)
 {
     const CMutableTransaction mint = Mint(0, V);
@@ -529,15 +532,17 @@ BOOST_FIXTURE_TEST_CASE(totals_left_by_the_earlier_order_keep_the_block, UsdsoqM
         BOOST_REQUIRE(g_usdsoq_supply.UndoBurn(V));
         BOOST_REQUIRE(pcoinsdbview->WriteUSDSOQSupply(g_usdsoq_supply));
     }
-    CheckTotals(V, 0);
+    CheckTokenState(V, 0, COutPoint(burn.GetHash(), 0));
 
     BOOST_CHECK(!Invalidate(block));
     BOOST_CHECK(Tip() == block);
-    CheckTotals(0, 0);
+    CheckTokenState(0, 0, COutPoint());
+    BOOST_CHECK(!ShutdownRequested());
 
     BOOST_CHECK(!Invalidate(block));
     BOOST_CHECK(Tip() == block);
-    CheckTotals(0, 0);
+    CheckTokenState(0, 0, COutPoint());
+    BOOST_CHECK(!ShutdownRequested());
 }
 
 BOOST_AUTO_TEST_SUITE_END()
