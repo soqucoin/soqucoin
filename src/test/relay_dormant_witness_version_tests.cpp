@@ -79,8 +79,8 @@
 #include <vector>
 
 //! The shutdown request of init.cpp, which a node sets when it cannot read a
-//! block or write its chain state. The cases that reach those paths take the
-//! request back.
+//! block, write its chain state or disconnect a block in a reorganisation.
+//! The cases that reach those paths take the request back.
 extern std::atomic<bool> fRequestShutdown;
 
 namespace {
@@ -190,6 +190,13 @@ struct TipAtAcceptance : public CValidationInterface {
 struct NoPriorityArea {
     NoPriorityArea() { ForceSetArg("-blockprioritysize", "0"); }
     ~NoPriorityArea() { ForceSetArg("-blockprioritysize", std::to_string(DEFAULT_BLOCK_PRIORITY_SIZE)); }
+};
+
+//! Sets the mempool's size limit to zero for the life of the object, then
+//! gives the option its default. Under it a trim to the limit leaves no entry.
+struct NoMempoolRoom {
+    NoMempoolRoom() { ForceSetArg("-maxmempool", "0"); }
+    ~NoMempoolRoom() { ForceSetArg("-maxmempool", std::to_string(DEFAULT_MAX_MEMPOOL_SIZE)); }
 };
 
 //! The node's template for the next block: its transactions, or the text of
@@ -685,9 +692,10 @@ struct TwoBranchSetup : public RelayChainSetup {
         CValidationState stopped;
         BOOST_CHECK(!ActivateBestChain(stopped, Params()));
         BOOST_CHECK(!stopped.IsInvalid());
+        BOOST_CHECK(stopped.IsError());
         BOOST_REQUIRE_MESSAGE(TipIs(failsToConnect ? y[3] : x[3]), "the tip is at A" << Height() - A);
         BOOST_CHECK(ViewIsAt(failsToConnect ? y[3] : x[3]));
-        BOOST_CHECK_EQUAL(ShutdownRequested(), failsToConnect);
+        BOOST_CHECK(ShutdownRequested());
         fRequestShutdown = false;
 
         BOOST_CHECK_MESSAGE(mempool.exists(funding.GetHash()),
@@ -733,6 +741,7 @@ struct TwoBranchSetup : public RelayChainSetup {
             x[3]->nStatus |= BLOCK_HAVE_UNDO;
         }
         BOOST_CHECK(!invalidated);
+        BOOST_CHECK(!ShutdownRequested());
         BOOST_REQUIRE(TipIs(x[3]));
         BOOST_CHECK(ViewIsAt(x[3]));
         BOOST_CHECK_MESSAGE(mempool.exists(funding.GetHash()), "a funding left the mempool where InvalidateBlock stopped at the tip A-1, whose next block is A");
@@ -742,6 +751,110 @@ struct TwoBranchSetup : public RelayChainSetup {
         BOOST_CHECK_MESSAGE(next.built, next.error);
         BOOST_CHECK(next.Holds(funding));
         BOOST_CHECK(next.Holds(matureAtA));
+    }
+
+    //! The step stops after it disconnected a block, on either early return,
+    //! as in StopsAtTheTipBelowTheHeight, with the mempool's size limit at
+    //! zero. The mempool is empty at the tip A and holds what the
+    //! disconnected blocks returned, the funding of block A among it, when
+    //! the step returns; the limit is applied there and leaves no entry.
+    void StopsOverTheLimit(bool failsToConnect)
+    {
+        Build();
+        BOOST_REQUIRE_EQUAL(mempool.size(), 0U);
+        const unsigned int dataPos = y[4]->nDataPos;
+        {
+            LOCK(cs_main);
+            if (failsToConnect)
+                y[4]->nDataPos = 0x7fffffff;
+            else
+                x[3]->nStatus &= ~BLOCK_HAVE_UNDO;
+            BOOST_REQUIRE(ResetBlockFailureFlags(y[1]));
+        }
+        {
+            NoMempoolRoom noRoom;
+            CValidationState stopped;
+            BOOST_CHECK(!ActivateBestChain(stopped, Params()));
+        }
+        BOOST_REQUIRE(TipIs(failsToConnect ? y[3] : x[3]));
+        BOOST_CHECK(ShutdownRequested());
+        fRequestShutdown = false;
+        BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()), "a funding that a disconnection returned is in a mempool over its limit");
+        BOOST_CHECK_EQUAL(mempool.size(), 0U);
+        LOCK(cs_main);
+        y[4]->nDataPos = dataPos;
+        x[3]->nStatus |= BLOCK_HAVE_UNDO;
+    }
+
+    //! The failure return of InvalidateBlock, as in
+    //! InvalidateBlockStopsAtTheTipBelowTheHeight, with the mempool's size
+    //! limit at zero: the funding of block A returns and the limit leaves no
+    //! entry. InvalidateBlock asks for no shutdown.
+    void InvalidateBlockStopsOverTheLimit()
+    {
+        Build();
+        BOOST_REQUIRE_EQUAL(mempool.size(), 0U);
+        bool invalidated;
+        {
+            NoMempoolRoom noRoom;
+            LOCK(cs_main);
+            x[3]->nStatus &= ~BLOCK_HAVE_UNDO;
+            CValidationState state;
+            invalidated = InvalidateBlock(state, Params(), x[3]);
+            x[3]->nStatus |= BLOCK_HAVE_UNDO;
+        }
+        BOOST_CHECK(!invalidated);
+        BOOST_REQUIRE(TipIs(x[3]));
+        BOOST_CHECK(!ShutdownRequested());
+        BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()), "a funding that a disconnection returned is in a mempool over its limit");
+        BOOST_CHECK_EQUAL(mempool.size(), 0U);
+    }
+
+    //! The step returns early without having disconnected a block, so
+    //! nothing came back over the limit and the mempool is left as it was,
+    //! with its size limit at zero.
+    //!
+    //! The first return: the undo data of block A is marked absent, so the
+    //! first disconnection fails at the tip A, where a spend of a coinbase of
+    //! the fixture was accepted. The second: block A is invalidated, which
+    //! puts its funding back at the tip A-1; then it is pointed past the end
+    //! of its file and its failure flags are taken off, so the step connects
+    //! it from the tip A-1 with no disconnection and the read fails.
+    void StopsWithNothingDisconnected(bool failsToConnect)
+    {
+        Build();
+        const CMutableTransaction entry = SpendFixtureCoinbase(2);
+        BOOST_REQUIRE_EQUAL(Verdict(entry), ACCEPTED);
+        CBlockIndex* const stopsAt = failsToConnect ? x[3] : x[4];
+        const unsigned int dataPos = x[4]->nDataPos;
+        {
+            LOCK(cs_main);
+            if (failsToConnect) {
+                CValidationState state;
+                BOOST_REQUIRE(InvalidateBlock(state, Params(), x[4]));
+                BOOST_REQUIRE(mempool.exists(funding.GetHash()));
+                x[4]->nDataPos = 0x7fffffff;
+                BOOST_REQUIRE(ResetBlockFailureFlags(x[4]));
+            } else {
+                x[4]->nStatus &= ~BLOCK_HAVE_UNDO;
+                BOOST_REQUIRE(ResetBlockFailureFlags(y[1]));
+            }
+        }
+        const size_t entries = mempool.size();
+        BOOST_REQUIRE(entries > 0);
+        {
+            NoMempoolRoom noRoom;
+            CValidationState stopped;
+            BOOST_CHECK(!ActivateBestChain(stopped, Params()));
+        }
+        BOOST_REQUIRE(TipIs(stopsAt));
+        BOOST_CHECK(ShutdownRequested());
+        fRequestShutdown = false;
+        BOOST_CHECK_MESSAGE(mempool.exists(entry.GetHash()), "the size limit ran where the step disconnected no block");
+        BOOST_CHECK_EQUAL(mempool.size(), entries);
+        LOCK(cs_main);
+        x[4]->nDataPos = dataPos;
+        x[4]->nStatus |= BLOCK_HAVE_UNDO;
     }
 
     //! What the three cases of a failed write of the chain state hold once
@@ -1545,6 +1658,7 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
         noUndo->nStatus |= BLOCK_HAVE_UNDO;
     }
     BOOST_CHECK(!invalidated);
+    BOOST_CHECK(!ShutdownRequested());
     BOOST_CHECK_EQUAL(Height(), A - 3);
     BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()), "a funding is in the mempool after InvalidateBlock stopped at a tip whose next block is below the height");
     BOOST_CHECK_MESSAGE(!mempool.exists(young.GetHash()), "a spend of a coinbase that is not mature for the next block is in the mempool after InvalidateBlock stopped");
@@ -1566,8 +1680,8 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_invalidateblock_stops_part_way)
 // A block cannot be connected for a reason other than its validity: the case
 // points the first block of the longer branch at a place past the end of its
 // file, so all four blocks are disconnected and the read fails at the tip
-// A-4. The node asks for its own shutdown on that path, and the case takes the
-// request back.
+// A-4. The node asks for its own shutdown on both paths, and the case takes
+// the request back.
 //
 // Either way the mempool does not hold the funding and the node's template
 // for the next block is without it. removeForReorg runs on both paths too: an
@@ -1639,8 +1753,9 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_a_reorganisation_stops_part_way)
         CValidationState stopped;
         BOOST_CHECK_MESSAGE(!ActivateBestChain(stopped, Params()), way);
         BOOST_CHECK_MESSAGE(!stopped.IsInvalid(), way);
+        BOOST_CHECK_MESSAGE(stopped.IsError(), way);
         BOOST_CHECK_MESSAGE(Height() == (failsToConnect ? A - 4 : A - 3), way << ": the tip is A" << Height() - A);
-        BOOST_CHECK_MESSAGE(ShutdownRequested() == failsToConnect, way);
+        BOOST_CHECK_MESSAGE(ShutdownRequested(), way);
         fRequestShutdown = false;
         SetMiscWarning("");
         BOOST_CHECK_MESSAGE(!mempool.exists(funding.GetHash()),
@@ -1690,6 +1805,37 @@ BOOST_FIXTURE_TEST_CASE(the_second_early_return_reads_the_tip_where_the_reorgani
 BOOST_FIXTURE_TEST_CASE(invalidateblock_reads_the_tip_where_it_stopped, TwoBranchSetup)
 {
     InvalidateBlockStopsAtTheTipBelowTheHeight();
+}
+
+// The mempool's size limit is applied at the three returns where blocks were
+// disconnected, after the two removals, and the two early returns of the
+// step ask for the shutdown (TwoBranchSetup::StopsOverTheLimit and
+// TwoBranchSetup::InvalidateBlockStopsOverTheLimit).
+BOOST_FIXTURE_TEST_CASE(the_first_early_return_applies_the_size_limit, TwoBranchSetup)
+{
+    StopsOverTheLimit(false);
+}
+
+BOOST_FIXTURE_TEST_CASE(the_second_early_return_applies_the_size_limit, TwoBranchSetup)
+{
+    StopsOverTheLimit(true);
+}
+
+BOOST_FIXTURE_TEST_CASE(invalidateblock_applies_the_size_limit_where_it_stopped, TwoBranchSetup)
+{
+    InvalidateBlockStopsOverTheLimit();
+}
+
+// Where the step returns early before it disconnected a block, the size limit
+// is not applied (TwoBranchSetup::StopsWithNothingDisconnected).
+BOOST_FIXTURE_TEST_CASE(the_first_early_return_leaves_the_mempool_where_no_block_was_disconnected, TwoBranchSetup)
+{
+    StopsWithNothingDisconnected(false);
+}
+
+BOOST_FIXTURE_TEST_CASE(the_second_early_return_leaves_the_mempool_where_no_block_was_disconnected, TwoBranchSetup)
+{
+    StopsWithNothingDisconnected(true);
 }
 
 // A write of the chain state fails inside a disconnection or a connection, and

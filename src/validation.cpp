@@ -6693,15 +6693,20 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
             // the mempool holds what they returned: run the removal of
             // outputs of a dormant witness version for the tip as it stands,
             // and removeForReorg before it when the coins view is that
-            // tip's, as InvalidateBlock does where its disconnection fails.
-            // After a failed write of the chain state the view is one block
-            // behind the tip, and what removeForReorg would take stays. The
-            // size limit is not applied here.
+            // tip's, as InvalidateBlock does where its disconnection fails,
+            // then the size limit. After a failed write of the chain state
+            // the view is one block behind the tip, and what removeForReorg
+            // would take stays; the size limit reads no coin.
             if (fBlocksDisconnected) {
                 if (CoinsViewIsAtTip())
                     mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
                 RemoveOutputsOfDormantWitnessVersions(mempool);
+                LimitMempoolSize(mempool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
             }
+            // The block stays the tip, and the node cannot reach the chain
+            // of most work: stop the node. A failed read or write of the
+            // chain state has asked for the shutdown already.
+            AbortNode(state, "Failed to disconnect block; see debug.log for details");
             return false;
         }
         fBlocksDisconnected = true;
@@ -6739,14 +6744,15 @@ static bool ActivateBestChainStep(CValidationState& state, const CChainParams& c
                     break;
                 } else {
                     // A system error occurred (disk space, database error, ...).
-                    // The same two removals as above, under the same
-                    // condition, for the tip the step has reached. After a
-                    // failed write of the chain state the view is one block
-                    // ahead of that tip.
+                    // The same two removals and the size limit as above,
+                    // under the same condition, for the tip the step has
+                    // reached. After a failed write of the chain state the
+                    // view is one block ahead of that tip.
                     if (fBlocksDisconnected) {
                         if (CoinsViewIsAtTip())
                             mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
                         RemoveOutputsOfDormantWitnessVersions(mempool);
+                        LimitMempoolSize(mempool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
                     }
                     return false;
                 }
@@ -6940,10 +6946,13 @@ bool InvalidateBlock(CValidationState& state, const CChainParams& chainparams, C
         // unconditionally valid already, so force disconnect away from it.
         if (!DisconnectTip(state, chainparams)) {
             // removeForReorg when the coins view is the tip's, as at the
-            // two early returns of ActivateBestChainStep.
+            // two early returns of ActivateBestChainStep, then the size
+            // limit, which reads no coin. This return asks for no shutdown
+            // of its own.
             if (CoinsViewIsAtTip())
                 mempool.removeForReorg(pcoinsTip, chainActive.Height() + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
             RemoveOutputsOfDormantWitnessVersions(mempool);
+            LimitMempoolSize(mempool, GetArg("-maxmempool", DEFAULT_MAX_MEMPOOL_SIZE) * 1000000, GetArg("-mempoolexpiry", DEFAULT_MEMPOOL_EXPIRY) * 60 * 60);
             return false;
         }
     }
