@@ -65,6 +65,18 @@ BOOST_AUTO_TEST_CASE(supply_undo_symmetry)
     BOOST_CHECK(!s.UndoBurn(1));
 }
 
+BOOST_AUTO_TEST_CASE(supply_undo_mint_respects_outstanding_invariant)
+{
+    CBTCSOQSupply s;
+    BOOST_CHECK(s.Mint(50 * COIN));
+    BOOST_CHECK(s.Burn(40 * COIN));
+    // Undoing 20 of the mint while the burn of 40 is counted would leave
+    // minted 30 below burned 40.
+    BOOST_CHECK(!s.UndoMint(20 * COIN));
+    BOOST_CHECK_EQUAL(s.TotalMinted(), 50 * COIN);
+    BOOST_CHECK_EQUAL(s.TotalBurned(), 40 * COIN);
+}
+
 // ---- authority ----
 BOOST_AUTO_TEST_CASE(authority_init_rules)
 {

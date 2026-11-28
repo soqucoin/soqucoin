@@ -22,6 +22,7 @@
 #include "consensus/btcsoq.h"
 #include "consensus/usdsoq.h"     // ComputeAuthorityKeyHash, DILITHIUM_* sizes
 #include "consensus/validation.h"
+#include "init.h"
 #include "key.h"
 #include "miner.h"
 #include "pow.h"
@@ -1478,6 +1479,136 @@ BOOST_AUTO_TEST_CASE(an_ordinary_tx_must_not_spend_the_btcsoq_authority_marker)
         "the tx must clear CheckTransaction, or the marker rule is never reached");
 
     BOOST_CHECK_EQUAL(RejectReasonFor({steal}), "bad-btcsoq-marker-spend");
+}
+
+// ---------------------------------------------------------------------------
+// The order of the two supply reversals. ConnectBlock applies a block's mint
+// and then its burn. UndoMint refuses to leave the minted total below the
+// burned total, so a block that mints and burns more than was outstanding
+// before it can be disconnected only if its burn is taken back first.
+// ---------------------------------------------------------------------------
+struct BtcsoqMintAndBurnSetup : public BTCSOQChainSetup {
+    CBlockIndex* Tip()
+    {
+        LOCK(cs_main);
+        return chainActive.Tip();
+    }
+
+    //! Connects a block of txns on the tip and returns its index.
+    CBlockIndex* Connect(const std::vector<CMutableTransaction>& txns)
+    {
+        const CBlock b = CreateAndProcessBlock(txns, coinbaseSpk);
+        LOCK(cs_main);
+        BOOST_REQUIRE_MESSAGE(chainActive.Tip()->GetBlockHash() == b.GetHash(), "the block did not connect");
+        return chainActive.Tip();
+    }
+
+    bool Invalidate(CBlockIndex* index)
+    {
+        LOCK(cs_main);
+        CValidationState state;
+        const bool done = InvalidateBlock(state, Params(), index);
+        mempool.clear();
+        return done;
+    }
+
+    //! A branch of `length` empty blocks on the tip, set aside with
+    //! InvalidateBlock so that the next block connects on the same parent.
+    std::vector<CBlockIndex*> SetAsideABranch(int length)
+    {
+        std::vector<CBlockIndex*> branch;
+        for (int i = 0; i < length; ++i)
+            branch.push_back(Connect({}));
+        BOOST_REQUIRE(Invalidate(branch.front()));
+        BOOST_REQUIRE(Tip() == branch.front()->pprev);
+        return branch;
+    }
+
+    //! Makes a block set aside valid again; the node moves to the most work.
+    bool Reconsider(CBlockIndex* index)
+    {
+        {
+            LOCK(cs_main);
+            BOOST_REQUIRE(ResetBlockFailureFlags(index));
+        }
+        CValidationState state;
+        return ActivateBestChain(state, Params());
+    }
+
+    //! The totals and the tracked marker, in memory and in the database view,
+    //! and whether the deposit is marked as used.
+    void CheckTokenState(CAmount minted, CAmount burned, const COutPoint& marker,
+                         const COutPoint& deposit, bool depositMarked)
+    {
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(g_btcsoq_supply.TotalMinted(), minted);
+        BOOST_CHECK_EQUAL(g_btcsoq_supply.TotalBurned(), burned);
+        CBTCSOQSupply stored;
+        BOOST_CHECK(pcoinsdbview->ReadBTCSOQSupply(stored));
+        BOOST_CHECK_EQUAL(stored.TotalMinted(), minted);
+        BOOST_CHECK_EQUAL(stored.TotalBurned(), burned);
+        BOOST_CHECK(g_btcsoq_authority_outpoint == marker);
+        COutPoint storedMarker;
+        BOOST_CHECK(pcoinsdbview->ReadBTCSOQAuthorityOutpoint(storedMarker));
+        BOOST_CHECK(storedMarker == marker);
+        BOOST_CHECK_EQUAL(pcoinsdbview->IsBTCSOQMinted(deposit), depositMarked);
+    }
+};
+
+// A block holds an issuer mint and the burn of what it mints, with nothing
+// outstanding before it, and the node leaves it for a longer branch built on
+// its parent.
+BOOST_FIXTURE_TEST_CASE(a_block_that_mints_and_burns_it_is_left_for_a_longer_branch, BtcsoqMintAndBurnSetup)
+{
+    const COutPoint deposit(uint256S("bccc00000000000000000000000000000000000000000000000000000000a701"), 0);
+    CBlockIndex* parent = Tip();
+    const std::vector<CBlockIndex*> longer = SetAsideABranch(2);
+    const CMutableTransaction mint = BuildMint(coinbaseTxns[0], deposit.hash, deposit.n, coinbasePk);
+    const CMutableTransaction burn = BuildBurn(coinbaseTxns[1], mint.GetHash(), MINT_SATS, true);
+    CBlockIndex* block = Connect({mint, burn});
+    CheckTokenState(MINT_SATS, MINT_SATS, COutPoint(burn.GetHash(), 0), deposit, true);
+
+    BOOST_CHECK(Reconsider(longer.front()));
+    BOOST_CHECK(Tip() == longer.back());
+    {
+        LOCK(cs_main);
+        BOOST_CHECK(!chainActive.Contains(block));
+        BOOST_CHECK(chainActive.Contains(parent));
+    }
+    CheckTokenState(0, 0, COutPoint(), deposit, false);
+    BOOST_CHECK(!ShutdownRequested());
+}
+
+// The same block given to InvalidateBlock, which disconnects it through the
+// DisconnectTip that a reorganisation calls.
+BOOST_FIXTURE_TEST_CASE(a_block_that_mints_and_burns_it_is_invalidated, BtcsoqMintAndBurnSetup)
+{
+    const COutPoint deposit(uint256S("bccc00000000000000000000000000000000000000000000000000000000a702"), 0);
+    CBlockIndex* parent = Tip();
+    const CMutableTransaction mint = BuildMint(coinbaseTxns[0], deposit.hash, deposit.n, coinbasePk);
+    const CMutableTransaction burn = BuildBurn(coinbaseTxns[1], mint.GetHash(), MINT_SATS, true);
+    CBlockIndex* block = Connect({mint, burn});
+    CheckTokenState(MINT_SATS, MINT_SATS, COutPoint(burn.GetHash(), 0), deposit, true);
+
+    BOOST_CHECK(Invalidate(block));
+    BOOST_CHECK(Tip() == parent);
+    CheckTokenState(0, 0, COutPoint(), deposit, false);
+    BOOST_CHECK(!ShutdownRequested());
+}
+
+// The block made valid again after its disconnection connects with the
+// totals, the marker and the deposit mark of its first connection.
+BOOST_FIXTURE_TEST_CASE(a_block_that_mints_and_burns_it_connects_again, BtcsoqMintAndBurnSetup)
+{
+    const COutPoint deposit(uint256S("bccc00000000000000000000000000000000000000000000000000000000a703"), 0);
+    const CMutableTransaction mint = BuildMint(coinbaseTxns[0], deposit.hash, deposit.n, coinbasePk);
+    const CMutableTransaction burn = BuildBurn(coinbaseTxns[1], mint.GetHash(), MINT_SATS, true);
+    CBlockIndex* block = Connect({mint, burn});
+    BOOST_CHECK(Invalidate(block));
+
+    BOOST_CHECK(Reconsider(block));
+    BOOST_CHECK(Tip() == block);
+    CheckTokenState(MINT_SATS, MINT_SATS, COutPoint(burn.GetHash(), 0), deposit, true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
