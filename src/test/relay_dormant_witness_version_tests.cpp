@@ -692,6 +692,7 @@ struct TwoBranchSetup : public RelayChainSetup {
         CValidationState stopped;
         BOOST_CHECK(!ActivateBestChain(stopped, Params()));
         BOOST_CHECK(!stopped.IsInvalid());
+        BOOST_CHECK(stopped.IsError());
         BOOST_REQUIRE_MESSAGE(TipIs(failsToConnect ? y[3] : x[3]), "the tip is at A" << Height() - A);
         BOOST_CHECK(ViewIsAt(failsToConnect ? y[3] : x[3]));
         BOOST_CHECK(ShutdownRequested());
@@ -1752,6 +1753,7 @@ BOOST_AUTO_TEST_CASE(the_removal_runs_when_a_reorganisation_stops_part_way)
         CValidationState stopped;
         BOOST_CHECK_MESSAGE(!ActivateBestChain(stopped, Params()), way);
         BOOST_CHECK_MESSAGE(!stopped.IsInvalid(), way);
+        BOOST_CHECK_MESSAGE(stopped.IsError(), way);
         BOOST_CHECK_MESSAGE(Height() == (failsToConnect ? A - 4 : A - 3), way << ": the tip is A" << Height() - A);
         BOOST_CHECK_MESSAGE(ShutdownRequested(), way);
         fRequestShutdown = false;
